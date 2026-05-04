@@ -85,7 +85,7 @@ class FakeConversationManager {
 
   // No-ops for the rest of the surface
   setAutonomousMode(_sessionId: string, _enabled: boolean): void {}
-  focusSessionProject(_sessionId: string, _project: string): void {}
+  async focusSessionProject(_sessionId: string, _project: string): Promise<void> {}
   deleteSession(_sessionId: string): void {}
 }
 

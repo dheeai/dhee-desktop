@@ -85,8 +85,9 @@ const fakeManager = {
     managerCalls.push({ method: 'redoNode', args: [sessionId, nodeId, opts] });
     return { ok: true };
   },
-  focusSessionProject: (sessionId: string, projectName: string) => {
+  focusSessionProject: async (sessionId: string, projectName: string) => {
     managerCalls.push({ method: 'focusSessionProject', args: [sessionId, projectName] });
+    return { ok: true as const };
   },
   setAutonomousMode: (sessionId: string, enabled: boolean) => {
     managerCalls.push({ method: 'setAutonomousMode', args: [sessionId, enabled] });
@@ -213,12 +214,13 @@ describe('kshanaIpcBridge', () => {
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
     const focusHandler = handlerRegistry.get(KSHANA_CHANNELS.FOCUS_PROJECT)!;
-    await focusHandler({} as never, {
+    const focusResult = await focusHandler({} as never, {
       sessionId: 's-1',
       projectName: 'storyA',
       projectDir: '/Users/foo/MyVideos/storyA.kshana',
     });
     expect(process.env['KSHANA_PROJECTS_DIR']).toBe('/Users/foo/MyVideos');
+    expect(focusResult).toEqual({ ok: true });
   });
 
   it('focusProject without projectDir leaves KSHANA_PROJECTS_DIR untouched (backwards-compat)', async () => {

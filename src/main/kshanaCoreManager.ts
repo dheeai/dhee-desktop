@@ -25,6 +25,7 @@ import type {
 } from 'kshana-core/manager';
 import type { LLMClientConfig } from 'kshana-core/core/llm';
 import type { AppSettings } from '../shared/settingsTypes';
+import type { OkResponse } from '../shared/kshanaIpc';
 import { getComfyUiUrl, isComfyCloudUrl, withV1Suffix } from './utils/comfyUrl';
 
 type ManagerModule = {
@@ -411,9 +412,18 @@ export class KshanaCoreManager {
     (this.cm as unknown as { setAutonomousMode: (s: string, e: boolean) => void }).setAutonomousMode(sessionId, enabled);
   }
 
-  focusSessionProject(sessionId: string, projectName: string): void {
-    if (!this.cm) return;
-    (this.cm as unknown as { focusSessionProject: (s: string, p: string) => void }).focusSessionProject(sessionId, projectName);
+  async focusSessionProject(sessionId: string, projectName: string): Promise<OkResponse> {
+    if (!this.cm) return { ok: false, error: 'KshanaCoreManager not started' };
+    try {
+      await (this.cm as unknown as { focusSessionProject: (s: string, p: string) => Promise<unknown> }).focusSessionProject(
+        sessionId,
+        projectName,
+      );
+      return { ok: true };
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      return { ok: false, error: message };
+    }
   }
 
   deleteSession(sessionId: string): void {

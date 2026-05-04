@@ -134,7 +134,7 @@ export function registerKshanaIpcBridge(
 
   ipcMain.handle(
     KSHANA_CHANNELS.FOCUS_PROJECT,
-    (_event, req: FocusProjectRequest): OkResponse => {
+    async (_event, req: FocusProjectRequest): Promise<OkResponse> => {
       // The desktop sends the user-selected project's absolute path.
       // Pin KSHANA_PROJECTS_DIR to its parent so the embedded core's
       // filesystem helpers (and focusSessionProject's project.json
@@ -144,8 +144,7 @@ export function registerKshanaIpcBridge(
       if (req.projectDir) {
         process.env['KSHANA_PROJECTS_DIR'] = path.dirname(req.projectDir);
       }
-      manager.focusSessionProject(req.sessionId, req.projectName);
-      return { ok: true };
+      return manager.focusSessionProject(req.sessionId, req.projectName);
     },
   );
 
