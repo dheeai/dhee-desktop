@@ -59,6 +59,31 @@ function newMessageId(): string {
   return `msg-${nextMessageId++}`;
 }
 
+function normalizeAssistantText(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+function isSameAssistantText(a: string | undefined, b: string): boolean {
+  return normalizeAssistantText(a ?? '') === normalizeAssistantText(b);
+}
+
+function mergeStreamText(current: string | undefined, chunk: string, done?: boolean): string {
+  const existing = current ?? '';
+  if (!done || !chunk) {
+    return existing + chunk;
+  }
+
+  const normalizedExisting = normalizeAssistantText(existing);
+  const normalizedChunk = normalizeAssistantText(chunk);
+  if (normalizedExisting && normalizedChunk.includes(normalizedExisting)) {
+    return chunk;
+  }
+  if (normalizedChunk && normalizedExisting.includes(normalizedChunk)) {
+    return existing;
+  }
+  return existing + chunk;
+}
+
 function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const entries = Object.entries(args as Record<string, unknown>);
@@ -627,7 +652,7 @@ function handleEvent(
         const id = streamingMsgIdRef.current;
         if (id) {
           return prev.map((m) =>
-            m.id === id ? { ...m, text: (m.text ?? '') + chunk } : m,
+            m.id === id ? { ...m, text: mergeStreamText(m.text, chunk, data.done) } : m,
           );
         }
         const newId = newMessageId();
@@ -649,20 +674,36 @@ function handleEvent(
     case 'agent_response': {
       const data = event.data as { output?: string; status?: string };
       if (!data.output) return;
+      const output = data.output;
       // If we have a streaming bubble in flight, replace its text
-      // with the canonical final string. Otherwise append a new
-      // assistant bubble.
+      // with the canonical final string. Otherwise update the last
+      // assistant bubble when this is the same final response arriving
+      // through a second event path.
       const id = streamingMsgIdRef.current;
       if (id) {
         setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, text: data.output, streaming: false } : m)),
+          prev.map((m) => (m.id === id ? { ...m, text: output, streaming: false } : m)),
         );
         streamingMsgIdRef.current = null;
       } else {
-        setMessages((prev) => [
-          ...prev,
-          { id: newMessageId(), role: 'assistant', text: data.output },
-        ]);
+        setMessages((prev) => {
+          const lastAssistantIndex = [...prev]
+            .reverse()
+            .findIndex((m) => m.role === 'assistant');
+          if (lastAssistantIndex >= 0) {
+            const idx = prev.length - 1 - lastAssistantIndex;
+            const last = prev[idx];
+            if (isSameAssistantText(last.text, output)) {
+              return prev.map((m, i) =>
+                i === idx ? { ...m, text: output, streaming: false } : m,
+              );
+            }
+          }
+          return [
+            ...prev,
+            { id: newMessageId(), role: 'assistant', text: output },
+          ];
+        });
       }
       return;
     }

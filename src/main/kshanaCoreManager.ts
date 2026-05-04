@@ -245,7 +245,7 @@ export function buildEventsAdapter(
     onTodoUpdate: (sessionId, todos) =>
       emit('todo_updated', sessionId, { todos }),
     onAgentText: (sessionId, text, isFinal) =>
-      emit('agent_response', sessionId, { output: text, status: isFinal ? 'completed' : 'running' }),
+      emit('stream_chunk', sessionId, { content: text, done: isFinal ?? false }),
     onQuestion: (sessionId, question, isConfirmation, options, autoApproveTimeoutMs) =>
       emit('agent_question', sessionId, { question, isConfirmation, options, autoApproveTimeoutMs }),
     onAgentStatus: (sessionId, status, agentName) =>

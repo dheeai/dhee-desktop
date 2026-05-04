@@ -291,6 +291,64 @@ describe('ChatPanelEmbedded', () => {
     expect(matches.length).toBe(1);
   });
 
+  it('repeated final agent_response with the same text updates the last assistant bubble', async () => {
+    const { container } = render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('agent_response', {
+        output: 'Project kushi is created!',
+        status: 'completed',
+      });
+    });
+    act(() => {
+      publishEvent('agent_response', {
+        output: 'Project kushi is created!',
+        status: 'completed',
+      });
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('Project kushi is created!');
+    });
+    const matches = container.textContent?.match(/Project kushi is created!/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
+  it('done stream_chunk containing full final text replaces partial streamed text', async () => {
+    const { container } = render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('stream_chunk', {
+        content: 'What would you like to do with this?',
+        done: false,
+      });
+    });
+    act(() => {
+      publishEvent('stream_chunk', {
+        content:
+          'What would you like to do with this? A few options come to mind.',
+        done: true,
+      });
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain(
+        'What would you like to do with this? A few options come to mind.',
+      );
+    });
+    const matches =
+      container.textContent?.match(/What would you like to do with this\?/g) ?? [];
+    expect(matches.length).toBe(1);
+  });
+
   it('stream_chunk events accumulate into a single assistant message that grows as chunks arrive', async () => {
     render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
