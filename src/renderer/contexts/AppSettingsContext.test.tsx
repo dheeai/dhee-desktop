@@ -62,7 +62,6 @@ describe('AppSettingsProvider', () => {
       ...baseSettings,
       ...patch,
     }));
-    const restart = jest.fn().mockResolvedValue({ status: 'ready' });
 
     Object.defineProperty(window, 'electron', {
       configurable: true,
@@ -74,9 +73,6 @@ describe('AppSettingsProvider', () => {
             onChange = callback;
             return jest.fn();
           },
-        },
-        backend: {
-          restart,
         },
       },
     });
@@ -97,7 +93,6 @@ describe('AppSettingsProvider', () => {
 
     fireEvent.click(screen.getByText('Switch Theme'));
     await waitFor(() => expect(update).toHaveBeenCalledWith({ themeId: 'paper-light' }));
-    expect(restart).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(screen.getByTestId('theme-id')).toHaveTextContent('paper-light'),
     );

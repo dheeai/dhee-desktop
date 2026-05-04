@@ -82,13 +82,12 @@ export default function StoryboardView() {
     for (const item of timelineItems) {
       if (item.sceneNumber == null) continue;
       if (map[item.sceneNumber]) continue;
-      const filePath = item.imagePath || item.videoPath;
-      if (filePath) {
+      if (item.imagePath) {
         map[item.sceneNumber] = {
           artifact_id: item.id,
-          artifact_type: item.imagePath ? 'image' : 'video',
+          artifact_type: 'image',
           scene_number: item.sceneNumber,
-          file_path: filePath,
+          file_path: item.imagePath,
           created_at: new Date().toISOString(),
         };
       }

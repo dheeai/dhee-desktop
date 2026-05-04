@@ -33,7 +33,6 @@ import {
 } from './utils/projectFileOpGuard';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import backendManager from './backendManager';
 import { KshanaCoreManager } from './kshanaCoreManager';
 import { registerKshanaIpcBridge } from './kshanaIpcBridge';
 import {
@@ -53,10 +52,6 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
-import type {
-  BackendConnectionInfo,
-  BackendState,
-} from '../shared/backendTypes';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportChatJsonWithDialog } from './services/chatExportService';
 import {
@@ -228,58 +223,10 @@ const broadcastAppUpdateStatus = (
   }
 };
 
-backendManager.on('state', (state: BackendState) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('backend:state', state);
-  }
-});
-
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
   console.log(msgTemplate(arg));
   event.reply('ipc-example', msgTemplate('pong'));
-});
-
-ipcMain.handle('backend:get-state', async (): Promise<BackendState> => {
-  return backendManager.status;
-});
-
-ipcMain.handle(
-  'backend:get-connection-info',
-  async (): Promise<BackendConnectionInfo> => {
-    const settings = getSettings();
-    return backendManager.getConnectionInfo(settings);
-  },
-);
-
-ipcMain.handle('backend:start', async (): Promise<BackendState> => {
-  try {
-    const settings = getSettings();
-    return await backendManager.start(settings);
-  } catch (error) {
-    log.error(`Failed to start backend: ${(error as Error).message}`);
-    return {
-      status: 'error',
-      message: (error as Error).message,
-    };
-  }
-});
-
-ipcMain.handle('backend:restart', async () => {
-  try {
-    const settings = getSettings();
-    return await backendManager.restart(settings);
-  } catch (error) {
-    log.error(`Failed to restart backend: ${(error as Error).message}`);
-    return {
-      status: 'error',
-      message: (error as Error).message,
-    };
-  }
-});
-
-ipcMain.handle('backend:stop', async () => {
-  return backendManager.stop();
 });
 
 ipcMain.handle('settings:get', async (): Promise<AppSettings> => {

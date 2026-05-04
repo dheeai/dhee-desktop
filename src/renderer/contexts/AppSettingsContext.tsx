@@ -98,11 +98,6 @@ export function AppSettingsProvider({ children }: { children: ReactNode }) {
         const updated = await window.electron.settings.update(patch);
         setSettings(updated);
         applyTheme(updated.themeId);
-        const result = await window.electron.backend.restart();
-        if (result.status === 'error') {
-          setError(result.message || 'Failed to connect to backend server');
-          return false;
-        }
         setIsSettingsOpen(false);
         return true;
       } catch (nextError) {

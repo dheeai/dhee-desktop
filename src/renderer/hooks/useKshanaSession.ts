@@ -78,10 +78,14 @@ export function useKshanaSession(): KshanaSessionApi {
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId;
 
-  // Create a session on mount.
+  // Create a session on mount. Hard-coded to the 'interactive' role
+  // so long-running pipeline tools (kshana_run_to / render_scene_bundle
+  // / audit_fidelity) are stripped from this session's tool list —
+  // they belong to a dedicated background session that ChatPanelEmbedded
+  // creates lazily when the user clicks Resume.
   useEffect(() => {
     let cancelled = false;
-    window.kshana.createSession().then(
+    window.kshana.createSession({ role: 'interactive' }).then(
       (resp) => {
         if (cancelled) return;
         setSessionId(resp.sessionId);

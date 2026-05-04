@@ -1,10 +1,6 @@
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import type {
-  BackendConnectionInfo,
-  BackendState,
-} from '../shared/backendTypes';
 import type { AppSettings } from '../shared/settingsTypes';
 import type {
   FileNode,
@@ -78,33 +74,6 @@ export interface AppUpdateStatus {
 }
 
 export type Channels = 'ipc-example';
-
-const backendBridge = {
-  start(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:start');
-  },
-  restart(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:restart');
-  },
-  stop(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:stop');
-  },
-  getState(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:get-state');
-  },
-  getConnectionInfo(): Promise<BackendConnectionInfo> {
-    return ipcRenderer.invoke('backend:get-connection-info');
-  },
-  onStateChange(callback: (state: BackendState) => void) {
-    const subscription = (_event: IpcRendererEvent, state: BackendState) => {
-      callback(state);
-    };
-    ipcRenderer.on('backend:state', subscription);
-    return () => {
-      ipcRenderer.removeListener('backend:state', subscription);
-    };
-  },
-};
 
 const settingsBridge = {
   get(): Promise<AppSettings> {
@@ -595,7 +564,10 @@ import {
   KSHANA_EVENT_CHANNEL,
   type KshanaEvent,
   type KshanaEventName,
+  type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelResponse,
+  type RunnerStatusResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
@@ -609,8 +581,8 @@ import {
 } from '../shared/kshanaIpc';
 
 const kshanaBridge = {
-  createSession(): Promise<CreateSessionResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.CREATE_SESSION);
+  createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.CREATE_SESSION, req);
   },
   configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.CONFIGURE_PROJECT, req);
@@ -635,6 +607,12 @@ const kshanaBridge = {
   },
   deleteSession(req: DeleteSessionRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_SESSION, req);
+  },
+  runnerCancel(): Promise<RunnerCancelResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_CANCEL);
+  },
+  runnerStatus(): Promise<RunnerStatusResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_STATUS);
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.
@@ -678,7 +656,6 @@ const electronHandler = {
       ipcRenderer.once(channel, (_event, ...ipcArgs) => func(...ipcArgs));
     },
   },
-  backend: backendBridge,
   settings: settingsBridge,
   project: projectBridge,
   remotion: remotionBridge,
