@@ -309,7 +309,7 @@ export default function SettingsPanel({
     ? backendState?.status === 'error'
       ? 'Review the local provider settings below, then try Save & Restart again. You can switch to Cloud if you need to continue immediately.'
       : 'The app is currently using the local kshana-core server on localhost with the provider settings shown below.'
-    : 'The app is connected to Kshana Cloud.';
+    : 'The bundled core is running locally while paid calls use Kshana Cloud credits through the proxy.';
   const renderProviderToggle = (
     provider: LLMProvider,
     label: string,
@@ -336,8 +336,7 @@ export default function SettingsPanel({
   const pendingModeLabel =
     pendingBackendMode === 'cloud' ? 'Cloud' : 'Local';
   const currentModeLabel = form.backendMode === 'cloud' ? 'Cloud' : 'Local';
-  const confirmModeSwitchLabel =
-    pendingBackendMode === 'cloud' ? 'Save & Reconnect' : 'Save & Restart';
+  const confirmModeSwitchLabel = 'Save & Restart';
 
   const panelContent = (
     <div className={`${styles.panel} ${isEmbedded ? styles.embeddedPanel : ''}`}>
@@ -387,7 +386,7 @@ export default function SettingsPanel({
           >
             <span className={styles.tabLabel}>Connection</span>
             <span className={styles.tabDescription}>
-              Local and cloud backend configuration
+              Local providers or Kshana Cloud credits
             </span>
           </button>
         </aside>
@@ -437,7 +436,7 @@ export default function SettingsPanel({
               <>
                 <div className={styles.sectionHeader}>
                   <h3>Connection</h3>
-                  <p>Choose where the desktop app connects.</p>
+                  <p>Choose BYO keys or Kshana Cloud credits for paid calls.</p>
                 </div>
 
                 <div

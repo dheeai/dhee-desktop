@@ -82,7 +82,7 @@ export interface AppUpdateStatus {
 export type Channels = 'ipc-example';
 
 const backendBridge = {
-  start(config: ServerConnectionConfig = { serverUrl: 'http://localhost:8001' }): Promise<BackendState> {
+  start(config?: ServerConnectionConfig): Promise<BackendState> {
     return ipcRenderer.invoke('backend:start', config);
   },
   restart(): Promise<BackendState> {

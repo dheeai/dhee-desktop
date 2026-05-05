@@ -87,7 +87,7 @@ describe('backendModeGuard', () => {
     expect(restart).not.toHaveBeenCalled();
   });
 
-  it('restarts cloud mode when current backend is stale local core', async () => {
+  it('keeps cloud mode on the local bundled backend', async () => {
     getState.mockResolvedValue({
       status: 'ready',
       mode: 'cloud',
@@ -99,20 +99,14 @@ describe('backendModeGuard', () => {
       effectiveServerUrl: 'http://localhost:8080',
       localBackendAvailable: true,
     });
-    restart.mockResolvedValue({
-      status: 'ready',
-      mode: 'cloud',
-      serverUrl: 'http://localhost:8080',
-    });
-
     await expect(
       getBackendStateForSettings({ ...baseSettings, backendMode: 'cloud' }),
     ).resolves.toEqual({
       status: 'ready',
       mode: 'cloud',
-      serverUrl: 'http://localhost:8080',
+      serverUrl: 'http://127.0.0.1:8000',
     });
-    expect(restart).toHaveBeenCalledTimes(1);
+    expect(restart).not.toHaveBeenCalled();
   });
 
   it('keeps cloud mode on localhost when it matches the configured website proxy', async () => {
@@ -135,10 +129,10 @@ describe('backendModeGuard', () => {
     expect(restart).not.toHaveBeenCalled();
   });
 
-  it('returns the configured cloud URL even when the backend state carries stale core URL', async () => {
+  it('returns the local core URL in cloud mode after restart', async () => {
     getState.mockResolvedValue({
       status: 'ready',
-      mode: 'cloud',
+      mode: 'local',
       serverUrl: 'http://127.0.0.1:3000',
     });
     getConnectionInfo.mockResolvedValue({
@@ -158,15 +152,16 @@ describe('backendModeGuard', () => {
     ).resolves.toEqual({
       status: 'ready',
       mode: 'cloud',
-      serverUrl: 'http://127.0.0.1:9000',
+      serverUrl: 'http://127.0.0.1:3000',
     });
   });
 
-  it('resolves cloud base URLs from connection info instead of stale backend state', async () => {
+  it('resolves cloud base URLs from the local backend endpoint', async () => {
     getConnectionInfo.mockResolvedValue({
       selectedMode: 'cloud',
-      cloudServerUrl: 'http://127.0.0.1:9000',
-      effectiveServerUrl: 'http://127.0.0.1:9000',
+      cloudServerUrl: 'https://website.example',
+      effectiveServerUrl: 'http://127.0.0.1:3000',
+      proxyBaseUrl: 'https://proxy.example',
       localBackendAvailable: true,
     });
 
@@ -179,6 +174,6 @@ describe('backendModeGuard', () => {
           serverUrl: 'http://127.0.0.1:3000',
         },
       ),
-    ).resolves.toBe('http://127.0.0.1:9000');
+    ).resolves.toBe('http://127.0.0.1:3000');
   });
 });

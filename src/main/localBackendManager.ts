@@ -5,13 +5,24 @@ import net from 'net';
 import { execSync, spawn, type ChildProcessWithoutNullStreams } from 'child_process';
 import { app } from 'electron';
 import log from 'electron-log';
-import type { BackendState, BundledVersionInfo } from '../shared/backendTypes';
+import type {
+  BackendState,
+  BundledVersionInfo,
+  CloudBackendRuntimeConfig,
+} from '../shared/backendTypes';
 import type { AppSettings } from '../shared/settingsTypes';
 
 const HEALTH_ENDPOINT = '/api/v1/health';
 const DEFAULT_COMFYUI_URL = 'http://localhost:8000';
 const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1';
+const DEFAULT_CLOUD_OPENAI_MODEL = 'deepseek/deepseek-v4-flash';
 const COMFY_CLOUD_HOST = 'cloud.comfy.org';
+
+function appendUrlPath(baseUrl: string, pathname: string): string {
+  const normalizedBase = baseUrl.replace(/\/+$/, '');
+  const normalizedPath = pathname.startsWith('/') ? pathname : `/${pathname}`;
+  return `${normalizedBase}${normalizedPath}`;
+}
 
 async function allocateLoopbackPort(): Promise<number> {
   return new Promise((resolve) => {
@@ -78,7 +89,11 @@ function withV1Suffix(url: string): string {
   return /\/v1\/?$/.test(url) ? url : `${url.replace(/\/$/, '')}/v1`;
 }
 
-export function buildLocalBackendEnv(settings: AppSettings, port: number): NodeJS.ProcessEnv {
+export function buildLocalBackendEnv(
+  settings: AppSettings,
+  port: number,
+  cloudRuntime?: CloudBackendRuntimeConfig,
+): NodeJS.ProcessEnv {
   const comfyUiUrl = getComfyUiUrl(settings);
   const env: NodeJS.ProcessEnv = {
     ...process.env,
@@ -88,23 +103,58 @@ export function buildLocalBackendEnv(settings: AppSettings, port: number): NodeJ
     COMFYUI_BASE_URL: comfyUiUrl,
   };
 
-  if (isComfyCloudUrl(comfyUiUrl) && settings.comfyCloudApiKey.trim()) {
-    env['COMFY_CLOUD_API_KEY'] = settings.comfyCloudApiKey.trim();
-  } else {
-    delete env['COMFY_CLOUD_API_KEY'];
-  }
-
   const projectDir = normalizePathValue(settings.projectDir);
   if (projectDir) {
     env['KSHANA_PROJECT_DIR'] = projectDir;
   }
 
-  // The desktop dev process runs with ts-node preload flags in NODE_OPTIONS.
-  // Those should not leak into the bundled backend child process.
-  delete env['NODE_OPTIONS'];
-  delete env['TS_NODE_PROJECT'];
-  delete env['TS_NODE_TRANSPILE_ONLY'];
-  delete env['TS_NODE_COMPILER_OPTIONS'];
+  if (settings.backendMode === 'cloud') {
+    const proxyBaseUrl = cloudRuntime?.proxyBaseUrl;
+    const desktopToken = cloudRuntime?.desktopToken?.trim();
+    if (!proxyBaseUrl || !desktopToken) {
+      throw new Error('Kshana Cloud proxy URL and desktop token are required for cloud mode.');
+    }
+
+    env['KSHANA_CLOUD'] = 'true';
+    env['KSHANA_CLOUD_URL'] = cloudRuntime.websiteUrl;
+    env['KSHANA_PROXY_BASE_URL'] = proxyBaseUrl;
+    env['KSHANA_CLOUD_TOKEN'] = desktopToken;
+    env['COMFY_MODE'] = 'cloud';
+    env['COMFY_CLOUD_URL'] = appendUrlPath(proxyBaseUrl, '/comfy/api');
+    env['COMFY_CLOUD_AUTH_TOKEN'] = desktopToken;
+    // OpenRouter is OpenAI-compatible, but we standardize on the OpenAI
+    // provider/env vars so *all* clients use the same protocol + base URL.
+    env['LLM_PROVIDER'] = 'openai';
+    env['OPENAI_BASE_URL'] = appendUrlPath(proxyBaseUrl, '/openai/api/v1');
+    // In cloud mode, prefer an explicit cloud model override. Falling back to a
+    // known-supported model avoids stale desktop settings pointing at retired
+    // OpenRouter aliases.
+    env['OPENAI_MODEL'] =
+      process.env['KSHANA_CLOUD_OPENAI_MODEL']?.trim() ||
+      DEFAULT_CLOUD_OPENAI_MODEL;
+
+    delete env['OPENAI_API_KEY'];
+    delete env['OPENROUTER_API_KEY'];
+    delete env['OPENROUTER_BASE_URL'];
+    delete env['OPENROUTER_MODEL'];
+    delete env['COMFY_CLOUD_API_KEY'];
+    delete env['GOOGLE_API_KEY'];
+    delete env['LMSTUDIO_BASE_URL'];
+    return finalizeLocalBackendEnv(env);
+  }
+
+  delete env['KSHANA_CLOUD'];
+  delete env['KSHANA_PROXY_BASE_URL'];
+  delete env['KSHANA_CLOUD_TOKEN'];
+  delete env['COMFY_CLOUD_AUTH_TOKEN'];
+  delete env['COMFY_MODE'];
+  delete env['COMFY_CLOUD_URL'];
+
+  if (isComfyCloudUrl(comfyUiUrl) && settings.comfyCloudApiKey.trim()) {
+    env['COMFY_CLOUD_API_KEY'] = settings.comfyCloudApiKey.trim();
+  } else {
+    delete env['COMFY_CLOUD_API_KEY'];
+  }
 
   switch (settings.llmProvider) {
     case 'gemini':
@@ -120,10 +170,11 @@ export function buildLocalBackendEnv(settings: AppSettings, port: number): NodeJ
       env['OPENAI_MODEL'] = settings.openaiModel.trim() || 'gpt-4o';
       break;
     case 'openrouter':
-      env['LLM_PROVIDER'] = 'openrouter';
-      env['OPENROUTER_API_KEY'] = settings.openRouterApiKey.trim();
-      env['OPENROUTER_BASE_URL'] = DEFAULT_OPENROUTER_BASE_URL;
-      env['OPENROUTER_MODEL'] =
+      // OpenRouter is OpenAI-compatible; standardize on OpenAI env vars.
+      env['LLM_PROVIDER'] = 'openai';
+      env['OPENAI_API_KEY'] = settings.openRouterApiKey.trim();
+      env['OPENAI_BASE_URL'] = DEFAULT_OPENROUTER_BASE_URL;
+      env['OPENAI_MODEL'] =
         settings.openRouterModel.trim() || 'z-ai/glm-4.7-flash';
       break;
     case 'lmstudio':
@@ -135,6 +186,17 @@ export function buildLocalBackendEnv(settings: AppSettings, port: number): NodeJ
       env['LMSTUDIO_MODEL'] = settings.lmStudioModel.trim() || 'qwen3';
       break;
   }
+
+  return finalizeLocalBackendEnv(env);
+}
+
+function finalizeLocalBackendEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  // The desktop dev process runs with ts-node preload flags in NODE_OPTIONS.
+  // Those should not leak into the bundled backend child process.
+  delete env['NODE_OPTIONS'];
+  delete env['TS_NODE_PROJECT'];
+  delete env['TS_NODE_TRANSPILE_ONLY'];
+  delete env['TS_NODE_COMPILER_OPTIONS'];
 
   if (app.isPackaged) {
     env['NODE_ENV'] = 'production';
@@ -172,6 +234,8 @@ class LocalBackendManager extends EventEmitter {
 
   private state: BackendState = { status: 'idle', mode: 'local' };
 
+  private activeMode: AppSettings['backendMode'] = 'local';
+
   private port = 0;
 
   private stopping = false;
@@ -185,7 +249,7 @@ class LocalBackendManager extends EventEmitter {
   }
 
   private updateState(next: BackendState) {
-    this.state = { ...next, mode: 'local' };
+    this.state = { ...next, mode: this.activeMode };
     this.emit('state', this.state);
   }
 
@@ -247,20 +311,21 @@ class LocalBackendManager extends EventEmitter {
     };
   }
 
-  async start(settings: AppSettings): Promise<BackendState> {
+  async start(
+    settings: AppSettings,
+    cloudRuntime?: CloudBackendRuntimeConfig,
+  ): Promise<BackendState> {
     if (this.child) {
       return this.status;
     }
 
+    this.activeMode = settings.backendMode;
+
     const entryPath = this.resolveEntryPath();
-    if (!entryPath) {
-      const devHint = app.isPackaged
-        ? 'Bundled kshana-core runtime is missing from the packaged app.'
-        : 'Build ../kshana-core so dist/server/cli.cjs exists before starting the desktop app.';
-      const errorMessage = `Local backend entry not found. ${devHint}`;
-      this.updateState({ status: 'error', message: errorMessage });
-      throw new Error(errorMessage);
-    }
+    const devRepoPath = this.getDevRepoPath();
+    const devCliPath = path.join(devRepoPath, 'src', 'server', 'cli.ts');
+    const shouldUseDevSourceFallback =
+      !app.isPackaged && !entryPath && fs.existsSync(devCliPath);
 
     this.port = await allocateLoopbackPort();
     if (!this.port) {
@@ -270,30 +335,62 @@ class LocalBackendManager extends EventEmitter {
     }
     const serverUrl = `http://127.0.0.1:${this.port}`;
     const healthUrl = `${serverUrl}${HEALTH_ENDPOINT}`;
-    const env = buildLocalBackendEnv(settings, this.port);
+    const env = buildLocalBackendEnv(settings, this.port, cloudRuntime);
 
     this.updateState({
       status: 'starting',
       port: this.port,
       serverUrl,
-      message: 'Starting bundled local backend…',
+      message: shouldUseDevSourceFallback
+        ? 'Starting local backend from source…'
+        : 'Starting bundled local backend…',
     });
 
     this.stopping = false;
-    log.info(`[LocalBackend] Starting ${entryPath} on ${serverUrl}`);
+    if (!shouldUseDevSourceFallback && !entryPath) {
+      const devHint = app.isPackaged
+        ? 'Bundled kshana-core runtime is missing from the packaged app.'
+        : 'Run "pnpm -C kshana-core build" to generate dist/server/cli.cjs, or rely on the source fallback by keeping kshana-core dependencies installed.';
+      const errorMessage = `Local backend entry not found. ${devHint}`;
+      this.updateState({ status: 'error', port: this.port, serverUrl, message: errorMessage });
+      throw new Error(errorMessage);
+    }
+    log.info(
+      shouldUseDevSourceFallback
+        ? `[LocalBackend] Starting dev source backend on ${serverUrl}`
+        : `[LocalBackend] Starting ${entryPath} on ${serverUrl}`,
+    );
 
     const runtimeExecutable = app.isPackaged
       ? process.execPath
       : process.env['npm_node_execpath'] || process.env['NODE'] || 'node';
-    const child = spawn(
-      runtimeExecutable,
-      [entryPath, '--host', '127.0.0.1', '--port', String(this.port), '--mode', 'local'],
-      {
-        env,
-        cwd: path.resolve(path.dirname(entryPath), '../..'),
-        stdio: 'pipe',
-      },
-    );
+    const child = shouldUseDevSourceFallback
+      ? spawn(
+          'pnpm',
+          [
+            '-C',
+            devRepoPath,
+            'run',
+            'server',
+            '--',
+            '--host',
+            '127.0.0.1',
+            '--port',
+            String(this.port),
+            '--mode',
+            'local',
+          ],
+          { env, cwd: devRepoPath, stdio: 'pipe' },
+        )
+      : spawn(
+          runtimeExecutable,
+          [entryPath!, '--host', '127.0.0.1', '--port', String(this.port), '--mode', 'local'],
+          {
+            env,
+            cwd: path.resolve(path.dirname(entryPath!), '../..'),
+            stdio: 'pipe',
+          },
+        );
 
     this.child = child;
 
@@ -387,9 +484,12 @@ class LocalBackendManager extends EventEmitter {
     return this.status;
   }
 
-  async restart(settings: AppSettings): Promise<BackendState> {
+  async restart(
+    settings: AppSettings,
+    cloudRuntime?: CloudBackendRuntimeConfig,
+  ): Promise<BackendState> {
     await this.stop();
-    return this.start(settings);
+    return this.start(settings, cloudRuntime);
   }
 }
 

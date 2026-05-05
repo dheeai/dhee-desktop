@@ -5,6 +5,7 @@ import localBackendManager from './localBackendManager';
 import type {
   BackendConnectionInfo,
   BackendState,
+  CloudBackendRuntimeConfig,
 } from '../shared/backendTypes';
 import type { AppSettings } from '../shared/settingsTypes';
 
@@ -15,20 +16,36 @@ function annotateState(state: BackendState, mode: AppSettings['backendMode']): B
   };
 }
 
+function getCloudRuntimeIdentity(
+  runtime?: CloudBackendRuntimeConfig,
+): string | null {
+  if (!runtime?.desktopToken || !runtime.proxyBaseUrl || !runtime.websiteUrl) {
+    return null;
+  }
+
+  return JSON.stringify({
+    desktopToken: runtime.desktopToken,
+    proxyBaseUrl: runtime.proxyBaseUrl,
+    websiteUrl: runtime.websiteUrl,
+  });
+}
+
 class BackendManager extends EventEmitter {
   private state: BackendState = { status: 'idle', mode: 'local' };
 
   private selectedMode: AppSettings['backendMode'] = 'local';
 
+  private activeCloudRuntimeIdentity: string | null = null;
+
   constructor() {
     super();
 
     localBackendManager.on('state', (state: BackendState) => {
-      if (this.selectedMode !== 'local') {
+      if (this.selectedMode !== state.mode) {
         return;
       }
 
-      this.updateState(annotateState(state, 'local'));
+      this.updateState(annotateState(state, this.selectedMode));
     });
 
     serverConnectionManager.on('state', (state: BackendState) => {
@@ -51,33 +68,54 @@ class BackendManager extends EventEmitter {
 
   async start(
     settings: AppSettings,
-    cloudServerUrl?: string,
+    cloudRuntime?: CloudBackendRuntimeConfig,
   ): Promise<BackendState> {
     this.selectedMode = settings.backendMode;
 
     if (settings.backendMode === 'local') {
       await serverConnectionManager.disconnect();
-      const state = await localBackendManager.start(settings);
+      this.activeCloudRuntimeIdentity = null;
+      const state =
+        localBackendManager.status?.mode === 'cloud'
+          ? await localBackendManager.restart(settings)
+          : await localBackendManager.start(settings);
       const nextState = annotateState(state, 'local');
       this.updateState(nextState);
       return nextState;
     }
 
-    await localBackendManager.stop();
-    if (!cloudServerUrl) {
+    await serverConnectionManager.disconnect();
+    const nextCloudRuntimeIdentity = getCloudRuntimeIdentity(cloudRuntime);
+    if (
+      !cloudRuntime?.proxyBaseUrl ||
+      !cloudRuntime.desktopToken ||
+      !nextCloudRuntimeIdentity
+    ) {
+      this.activeCloudRuntimeIdentity = null;
+      if (localBackendManager.status?.mode === 'cloud') {
+        await localBackendManager.stop();
+      }
       const nextState: BackendState = {
         status: 'error',
         mode: 'cloud',
-        message: 'Cloud backend URL is not configured for this build.',
+        message: 'Kshana Cloud proxy URL and desktop token are required for cloud mode.',
       };
       this.updateState(nextState);
       return nextState;
     }
 
-    await serverConnectionManager.disconnect();
-    const state = await serverConnectionManager.connect({
-      serverUrl: cloudServerUrl,
-    });
+    const shouldRestartLocalBackend =
+      localBackendManager.status?.mode === 'local' ||
+      this.activeCloudRuntimeIdentity !== nextCloudRuntimeIdentity;
+
+    if (shouldRestartLocalBackend) {
+      this.activeCloudRuntimeIdentity = null;
+    }
+
+    const state = shouldRestartLocalBackend
+      ? await localBackendManager.restart(settings, cloudRuntime)
+      : await localBackendManager.start(settings, cloudRuntime);
+    this.activeCloudRuntimeIdentity = nextCloudRuntimeIdentity;
     const nextState = annotateState(state, 'cloud');
     this.updateState(nextState);
     return nextState;
@@ -85,42 +123,53 @@ class BackendManager extends EventEmitter {
 
   async restart(
     settings: AppSettings,
-    cloudServerUrl?: string,
+    cloudRuntime?: CloudBackendRuntimeConfig,
   ): Promise<BackendState> {
     if (settings.backendMode === 'local') {
       await serverConnectionManager.disconnect();
       this.selectedMode = 'local';
+      this.activeCloudRuntimeIdentity = null;
       const state = await localBackendManager.restart(settings);
       const nextState = annotateState(state, 'local');
       this.updateState(nextState);
       return nextState;
     }
 
-    await localBackendManager.stop();
     this.selectedMode = 'cloud';
-    if (!cloudServerUrl) {
+    await serverConnectionManager.disconnect();
+    const nextCloudRuntimeIdentity = getCloudRuntimeIdentity(cloudRuntime);
+    if (
+      !cloudRuntime?.proxyBaseUrl ||
+      !cloudRuntime.desktopToken ||
+      !nextCloudRuntimeIdentity
+    ) {
+      this.activeCloudRuntimeIdentity = null;
+      if (localBackendManager.status?.mode === 'cloud') {
+        await localBackendManager.stop();
+      }
       const nextState: BackendState = {
         status: 'error',
         mode: 'cloud',
-        message: 'Cloud backend URL is not configured for this build.',
+        message: 'Kshana Cloud proxy URL and desktop token are required for cloud mode.',
       };
       this.updateState(nextState);
       return nextState;
     }
 
-    await serverConnectionManager.disconnect();
-    const state = await serverConnectionManager.connect({
-      serverUrl: cloudServerUrl,
-    });
+    this.activeCloudRuntimeIdentity = null;
+    const state = await localBackendManager.restart(settings, cloudRuntime);
+    this.activeCloudRuntimeIdentity = nextCloudRuntimeIdentity;
     const nextState = annotateState(state, 'cloud');
     this.updateState(nextState);
     return nextState;
   }
 
   async stop(): Promise<BackendState> {
-    if (this.selectedMode === 'local') {
+    if (this.selectedMode === 'local' || this.selectedMode === 'cloud') {
+      await serverConnectionManager.disconnect();
+      this.activeCloudRuntimeIdentity = null;
       const state = await localBackendManager.stop();
-      const nextState = annotateState(state, 'local');
+      const nextState = annotateState(state, this.selectedMode);
       this.updateState(nextState);
       return nextState;
     }
@@ -133,29 +182,32 @@ class BackendManager extends EventEmitter {
 
   async getConnectionInfo(
     settings: AppSettings,
-    cloudServerUrl?: string,
+    cloudRuntime?: CloudBackendRuntimeConfig,
   ): Promise<BackendConnectionInfo> {
     const selectedMode = settings.backendMode;
     const bundledVersion = await localBackendManager.getBundledVersionInfo();
     const localServerUrl =
       localBackendManager.currentServerUrl || (
-        selectedMode === 'local' ? this.state.serverUrl : undefined
+        selectedMode === 'local' || selectedMode === 'cloud' ? this.state.serverUrl : undefined
       );
     const effectiveServerUrl = selectedMode === 'cloud'
-      ? cloudServerUrl || this.state.serverUrl
+      ? localServerUrl || this.state.serverUrl
       : localServerUrl || this.state.serverUrl;
     const localBackendAvailable = await localBackendManager.isAvailable();
 
     return {
       selectedMode,
       effectiveServerUrl,
-      cloudServerUrl,
+      cloudServerUrl: cloudRuntime?.websiteUrl,
+      cloudWebsiteUrl: cloudRuntime?.websiteUrl,
+      proxyBaseUrl: cloudRuntime?.proxyBaseUrl,
+      legacyCoreUrl: cloudRuntime?.legacyCoreUrl,
       localServerUrl,
       localBackendAvailable,
       bundledVersion,
       note:
         selectedMode === 'cloud'
-          ? 'Provider and model configuration is managed by the remote cloud backend.'
+          ? 'Kshana Cloud credits run through the authenticated proxy while the bundled core runs locally.'
           : undefined,
     };
   }

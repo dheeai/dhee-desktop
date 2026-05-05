@@ -38,7 +38,6 @@ import {
   type ImageProjectionSnapshot,
   type ImageSyncTriggerSource,
 } from '../services/assets';
-import type { AppSettings } from '../../shared/settingsTypes';
 import { debugRendererLog, debugRendererWarn } from '../utils/debugLogger';
 import {
   getBackendBaseUrlForSettings,
@@ -249,14 +248,6 @@ function normalizeProjectDirectoryPath(
   if (!input) return null;
   const normalized = input.trim().replace(/\\/g, '/').replace(/\/+$/, '');
   return normalized || null;
-}
-
-async function getCloudDesktopToken(settings: AppSettings | null): Promise<string | null> {
-  if (settings?.backendMode !== 'cloud') {
-    return null;
-  }
-  const account = await window.electron.account.get().catch(() => null);
-  return account?.token ?? null;
 }
 
 function getImageSyncV2Flag(): boolean {
@@ -929,10 +920,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
         const wsUrl = new URL('/api/v1/ws/chat', wsBase);
         wsUrl.searchParams.set('project_dir', projectDirectoryForQuery);
         wsUrl.searchParams.set('channel', 'assets');
-        const desktopToken = await getCloudDesktopToken(settings);
-        if (desktopToken) {
-          wsUrl.searchParams.set('desktopToken', desktopToken);
-        }
         const ws = new WebSocket(wsUrl.toString());
         wsRef.current = ws;
         currentProjectDirRef.current = normalizedProjectDirectory;

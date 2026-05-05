@@ -30,6 +30,17 @@ export interface ServerConnectionConfig {
   autoReconnect?: boolean;
 }
 
+export interface CloudBackendRuntimeConfig {
+  /** Kshana website origin used for auth, billing, and account APIs. */
+  websiteUrl: string;
+  /** Authenticated proxy origin for paid upstream APIs. */
+  proxyBaseUrl: string;
+  /** Signed desktop JWT issued by the website. */
+  desktopToken?: string;
+  /** Legacy hosted kshana-core URL retained for dev/fallback metadata only. */
+  legacyCoreUrl?: string;
+}
+
 export interface BundledVersionInfo {
   packageVersion?: string;
   gitBranch?: string;
@@ -41,6 +52,9 @@ export interface BackendConnectionInfo {
   selectedMode: BackendMode;
   effectiveServerUrl?: string;
   cloudServerUrl?: string;
+  cloudWebsiteUrl?: string;
+  proxyBaseUrl?: string;
+  legacyCoreUrl?: string;
   localServerUrl?: string;
   localBackendAvailable: boolean;
   bundledVersion?: BundledVersionInfo;

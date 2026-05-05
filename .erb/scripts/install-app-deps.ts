@@ -101,6 +101,49 @@ function packKshanaInk(kshanaInkPath: string): string {
   return path.join(vendorPath, result.filename);
 }
 
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function removeDirectoryForFreshInstall(dirPath: string): void {
+  if (!fs.existsSync(dirPath)) return;
+
+  const errors: string[] = [];
+  for (let attempt = 1; attempt <= 5; attempt += 1) {
+    try {
+      rimrafSync(dirPath);
+      if (!fs.existsSync(dirPath)) return;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : String(error));
+    }
+
+    sleepSync(250 * attempt);
+  }
+
+  const stalePath = `${dirPath}.deleting-${process.pid}-${Date.now()}`;
+  try {
+    fs.renameSync(dirPath, stalePath);
+    try {
+      rimrafSync(stalePath);
+    } catch (error) {
+      console.warn(
+        `Warning: moved stale generated dependencies to ${stalePath}, but could not fully remove them: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+    return;
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
+
+  throw new Error(
+    `Could not remove generated app dependencies at ${dirPath}. Quit Kshana, IDEs, and terminals using release/app, then retry.${
+      errors.length ? ` Last cleanup errors: ${errors.slice(-3).join(' | ')}` : ''
+    }`,
+  );
+}
+
 function installAppDeps(): void {
   const kshanaInkPath = resolveKshanaInkPath();
   const mainPackagePath = path.join(webpackPaths.rootPath, 'package.json');
@@ -117,13 +160,7 @@ function installAppDeps(): void {
   const tarballRelativePath = path.relative(webpackPaths.appPath, tarballPath);
   syncReleaseAppPackage(mainPackagePath, tarballRelativePath);
 
-  // `fs.rmSync` can leave ENOTEMPTY on large trees (watchers, antivirus). rimraf matches clean.js.
-  rimrafSync(webpackPaths.appNodeModulesPath);
-  if (fs.existsSync(webpackPaths.appNodeModulesPath)) {
-    throw new Error(
-      `Could not remove ${webpackPaths.appNodeModulesPath}. Quit Kshana, IDEs, and terminals using release/app, then retry.`,
-    );
-  }
+  removeDirectoryForFreshInstall(webpackPaths.appNodeModulesPath);
 
   const lockfilePath = path.join(webpackPaths.appPath, 'package-lock.json');
   fs.rmSync(lockfilePath, { force: true });

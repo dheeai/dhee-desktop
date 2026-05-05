@@ -1,4 +1,6 @@
 name: Release
+# Injects assets/runtime-config.json: KSHANA_CORE_URL|KSHANA_SERVER_URL → core;
+# KSHANA_WEBSITE_URL (repo variable or secret) → kshanaWebsiteUrl (Next.js on Cloud Run).
 
 on:
   push:
@@ -48,16 +50,22 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          KSHANA_CLOUD_SERVER_URL: ${{ secrets.KSHANA_SERVER_URL }}
-          KSHANA_WEBSITE_URL: ${{ secrets.KSHANA_WEBSITE_URL }}
+          KSHANA_CLOUD_SERVER_URL: ${{ secrets.KSHANA_CORE_URL || secrets.KSHANA_SERVER_URL }}
+          # Public Next.js site (Cloud Run). Prefer repo variable; optional secret KSHANA_WEBSITE_URL overrides.
+          KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
         run: |
           node << 'EOF'
           const fs = require('fs');
           const backend = process.env.KSHANA_CLOUD_SERVER_URL;
           const website = process.env.KSHANA_WEBSITE_URL;
-          if (!backend) throw new Error('KSHANA_SERVER_URL is missing');
-          const cfg = { cloudServerUrl: backend };
-          if (website && website.trim()) cfg.kshanaWebsiteUrl = website.trim();
+          const cfg = {};
+          if (backend && backend.trim()) {
+            cfg.kshanaCoreUrl = backend.trim();
+            cfg.cloudServerUrl = backend.trim();
+          }
+          if (website && website.trim()) {
+            cfg.kshanaWebsiteUrl = website.trim().replace(/\/$/, '');
+          }
           fs.writeFileSync(
             'assets/runtime-config.json',
             JSON.stringify(cfg, null, 2),
@@ -115,16 +123,19 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          KSHANA_CLOUD_SERVER_URL: ${{ secrets.KSHANA_SERVER_URL }}
-          KSHANA_WEBSITE_URL: ${{ secrets.KSHANA_WEBSITE_URL }}
+          KSHANA_CLOUD_SERVER_URL: ${{ secrets.KSHANA_CORE_URL || secrets.KSHANA_SERVER_URL }}
+          KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
         run: |
           $backend = $env:KSHANA_CLOUD_SERVER_URL
           $website = $env:KSHANA_WEBSITE_URL
-          if (-not $backend) { throw "KSHANA_SERVER_URL is missing" }
+          $obj = @{}
+          if ($backend -and $backend.Trim()) {
+            $obj["kshanaCoreUrl"] = $backend.Trim()
+            $obj["cloudServerUrl"] = $backend.Trim()
+          }
           if ($website -and $website.Trim()) {
-            $obj = @{ cloudServerUrl = $backend; kshanaWebsiteUrl = $website.Trim() }
-          } else {
-            $obj = @{ cloudServerUrl = $backend }
+            $w = $website.Trim().TrimEnd('/')
+            $obj["kshanaWebsiteUrl"] = $w
           }
           $json = $obj | ConvertTo-Json
           Set-Content -Path "assets/runtime-config.json" -Value $json -Encoding UTF8
