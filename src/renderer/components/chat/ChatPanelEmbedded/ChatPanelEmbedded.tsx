@@ -25,6 +25,9 @@ import {
   ArrowUp,
   ChevronDown,
   Download,
+  Eye,
+  EyeOff,
+  ScanEye,
   X,
 } from 'lucide-react';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
@@ -236,6 +239,16 @@ export default function ChatPanelEmbedded() {
   // clears. Same role as the old bg-only `pendingCancel` but bound to
   // the unified active-run state.
   const [bgStatus, setBgStatus] = useState<'idle' | 'cancelling'>('idle');
+
+  /**
+   * Pi-agent oversight + VLM judge runtime toggles. Both default ON
+   * for new projects (the loader fills in `true` when the field is
+   * absent on disk). VLM is gated by oversight at the UI layer
+   * (button is disabled when piOversight=false) AND at the runtime
+   * read site inside ConversationManager / ExecutorAgent.
+   */
+  const [piOversight, setPiOversightState] = useState<boolean>(true);
+  const [vlmJudge, setVlmJudgeState] = useState<boolean>(true);
   // Tracks the id of the currently-streaming assistant message so
   // multiple `stream_chunk` events accumulate into one bubble instead
   // of creating a new bubble per chunk.
@@ -373,12 +386,16 @@ export default function ChatPanelEmbedded() {
         setSelectedTemplateId(persisted.templateId);
         setSelectedStyleId(persisted.style);
         setSelectedDuration(persisted.duration);
+        setPiOversightState(persisted.piOversight);
+        setVlmJudgeState(persisted.vlmJudge);
       } else {
         // Reset selections to defaults so the wizard starts clean.
         setSelectedTemplateId(WIZARD_DEFAULT_TEMPLATE_ID);
         setSelectedStyleId(WIZARD_DEFAULT_STYLE_ID);
         setSelectedDuration(WIZARD_DEFAULT_DURATION_SECONDS);
         setStoryInput('');
+        setPiOversightState(true);
+        setVlmJudgeState(true);
       }
       setProjectState(lifecycle);
       setSetupProbeCompleted(true);
@@ -601,6 +618,27 @@ export default function ChatPanelEmbedded() {
       ]);
     }
   };
+
+  /**
+   * Toggle pi-agent oversight. Optimistic local update + IPC; on
+   * failure we don't roll back — the next mount will read the
+   * persisted-or-not state from project.json. VLM follows: when
+   * supervisor flips off the VLM toggle becomes a no-op (UI disabled,
+   * runtime gate also off) but its stored value is preserved so
+   * flipping supervisor back on restores the user's prior choice.
+   */
+  const handleTogglePiOversight = useCallback(async () => {
+    const next = !piOversight;
+    setPiOversightState(next);
+    await session.setPiOversight(next).catch(() => undefined);
+  }, [piOversight, session]);
+
+  const handleToggleVlmJudge = useCallback(async () => {
+    if (!piOversight) return; // VLM is gated by supervisor; UI is disabled, but defend.
+    const next = !vlmJudge;
+    setVlmJudgeState(next);
+    await session.setVlmJudge(next).catch(() => undefined);
+  }, [piOversight, vlmJudge, session]);
 
   const handleCancel = useCallback(async () => {
     // Cancel goes directly through the BackgroundTaskRunner IPC,
@@ -832,6 +870,92 @@ export default function ChatPanelEmbedded() {
             onStart={() => void handleStartRun()}
             onCancel={() => void handleCancel()}
           />
+          {/*
+            Pi-agent oversight toggle. Eye when on (watching),
+            EyeOff when off. Click flips the local state + persists
+            via IPC. Independent of the VLM toggle in storage; the
+            VLM toggle's enabled-state mirrors this one.
+          */}
+          <button
+            type="button"
+            aria-label={
+              piOversight
+                ? 'Pi-agent oversight: ON (click to turn off)'
+                : 'Pi-agent oversight: OFF (click to turn on)'
+            }
+            title={
+              piOversight
+                ? 'Pi-agent oversight: ON — auto-engages on runner events'
+                : 'Pi-agent oversight: OFF — chat-only, no auto-engagement'
+            }
+            onClick={() => void handleTogglePiOversight()}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              height: 26,
+              padding: 0,
+              borderRadius: 6,
+              border: '1px solid #2a2c30',
+              background: piOversight ? 'rgba(120,160,220,0.18)' : 'transparent',
+              color: piOversight ? '#a8bce0' : '#7a8190',
+              cursor: 'pointer',
+              transition: 'background 120ms ease, color 120ms ease',
+            }}
+          >
+            {piOversight ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+          {/*
+            VLM judge toggle. Disabled when supervisor is off (VLM
+            standalone has no consumer). Tooltip explains the
+            dependency. Always renders — disabled state is an
+            obvious affordance, not a hidden control.
+          */}
+          <button
+            type="button"
+            disabled={!piOversight}
+            aria-label={
+              !piOversight
+                ? 'VLM judge — turn supervisor on first'
+                : vlmJudge
+                  ? 'VLM judge: ON (click to turn off)'
+                  : 'VLM judge: OFF (click to turn on)'
+            }
+            title={
+              !piOversight
+                ? 'VLM judge — turn supervisor on first'
+                : vlmJudge
+                  ? 'VLM judge: ON — vision-LLM describes generated images for pi-agent'
+                  : 'VLM judge: OFF — pi-agent has no vision feedback on assets'
+            }
+            onClick={() => void handleToggleVlmJudge()}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              height: 26,
+              padding: 0,
+              borderRadius: 6,
+              border: '1px solid #2a2c30',
+              background: !piOversight
+                ? 'transparent'
+                : vlmJudge
+                  ? 'rgba(120,160,220,0.18)'
+                  : 'transparent',
+              color: !piOversight
+                ? '#444'
+                : vlmJudge
+                  ? '#a8bce0'
+                  : '#7a8190',
+              cursor: piOversight ? 'pointer' : 'not-allowed',
+              opacity: piOversight ? 1 : 0.45,
+              transition: 'background 120ms ease, color 120ms ease, opacity 120ms ease',
+            }}
+          >
+            <ScanEye size={14} />
+          </button>
           <div
             aria-label={`Status: ${session.status}`}
             title={

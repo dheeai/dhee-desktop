@@ -502,6 +502,24 @@ export class KshanaCoreManager {
     (this.cm as unknown as { setAutonomousMode: (s: string, e: boolean) => void }).setAutonomousMode(sessionId, enabled);
   }
 
+  /**
+   * Pi-agent oversight runtime toggle. The embedded ConversationManager
+   * persists the value to project.json — this wrapper just forwards.
+   */
+  setPiOversight(sessionId: string, enabled: boolean): void {
+    if (!this.cm) return;
+    (this.cm as unknown as { setPiOversight: (s: string, e: boolean) => void }).setPiOversight(sessionId, enabled);
+  }
+
+  /**
+   * VLM master switch runtime toggle. Effective only when piOversight
+   * is also on (gating enforced inside ConversationManager / executor).
+   */
+  setVlmJudge(sessionId: string, enabled: boolean): void {
+    if (!this.cm) return;
+    (this.cm as unknown as { setVLMJudge: (s: string, e: boolean) => void }).setVLMJudge(sessionId, enabled);
+  }
+
   focusSessionProject(sessionId: string, projectName: string): void {
     if (!this.cm) return;
     (this.cm as unknown as { focusSessionProject: (s: string, p: string) => void }).focusSessionProject(sessionId, projectName);

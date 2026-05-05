@@ -14,6 +14,17 @@ export interface PersistedProjectSetup {
   style: string;
   duration: number;
   autonomousMode?: boolean;
+  /**
+   * Pi-agent oversight (auto-engagement on runner events).
+   * Defaults to true when the field is absent on disk — matches the
+   * "default ON" rule for new projects.
+   */
+  piOversight: boolean;
+  /**
+   * VLM master switch (vision-LLM calls). Effective only when
+   * piOversight is also true. Defaults to true when absent.
+   */
+  vlmJudge: boolean;
 }
 
 export interface ProjectFileReader {
@@ -45,6 +56,8 @@ export async function loadPersistedProjectSetup(
     duration: unknown;
     targetDuration: unknown;
     autonomousMode: unknown;
+    piOversight: unknown;
+    vlmJudge: unknown;
   }>;
   const duration =
     typeof obj.targetDuration === 'number' ? obj.targetDuration : obj.duration;
@@ -62,5 +75,10 @@ export async function loadPersistedProjectSetup(
     style: obj.style,
     duration,
     autonomousMode: Boolean(obj.autonomousMode),
+    // Default-ON for both. `typeof === 'boolean'` distinguishes
+    // "explicitly false" from "absent" — old projects that never
+    // wrote these fields read as ON.
+    piOversight: typeof obj.piOversight === 'boolean' ? obj.piOversight : true,
+    vlmJudge: typeof obj.vlmJudge === 'boolean' ? obj.vlmJudge : true,
   };
 }
