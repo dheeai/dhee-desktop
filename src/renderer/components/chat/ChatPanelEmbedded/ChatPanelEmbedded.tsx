@@ -142,6 +142,21 @@ function dedupeDoubled(text: string): string {
   return text;
 }
 
+function mergeStreamText(prev: string | undefined, chunk: string, done?: boolean): string {
+  const base = prev ?? '';
+  if (!chunk) return done ? base : base;
+
+  // If the stream occasionally re-sends the last few chars, avoid
+  // visible duplication by trimming the largest suffix/prefix overlap.
+  const maxOverlap = Math.min(base.length, chunk.length, 64);
+  for (let i = maxOverlap; i > 0; i -= 1) {
+    if (base.slice(-i) === chunk.slice(0, i)) {
+      return base + chunk.slice(i);
+    }
+  }
+  return base + chunk;
+}
+
 function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const entries = Object.entries(args as Record<string, unknown>);
@@ -1419,23 +1434,34 @@ function handleEvent(
       };
       // Finalize any in-flight streaming bubble — once a tool call
       // fires the agent isn't actively typing user-facing text.
+      // Also mark the bubble streaming:false so it doesn't stay in
+      // a spinning state; agent_response will update it with the
+      // canonical final text when it arrives.
+      const prevStreamId = streamingMsgIdRef.current;
       streamingMsgIdRef.current = null;
       // Record the toolName so subsequent stream_chunk events can
       // filter by it.
       if (data.toolCallId && data.toolName) {
         toolNameByCallIdRef.current?.set(data.toolCallId, data.toolName);
       }
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'tool',
-          toolCallId: data.toolCallId,
-          toolName: data.toolName ?? '(unknown tool)',
-          toolStatus: data.status ?? 'in_progress',
-          toolArgsSummary: summarizeArgs(data.arguments),
-        },
-      ]);
+      setMessages((prev) => {
+        const withFinalized = prevStreamId
+          ? prev.map((m) =>
+              m.id === prevStreamId ? { ...m, streaming: false } : m,
+            )
+          : prev;
+        return [
+          ...withFinalized,
+          {
+            id: newMessageId(),
+            role: 'tool',
+            toolCallId: data.toolCallId,
+            toolName: data.toolName ?? '(unknown tool)',
+            toolStatus: data.status ?? 'in_progress',
+            toolArgsSummary: summarizeArgs(data.arguments),
+          },
+        ];
+      });
       return;
     }
     case 'tool_result': {
@@ -1571,10 +1597,28 @@ function handleEvent(
         );
         streamingMsgIdRef.current = null;
       } else {
-        setMessages((prev) => [
-          ...prev,
-          { id: newMessageId(), role: 'assistant', text: finalOutput },
-        ]);
+        // streamingMsgIdRef was cleared mid-stream by a tool_call event,
+        // but the streaming bubble may still be sitting in the messages
+        // list. Find the most-recent one and finalize it in-place rather
+        // than appending a second bubble with the same content.
+        setMessages((prev) => {
+          let streamingIdx = -1;
+          for (let i = prev.length - 1; i >= 0; i -= 1) {
+            if (prev[i].role === 'assistant' && prev[i].streaming) {
+              streamingIdx = i;
+              break;
+            }
+          }
+          if (streamingIdx !== -1) {
+            return prev.map((m, i) =>
+              i === streamingIdx ? { ...m, text: finalOutput, streaming: false } : m,
+            );
+          }
+          return [
+            ...prev,
+            { id: newMessageId(), role: 'assistant', text: finalOutput },
+          ];
+        });
       }
       return;
     }
