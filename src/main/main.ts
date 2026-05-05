@@ -3187,6 +3187,15 @@ const createWindow = async () => {
   log.info(`Loading HTML from: ${htmlPath}`);
   log.info(`App is packaged: ${app.isPackaged}`);
   log.info(`Main process __dirname: ${__dirname}`);
+  log.info(`Main process cwd: ${process.cwd()}`);
+  log.info(`Main process NODE_PATH: ${process.env.NODE_PATH || '(unset)'}`);
+  log.info(
+    `Preload script: ${
+      app.isPackaged
+        ? path.join(__dirname, 'preload.js')
+        : path.join(__dirname, '../../.erb/dll/preload.js')
+    }`,
+  );
 
   // In development, wait for dev server to be ready
   if (isDebug && htmlPath.startsWith('http://')) {
@@ -3228,7 +3237,19 @@ const createWindow = async () => {
   );
 
   mainWindow.webContents.on('render-process-gone', (_event, details) => {
-    log.error(`Renderer process gone: ${details.reason}`);
+    log.error('Renderer process gone:', details);
+  });
+
+  mainWindow.webContents.on('console-message', (details) => {
+    log.info(
+      `[RendererConsole:${details.level}] ${details.message} (${details.sourceId}:${details.lineNumber})`,
+    );
+  });
+
+  mainWindow.webContents.on('preload-error', (_event, preloadPath, error) => {
+    log.error(
+      `[Preload] Failed to load ${preloadPath}: ${error.message}\n${error.stack}`,
+    );
   });
 
   mainWindow.webContents.on('did-finish-load', () => {
@@ -3300,12 +3321,19 @@ app.on('before-quit', () => {
 const bootstrapBackend = async () => {
   try {
     const settings = getSettings();
+    log.info(
+      `[EmbeddedKshana] Bootstrap starting packaged=${app.isPackaged} cwd=${process.cwd()}`,
+    );
+    log.info(
+      `[EmbeddedKshana] Settings provider=${settings.llmProvider} backendMode=${settings.backendMode} projectDir=${settings.projectDir || '(unset)'}`,
+    );
     // Tell kshana-ink we're inside the packaged Electron build so its
     // path defaults flip from REPO_ROOT (dev) to ~/Kshana (user data
     // dir). Must be set BEFORE kshanaCoreManager.start, which calls
     // loadDevEnv → getProjectsDir() to decide where to chdir.
     if (app.isPackaged) {
       process.env.KSHANA_PACKAGED = '1';
+      log.info('[EmbeddedKshana] Set KSHANA_PACKAGED=1');
     }
     // Embedded kshana-ink — the only backend path. Starts synchronously
     // (in-process), so the IPC bridge can register immediately and the
@@ -3314,16 +3342,26 @@ const bootstrapBackend = async () => {
       settings,
       await getCloudAuthRuntime(settings),
     );
+    log.info('[EmbeddedKshana] Manager started');
     if (mainWindow) {
       registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+      log.info('[EmbeddedKshana] IPC bridge registered');
+    } else {
+      log.warn('[EmbeddedKshana] Manager started but mainWindow is missing');
     }
   } catch (error) {
-    log.error(`Failed to start embedded kshana: ${(error as Error).message}`);
+    log.error(
+      `Failed to start embedded kshana: ${(error as Error).message}\n${
+        (error as Error).stack
+      }`,
+    );
   }
 };
 
 const handleBackendStartup = (error: Error) => {
-  log.error(`Background backend startup failed: ${error.message}`);
+  log.error(
+    `Background backend startup failed: ${error.message}\n${error.stack}`,
+  );
 };
 
 const startBackendInBackground = () => {

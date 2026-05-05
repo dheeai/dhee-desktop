@@ -20,6 +20,9 @@
  */
 import type { AppSettings } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/kshanaIpc';
+import log from 'electron-log';
+import path from 'path';
+import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl, withV1Suffix } from './utils/comfyUrl';
 
 export interface KshanaCloudAuthRuntime {
@@ -44,6 +47,24 @@ type ConversationManager = {
 };
 
 const KSHANA_CORE_MANAGER_MODULE = 'kshana-core/manager';
+
+function getPackagedManagerModuleUrl(): string | null {
+  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
+    .resourcesPath;
+  if (!resourcesPath) return null;
+
+  return pathToFileURL(
+    path.join(
+      resourcesPath,
+      'app.asar.unpacked',
+      'node_modules',
+      'kshana-core',
+      'dist',
+      'server',
+      'manager.js',
+    ),
+  ).href;
+}
 
 type ManagerModule = {
   ConversationManager: new (
@@ -78,10 +99,45 @@ type ManagerModule = {
  * loader handles it natively. Tests substitute this loader via the
  * exported `__setManagerLoader` to inject the mock module.
  */
-let loadManagerModule: () => Promise<ManagerModule> = () =>
-  import(
-    /* webpackIgnore: true */ KSHANA_CORE_MANAGER_MODULE
-  ) as Promise<ManagerModule>;
+let loadManagerModule: () => Promise<ManagerModule> = async () => {
+  try {
+    log.info(
+      `[KshanaCoreManager] Importing ${KSHANA_CORE_MANAGER_MODULE} via package exports`,
+    );
+    const module = (await import(
+      /* webpackIgnore: true */ KSHANA_CORE_MANAGER_MODULE
+    )) as ManagerModule;
+    log.info('[KshanaCoreManager] Package export import succeeded');
+    return module;
+  } catch (error) {
+    log.error(
+      `[KshanaCoreManager] Package export import failed: ${
+        (error as Error).message
+      }\n${(error as Error).stack}`,
+    );
+
+    if (process.env.KSHANA_PACKAGED !== '1') {
+      throw error;
+    }
+
+    const packagedModuleUrl = getPackagedManagerModuleUrl();
+    if (!packagedModuleUrl) {
+      log.error(
+        '[KshanaCoreManager] Cannot resolve packaged fallback manager URL',
+      );
+      throw error;
+    }
+
+    log.info(
+      `[KshanaCoreManager] Importing packaged fallback ${packagedModuleUrl}`,
+    );
+    const module = (await import(
+      /* webpackIgnore: true */ packagedModuleUrl
+    )) as ManagerModule;
+    log.info('[KshanaCoreManager] Packaged fallback import succeeded');
+    return module;
+  }
+};
 
 /** Test seam — replace the loader so unit tests can supply a fake. */
 export function __setManagerLoader(loader: () => Promise<ManagerModule>): void {

@@ -49,7 +49,7 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          # Public Next.js site (Cloud Run). Prefer repo variable; optional secret KSHANA_WEBSITE_URL overrides.
+          # Public Next.js site (Cloud Run). Repo variable wins if both are set; else secret KSHANA_WEBSITE_URL.
           KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
         run: |
           node << 'EOF'
