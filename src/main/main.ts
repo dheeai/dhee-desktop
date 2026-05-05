@@ -240,6 +240,17 @@ ipcMain.handle(
     if (mainWindow) {
       mainWindow.webContents.send('settings:updated', updated);
     }
+    // Push oversight changes into core's process-wide `oversightState`.
+    // Both the SettingsPanel and the chat-header quick-toggles flow
+    // through here, so this is the single fan-out point for the two
+    // global flags. The kshanaCoreManager wrappers no-op if core
+    // isn't started yet (lifecycle race during boot).
+    if (typeof patch.piOversight === 'boolean') {
+      kshanaCoreManager.setPiOversight('', patch.piOversight);
+    }
+    if (typeof patch.vlmJudge === 'boolean') {
+      kshanaCoreManager.setVlmJudge('', patch.vlmJudge);
+    }
     return updated;
   },
 );

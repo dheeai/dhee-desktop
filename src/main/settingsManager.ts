@@ -32,6 +32,8 @@ const defaults: AppSettings = {
   openRouterApiKey: '',
   openRouterModel: DEFAULT_OPENROUTER_MODEL,
   themeId: DEFAULT_THEME_ID,
+  piOversight: true,
+  vlmJudge: true,
 };
 
 const store = new Store<AppSettings>({
@@ -113,6 +115,11 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   const projectDir = typeof value?.projectDir === 'string' && value.projectDir.trim().length > 0
     ? value.projectDir
     : undefined;
+  // Booleans default to TRUE when absent — matches the "default ON
+  // for new projects" rule. `=== false` distinguishes
+  // explicitly-off from missing.
+  const piOversight = (value as { piOversight?: unknown } | null | undefined)?.piOversight === false ? false : true;
+  const vlmJudge = (value as { vlmJudge?: unknown } | null | undefined)?.vlmJudge === false ? false : true;
 
   // Backward compatibility:
   // - Missing mode + empty URL => inherit
@@ -142,6 +149,8 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     openRouterApiKey,
     openRouterModel,
     themeId,
+    piOversight,
+    vlmJudge,
   };
 
   if (projectDir) {

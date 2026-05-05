@@ -348,6 +348,15 @@ export class KshanaCoreManager {
       llmConfig: buildLLMConfig(settings),
     };
     this.cm = new this.managerModule.ConversationManager(config);
+    // Seed core's process-wide oversightState from the persisted
+    // AppSettings on the very first run. Subsequent updates flow
+    // through main.ts's `settings:update` IPC handler, which
+    // calls setPiOversight / setVlmJudge directly. Without this
+    // seed, a fresh manager would default both to true and then
+    // immediately get overwritten on the user's next settings
+    // change — fine in practice but the symmetry's nicer.
+    this.setPiOversight('', settings.piOversight);
+    this.setVlmJudge('', settings.vlmJudge);
   }
 
   /** Tear down the manager. Safe to call when not started. */
@@ -503,21 +512,28 @@ export class KshanaCoreManager {
   }
 
   /**
-   * Pi-agent oversight runtime toggle. The embedded ConversationManager
-   * persists the value to project.json — this wrapper just forwards.
+   * Pi-agent oversight runtime toggle. Forwards to the embedded
+   * ConversationManager, which mutates the process-wide
+   * `oversightState` global. The `sessionId` parameter is preserved
+   * for IPC-shape symmetry with `setAutonomousMode` but unused —
+   * oversight is global. Defensive against test stubs that don't
+   * implement the method.
    */
   setPiOversight(sessionId: string, enabled: boolean): void {
     if (!this.cm) return;
-    (this.cm as unknown as { setPiOversight: (s: string, e: boolean) => void }).setPiOversight(sessionId, enabled);
+    const fn = (this.cm as unknown as { setPiOversight?: (s: string, e: boolean) => void }).setPiOversight;
+    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
   }
 
   /**
    * VLM master switch runtime toggle. Effective only when piOversight
    * is also on (gating enforced inside ConversationManager / executor).
+   * Defensive against test stubs that don't implement the method.
    */
   setVlmJudge(sessionId: string, enabled: boolean): void {
     if (!this.cm) return;
-    (this.cm as unknown as { setVLMJudge: (s: string, e: boolean) => void }).setVLMJudge(sessionId, enabled);
+    const fn = (this.cm as unknown as { setVLMJudge?: (s: string, e: boolean) => void }).setVLMJudge;
+    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
   }
 
   focusSessionProject(sessionId: string, projectName: string): void {

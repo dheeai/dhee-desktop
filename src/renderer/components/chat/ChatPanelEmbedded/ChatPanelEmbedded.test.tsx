@@ -26,6 +26,33 @@ jest.mock('../../../contexts/WorkspaceContext', () => ({
   }),
 }));
 
+// AppSettingsContext: the chat panel reads piOversight + vlmJudge
+// for its header toggle buttons. Default both ON for tests; the
+// saveConnectionSettings stub records writes so the toggle-click
+// tests can assert on them.
+let mockSavedConnectionSettings: Array<Record<string, unknown>> = [];
+jest.mock('../../../contexts/AppSettingsContext', () => ({
+  useAppSettings: () => ({
+    settings: {
+      piOversight: true,
+      vlmJudge: true,
+    },
+    saveConnectionSettings: jest.fn(async (patch: Record<string, unknown>) => {
+      mockSavedConnectionSettings.push(patch);
+      return true;
+    }),
+    isLoaded: true,
+    error: null,
+    isSettingsOpen: false,
+    themeId: 'studio-neutral',
+    isSavingConnection: false,
+    openSettings: () => {},
+    closeSettings: () => {},
+    updateTheme: jest.fn(async () => undefined),
+    clearError: () => {},
+  }),
+}));
+
 // react-markdown is ESM-only; Jest's CJS env can't transform its
 // `export` syntax. Replace it with a passthrough <div> for tests —
 // behavior we care about is that the assistant text reaches the DOM.
@@ -66,6 +93,7 @@ function publishEvent(eventName: KshanaEventName, data: unknown): void {
 
 beforeEach(() => {
   mockWorkspaceProjectName = null;
+  mockSavedConnectionSettings = [];
   mockState = {
     runTaskCalls: [],
     cancelCalls: [],

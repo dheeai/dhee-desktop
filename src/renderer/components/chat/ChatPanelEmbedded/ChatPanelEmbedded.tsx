@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import type { KshanaEvent } from '../../../../shared/kshanaIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import ProjectSetupPanel, {
@@ -241,14 +242,18 @@ export default function ChatPanelEmbedded() {
   const [bgStatus, setBgStatus] = useState<'idle' | 'cancelling'>('idle');
 
   /**
-   * Pi-agent oversight + VLM judge runtime toggles. Both default ON
-   * for new projects (the loader fills in `true` when the field is
-   * absent on disk). VLM is gated by oversight at the UI layer
-   * (button is disabled when piOversight=false) AND at the runtime
-   * read site inside ConversationManager / ExecutorAgent.
+   * Pi-agent oversight + VLM judge runtime toggles read from
+   * AppSettings. They are GLOBAL — same value applies across all
+   * projects. The chat-header buttons and the Settings panel both
+   * write to AppSettings; main-process pushes the new values into
+   * core's `oversightState` global on every change.
+   *
+   * Default to true when settings haven't loaded yet — matches
+   * the "default ON" rule and avoids a flash-of-OFF on mount.
    */
-  const [piOversight, setPiOversightState] = useState<boolean>(true);
-  const [vlmJudge, setVlmJudgeState] = useState<boolean>(true);
+  const appSettings = useAppSettings();
+  const piOversight = appSettings.settings?.piOversight ?? true;
+  const vlmJudge = appSettings.settings?.vlmJudge ?? true;
   // Tracks the id of the currently-streaming assistant message so
   // multiple `stream_chunk` events accumulate into one bubble instead
   // of creating a new bubble per chunk.
@@ -386,16 +391,12 @@ export default function ChatPanelEmbedded() {
         setSelectedTemplateId(persisted.templateId);
         setSelectedStyleId(persisted.style);
         setSelectedDuration(persisted.duration);
-        setPiOversightState(persisted.piOversight);
-        setVlmJudgeState(persisted.vlmJudge);
       } else {
         // Reset selections to defaults so the wizard starts clean.
         setSelectedTemplateId(WIZARD_DEFAULT_TEMPLATE_ID);
         setSelectedStyleId(WIZARD_DEFAULT_STYLE_ID);
         setSelectedDuration(WIZARD_DEFAULT_DURATION_SECONDS);
         setStoryInput('');
-        setPiOversightState(true);
-        setVlmJudgeState(true);
       }
       setProjectState(lifecycle);
       setSetupProbeCompleted(true);
@@ -620,25 +621,27 @@ export default function ChatPanelEmbedded() {
   };
 
   /**
-   * Toggle pi-agent oversight. Optimistic local update + IPC; on
-   * failure we don't roll back — the next mount will read the
-   * persisted-or-not state from project.json. VLM follows: when
-   * supervisor flips off the VLM toggle becomes a no-op (UI disabled,
-   * runtime gate also off) but its stored value is preserved so
-   * flipping supervisor back on restores the user's prior choice.
+   * Toggle pi-agent oversight via AppSettings. The change is global —
+   * applies to all projects. Main-process pushes the new value into
+   * core's `oversightState` global on settings:update so the runtime
+   * picks it up on the next task dispatch (and via `setVLMEnabled`
+   * mid-run for VLM).
+   *
+   * VLM follows: when supervisor flips off the VLM toggle becomes a
+   * no-op (UI disabled, runtime gate also off) but its stored value
+   * is preserved so flipping supervisor back on restores the prior
+   * choice.
    */
   const handleTogglePiOversight = useCallback(async () => {
     const next = !piOversight;
-    setPiOversightState(next);
-    await session.setPiOversight(next).catch(() => undefined);
-  }, [piOversight, session]);
+    await appSettings.saveConnectionSettings({ piOversight: next });
+  }, [piOversight, appSettings]);
 
   const handleToggleVlmJudge = useCallback(async () => {
     if (!piOversight) return; // VLM is gated by supervisor; UI is disabled, but defend.
     const next = !vlmJudge;
-    setVlmJudgeState(next);
-    await session.setVlmJudge(next).catch(() => undefined);
-  }, [piOversight, vlmJudge, session]);
+    await appSettings.saveConnectionSettings({ vlmJudge: next });
+  }, [piOversight, vlmJudge, appSettings]);
 
   const handleCancel = useCallback(async () => {
     // Cancel goes directly through the BackgroundTaskRunner IPC,

@@ -53,8 +53,6 @@ export interface KshanaSessionApi {
     projectDir?: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   setAutonomous: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
-  setPiOversight: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
-  setVlmJudge: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
   sendResponse: (response: string, toolCallId?: string) => Promise<{ ok: boolean; error?: string }>;
 
   /**
@@ -184,23 +182,6 @@ export function useKshanaSession(): KshanaSessionApi {
     [],
   );
 
-  const setPiOversight = useCallback<KshanaSessionApi['setPiOversight']>(
-    async (enabled) => {
-      const id = sessionIdRef.current;
-      if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.setPiOversight({ sessionId: id, enabled });
-    },
-    [],
-  );
-
-  const setVlmJudge = useCallback<KshanaSessionApi['setVlmJudge']>(
-    async (enabled) => {
-      const id = sessionIdRef.current;
-      if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.setVlmJudge({ sessionId: id, enabled });
-    },
-    [],
-  );
 
   const sendResponse = useCallback<KshanaSessionApi['sendResponse']>(
     async (response, toolCallId) => {
@@ -230,8 +211,6 @@ export function useKshanaSession(): KshanaSessionApi {
     configureProject,
     focusProject,
     setAutonomous,
-    setPiOversight,
-    setVlmJudge,
     sendResponse,
     subscribe,
   };

@@ -377,6 +377,8 @@ const fakeElectron = {
           openaiModel: 'gpt-4o',
           openRouterApiKey: '',
           openRouterModel: 'z-ai/glm-4.7-flash',
+          piOversight: true,
+          vlmJudge: true,
         }),
       );
     },

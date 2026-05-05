@@ -19,6 +19,8 @@ const baseSettings = {
   openRouterApiKey: '',
   openRouterModel: 'z-ai/glm-4.7-flash',
   themeId: 'studio-neutral' as const,
+  piOversight: true,
+  vlmJudge: true,
 };
 
 describe('SettingsPanel', () => {
