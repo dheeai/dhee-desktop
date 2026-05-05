@@ -5,9 +5,10 @@ import type {
   ThemeId,
 } from '../../../shared/settingsTypes';
 import { DESKTOP_THEMES } from '../../themes';
+import AccountTab from './AccountTab';
 import styles from './SettingsPanel.module.scss';
 
-type SettingsTab = 'appearance' | 'connection';
+type SettingsTab = 'account' | 'appearance' | 'connection';
 
 type Props = {
   isOpen: boolean;
@@ -86,7 +87,6 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   };
 }
 
-
 export default function SettingsPanel({
   isOpen,
   variant = 'modal',
@@ -99,7 +99,9 @@ export default function SettingsPanel({
 }: Props) {
   const isEmbedded = variant === 'embedded';
   const isVisible = isEmbedded || isOpen;
-  const [form, setForm] = useState<AppSettings>(normalizeConnectionSettings(settings));
+  const [form, setForm] = useState<AppSettings>(
+    normalizeConnectionSettings(settings),
+  );
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
@@ -123,7 +125,6 @@ export default function SettingsPanel({
     window.addEventListener('keydown', handleEscape);
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, isSavingConnection, onClose, isEmbedded]);
-
 
   if (!isVisible) {
     return null;
@@ -169,10 +170,7 @@ export default function SettingsPanel({
     }
   };
 
-  const renderProviderToggle = (
-    provider: LLMProvider,
-    label: string,
-  ) => (
+  const renderProviderToggle = (provider: LLMProvider, label: string) => (
     <label className={styles.radioLabel}>
       <input
         type="radio"
@@ -192,7 +190,9 @@ export default function SettingsPanel({
   );
 
   const panelContent = (
-    <div className={`${styles.panel} ${isEmbedded ? styles.embeddedPanel : ''}`}>
+    <div
+      className={`${styles.panel} ${isEmbedded ? styles.embeddedPanel : ''}`}
+    >
       <div className={styles.header}>
         <div>
           <h2>Settings</h2>
@@ -222,6 +222,14 @@ export default function SettingsPanel({
         <aside className={styles.sidebar}>
           <button
             type="button"
+            className={`${styles.tabButton} ${activeTab === 'account' ? styles.tabButtonActive : ''}`}
+            onClick={() => setActiveTab('account')}
+          >
+            <span className={styles.tabLabel}>Account</span>
+            <span className={styles.tabDescription}>Sign-in and credits</span>
+          </button>
+          <button
+            type="button"
             className={`${styles.tabButton} ${activeTab === 'appearance' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('appearance')}
           >
@@ -237,18 +245,22 @@ export default function SettingsPanel({
           >
             <span className={styles.tabLabel}>Connection</span>
             <span className={styles.tabDescription}>
-              Local backend configuration
+              BYO provider configuration
             </span>
           </button>
         </aside>
 
         <form className={styles.form} onSubmit={handleSubmit}>
           <section className={styles.section}>
-            {activeTab === 'appearance' ? (
+            {activeTab === 'account' ? (
+              <AccountTab />
+            ) : activeTab === 'appearance' ? (
               <>
                 <div className={styles.sectionHeader}>
                   <h3>Appearance</h3>
-                  <p>Choose a workspace palette tuned for long editing sessions.</p>
+                  <p>
+                    Choose a workspace palette tuned for long editing sessions.
+                  </p>
                 </div>
                 <div className={styles.themeGrid}>
                   {DESKTOP_THEMES.map((theme) => {
@@ -285,136 +297,136 @@ export default function SettingsPanel({
               <>
                 <div className={styles.sectionHeader}>
                   <h3>Connection</h3>
-                  <p>Local backend and provider configuration.</p>
+                  <p>Provider configuration used when you are signed out.</p>
                 </div>
 
                 <div className={styles.localSettings}>
-                    <label className={styles.label}>
-                      ComfyUI URL
-                      <input
-                        type="url"
-                        className={styles.input}
-                        value={form.comfyuiUrl}
-                        onChange={(event) =>
-                          handleInput('comfyuiUrl', event.target.value)
-                        }
-                        placeholder="http://localhost:8000"
-                      />
-                    </label>
+                  <label className={styles.label}>
+                    ComfyUI URL
+                    <input
+                      type="url"
+                      className={styles.input}
+                      value={form.comfyuiUrl}
+                      onChange={(event) =>
+                        handleInput('comfyuiUrl', event.target.value)
+                      }
+                      placeholder="http://localhost:8000"
+                    />
+                  </label>
 
-                    <label className={styles.label}>
-                      Comfy Cloud API Key
-                      <input
-                        type="password"
-                        className={styles.input}
-                        value={form.comfyCloudApiKey}
-                        onChange={(event) =>
-                          handleInput('comfyCloudApiKey', event.target.value)
-                        }
-                        placeholder="Only used for https://cloud.comfy.org"
-                      />
-                    </label>
-                    <p className={styles.infoText}>
-                      This key is only used when the ComfyUI URL points to
-                      `https://cloud.comfy.org`. Local and self-hosted ComfyUI
-                      connections ignore it.
-                    </p>
+                  <label className={styles.label}>
+                    Comfy Cloud API Key
+                    <input
+                      type="password"
+                      className={styles.input}
+                      value={form.comfyCloudApiKey}
+                      onChange={(event) =>
+                        handleInput('comfyCloudApiKey', event.target.value)
+                      }
+                      placeholder="Only used for https://cloud.comfy.org"
+                    />
+                  </label>
+                  <p className={styles.infoText}>
+                    This key is only used when the ComfyUI URL points to
+                    `https://cloud.comfy.org`. Local and self-hosted ComfyUI
+                    connections ignore it.
+                  </p>
 
-                    <fieldset className={styles.fieldset}>
-                      <legend>LLM Provider</legend>
-                      <div className={styles.radios}>
-                        {renderProviderToggle('gemini', 'Gemini')}
-                        {renderProviderToggle('openai', 'OpenAI-Compatible')}
-                      </div>
-                    </fieldset>
+                  <fieldset className={styles.fieldset}>
+                    <legend>LLM Provider</legend>
+                    <div className={styles.radios}>
+                      {renderProviderToggle('gemini', 'Gemini')}
+                      {renderProviderToggle('openai', 'OpenAI-Compatible')}
+                    </div>
+                  </fieldset>
 
-                    {form.llmProvider === 'gemini' && (
-                      <>
-                        <label className={styles.label}>
-                          Google API Key
-                          <input
-                            type="password"
-                            className={styles.input}
-                            value={form.googleApiKey}
-                            onChange={(event) =>
-                              handleInput('googleApiKey', event.target.value)
+                  {form.llmProvider === 'gemini' && (
+                    <>
+                      <label className={styles.label}>
+                        Google API Key
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={form.googleApiKey}
+                          onChange={(event) =>
+                            handleInput('googleApiKey', event.target.value)
+                          }
+                          placeholder="AIza..."
+                        />
+                      </label>
+
+                      <label className={styles.label}>
+                        Gemini Model ID
+                        <input
+                          type="text"
+                          className={styles.input}
+                          value={form.geminiModel}
+                          onChange={(event) =>
+                            handleInput('geminiModel', event.target.value)
+                          }
+                          placeholder="gemini-2.5-flash"
+                        />
+                      </label>
+                    </>
+                  )}
+
+                  {form.llmProvider === 'openai' && (
+                    <>
+                      <div className={styles.label}>
+                        <div className={styles.labelRow}>
+                          <span>Base URL</span>
+                          <button
+                            type="button"
+                            className={styles.inlineButton}
+                            onClick={() =>
+                              handleInput(
+                                'openaiBaseUrl',
+                                emptySettings.openaiBaseUrl,
+                              )
                             }
-                            placeholder="AIza..."
-                          />
-                        </label>
-
-                        <label className={styles.label}>
-                          Gemini Model ID
-                          <input
-                            type="text"
-                            className={styles.input}
-                            value={form.geminiModel}
-                            onChange={(event) =>
-                              handleInput('geminiModel', event.target.value)
-                            }
-                            placeholder="gemini-2.5-flash"
-                          />
-                        </label>
-                      </>
-                    )}
-
-                    {form.llmProvider === 'openai' && (
-                      <>
-                        <div className={styles.label}>
-                          <div className={styles.labelRow}>
-                            <span>Base URL</span>
-                            <button
-                              type="button"
-                              className={styles.inlineButton}
-                              onClick={() =>
-                                handleInput(
-                                  'openaiBaseUrl',
-                                  emptySettings.openaiBaseUrl,
-                                )
-                              }
-                            >
-                              Use default OpenAI URL
-                            </button>
-                          </div>
-                          <input
-                            type="url"
-                            className={styles.input}
-                            value={form.openaiBaseUrl}
-                            onChange={(event) =>
-                              handleInput('openaiBaseUrl', event.target.value)
-                            }
-                            placeholder="https://api.openai.com/v1"
-                            aria-label="Base URL"
-                          />
+                          >
+                            Use default OpenAI URL
+                          </button>
                         </div>
+                        <input
+                          type="url"
+                          className={styles.input}
+                          value={form.openaiBaseUrl}
+                          onChange={(event) =>
+                            handleInput('openaiBaseUrl', event.target.value)
+                          }
+                          placeholder="https://api.openai.com/v1"
+                          aria-label="Base URL"
+                        />
+                      </div>
 
-                        <label className={styles.label}>
-                          Model ID
-                          <input
-                            type="text"
-                            className={styles.input}
-                            value={form.openaiModel}
-                            onChange={(event) =>
-                              handleInput('openaiModel', event.target.value)
-                            }
-                            placeholder="gpt-4o"
-                          />
-                        </label>
+                      <label className={styles.label}>
+                        Model ID
+                        <input
+                          type="text"
+                          className={styles.input}
+                          value={form.openaiModel}
+                          onChange={(event) =>
+                            handleInput('openaiModel', event.target.value)
+                          }
+                          placeholder="gpt-4o"
+                        />
+                      </label>
 
-                        <label className={styles.label}>
-                          API Key
-                          <input
-                            type="password"
-                            className={styles.input}
-                            value={form.openaiApiKey}
-                            onChange={(event) =>
-                              handleInput('openaiApiKey', event.target.value)
-                            }
-                            placeholder="sk-..."
-                          />
-                        </label>
-                      </>
-                    )}
+                      <label className={styles.label}>
+                        API Key
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={form.openaiApiKey}
+                          onChange={(event) =>
+                            handleInput('openaiApiKey', event.target.value)
+                          }
+                          placeholder="sk-..."
+                        />
+                      </label>
+                    </>
+                  )}
                 </div>
 
                 {error && <div className={styles.error}>{error}</div>}

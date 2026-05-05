@@ -11,6 +11,7 @@ import './utils/bootstrapRemotionRuntime';
  */
 import path from 'path';
 import fs from 'fs/promises';
+import { randomUUID } from 'crypto';
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron';
 import log from 'electron-log';
 import { autoUpdater } from 'electron-updater';
@@ -35,11 +36,14 @@ import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
 import { KshanaCoreManager } from './kshanaCoreManager';
 import { registerKshanaIpcBridge } from './kshanaIpcBridge';
+import { parseDesktopAuthToken } from './desktopAuthToken';
 import {
-  AppSettings,
-  getSettings,
-  updateSettings,
-} from './settingsManager';
+  clearAccount,
+  getAccount,
+  refreshBalance,
+  setAccount,
+} from './accountManager';
+import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import fileSystemManager from './fileSystemManager';
 import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
@@ -89,12 +93,82 @@ if (app.isPackaged) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let pendingDesktopAuthState: string | null = null;
+let kshanaCoreManager: KshanaCoreManager;
 let appUpdateStatus: AppUpdateStatus = {
   phase: 'idle',
   message: 'No update check yet',
   manualCheckAvailable: app.isPackaged && process.platform !== 'linux',
   checkedAt: Date.now(),
 };
+
+interface RuntimeConfig {
+  /** Kshana website (Next.js): /auth/desktop, proxy routes, billing APIs. */
+  kshanaWebsiteUrl?: string;
+}
+
+async function readRuntimeConfig(): Promise<RuntimeConfig | null> {
+  const candidatePaths = app.isPackaged
+    ? [path.join(process.resourcesPath, 'assets', 'runtime-config.json')]
+    : [path.join(__dirname, '../../assets/runtime-config.json')];
+
+  const configs = await Promise.all(
+    candidatePaths.map(async (configPath) => {
+      try {
+        const raw = await fs.readFile(configPath, 'utf-8');
+        const parsed = JSON.parse(raw) as RuntimeConfig;
+        if (parsed && typeof parsed === 'object') {
+          return parsed;
+        }
+      } catch {
+        /* missing or invalid */
+      }
+      return null;
+    }),
+  );
+  return (
+    configs.find((config): config is RuntimeConfig => Boolean(config)) ?? null
+  );
+}
+
+function normalizeServerUrl(value?: string): string | undefined {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+
+  try {
+    const parsed = new URL(trimmed);
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      return undefined;
+    }
+    return parsed.toString().replace(/\/$/, '');
+  } catch {
+    return undefined;
+  }
+}
+
+async function resolveKshanaWebsiteUrl(): Promise<string> {
+  const fromEnv = normalizeServerUrl(process.env.KSHANA_CLOUD_URL);
+  if (fromEnv) return fromEnv;
+  const parsed = await readRuntimeConfig();
+  const fromFile = normalizeServerUrl(parsed?.kshanaWebsiteUrl);
+  if (fromFile) return fromFile;
+  return 'http://localhost:3000';
+}
+
+async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
+  const websiteBase = await resolveKshanaWebsiteUrl();
+  return `${websiteBase}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+}
+
+async function getCloudAuthRuntime() {
+  const account = getAccount();
+  if (!account?.token) return null;
+  return {
+    websiteUrl: await resolveKshanaWebsiteUrl(),
+    desktopToken: account.token,
+  };
+}
 
 type GuardedFileOp =
   | 'project:write-file'
@@ -237,6 +311,16 @@ ipcMain.handle(
   'settings:update',
   async (_event, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const updated = updateSettings(patch);
+    try {
+      await kshanaCoreManager.restart(updated, await getCloudAuthRuntime());
+      if (mainWindow) {
+        registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+      }
+    } catch (error) {
+      log.error(
+        `Failed to restart embedded kshana after settings update: ${(error as Error).message}`,
+      );
+    }
     if (mainWindow) {
       mainWindow.webContents.send('settings:updated', updated);
     }
@@ -396,16 +480,16 @@ ipcMain.handle(
     const now = Date.now();
     const ttlMs = 1000;
 
-    const cached = (globalThis as any).__kshanaReadTreeCache?.get?.(cacheKey) as
-      | { value: unknown; expiresAt: number }
-      | undefined;
+    const cached = (globalThis as any).__kshanaReadTreeCache?.get?.(
+      cacheKey,
+    ) as { value: unknown; expiresAt: number } | undefined;
     if (cached && cached.expiresAt > now) {
       return cached.value;
     }
 
-    const inflightMap: Map<string, Promise<unknown>> =
-      (globalThis as any).__kshanaReadTreeInflight ??
-      ((globalThis as any).__kshanaReadTreeInflight = new Map());
+    const inflightMap: Map<string, Promise<unknown>> = (globalThis as any)
+      .__kshanaReadTreeInflight ??
+    ((globalThis as any).__kshanaReadTreeInflight = new Map());
     const cacheMap: Map<string, { value: unknown; expiresAt: number }> =
       (globalThis as any).__kshanaReadTreeCache ??
       ((globalThis as any).__kshanaReadTreeCache = new Map());
@@ -1180,12 +1264,11 @@ ipcMain.handle(
     relativePath: string,
     meta?: FileOpMeta,
   ): Promise<string | null> => {
-    const absoluteBase = path.isAbsolute(basePath) ? path.resolve(basePath) : null;
+    const absoluteBase = path.isAbsolute(basePath)
+      ? path.resolve(basePath)
+      : null;
     let activeProjectRoot: string | null;
-    if (
-      meta?.source === 'renderer' &&
-      meta?.intent === 'new_project_parent'
-    ) {
+    if (meta?.source === 'renderer' && meta?.intent === 'new_project_parent') {
       if (!absoluteBase) {
         throw createIpcFileOpError(
           'INVALID_FILE_PATH',
@@ -1420,7 +1503,12 @@ ipcMain.handle(
     overlayItems?: ExportOverlayItem[],
     textOverlayCues?: ExportTextOverlayCue[],
     promptOverlayCues?: ExportPromptOverlayCue[],
-  ): Promise<{ success: boolean; outputPath?: string; duration?: number; error?: string }> => {
+  ): Promise<{
+    success: boolean;
+    outputPath?: string;
+    duration?: number;
+    error?: string;
+  }> => {
     console.log('[Export:CapCut] Starting CapCut export...');
     try {
       const projectName =
@@ -1949,7 +2037,12 @@ ipcMain.handle(
     textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
     exportOptions?: ExportRenderOptions,
-  ): Promise<{ success: boolean; outputPath?: string; duration?: number; error?: string }> => {
+  ): Promise<{
+    success: boolean;
+    outputPath?: string;
+    duration?: number;
+    error?: string;
+  }> => {
     console.log('[VideoComposition] Starting video composition...');
     console.log('[VideoComposition] Timeline items:', timelineItems.length);
 
@@ -2703,7 +2796,10 @@ ipcMain.handle(
       return {
         success: true,
         outputPath: finalOutputPath,
-        duration: timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0),
+        duration: timelineItems.reduce(
+          (sum, item) => sum + (item.duration || 0),
+          0,
+        ),
       };
     } catch (error) {
       console.error('[VideoComposition] Error during composition:', error);
@@ -3186,7 +3282,7 @@ app.on('window-all-closed', () => {
 // Embedded kshana-ink runtime — replaces the spawn+WS local backend.
 // Renderer talks to this via window.kshana (registerKshanaIpcBridge
 // below registers the ipcMain handlers + sets up event forwarding).
-const kshanaCoreManager = new KshanaCoreManager();
+kshanaCoreManager = new KshanaCoreManager();
 
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
@@ -3205,12 +3301,12 @@ const bootstrapBackend = async () => {
     // dir). Must be set BEFORE kshanaCoreManager.start, which calls
     // loadDevEnv → getProjectsDir() to decide where to chdir.
     if (app.isPackaged) {
-      process.env['KSHANA_PACKAGED'] = '1';
+      process.env.KSHANA_PACKAGED = '1';
     }
     // Embedded kshana-ink — the only backend path. Starts synchronously
     // (in-process), so the IPC bridge can register immediately and the
     // renderer's window.kshana.* calls can land.
-    await kshanaCoreManager.start(settings);
+    await kshanaCoreManager.start(settings, await getCloudAuthRuntime());
     if (mainWindow) {
       registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
     }
@@ -3227,6 +3323,119 @@ const startBackendInBackground = () => {
   const backendPromise = bootstrapBackend();
   backendPromise.catch(handleBackendStartup);
 };
+
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const deepLink = argv.find((arg) => arg.startsWith('kshana://'));
+    if (deepLink) {
+      handleDeepLink(deepLink);
+    }
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
+
+if (!app.isDefaultProtocolClient('kshana')) {
+  app.setAsDefaultProtocolClient('kshana');
+}
+
+async function restartEmbeddedAfterAccountChange(
+  reason: string,
+): Promise<void> {
+  try {
+    await kshanaCoreManager.restart(getSettings(), await getCloudAuthRuntime());
+    if (mainWindow) {
+      registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+    }
+  } catch (error) {
+    log.error(
+      `[Account] Embedded kshana restart failed after ${reason}: ${(error as Error).message}`,
+    );
+  }
+}
+
+async function handleDeepLink(url: string): Promise<void> {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname !== 'auth') return;
+
+    const token = parsed.searchParams.get('token');
+    const state = parsed.searchParams.get('state');
+    if (!token) return;
+    if (!state || state !== pendingDesktopAuthState) {
+      log.warn('[Account] Rejected desktop sign-in with invalid state');
+      return;
+    }
+
+    const payload = parseDesktopAuthToken(token);
+    if (!payload) {
+      log.warn('[Account] Rejected malformed or expired desktop token');
+      return;
+    }
+
+    pendingDesktopAuthState = null;
+    setAccount({
+      userId: payload.sub,
+      email: payload.email,
+      name: payload.name ?? null,
+      credits: 0,
+      token,
+    });
+
+    await refreshBalance(await resolveKshanaWebsiteUrl());
+    await restartEmbeddedAfterAccountChange('sign-in');
+    mainWindow?.webContents.send('account:changed');
+    log.info('[Account] Desktop sign-in complete:', payload.email);
+  } catch (error) {
+    log.error('[Account] Failed to handle deep link:', error);
+  }
+}
+
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+ipcMain.handle('account:get', () => {
+  return getAccount();
+});
+
+ipcMain.handle('account:sign-in', async () => {
+  const state = randomUUID();
+  pendingDesktopAuthState = state;
+  const url = await resolveKshanaWebsitePath(
+    `/auth/desktop?state=${encodeURIComponent(state)}`,
+  );
+  await shell.openExternal(url);
+  return { opened: true };
+});
+
+ipcMain.handle('account:sign-out', async () => {
+  clearAccount();
+  await restartEmbeddedAfterAccountChange('sign-out');
+  mainWindow?.webContents.send('account:changed');
+  return { success: true };
+});
+
+ipcMain.handle('account:refresh-balance', async () => {
+  const balance = await refreshBalance(await resolveKshanaWebsiteUrl());
+  mainWindow?.webContents.send('account:changed');
+  return { balance };
+});
+
+ipcMain.handle('account:get-billing-url', async () => {
+  return resolveKshanaWebsitePath('/billing');
+});
+
+ipcMain.handle('account:open-billing', async () => {
+  const url = await resolveKshanaWebsitePath('/billing');
+  await shell.openExternal(url);
+  return { opened: true, url };
+});
 
 app
   .whenReady()

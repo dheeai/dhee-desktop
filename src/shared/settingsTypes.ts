@@ -7,6 +7,20 @@ export type ThemeId =
   | 'paper-light'
   | 'void-cut';
 
+export interface AccountInfo {
+  /** User ID from Kshana Cloud. */
+  userId: string;
+  email: string;
+  name?: string | null;
+  /** Cached credit balance. Refresh through account IPC before display. */
+  credits: number;
+  planId?: string;
+  planLabel?: string;
+  subscriptionStatus?: string;
+  /** Signed desktop JWT issued by the website. */
+  token: string;
+}
+
 export interface AppSettings {
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;

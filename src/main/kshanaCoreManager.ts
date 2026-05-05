@@ -28,8 +28,15 @@ import type { AppSettings } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/kshanaIpc';
 import { getComfyUiUrl, isComfyCloudUrl, withV1Suffix } from './utils/comfyUrl';
 
+export interface KshanaCloudAuthRuntime {
+  websiteUrl: string;
+  desktopToken: string;
+}
+
 type ManagerModule = {
-  ConversationManager: new (config: ConversationManagerConfig) => ConversationManager;
+  ConversationManager: new (
+    config: ConversationManagerConfig,
+  ) => ConversationManager;
   /**
    * Optional in tests where the loader injects a stub. In production
    * the real bundle always exports it.
@@ -60,7 +67,9 @@ type ManagerModule = {
  * exported `__setManagerLoader` to inject the mock module.
  */
 let loadManagerModule: () => Promise<ManagerModule> = () =>
-  import(/* webpackIgnore: true */ 'kshana-core/manager') as Promise<ManagerModule>;
+  import(
+    /* webpackIgnore: true */ 'kshana-core/manager'
+  ) as Promise<ManagerModule>;
 
 /** Test seam — replace the loader so unit tests can supply a fake. */
 export function __setManagerLoader(loader: () => Promise<ManagerModule>): void {
@@ -117,7 +126,28 @@ export interface RunResult {
  *
  * Exported for testing.
  */
-export function applyEnvFromSettings(settings: AppSettings): void {
+function joinUrl(base: string, pathname: string): string {
+  return `${base.replace(/\/$/, '')}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
+}
+
+function clearCloudProxyEnv(): void {
+  const wasUsingDesktopCloudProxy = process.env.KSHANA_CLOUD === 'true';
+  delete process.env.KSHANA_CLOUD;
+  delete process.env.KSHANA_CLOUD_URL;
+  delete process.env.LLM_CONTEXT_TOKENS;
+  if (wasUsingDesktopCloudProxy) {
+    delete process.env.OPENAI_API_KEY;
+    delete process.env.OPENAI_BASE_URL;
+    delete process.env.OPENAI_MODEL;
+    delete process.env.COMFY_CLOUD_URL;
+    delete process.env.COMFY_CLOUD_API_KEY;
+  }
+}
+
+export function applyEnvFromSettings(
+  settings: AppSettings,
+  cloudAuth?: KshanaCloudAuthRuntime | null,
+): void {
   // Set env vars from settings, but only when the setting has a
   // non-empty value. Empty strings are treated as "use whatever is
   // already in process.env" — so dev users with kshana-ink/.env
@@ -129,7 +159,28 @@ export function applyEnvFromSettings(settings: AppSettings): void {
     if (trimmed) process.env[key] = trimmed;
   };
 
+  clearCloudProxyEnv();
+
+  const cloudToken = cloudAuth?.desktopToken.trim();
+  const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
+
+  if (cloudToken && cloudWebsiteUrl) {
+    process.env.KSHANA_CLOUD = 'true';
+    process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl;
+    process.env.LLM_PROVIDER = 'openai';
+    process.env.LLM_CONTEXT_TOKENS = '160000';
+    process.env.OPENAI_API_KEY = cloudToken;
+    process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl, '/openai/api/v1');
+    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash';
+    process.env.COMFY_MODE = 'cloud';
+    process.env.COMFY_CLOUD_URL = joinUrl(cloudWebsiteUrl, '/comfy/api');
+    process.env.COMFY_CLOUD_API_KEY = cloudToken;
+    process.env.COMFYUI_TIMEOUT = '1800';
+    return;
+  }
+
   const comfyUiUrl = getComfyUiUrl(settings);
+  process.env.COMFYUI_TIMEOUT = String(settings.comfyuiTimeout || 1800);
   setIfPresent('COMFYUI_BASE_URL', comfyUiUrl);
 
   // Auto-derive COMFY_MODE from the URL. Without this, the
@@ -140,30 +191,26 @@ export function applyEnvFromSettings(settings: AppSettings): void {
   // skipped and image generation hits the wrong endpoint
   // shape. See ComfyUIClient.getComfyConfig + WorkflowModeRegistry.
   if (isComfyCloudUrl(comfyUiUrl)) {
-    process.env['COMFY_MODE'] = 'cloud';
+    process.env.COMFY_MODE = 'cloud';
     if (settings.comfyCloudApiKey.trim()) {
-      process.env['COMFY_CLOUD_API_KEY'] = settings.comfyCloudApiKey.trim();
+      process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
     }
     // Tell the cloud client where to actually post — it reads
     // COMFY_CLOUD_URL, not COMFYUI_BASE_URL, in cloud mode.
     setIfPresent('COMFY_CLOUD_URL', comfyUiUrl);
   } else {
-    process.env['COMFY_MODE'] = 'local';
+    process.env.COMFY_MODE = 'local';
   }
-  // Note: we no longer `delete COMFY_CLOUD_API_KEY` when the user is
-  // not on a cloud URL — that previously clobbered `.env`-supplied
-  // keys for dev users on local ComfyUI.
-
   setIfPresent('KSHANA_PROJECT_DIR', settings.projectDir);
 
   switch (settings.llmProvider) {
     case 'gemini':
-      process.env['LLM_PROVIDER'] = 'gemini';
+      process.env.LLM_PROVIDER = 'gemini';
       setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
       setIfPresent('GEMINI_MODEL', settings.geminiModel || 'gemini-2.5-flash');
       break;
     case 'openai':
-      process.env['LLM_PROVIDER'] = 'openai';
+      process.env.LLM_PROVIDER = 'openai';
       setIfPresent('OPENAI_API_KEY', settings.openaiApiKey);
       setIfPresent(
         'OPENAI_BASE_URL',
@@ -172,7 +219,7 @@ export function applyEnvFromSettings(settings: AppSettings): void {
       setIfPresent('OPENAI_MODEL', settings.openaiModel || 'gpt-4o');
       break;
     case 'openrouter':
-      process.env['LLM_PROVIDER'] = 'openrouter';
+      process.env.LLM_PROVIDER = 'openrouter';
       setIfPresent('OPENROUTER_API_KEY', settings.openRouterApiKey);
       setIfPresent(
         'OPENROUTER_MODEL',
@@ -181,7 +228,7 @@ export function applyEnvFromSettings(settings: AppSettings): void {
       break;
     case 'lmstudio':
     default:
-      process.env['LLM_PROVIDER'] = 'lmstudio';
+      process.env.LLM_PROVIDER = 'lmstudio';
       setIfPresent(
         'LMSTUDIO_BASE_URL',
         withV1Suffix(settings.lmStudioUrl || 'http://127.0.0.1:1234'),
@@ -204,7 +251,21 @@ export function applyEnvFromSettings(settings: AppSettings): void {
  * model so the manager doesn't need to read env vars at construction
  * time for the active provider.
  */
-function buildLLMConfig(settings: AppSettings): LLMClientConfig {
+function buildLLMConfig(
+  settings: AppSettings,
+  cloudAuth?: KshanaCloudAuthRuntime | null,
+): LLMClientConfig {
+  const cloudToken = cloudAuth?.desktopToken.trim();
+  const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
+
+  if (cloudToken && cloudWebsiteUrl) {
+    return {
+      apiKey: cloudToken,
+      baseUrl: joinUrl(cloudWebsiteUrl, '/openai/api/v1'),
+      model: 'deepseek/deepseek-v4-flash',
+    };
+  }
+
   switch (settings.llmProvider) {
     case 'gemini':
       return {
@@ -214,8 +275,7 @@ function buildLLMConfig(settings: AppSettings): LLMClientConfig {
     case 'openai':
       return {
         apiKey: settings.openaiApiKey.trim(),
-        baseUrl:
-          settings.openaiBaseUrl.trim() || 'https://api.openai.com/v1',
+        baseUrl: settings.openaiBaseUrl.trim() || 'https://api.openai.com/v1',
         model: settings.openaiModel.trim() || 'gpt-4o',
       };
     case 'openrouter':
@@ -254,32 +314,85 @@ export function buildEventsAdapter(
     onProgress: (sessionId, percentage, message) =>
       emit('progress', sessionId, { percentage, message }),
     onToolCall: (sessionId, toolCallId, toolName, args, agentName) =>
-      emit('tool_call', sessionId, { toolCallId, toolName, arguments: args, agentName, status: 'in_progress' }),
-    onToolResult: (sessionId, toolCallId, toolName, result, isError, agentName) =>
-      emit('tool_result', sessionId, { toolCallId, toolName, result, isError, agentName }),
+      emit('tool_call', sessionId, {
+        toolCallId,
+        toolName,
+        arguments: args,
+        agentName,
+        status: 'in_progress',
+      }),
+    onToolResult: (
+      sessionId,
+      toolCallId,
+      toolName,
+      result,
+      isError,
+      agentName,
+    ) =>
+      emit('tool_result', sessionId, {
+        toolCallId,
+        toolName,
+        result,
+        isError,
+        agentName,
+      }),
     onTodoUpdate: (sessionId, todos) =>
       emit('todo_updated', sessionId, { todos }),
     onAgentText: (sessionId, text, isFinal) =>
-      emit('stream_chunk', sessionId, { content: text, done: isFinal ?? false }),
-    onQuestion: (sessionId, question, isConfirmation, options, autoApproveTimeoutMs) =>
-      emit('agent_question', sessionId, { question, isConfirmation, options, autoApproveTimeoutMs }),
+      emit('stream_chunk', sessionId, {
+        content: text,
+        done: isFinal ?? false,
+      }),
+    onQuestion: (
+      sessionId,
+      question,
+      isConfirmation,
+      options,
+      autoApproveTimeoutMs,
+    ) =>
+      emit('agent_question', sessionId, {
+        question,
+        isConfirmation,
+        options,
+        autoApproveTimeoutMs,
+      }),
     onAgentStatus: (sessionId, status, agentName) =>
       emit('status', sessionId, { status, agentName }),
     onStreamingText: (sessionId, chunk, done) =>
       emit('stream_chunk', sessionId, { content: chunk, done }),
-    onToolStreaming: (sessionId, toolCallId, chunk, done, agentName, toolName, reset) =>
-      emit('stream_chunk', sessionId, { content: chunk, done, toolCallId, agentName, toolName, reset }),
+    onToolStreaming: (
+      sessionId,
+      toolCallId,
+      chunk,
+      done,
+      agentName,
+      toolName,
+      reset,
+    ) =>
+      emit('stream_chunk', sessionId, {
+        content: chunk,
+        done,
+        toolCallId,
+        agentName,
+        toolName,
+        reset,
+      }),
     onContextUsage: (sessionId, data) => emit('context_usage', sessionId, data),
-    onPhaseTransition: (sessionId, data) => emit('phase_transition', sessionId, data),
-    onTimelineUpdate: (sessionId, data) => emit('timeline_update', sessionId, data),
+    onPhaseTransition: (sessionId, data) =>
+      emit('phase_transition', sessionId, data),
+    onTimelineUpdate: (sessionId, data) =>
+      emit('timeline_update', sessionId, data),
     onNotification: (sessionId, data) => emit('notification', sessionId, data),
-    onProjectFocused: (sessionId, data) => emit('project_focused', sessionId, data),
-    onMediaGenerated: (sessionId, data) => emit('media_generated', sessionId, data),
+    onProjectFocused: (sessionId, data) =>
+      emit('project_focused', sessionId, data),
+    onMediaGenerated: (sessionId, data) =>
+      emit('media_generated', sessionId, data),
   };
 }
 
 export class KshanaCoreManager {
   private cm: ConversationManager | null = null;
+
   private managerModule: ManagerModule | null = null;
 
   /**
@@ -291,7 +404,10 @@ export class KshanaCoreManager {
    * import (CJS Electron main → ESM kshana-ink). Subsequent calls
    * reuse the cached module reference.
    */
-  async start(settings: AppSettings): Promise<void> {
+  async start(
+    settings: AppSettings,
+    cloudAuth?: KshanaCloudAuthRuntime | null,
+  ): Promise<void> {
     if (!this.managerModule) {
       this.managerModule = await loadManagerModule();
     }
@@ -316,11 +432,11 @@ export class KshanaCoreManager {
     // `process.cwd()` directly for path normalization — chdir-ing
     // globally would silently break those.
     if (devEnv?.projectsDir) {
-      process.env['KSHANA_PROJECTS_DIR'] = devEnv.projectsDir;
+      process.env.KSHANA_PROJECTS_DIR = devEnv.projectsDir;
     }
-    applyEnvFromSettings(settings);
+    applyEnvFromSettings(settings, cloudAuth);
     const config: ConversationManagerConfig = {
-      llmConfig: buildLLMConfig(settings),
+      llmConfig: buildLLMConfig(settings, cloudAuth),
     };
     this.cm = new this.managerModule.ConversationManager(config);
   }
@@ -334,9 +450,12 @@ export class KshanaCoreManager {
   }
 
   /** Replace the manager (used when settings change). */
-  async restart(settings: AppSettings): Promise<void> {
+  async restart(
+    settings: AppSettings,
+    cloudAuth?: KshanaCloudAuthRuntime | null,
+  ): Promise<void> {
     this.stop();
-    await this.start(settings);
+    await this.start(settings, cloudAuth);
   }
 
   /** Whether `start()` has run and the manager is alive. */
@@ -376,8 +495,11 @@ export class KshanaCoreManager {
     // Pass through whatever ConversationManager expects. The actual
     // shape may differ per kshana-ink version; we forward the opts
     // object as-is and let the manager validate.
-    await (cm as unknown as { configureSessionForProject: (...a: unknown[]) => Promise<void> })
-      .configureSessionForProject(sessionId, opts);
+    await (
+      cm as unknown as {
+        configureSessionForProject: (...a: unknown[]) => Promise<void>;
+      }
+    ).configureSessionForProject(sessionId, opts);
   }
 
   /**
@@ -397,18 +519,23 @@ export class KshanaCoreManager {
     eventCb: KshanaCoreEventCallback,
   ): Promise<RunResult> {
     if (!this.cm) {
-      return { status: 'failed', error: 'KshanaCoreManager not started — call start() first.' };
+      return {
+        status: 'failed',
+        error: 'KshanaCoreManager not started — call start() first.',
+      };
     }
     const events = buildEventsAdapter(eventCb);
     try {
-      const result = await (this.cm as unknown as {
-        runTask: (
-          sessionId: string,
-          task: string,
-          events?: ConversationEvents,
-          opts?: RunTaskOpts,
-        ) => Promise<{ status: string; output?: string; error?: string }>;
-      }).runTask(sessionId, task, events, opts);
+      const result = await (
+        this.cm as unknown as {
+          runTask: (
+            sessionId: string,
+            task: string,
+            events?: ConversationEvents,
+            opts?: RunTaskOpts,
+          ) => Promise<{ status: string; output?: string; error?: string }>;
+        }
+      ).runTask(sessionId, task, events, opts);
       return {
         status: result.status as RunResult['status'],
         ...(result.output ? { output: result.output } : {}),
@@ -425,7 +552,9 @@ export class KshanaCoreManager {
   /** Mirror of ConversationManager.cancelTask — returns false if no session. */
   cancelTask(sessionId: string): boolean {
     if (!this.cm) return false;
-    return (this.cm as unknown as { cancelTask: (s: string) => boolean }).cancelTask(sessionId);
+    return (
+      this.cm as unknown as { cancelTask: (s: string) => boolean }
+    ).cancelTask(sessionId);
   }
 
   /**
@@ -483,25 +612,49 @@ export class KshanaCoreManager {
     sessionId: string,
     nodeId: string,
     opts?: RedoNodeOpts,
-  ): Promise<{ ok: boolean; nodeId?: string; editedPrompt?: string; error?: string }> {
+  ): Promise<{
+    ok: boolean;
+    nodeId?: string;
+    editedPrompt?: string;
+    error?: string;
+  }> {
     if (!this.cm) return { ok: false, error: 'KshanaCoreManager not started' };
-    return (this.cm as unknown as {
-      redoNode: (s: string, n: string, o?: RedoNodeOpts) => Promise<{ ok: boolean; nodeId?: string; editedPrompt?: string; error?: string }>;
-    }).redoNode(sessionId, nodeId, opts);
+    return (
+      this.cm as unknown as {
+        redoNode: (
+          s: string,
+          n: string,
+          o?: RedoNodeOpts,
+        ) => Promise<{
+          ok: boolean;
+          nodeId?: string;
+          editedPrompt?: string;
+          error?: string;
+        }>;
+      }
+    ).redoNode(sessionId, nodeId, opts);
   }
 
   setAutonomousMode(sessionId: string, enabled: boolean): void {
     if (!this.cm) return;
-    (this.cm as unknown as { setAutonomousMode: (s: string, e: boolean) => void }).setAutonomousMode(sessionId, enabled);
+    (
+      this.cm as unknown as {
+        setAutonomousMode: (s: string, e: boolean) => void;
+      }
+    ).setAutonomousMode(sessionId, enabled);
   }
 
-  async focusSessionProject(sessionId: string, projectName: string): Promise<OkResponse> {
+  async focusSessionProject(
+    sessionId: string,
+    projectName: string,
+  ): Promise<OkResponse> {
     if (!this.cm) return { ok: false, error: 'KshanaCoreManager not started' };
     try {
-      await (this.cm as unknown as { focusSessionProject: (s: string, p: string) => Promise<unknown> }).focusSessionProject(
-        sessionId,
-        projectName,
-      );
+      await (
+        this.cm as unknown as {
+          focusSessionProject: (s: string, p: string) => Promise<unknown>;
+        }
+      ).focusSessionProject(sessionId, projectName);
       return { ok: true };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
@@ -511,7 +664,9 @@ export class KshanaCoreManager {
 
   deleteSession(sessionId: string): void {
     if (!this.cm) return;
-    (this.cm as unknown as { deleteSession: (s: string) => void }).deleteSession(sessionId);
+    (
+      this.cm as unknown as { deleteSession: (s: string) => void }
+    ).deleteSession(sessionId);
   }
 
   private requireStarted(): ConversationManager {

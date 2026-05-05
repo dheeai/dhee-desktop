@@ -1,7 +1,7 @@
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import type { AppSettings } from '../shared/settingsTypes';
+import type { AccountInfo, AppSettings } from '../shared/settingsTypes';
 import type {
   FileNode,
   RecentProject,
@@ -17,6 +17,31 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
+
+// ─── kshana bridge — typed access to the embedded kshana-ink ──────────
+// Replaces the old WebSocket-based protocol (renderer → backend) with a
+// direct main-process IPC layer. Channel + payload shapes live in
+// `src/shared/kshanaIpc.ts`.
+import {
+  KSHANA_CHANNELS,
+  KSHANA_EVENT_CHANNEL,
+  type KshanaEvent,
+  type KshanaEventName,
+  type CreateSessionRequest,
+  type CreateSessionResponse,
+  type RunnerCancelResponse,
+  type RunnerStatusResponse,
+  type ConfigureProjectRequest,
+  type OkResponse,
+  type RunTaskRequest,
+  type SendResponseRequest,
+  type CancelTaskRequest,
+  type CancelTaskResponse,
+  type RedoNodeRequest,
+  type FocusProjectRequest,
+  type SetAutonomousRequest,
+  type DeleteSessionRequest,
+} from '../shared/kshanaIpc';
 
 interface WordTimestamp {
   text: string;
@@ -137,10 +162,7 @@ const projectBridge = {
   readFileGuarded(filePath: string, meta?: FileOpMeta): Promise<string> {
     return ipcRenderer.invoke('project:read-file-guarded', filePath, meta);
   },
-  readFileBufferGuarded(
-    filePath: string,
-    meta?: FileOpMeta,
-  ): Promise<string> {
+  readFileBufferGuarded(filePath: string, meta?: FileOpMeta): Promise<string> {
     return ipcRenderer.invoke(
       'project:read-file-buffer-guarded',
       filePath,
@@ -159,7 +181,9 @@ const projectBridge = {
   ): Promise<{ isFile: boolean; isDirectory: boolean; size: number }> {
     return ipcRenderer.invoke('project:stat-path', targetPath, meta);
   },
-  readAllFiles(projectDir: string): Promise<Array<{ path: string; content: string; isBinary: boolean }>> {
+  readAllFiles(
+    projectDir: string,
+  ): Promise<Array<{ path: string; content: string; isBinary: boolean }>> {
     return ipcRenderer.invoke('project:read-all-files', projectDir);
   },
   readProjectSnapshot(projectDir: string): Promise<{
@@ -175,7 +199,11 @@ const projectBridge = {
   readFileBase64(filePath: string): Promise<string | null> {
     return ipcRenderer.invoke('project:read-file-base64', filePath);
   },
-  writeFile(filePath: string, content: string, meta?: FileOpMeta): Promise<void> {
+  writeFile(
+    filePath: string,
+    content: string,
+    meta?: FileOpMeta,
+  ): Promise<void> {
     return ipcRenderer.invoke('project:write-file', filePath, content, meta);
   },
   writeFileBinary(
@@ -195,14 +223,24 @@ const projectBridge = {
     relativePath: string,
     meta?: FileOpMeta,
   ): Promise<string | null> {
-    return ipcRenderer.invoke('project:create-file', basePath, relativePath, meta);
+    return ipcRenderer.invoke(
+      'project:create-file',
+      basePath,
+      relativePath,
+      meta,
+    );
   },
   createFolder(
     basePath: string,
     relativePath: string,
     meta?: FileOpMeta,
   ): Promise<string | null> {
-    return ipcRenderer.invoke('project:create-folder', basePath, relativePath, meta);
+    return ipcRenderer.invoke(
+      'project:create-folder',
+      basePath,
+      relativePath,
+      meta,
+    );
   },
   rename(oldPath: string, newName: string): Promise<string> {
     return ipcRenderer.invoke('project:rename', oldPath, newName);
@@ -305,7 +343,12 @@ const projectBridge = {
       aspectRatio: '16:9' | '9:16';
       quality: 'standard' | 'high';
     },
-  ): Promise<{ success: boolean; outputPath?: string; duration?: number; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    outputPath?: string;
+    duration?: number;
+    error?: string;
+  }> {
     return ipcRenderer.invoke(
       'project:compose-timeline-video',
       timelineItems,
@@ -428,8 +471,10 @@ const remotionBridge = {
     }
   },
   onProgress(callback: (progress: RemotionProgress) => void) {
-    const subscription = (_event: IpcRendererEvent, progress: RemotionProgress) =>
-      callback(progress);
+    const subscription = (
+      _event: IpcRendererEvent,
+      progress: RemotionProgress,
+    ) => callback(progress);
     ipcRenderer.on('remotion:progress', subscription);
     return () => ipcRenderer.removeListener('remotion:progress', subscription);
   },
@@ -437,7 +482,8 @@ const remotionBridge = {
     const subscription = (_event: IpcRendererEvent, job: RemotionJob) =>
       callback(job);
     ipcRenderer.on('remotion:job-complete', subscription);
-    return () => ipcRenderer.removeListener('remotion:job-complete', subscription);
+    return () =>
+      ipcRenderer.removeListener('remotion:job-complete', subscription);
   },
 };
 
@@ -539,7 +585,10 @@ const updateBridge = {
     return ipcRenderer.invoke('app-update:check-now');
   },
   onStatusChange(callback: (status: AppUpdateStatus) => void) {
-    const subscription = (_event: IpcRendererEvent, status: AppUpdateStatus) => {
+    const subscription = (
+      _event: IpcRendererEvent,
+      status: AppUpdateStatus,
+    ) => {
       callback(status);
     };
     ipcRenderer.on('app-update:status', subscription);
@@ -555,30 +604,38 @@ const appBridge = {
   },
 };
 
-// ─── kshana bridge — typed access to the embedded kshana-ink ──────────
-// Replaces the old WebSocket-based protocol (renderer → backend) with a
-// direct main-process IPC layer. Channel + payload shapes live in
-// `src/shared/kshanaIpc.ts`.
-import {
-  KSHANA_CHANNELS,
-  KSHANA_EVENT_CHANNEL,
-  type KshanaEvent,
-  type KshanaEventName,
-  type CreateSessionRequest,
-  type CreateSessionResponse,
-  type RunnerCancelResponse,
-  type RunnerStatusResponse,
-  type ConfigureProjectRequest,
-  type OkResponse,
-  type RunTaskRequest,
-  type SendResponseRequest,
-  type CancelTaskRequest,
-  type CancelTaskResponse,
-  type RedoNodeRequest,
-  type FocusProjectRequest,
-  type SetAutonomousRequest,
-  type DeleteSessionRequest,
-} from '../shared/kshanaIpc';
+const accountBridge = {
+  get(): Promise<AccountInfo | null> {
+    return ipcRenderer.invoke('account:get');
+  },
+  signIn(): Promise<{ opened: boolean }> {
+    return ipcRenderer.invoke('account:sign-in');
+  },
+  signOut(): Promise<{ success: boolean }> {
+    return ipcRenderer.invoke('account:sign-out');
+  },
+  refreshBalance(): Promise<{ balance: number | null }> {
+    return ipcRenderer.invoke('account:refresh-balance');
+  },
+  getBillingUrl(): Promise<string> {
+    return ipcRenderer.invoke('account:get-billing-url');
+  },
+  openBilling(): Promise<{ opened: boolean; url: string }> {
+    return ipcRenderer.invoke('account:open-billing');
+  },
+  onChange(callback: (account: AccountInfo | null) => void) {
+    const subscription = () => {
+      ipcRenderer
+        .invoke('account:get')
+        .then(callback)
+        .catch(() => {});
+    };
+    ipcRenderer.on('account:changed', subscription);
+    return () => {
+      ipcRenderer.removeListener('account:changed', subscription);
+    };
+  },
+};
 
 const kshanaBridge = {
   createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
@@ -662,6 +719,7 @@ const electronHandler = {
   logger: loggerBridge,
   updates: updateBridge,
   app: appBridge,
+  account: accountBridge,
 };
 
 contextBridge.exposeInMainWorld('electron', electronHandler);

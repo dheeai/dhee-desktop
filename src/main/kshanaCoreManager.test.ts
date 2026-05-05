@@ -147,6 +147,14 @@ beforeEach(() => {
   mockState.lastInstance = null;
   delete process.env['LLM_PROVIDER'];
   delete process.env['OPENAI_API_KEY'];
+  delete process.env['OPENAI_BASE_URL'];
+  delete process.env['OPENAI_MODEL'];
+  delete process.env['KSHANA_CLOUD'];
+  delete process.env['KSHANA_CLOUD_URL'];
+  delete process.env['LLM_CONTEXT_TOKENS'];
+  delete process.env['COMFY_MODE'];
+  delete process.env['COMFY_CLOUD_URL'];
+  delete process.env['COMFY_CLOUD_API_KEY'];
   delete process.env['COMFYUI_BASE_URL'];
   delete process.env['KSHANA_PROJECT_DIR'];
 });
@@ -159,6 +167,33 @@ describe('KshanaCoreManager', () => {
     expect(mockState.envSnapshots).toHaveLength(1);
     expect(mockState.envSnapshots[0]?.LLM_PROVIDER).toBe('openai');
     expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
+  });
+
+  it('start() maps a signed-in desktop token to the website proxy env expected by kshana-core', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start(baseSettings, {
+      websiteUrl: 'https://desktop.example.test/',
+      desktopToken: 'desktop-jwt',
+    });
+
+    expect(process.env['KSHANA_CLOUD']).toBe('true');
+    expect(process.env['KSHANA_CLOUD_URL']).toBe('https://desktop.example.test');
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['LLM_CONTEXT_TOKENS']).toBe('160000');
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_MODEL']).toBe('deepseek/deepseek-v4-flash');
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFY_CLOUD_URL']).toBe(
+      'https://desktop.example.test/comfy/api',
+    );
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['COMFYUI_TIMEOUT']).toBe('1800');
+    expect(process.env['KSHANA_PROXY_BASE_URL']).toBeUndefined();
+    expect(process.env['KSHANA_CLOUD_TOKEN']).toBeUndefined();
+    expect(process.env['COMFY_CLOUD_AUTH_TOKEN']).toBeUndefined();
   });
 
   it('runTask forwards onToolCall events to the supplied eventCb with the original payload', async () => {
