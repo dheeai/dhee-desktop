@@ -2,121 +2,127 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AccountInfo } from '../../../shared/settingsTypes';
 import styles from './SettingsPanel.module.scss';
 
+function getAccountBridge() {
+  return (
+    window.electron as typeof window.electron & {
+      account?: typeof window.electron.account;
+    }
+  ).account;
+}
+
 export default function AccountTab() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState('');
-  const [billingUrl, setBillingUrl] = useState<string>('');
+  const [billingUrl, setBillingUrl] = useState('');
 
   const loadAccount = useCallback(async () => {
-    if (!window.electron.account) {
+    const accountBridge = getAccountBridge();
+    if (!accountBridge) {
       setAccount(null);
       setLoading(false);
       return;
     }
-    const info = await window.electron.account.get();
+    const info = await accountBridge.get();
     setAccount(info);
     setLoading(false);
   }, []);
 
   useEffect(() => {
     loadAccount();
-    if (!window.electron.account) {
+    const accountBridge = getAccountBridge();
+    if (!accountBridge) {
       return undefined;
     }
-    window.electron.account
+    accountBridge
       .getBillingUrl()
       .then(setBillingUrl)
       .catch(() => setBillingUrl(''));
-    // Subscribe to changes triggered by deep-link callback
-    return window.electron.account.onChange((info) => {
+    return accountBridge.onChange((info) => {
       setAccount(info);
+      setLoading(false);
     });
   }, [loadAccount]);
 
   const handleSignIn = async () => {
     setRefreshError('');
     setSigningIn(true);
-    await window.electron.account.signIn();
-    // The deep-link handler in main.ts will fire account:changed which updates state
-    setSigningIn(false);
+    try {
+      await getAccountBridge()?.signIn();
+    } finally {
+      setSigningIn(false);
+    }
   };
 
   const handleSignOut = async () => {
     setRefreshError('');
-    await window.electron.account.signOut();
+    await getAccountBridge()?.signOut();
     setAccount(null);
   };
 
   const handleRefresh = async () => {
     setRefreshing(true);
-    const result = await window.electron.account.refreshBalance();
-    await loadAccount();
-    if (account && result.balance === null) {
-      setRefreshError(
-        'Your desktop session expired. Sign in again to refresh credits.',
-      );
-    } else {
+    try {
+      const result = await getAccountBridge()?.refreshBalance();
+      await loadAccount();
+      if (result?.status === 'expired') {
+        setRefreshError(
+          'Your desktop session expired. Sign in again to refresh credits.',
+        );
+        return;
+      }
+      if (result?.status === 'error') {
+        setRefreshError(
+          `Couldn’t refresh credits right now${result.httpStatus ? ` (HTTP ${result.httpStatus})` : ''}${result.errorMessage ? `: ${result.errorMessage}` : '.'}`,
+        );
+        return;
+      }
       setRefreshError('');
+    } finally {
+      setRefreshing(false);
     }
-    setRefreshing(false);
-  };
-
-  const handleOpenBilling = async () => {
-    await window.electron.account.openBilling();
   };
 
   if (loading) {
     return (
       <div className={styles.sectionHeader}>
-        <p style={{ color: 'var(--graphite-350)', fontSize: '0.875rem' }}>
-          Loading account…
-        </p>
+        <p>Loading account...</p>
       </div>
     );
   }
 
   if (!account) {
     return (
-      <div>
+      <>
         <div className={styles.sectionHeader}>
-          <h3>Kshana Cloud Account</h3>
-          <p>
-            Sign in to sync sessions, track credits, and buy more when you need
-            them.
-          </p>
+          <h3>Kshana Account</h3>
+          <p>Sign in to use Kshana Cloud credits through the desktop proxy.</p>
         </div>
-
-        <div className={styles.infoCard} style={{ marginTop: '1.25rem' }}>
+        <div className={styles.infoCard}>
           <div className={styles.infoTitle}>Not signed in</div>
           <p className={styles.infoText}>
-            Clicking &quot;Sign in&quot; opens your browser to complete sign-in
-            securely. The desktop app will be authorised automatically.
+            Sign-in opens your browser, then returns here automatically.
           </p>
-          {refreshError ? (
-            <p className={styles.error} style={{ marginTop: '0.75rem' }}>
-              {refreshError}
-            </p>
-          ) : null}
+          {refreshError ? <p className={styles.error}>{refreshError}</p> : null}
           <button
             type="button"
             className={styles.submitButton}
-            style={{ marginTop: '1rem' }}
             onClick={handleSignIn}
             disabled={signingIn}
           >
-            {signingIn ? 'Opening browser…' : 'Sign in with Kshana'}
+            {signingIn ? 'Opening Browser...' : 'Sign In'}
           </button>
         </div>
-      </div>
+      </>
     );
   }
 
-  const initials = (account.name ?? account.email)
-    .split(' ')
-    .map((s: string) => s[0])
+  const displayName = account.name || account.email;
+  const initials = displayName
+    .split(/\s+/)
+    .map((part) => part[0])
     .slice(0, 2)
     .join('')
     .toUpperCase();
@@ -125,179 +131,86 @@ export default function AccountTab() {
     : 'billing';
 
   return (
-    <div>
+    <>
       <div className={styles.sectionHeader}>
-        <h3>Kshana Cloud Account</h3>
-        <p>Your cloud account, credit balance, and session sync.</p>
+        <h3>Kshana Account</h3>
+        <p>Your signed-in user controls proxy credits for this desktop.</p>
       </div>
 
-      {/* Profile card */}
-      <div className={styles.statusCard} style={{ marginTop: '1.25rem' }}>
+      <div className={styles.statusCard}>
         <div className={styles.statusTopRow}>
-          <div
-            style={{ display: 'flex', alignItems: 'center', gap: '0.875rem' }}
-          >
-            <div
-              style={{
-                width: '2.5rem',
-                height: '2.5rem',
-                borderRadius: '50%',
-                background: 'var(--signal-cyan)',
-                color: '#030508',
-                fontWeight: 700,
-                fontSize: '1rem',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                flexShrink: 0,
-              }}
-            >
-              {initials}
-            </div>
+          <div className={styles.accountIdentity}>
+            <div className={styles.accountAvatar}>{initials}</div>
             <div>
-              {account.name && (
-                <div
-                  style={{
-                    fontWeight: 600,
-                    color: 'var(--foreground)',
-                    fontSize: '0.9rem',
-                  }}
-                >
-                  {account.name}
-                </div>
-              )}
-              <div style={{ fontSize: '0.8rem', color: 'var(--graphite-350)' }}>
-                {account.email}
-              </div>
+              {account.name ? (
+                <div className={styles.accountName}>{account.name}</div>
+              ) : null}
+              <div className={styles.accountEmail}>{account.email}</div>
             </div>
           </div>
-          <div
-            className={`${styles.statusBadge} ${styles.statusBadgeSuccess}`}
-            style={{ flexShrink: 0 }}
-          >
+          <div className={`${styles.statusBadge} ${styles.statusBadgeSuccess}`}>
             <span className={styles.statusDot} />
             Signed in
           </div>
         </div>
       </div>
 
-      {/* Credit balance */}
-      <div style={{ marginTop: '1.25rem' }}>
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            gap: '0.75rem',
-            marginBottom: '1rem',
-          }}
-        >
-          <div className={styles.infoCard}>
-            <div className={styles.infoTitle}>Current Plan</div>
-            <p className={styles.infoText}>
-              {account.planLabel || account.planId || 'Free'}
-            </p>
-          </div>
-          <div className={styles.infoCard}>
-            <div className={styles.infoTitle}>Subscription</div>
-            <p className={styles.infoText}>
-              {account.subscriptionStatus || 'active'}
-            </p>
-          </div>
+      <div className={styles.accountGrid}>
+        <div className={styles.infoCard}>
+          <div className={styles.infoTitle}>Plan</div>
+          <p className={styles.infoText}>
+            {account.planLabel || account.planId || 'Free'}
+          </p>
         </div>
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            marginBottom: '0.5rem',
-          }}
-        >
-          <span
-            style={{
-              fontSize: '0.8rem',
-              fontWeight: 600,
-              color: 'var(--graphite-350)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.06em',
-            }}
-          >
-            Credit Balance
-          </span>
+        <div className={styles.infoCard}>
+          <div className={styles.infoTitle}>Subscription</div>
+          <p className={styles.infoText}>
+            {account.subscriptionStatus || 'active'}
+          </p>
+        </div>
+      </div>
+
+      <div className={styles.infoCard}>
+        <div className={styles.accountBalanceRow}>
+          <div>
+            <div className={styles.infoTitle}>Credit Balance</div>
+            <p className={styles.accountCredits}>
+              {account.credits.toLocaleString()}
+              <span> credits</span>
+            </p>
+          </div>
           <button
             type="button"
             className={styles.cancelButton}
-            style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem' }}
             onClick={handleRefresh}
             disabled={refreshing}
           >
-            {refreshing ? 'Refreshing…' : 'Refresh'}
+            {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
-        <div
-          style={{
-            padding: '1rem 1.25rem',
-            background: 'rgba(255,255,255,0.03)',
-            border: '1px solid rgba(255,255,255,0.08)',
-            borderRadius: '0.75rem',
-            display: 'flex',
-            alignItems: 'baseline',
-            gap: '0.5rem',
-          }}
-        >
-          <span
-            style={{
-              fontFamily: 'var(--font-display)',
-              fontSize: '2rem',
-              color: 'var(--kshana-green, #34d399)',
-              lineHeight: 1,
-            }}
-          >
-            {account.credits.toLocaleString()}
-          </span>
-          <span style={{ fontSize: '0.85rem', color: 'var(--graphite-350)' }}>
-            credits remaining
-          </span>
-        </div>
-        <p className={styles.infoText} style={{ marginTop: '0.5rem' }}>
-          Buy more credits at{' '}
+        <p className={styles.infoText}>
+          Manage credits at{' '}
           <button
             type="button"
-            onClick={handleOpenBilling}
-            style={{
-              color: 'var(--signal-cyan)',
-              background: 'transparent',
-              border: 0,
-              padding: 0,
-              cursor: 'pointer',
-              font: 'inherit',
-            }}
+            className={styles.inlineButton}
+            onClick={() => getAccountBridge()?.openBilling()}
           >
             {billingLabel}
           </button>
+          .
         </p>
-        {refreshError ? (
-          <p className={styles.error} style={{ marginTop: '0.5rem' }}>
-            {refreshError}
-          </p>
-        ) : null}
+        {refreshError ? <p className={styles.error}>{refreshError}</p> : null}
       </div>
 
-      {/* Sign out */}
-      <div
-        style={{
-          marginTop: '1.5rem',
-          paddingTop: '1rem',
-          borderTop: '1px solid rgba(255,255,255,0.08)',
-        }}
-      >
+      <div className={styles.actionsInline}>
         <button
           type="button"
           className={styles.cancelButton}
           onClick={handleSignOut}
         >
-          Sign out
+          Sign Out
         </button>
       </div>
-    </div>
+    </>
   );
 }

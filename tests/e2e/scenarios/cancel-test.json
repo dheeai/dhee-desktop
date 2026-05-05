@@ -1,0 +1,27 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "start long task" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-long",
+            "toolName": "generate_video",
+            "arguments": { "scene": "s1" }
+          }
+        },
+        {
+          "after": 8000,
+          "event": "agent_response",
+          "data": { "output": "Done.", "status": "completed" }
+        }
+      ]
+    }
+  ]
+}

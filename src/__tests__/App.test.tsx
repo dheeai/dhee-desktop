@@ -12,7 +12,6 @@ describe('App', () => {
       value: {
         settings: {
           get: jest.fn().mockResolvedValue({
-            backendMode: 'local',
             comfyuiMode: 'inherit',
             comfyuiUrl: '',
             comfyCloudApiKey: '',
@@ -31,14 +30,6 @@ describe('App', () => {
           }),
           update: jest.fn(),
           onChange: jest.fn(() => jest.fn()),
-        },
-        backend: {
-          getState: jest.fn().mockResolvedValue({ status: 'disconnected' }),
-          getConnectionInfo: jest.fn().mockResolvedValue({
-            selectedMode: 'local',
-            localBackendAvailable: true,
-          }),
-          onStateChange: jest.fn(() => jest.fn()),
         },
         project: {
           watchDirectory: jest.fn().mockResolvedValue(undefined),

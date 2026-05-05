@@ -9,24 +9,21 @@ export type ThemeId =
   | 'void-cut';
 
 export interface AccountInfo {
-  /** User ID from Kshana Cloud */
+  /** User ID from Kshana Cloud. */
   userId: string;
   email: string;
   name?: string | null;
-  /** Current credit balance (cached; call refreshBalance() to update) */
+  /** Cached credit balance. Refresh through account IPC before display. */
   credits: number;
-  /** Current cloud plan id from Kshana Website. */
   planId?: string;
-  /** Human-readable current cloud plan label. */
   planLabel?: string;
-  /** Current cloud subscription status. */
   subscriptionStatus?: string;
-  /** Signed desktop JWT. The website controls the TTL. */
+  /** Signed desktop JWT issued by the website. */
   token: string;
 }
 
 export interface AppSettings {
-  /** Whether the desktop should run the bundled backend or connect to cloud. */
+  /** Whether embedded kshana-core uses BYO settings or Kshana Cloud proxy credits. */
   backendMode: BackendMode;
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;

@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { Grid, List, Film } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
+import { useTimelineDataContext } from '../../../contexts/TimelineDataContext';
 import type { StoryboardScene, Artifact } from '../../../types/projectState';
 import SceneCard from '../SceneCard';
 import styles from './StoryboardView.module.scss';
@@ -12,59 +13,88 @@ type ViewType = 'grid' | 'list';
 export default function StoryboardView() {
   const { projectDirectory } = useWorkspace();
   const { isLoaded, isLoading, scenes: projectScenes } = useProject();
+  const { timelineItems } = useTimelineDataContext();
   const [filter, setFilter] = useState<FilterType>('all');
   const [viewType, setViewType] = useState<ViewType>('grid');
 
-  // Convert SceneRef from ProjectContext to StoryboardScene format for SceneCard compatibility
-  const scenes: StoryboardScene[] = useMemo(() => {
-    if (!isLoaded || projectScenes.length === 0) {
-      return [];
+  // Derive scenes from timeline items when project.json has no scene data.
+  // Group timeline items by sceneNumber and produce one StoryboardScene per unique scene.
+  const timelineDerivedScenes: StoryboardScene[] = useMemo(() => {
+    const seen = new Map<number, StoryboardScene>();
+    for (const item of timelineItems) {
+      if (item.sceneNumber == null) continue;
+      if (!seen.has(item.sceneNumber)) {
+        seen.set(item.sceneNumber, {
+          scene_number: item.sceneNumber,
+          name: item.sceneLabel || `Scene ${item.sceneNumber}`,
+          description: '',
+          duration: 5,
+          shot_type: 'Mid Shot',
+          lighting: 'Natural',
+        });
+      }
     }
+    return Array.from(seen.values()).sort((a, b) => a.scene_number - b.scene_number);
+  }, [timelineItems]);
 
-    return projectScenes.map((scene) => ({
-      scene_number: scene.scene_number,
-      name: scene.title,
-      description: scene.description || '',
-      duration: 5, // Default duration
-      shot_type: 'Mid Shot',
-      lighting: 'Natural',
-    }));
-  }, [isLoaded, projectScenes]);
+  // Convert SceneRef from ProjectContext to StoryboardScene format for SceneCard compatibility.
+  // Falls back to timeline-derived scenes when project.json has no scene data.
+  const scenes: StoryboardScene[] = useMemo(() => {
+    if (isLoaded && projectScenes.length > 0) {
+      return projectScenes.map((scene) => ({
+        scene_number: scene.scene_number,
+        name: scene.title,
+        description: scene.description || '',
+        duration: 5,
+        shot_type: 'Mid Shot',
+        lighting: 'Natural',
+      }));
+    }
+    return timelineDerivedScenes;
+  }, [isLoaded, projectScenes, timelineDerivedScenes]);
 
   // Create a map of scene numbers to folder names
   const sceneFoldersByNumber = useMemo(() => {
     const map: Record<number, string> = {};
-    if (!isLoaded || projectScenes.length === 0) return map;
-
     for (const scene of projectScenes) {
       map[scene.scene_number] = scene.folder;
     }
     return map;
-  }, [isLoaded, projectScenes]);
+  }, [projectScenes]);
 
-  // Build artifacts map from scene data for backward compatibility
+  // Build artifacts map: prefer project.json image paths, fall back to timeline item paths.
   const artifactsByScene: Record<number, Artifact> = useMemo(() => {
     const map: Record<number, Artifact> = {};
 
-    if (!isLoaded || projectScenes.length === 0) return map;
-
     for (const scene of projectScenes) {
-      // Check if scene has an approved image and use the actual image_path
       if (scene.image_approval_status === 'approved' && scene.image_path) {
         map[scene.scene_number] = {
-          artifact_id:
-            scene.image_artifact_id || `scene-${scene.scene_number}-image`,
+          artifact_id: scene.image_artifact_id || `scene-${scene.scene_number}-image`,
           artifact_type: 'image',
           scene_number: scene.scene_number,
-          file_path: scene.image_path, // Use the actual image_path from scene data
-          status: 'completed',
+          file_path: scene.image_path,
+          created_at: new Date().toISOString(),
+        };
+      }
+    }
+
+    // For timeline-derived scenes, pick up image/video paths from timeline items
+    for (const item of timelineItems) {
+      if (item.sceneNumber == null) continue;
+      if (map[item.sceneNumber]) continue;
+      if (item.imagePath) {
+        map[item.sceneNumber] = {
+          artifact_id: item.id,
+          artifact_type: 'image',
+          scene_number: item.sceneNumber,
+          file_path: item.imagePath,
           created_at: new Date().toISOString(),
         };
       }
     }
 
     return map;
-  }, [isLoaded, projectScenes]);
+  }, [projectScenes, timelineItems]);
 
   // Filter scenes based on status
   const filteredScenes = useMemo(() => {
@@ -108,8 +138,8 @@ export default function StoryboardView() {
     );
   }
 
-  // Show loading state
-  if (isLoading) {
+  // Show loading state only when project is loading and no timeline fallback available
+  if (isLoading && scenes.length === 0) {
     return (
       <div className={styles.container}>
         <div className={styles.loading}>Loading storyboard...</div>
@@ -117,8 +147,8 @@ export default function StoryboardView() {
     );
   }
 
-  // Show empty state if no scenes
-  if (!isLoaded || scenes.length === 0) {
+  // Show empty state if both project.json and timeline have no scene data
+  if (scenes.length === 0) {
     return (
       <div className={styles.container}>
         <div className={styles.emptyState}>

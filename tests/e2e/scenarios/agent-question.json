@@ -1,0 +1,56 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "ask me something" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "agent_question",
+          "data": {
+            "question": "Which style do you prefer?",
+            "options": ["Noir", "Cinematic", "Documentary"]
+          }
+        },
+        {
+          "after": 5000,
+          "event": "agent_response",
+          "data": { "output": "Got it.", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "sendResponse", "match": "Noir" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "agent_response",
+          "data": { "output": "Great choice!", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "sendResponse", "match": "Cinematic" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "agent_response",
+          "data": { "output": "Great choice!", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "sendResponse", "match": "Documentary" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "agent_response",
+          "data": { "output": "Great choice!", "status": "completed" }
+        }
+      ]
+    }
+  ]
+}

@@ -159,7 +159,7 @@ describe('NewProjectDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('does not require cloud sign-in before creating a project', async () => {
+  it('creates a project without any provider sign-in gate', async () => {
     mockCheckFileExists.mockResolvedValue(false);
 
     const onClose = jest.fn();

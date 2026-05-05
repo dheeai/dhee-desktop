@@ -290,3 +290,7 @@ src/node_modules  → release/app/node_modules
 
 # kshana-core version tracking (generated file)
 release/app/.kshana-core-version.json
+
+# Playwright e2e output
+playwright-report/
+test-results/

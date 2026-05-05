@@ -1,0 +1,41 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "explain s1 shot 1" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "stream_chunk",
+          "data": { "content": "Looking at the composition" }
+        },
+        {
+          "after": 100,
+          "event": "stream_chunk",
+          "data": { "content": " — wide-angle low-key noir" }
+        },
+        {
+          "after": 150,
+          "event": "stream_chunk",
+          "data": { "content": " with a single key from frame-left." }
+        },
+        {
+          "after": 200,
+          "event": "stream_chunk",
+          "data": { "content": "", "done": true }
+        },
+        {
+          "after": 250,
+          "event": "agent_response",
+          "data": {
+            "output": "Looking at the composition — wide-angle low-key noir with a single key from frame-left.",
+            "status": "completed"
+          }
+        }
+      ]
+    }
+  ]
+}

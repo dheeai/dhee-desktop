@@ -66,7 +66,6 @@ describe('settingsManager theme normalization', () => {
       openRouterModel: 'openrouter/model',
     });
 
-    expect(normalized.backendMode).toBe('local');
     expect(normalized.llmProvider).toBe('openrouter');
     expect(normalized.openRouterApiKey).toBe('sk-or-v1-test');
     expect('preferredLocalPort' in normalized).toBe(false);

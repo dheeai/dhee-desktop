@@ -165,34 +165,34 @@ export function normalizeBackendProjectForWrite(
     ...(typeof project.lastCheckpointAt === 'number'
       ? { lastCheckpointAt: project.lastCheckpointAt }
       : {}),
-    ...('elapsedMs' in (project as Record<string, unknown>)
-      ? { elapsedMs: (project as Record<string, unknown>)['elapsedMs'] as number | undefined }
+    ...('elapsedMs' in (project as unknown as Record<string, unknown>)
+      ? { elapsedMs: (project as unknown as Record<string, unknown>)['elapsedMs'] as number | undefined }
       : {}),
-    ...('timerLastStartedAt' in (project as Record<string, unknown>)
+    ...('timerLastStartedAt' in (project as unknown as Record<string, unknown>)
       ? {
-          timerLastStartedAt: (project as Record<string, unknown>)['timerLastStartedAt'] as
+          timerLastStartedAt: (project as unknown as Record<string, unknown>)['timerLastStartedAt'] as
             | number
             | undefined,
         }
       : {}),
-    ...('files' in (project as Record<string, unknown>)
-      ? { files: (project as Record<string, unknown>)['files'] as unknown }
+    ...('files' in (project as unknown as Record<string, unknown>)
+      ? { files: (project as unknown as Record<string, unknown>)['files'] as unknown }
       : {}),
-    ...('artifacts' in (project as Record<string, unknown>)
-      ? { artifacts: (project as Record<string, unknown>)['artifacts'] as unknown }
+    ...('artifacts' in (project as unknown as Record<string, unknown>)
+      ? { artifacts: (project as unknown as Record<string, unknown>)['artifacts'] as unknown }
       : {}),
-    ...('goal' in (project as Record<string, unknown>)
-      ? { goal: (project as Record<string, unknown>)['goal'] as unknown }
+    ...('goal' in (project as unknown as Record<string, unknown>)
+      ? { goal: (project as unknown as Record<string, unknown>)['goal'] as unknown }
       : {}),
-    ...('todos' in (project as Record<string, unknown>)
-      ? { todos: (project as Record<string, unknown>)['todos'] as unknown }
+    ...('todos' in (project as unknown as Record<string, unknown>)
+      ? { todos: (project as unknown as Record<string, unknown>)['todos'] as unknown }
       : {}),
-    ...('inputs' in (project as Record<string, unknown>)
-      ? { inputs: (project as Record<string, unknown>)['inputs'] as unknown }
+    ...('inputs' in (project as unknown as Record<string, unknown>)
+      ? { inputs: (project as unknown as Record<string, unknown>)['inputs'] as unknown }
       : {}),
-    ...('primaryNarration' in (project as Record<string, unknown>)
+    ...('primaryNarration' in (project as unknown as Record<string, unknown>)
       ? {
-          primaryNarration: (project as Record<string, unknown>)['primaryNarration'] as unknown,
+          primaryNarration: (project as unknown as Record<string, unknown>)['primaryNarration'] as unknown,
         }
       : {}),
   };
@@ -207,9 +207,12 @@ function slugify(value: string): string {
 }
 
 function toDesktopContent(
-  content: BackendProjectFile['content'],
+  content: BackendProjectFile['content'] | undefined | null,
 ): AgentProjectFile['content'] {
   const defaults = createDefaultContentRegistry();
+  // v3.0 projects don't carry the legacy content registry — return
+  // defaults rather than crashing on missing fields.
+  if (!content) return defaults;
   return {
     ...defaults,
     plot: {
@@ -403,7 +406,7 @@ function mapSceneToDesktop(
 }
 
 function mapPhaseRecordToDesktop(
-  phases: Record<string, BackendPhaseInfo>,
+  phases: Record<string, BackendPhaseInfo> | undefined | null,
 ): AgentProjectFile['phases'] {
   const defaults = createDefaultWorkflowPhases();
   const next = {
@@ -413,7 +416,10 @@ function mapPhaseRecordToDesktop(
     AgentProjectFile['phases'][keyof AgentProjectFile['phases']]
   >;
 
-  Object.entries(phases).forEach(([phase, info]) => {
+  // v3.0 projects (kshana-ink dependency-graph executor) drop the
+  // `phases` map entirely — workflow state lives in executorState
+  // now. Fall back to the defaults map without throwing.
+  Object.entries(phases ?? {}).forEach(([phase, info]) => {
     next[phase] = {
       status: info.status,
       planner_stage: info.plannerStage,
@@ -508,6 +514,11 @@ export function backendProjectToDesktopAgentState(
   project: BackendProjectFile,
   assets?: AssetManifest | null,
 ): AgentProjectFile {
+  // kshana-ink v3.0 dropped the legacy parallel-state fields
+  // (phases, content, characters[], settings[], scenes[], assets[]) —
+  // see `unify-project-state.md`. The asset manifest + executor
+  // graph carry that information now. This adapter must default
+  // each field to an empty value rather than crashing on undefined.
   return {
     version: '2.0',
     id: project.id,
@@ -518,10 +529,10 @@ export function backendProjectToDesktopAgentState(
     current_phase: project.currentPhase as AgentProjectFile['current_phase'],
     phases: mapPhaseRecordToDesktop(project.phases),
     content: toDesktopContent(project.content),
-    characters: project.characters.map(mapCharacterToDesktop),
-    settings: project.settings.map(mapSettingToDesktop),
-    scenes: project.scenes.map((scene) => mapSceneToDesktop(scene, assets)),
-    assets: [...project.assets],
+    characters: (project.characters ?? []).map(mapCharacterToDesktop),
+    settings: (project.settings ?? []).map(mapSettingToDesktop),
+    scenes: (project.scenes ?? []).map((scene) => mapSceneToDesktop(scene, assets)),
+    assets: [...(project.assets ?? [])],
     final_video: project.finalVideo
       ? {
           artifact_id: project.finalVideo.artifactId,

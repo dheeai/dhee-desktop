@@ -14,7 +14,6 @@ import {
   type ReactNode,
 } from 'react';
 import type {
-  KshanaProject,
   KshanaManifest,
   AgentProjectFile,
   AssetManifest,
@@ -32,17 +31,11 @@ import { DEFAULT_TIMELINE_STATE } from '../types/kshana';
 import { projectService } from '../services/project';
 import { ensureProjectThumbnailFromManifest } from '../services/project/projectThumbnail';
 import {
-  buildAssetDedupeKey,
   createEmptyImageProjectionSnapshot,
   createImageAssetSyncEngine,
   type ImageProjectionSnapshot,
   type ImageSyncTriggerSource,
 } from '../services/assets';
-import { debugRendererLog, debugRendererWarn } from '../utils/debugLogger';
-import {
-  getBackendBaseUrlForSettings,
-  getBackendStateForSettings,
-} from '../utils/backendModeGuard';
 import { useWorkspace } from './WorkspaceContext';
 
 /**
@@ -279,7 +272,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   const isImageSyncV2Enabled = useMemo(() => getImageSyncV2Flag(), []);
 
   // Track if image generation is active (via WebSocket status)
-  const [isImageGenerationActive, setIsImageGenerationActive] = useState(false);
+  const [isImageGenerationActive] = useState(false);
 
   // Get workspace context for sync
   const { projectDirectory } = useWorkspace();
@@ -288,18 +281,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     null,
   );
 
-  // WebSocket connection refs to prevent duplicate connections
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-  const reconnectDelayRef = useRef(500);
-  const manifestRefreshTimeoutRef = useRef<ReturnType<
-    typeof setTimeout
-  > | null>(null);
-  const connectAssetWebSocketRef = useRef<(source: string) => void>(() => {});
-  const connectingRef = useRef(false);
-  const currentProjectDirRef = useRef<string | null>(null);
   const projectReloadInFlightRef = useRef<Promise<void> | null>(null);
   const projectReloadQueuedRef = useRef(false);
   const lastReloadTriggerPathRef = useRef<string | null>(null);
@@ -787,345 +768,8 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     }
   }, [projectDirectory, state.isLoaded, isImageSyncV2Enabled]);
 
-  const upsertAssetInManifest = useCallback((assetInfo: AssetInfo) => {
-    setState((prev) => {
-      if (!prev.assetManifest) return prev;
-
-      const existingIndex = prev.assetManifest.assets.findIndex(
-        (asset) => asset.id === assetInfo.id,
-      );
-      const nextAssets =
-        existingIndex >= 0
-          ? prev.assetManifest.assets.map((asset, index) =>
-              index === existingIndex ? assetInfo : asset,
-            )
-          : [...prev.assetManifest.assets, assetInfo];
-
-      return {
-        ...prev,
-        assetManifest: {
-          ...prev.assetManifest,
-          assets: nextAssets,
-        },
-      };
-    });
-  }, []);
-
-  const scheduleManifestReconcile = useCallback(
-    (source: 'ws_asset' | 'file_watch', delayMs: number = 1500) => {
-      if (manifestRefreshTimeoutRef.current) {
-        clearTimeout(manifestRefreshTimeoutRef.current);
-      }
-
-      debugRendererLog('[ProjectContext][reconcile_schedule]', {
-        source,
-        delayMs,
-      });
-
-      manifestRefreshTimeoutRef.current = setTimeout(() => {
-        manifestRefreshTimeoutRef.current = null;
-        refreshAssetManifest().catch((error) => {
-          debugRendererWarn(
-            '[ProjectContext][reconcile_schedule] Refresh failed',
-            {
-              source,
-              error: error instanceof Error ? error.message : String(error),
-            },
-          );
-        });
-      }, delayMs);
-    },
-    [refreshAssetManifest],
-  );
-
-  const scheduleAssetSocketReconnect = useCallback(
-    (source: string) => {
-      if (!projectDirectory || !state.isLoaded) return;
-      if (reconnectTimeoutRef.current) return;
-
-      const delayMs = reconnectDelayRef.current;
-      debugRendererLog('[ProjectContext][ws_reconnect_schedule]', {
-        source,
-        delayMs,
-      });
-
-      reconnectTimeoutRef.current = setTimeout(() => {
-        reconnectTimeoutRef.current = null;
-        reconnectDelayRef.current = Math.min(
-          reconnectDelayRef.current * 2,
-          5000,
-        );
-        connectAssetWebSocketRef.current('reconnect_timer');
-      }, delayMs);
-    },
-    [projectDirectory, state.isLoaded],
-  );
-
-  const connectAssetWebSocket = useCallback(
-    async (source: string): Promise<void> => {
-      const normalizedProjectDirectory =
-        normalizeProjectDirectoryPath(projectDirectory);
-
-      if (!normalizedProjectDirectory || !state.isLoaded) {
-        return;
-      }
-
-      if (
-        wsRef.current &&
-        wsRef.current.readyState === WebSocket.OPEN &&
-        currentProjectDirRef.current === normalizedProjectDirectory
-      ) {
-        return;
-      }
-
-      if (connectingRef.current) {
-        return;
-      }
-
-      if (
-        wsRef.current &&
-        currentProjectDirRef.current !== normalizedProjectDirectory
-      ) {
-        wsRef.current.close();
-        wsRef.current = null;
-        currentProjectDirRef.current = null;
-      }
-
-      try {
-        connectingRef.current = true;
-        const settings = await window.electron.settings.get().catch(() => null);
-        const backendState = await getBackendStateForSettings(settings);
-        const projectDirectoryForQuery = projectDirectory;
-
-        if (!projectDirectoryForQuery) {
-          connectingRef.current = false;
-          return;
-        }
-
-        if (backendState.status !== 'ready') {
-          connectingRef.current = false;
-          debugRendererLog('[ProjectContext][ws_connect] Backend not ready', {
-            source,
-            backendStatus: backendState.status,
-          });
-          scheduleAssetSocketReconnect('backend_not_ready');
-          return;
-        }
-
-        const baseUrl = await getBackendBaseUrlForSettings(
-          settings,
-          backendState,
-        );
-        const wsBase = baseUrl.replace(/^http/, 'ws');
-        const wsUrl = new URL('/api/v1/ws/chat', wsBase);
-        wsUrl.searchParams.set('project_dir', projectDirectoryForQuery);
-        wsUrl.searchParams.set('channel', 'assets');
-        const ws = new WebSocket(wsUrl.toString());
-        wsRef.current = ws;
-        currentProjectDirRef.current = normalizedProjectDirectory;
-
-        ws.onopen = () => {
-          reconnectDelayRef.current = 500;
-          connectingRef.current = false;
-          debugRendererLog('[ProjectContext][ws_connect] Connected', {
-            source,
-            projectDirectory: normalizedProjectDirectory,
-          });
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-
-            if (message.type === 'asset_added' && message.data) {
-              const assetData = message.data as Record<string, unknown>;
-              const eventProjectDirectory = normalizeProjectDirectoryPath(
-                assetData['projectDirectory'] as string | undefined,
-              );
-              const currentDirectory = currentProjectDirRef.current;
-
-              if (
-                eventProjectDirectory &&
-                currentDirectory &&
-                eventProjectDirectory !== currentDirectory
-              ) {
-                return;
-              }
-
-              const optimisticAsset: AssetInfo = {
-                id: String(assetData['assetId'] ?? ''),
-                type: assetData['assetType'] as AssetInfo['type'],
-                path: String(assetData['path'] ?? ''),
-                scene_number:
-                  typeof assetData['sceneNumber'] === 'number'
-                    ? assetData['sceneNumber']
-                    : undefined,
-                version:
-                  typeof assetData['version'] === 'number'
-                    ? assetData['version']
-                    : 1,
-                created_at: Date.now(),
-                metadata:
-                  assetData['placementNumber'] !== undefined
-                    ? { placementNumber: Number(assetData['placementNumber']) }
-                    : undefined,
-              };
-
-              debugRendererLog('[ProjectContext][ws_asset]', {
-                source: 'ws_asset',
-                assetId: optimisticAsset.id,
-                assetType: optimisticAsset.type,
-                path: optimisticAsset.path,
-                placementNumber: optimisticAsset.metadata?.['placementNumber'],
-                sceneNumber: optimisticAsset.scene_number,
-              });
-
-              if (isImageSyncV2Enabled) {
-                projectService.invalidateCache();
-                imageSyncEngineRef.current?.triggerReconcile(
-                  'ws_asset',
-                  buildAssetDedupeKey(optimisticAsset),
-                );
-              } else {
-                upsertAssetInManifest(optimisticAsset);
-                scheduleManifestReconcile('ws_asset');
-              }
-            } else if (message.type === 'status' && message.data) {
-              const statusData = message.data as Record<string, unknown>;
-              const status = statusData['status'];
-              const isActive = status === 'busy' || status === 'processing';
-              setIsImageGenerationActive(isActive);
-            } else if (message.type === 'tool_call' && message.data) {
-              const toolData = message.data as Record<string, unknown>;
-              const toolName = toolData['toolName'];
-              if (
-                toolName === 'generate_image' ||
-                toolName === 'generate_all_images'
-              ) {
-                setIsImageGenerationActive(true);
-              }
-            }
-          } catch {
-            // Ignore malformed messages
-          }
-        };
-
-        ws.onerror = (error) => {
-          connectingRef.current = false;
-          debugRendererWarn('[ProjectContext][ws_connect] Socket error', {
-            source,
-            error,
-          });
-        };
-
-        ws.onclose = () => {
-          wsRef.current = null;
-          connectingRef.current = false;
-          debugRendererLog('[ProjectContext][ws_connect] Socket closed', {
-            source,
-            projectDirectory: normalizedProjectDirectory,
-          });
-
-          if (
-            currentProjectDirRef.current === normalizedProjectDirectory &&
-            state.isLoaded &&
-            normalizeProjectDirectoryPath(projectDirectory) ===
-              normalizedProjectDirectory
-          ) {
-            scheduleAssetSocketReconnect('socket_closed');
-          } else {
-            currentProjectDirRef.current = null;
-          }
-        };
-      } catch (error) {
-        connectingRef.current = false;
-        debugRendererWarn(
-          '[ProjectContext][ws_connect] Connection attempt failed',
-          {
-            source,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-        scheduleAssetSocketReconnect('connect_error');
-      }
-    },
-    [
-      projectDirectory,
-      state.isLoaded,
-      scheduleAssetSocketReconnect,
-      scheduleManifestReconcile,
-      upsertAssetInManifest,
-      isImageSyncV2Enabled,
-    ],
-  );
-
-  useEffect(() => {
-    connectAssetWebSocketRef.current = (source: string) => {
-      connectAssetWebSocket(source).catch((error) => {
-        debugRendererWarn(
-          '[ProjectContext][ws_connect] Unhandled connect failure',
-          {
-            source,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-      });
-    };
-  }, [connectAssetWebSocket]);
-
-  // Maintain a dedicated asset WebSocket for the active project.
-  useEffect(() => {
-    if (!projectDirectory || !state.isLoaded) {
-      if (wsRef.current) {
-        wsRef.current.close();
-        wsRef.current = null;
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-      if (manifestRefreshTimeoutRef.current) {
-        clearTimeout(manifestRefreshTimeoutRef.current);
-        manifestRefreshTimeoutRef.current = null;
-      }
-      reconnectDelayRef.current = 500;
-      currentProjectDirRef.current = null;
-      return;
-    }
-
-    connectAssetWebSocketRef.current('project_loaded');
-  }, [projectDirectory, state.isLoaded]);
-
-  // If backend becomes ready after initial mount, retry socket connection.
-  useEffect(() => {
-    const unsubscribe = window.electron.backend.onStateChange(
-      (backendState) => {
-        if (!projectDirectory || !state.isLoaded) return;
-        if (backendState.status !== 'ready') return;
-        if (connectingRef.current) return;
-        if (wsRef.current?.readyState === WebSocket.OPEN) return;
-
-        debugRendererLog(
-          '[ProjectContext][ws_connect] Backend transitioned to ready',
-          {
-            source: 'backend_state_change',
-          },
-        );
-        connectAssetWebSocketRef.current('backend_ready');
-      },
-    );
-
-    return () => {
-      unsubscribe();
-    };
-  }, [projectDirectory, state.isLoaded]);
-
-  // Poll for manifest updates as a source-agnostic fallback.
-  // This keeps timeline hydration convergent even if websocket/file-watch signals are missed.
-  useEffect(() => {
-    // Polling removed: v2 sync + manifest/file-watch signals handle convergence.
-    return undefined;
-  }, [isImageSyncV2Enabled, projectDirectory, state.isLoaded]);
+  // Asset WebSocket subsystem removed along with the legacy fastify
+  // backend; manifest convergence runs through file-watch + v2 sync.
 
   // Load project from directory
   const loadProject = useCallback(
