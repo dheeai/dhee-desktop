@@ -25,7 +25,6 @@ import {
   ArrowUp,
   ChevronDown,
   Download,
-  Loader2,
   X,
 } from 'lucide-react';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
@@ -569,22 +568,15 @@ export default function ChatPanelEmbedded() {
     const text = input.trim();
     if (!text || !session.sessionId) return;
 
-    // Guard: if pi-agent is already mid-reply, dispatching a new
-    // runTask will overwrite its `currentResolve` and orphan the
-    // first response. Surface a system message instead of firing.
-    // (This shouldn't happen if the textarea's `disabled` /
-    // onKeyDown gate is in sync with isMainBusy, but the gate has
-    // edge cases — defending here is cheap and visible.)
+    // If pi-agent is mid-turn (e.g. running a multi-step regen +
+    // bash + regen sequence), the user often wants to interject
+    // with a clarification — "actually that won't work, do X
+    // instead". The earlier behavior bounced this with a "please
+    // wait" system message, which made the chat feel broken
+    // ("non-interactive after the first message"). Cancel the
+    // current turn and dispatch the new one instead.
     if (session.status === 'running') {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'system',
-          text: 'Still finishing the previous reply — please wait a moment and try again.',
-        },
-      ]);
-      return;
+      await session.cancel().catch(() => undefined);
     }
 
     setMessages((prev) => [
@@ -1025,7 +1017,7 @@ export default function ChatPanelEmbedded() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (!isMainBusy && input.trim().length > 0) handleSend();
+                if (input.trim().length > 0) handleSend();
               }
             }}
             style={{
@@ -1063,12 +1055,10 @@ export default function ChatPanelEmbedded() {
             aria-label="Send"
             title={
               isMainBusy
-                ? 'Wait for the current reply to finish…'
+                ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
-            disabled={
-              !isReady || isMainBusy || input.trim().length === 0
-            }
+            disabled={!isReady || input.trim().length === 0}
             style={{
               position: 'absolute',
               right: 8,
@@ -1079,7 +1069,7 @@ export default function ChatPanelEmbedded() {
               borderRadius: 8,
               border: 'none',
               cursor:
-                !isReady || isMainBusy || input.trim().length === 0
+                !isReady || input.trim().length === 0
                   ? 'not-allowed'
                   : 'pointer',
               display: 'flex',
@@ -1087,22 +1077,14 @@ export default function ChatPanelEmbedded() {
               justifyContent: 'center',
               lineHeight: 0,
               background:
-                input.trim().length > 0 && isReady && !isMainBusy
-                  ? '#3a7aa1'
-                  : '#2a2c30',
+                input.trim().length > 0 && isReady ? '#3a7aa1' : '#2a2c30',
               color:
-                input.trim().length > 0 && isReady && !isMainBusy
-                  ? '#fff'
-                  : '#7a8190',
+                input.trim().length > 0 && isReady ? '#fff' : '#7a8190',
               transition: 'background 120ms ease, color 120ms ease',
               boxSizing: 'border-box',
             }}
           >
-            {isMainBusy ? (
-              <Loader2 size={14} className="kshana-spin" />
-            ) : (
-              <ArrowUp size={18} strokeWidth={2.5} />
-            )}
+            <ArrowUp size={18} strokeWidth={2.5} />
           </button>
         </div>
         {contextPct !== null && (

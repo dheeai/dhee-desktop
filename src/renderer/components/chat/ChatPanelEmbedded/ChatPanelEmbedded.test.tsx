@@ -642,6 +642,81 @@ describe('ChatPanelEmbedded', () => {
     });
   });
 
+  /**
+   * GIVEN the user dispatched a task that's still in flight (the main
+   *       session's status is 'running' — pi-agent is mid-turn,
+   *       running tools, awaiting LLM, etc.).
+   *
+   *  WHEN the user types a follow-up clarification and clicks Send.
+   *
+   *  THEN the previous turn must be cancelled (via cancelTask on the
+   *       same session) AND the new task dispatched — instead of the
+   *       previous "please wait a moment and try again" no-op that
+   *       made the chat feel non-interactive. Pi-agent regularly
+   *       does multi-minute tool sequences (regen + bash + regen);
+   *       blocking the user from interjecting until that drains is
+   *       the whole bug from the field.
+   */
+  it('clicking Send while the main session is running cancels the in-flight turn and dispatches the new task', async () => {
+    // Hold the first runTask in a deferred promise so the session
+    // stays in status='running' for the duration of the test.
+    let resolveFirst: () => void = () => {};
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let runTaskCount = 0;
+    (window as unknown as { kshana: Record<string, unknown> }).kshana.runTask =
+      jest.fn(async (req: { sessionId: string; task: string }) => {
+        runTaskCount += 1;
+        mockState.runTaskCalls.push(req);
+        if (runTaskCount === 1) {
+          // Hang the first call — emulates pi-agent mid-turn.
+          await firstFinished;
+        }
+        return { ok: true };
+      }) as never;
+
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    // First task — fire and forget; session goes to 'running'.
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'first task' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(mockState.runTaskCalls.map((c) => c.task)).toEqual(['first task']);
+
+    // Type the follow-up while runTask #1 is still hanging.
+    fireEvent.change(textarea, {
+      target: {
+        value: 'actually wait — your suggestion does not work for this case',
+      },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    // Expected: cancelTask was called (to abort the in-flight turn),
+    // then runTask was called with the new text.
+    expect(mockState.cancelCalls.length).toBeGreaterThanOrEqual(1);
+    expect(mockState.cancelCalls[mockState.cancelCalls.length - 1]?.sessionId)
+      .toBe('s-1');
+    expect(mockState.runTaskCalls.map((c) => c.task)).toContain(
+      'actually wait — your suggestion does not work for this case',
+    );
+
+    // Cleanup: let the hanging promise resolve so React effects unwind.
+    resolveFirst();
+    await act(async () => {
+      await firstFinished;
+    });
+  });
+
   it('auto-focuses the workspace project on the kshana session once both are ready', async () => {
     // The user has navigated into a project (chhaya_60s_anime) — the
     // workspace context exposes that as `projectName`. The chat panel
