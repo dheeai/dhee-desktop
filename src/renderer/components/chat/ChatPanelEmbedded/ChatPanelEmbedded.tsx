@@ -1532,7 +1532,7 @@ function handleEvent(
         const id = streamingMsgIdRef.current;
         if (id) {
           return prev.map((m) =>
-            m.id === id ? { ...m, text: (m.text ?? '') + chunk } : m,
+            m.id === id ? { ...m, text: mergeStreamText(m.text, chunk, data.done) } : m,
           );
         }
         const newId = newMessageId();
@@ -1561,8 +1561,9 @@ function handleEvent(
       // string back to one copy.
       const finalOutput = dedupeDoubled(data.output);
       // If we have a streaming bubble in flight, replace its text
-      // with the canonical final string. Otherwise append a new
-      // assistant bubble.
+      // with the canonical final string. Otherwise update the last
+      // assistant bubble when this is the same final response arriving
+      // through a second event path.
       const id = streamingMsgIdRef.current;
       if (id) {
         setMessages((prev) =>

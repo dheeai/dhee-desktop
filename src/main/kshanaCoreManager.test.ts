@@ -85,7 +85,7 @@ class FakeConversationManager {
 
   // No-ops for the rest of the surface
   setAutonomousMode(_sessionId: string, _enabled: boolean): void {}
-  focusSessionProject(_sessionId: string, _project: string): void {}
+  async focusSessionProject(_sessionId: string, _project: string): Promise<void> {}
   deleteSession(_sessionId: string): void {}
 }
 
@@ -175,15 +175,17 @@ describe('KshanaCoreManager', () => {
     expect(toolCallEvent?.data).toMatchObject({ toolName: 'kshana_run_to', toolCallId: 'tc-1' });
   });
 
-  it('runTask also forwards onAgentResponse events', async () => {
+  it('runTask forwards onAgentText events as stream chunks', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
     const sessionId = mgr.createSession();
-    const events: Array<{ eventName: string }> = [];
+    const events: Array<{ eventName: string; data: unknown }> = [];
 
     await mgr.runTask(sessionId, 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
 
-    expect(events.find((e) => e.eventName === 'agent_response')).toBeDefined();
+    const streamEvent = events.find((e) => e.eventName === 'stream_chunk');
+    expect(streamEvent).toBeDefined();
+    expect(streamEvent?.data).toMatchObject({ content: 'done', done: true });
   });
 
   it('cancelTask returns false when the session does not exist', async () => {
