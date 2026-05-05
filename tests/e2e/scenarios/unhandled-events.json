@@ -1,0 +1,22 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "barrage" },
+      "emit": [
+        { "after": 30, "event": "progress", "data": { "step": "planning", "pct": 12 } },
+        { "after": 50, "event": "agent_question", "data": { "question": "approve?", "options": [] } },
+        { "after": 70, "event": "todo_updated", "data": { "todos": [{ "content": "x", "status": "pending" }] } },
+        { "after": 90, "event": "status", "data": { "status": "thinking" } },
+        { "after": 110, "event": "context_usage", "data": { "tokens": 1234, "limit": 200000 } },
+        { "after": 130, "event": "phase_transition", "data": { "from": "scene", "to": "shot", "success": true } },
+        { "after": 150, "event": "timeline_update", "data": { "items": [] } },
+        { "after": 170, "event": "project_focused", "data": { "name": "noir" } },
+        { "after": 200, "event": "agent_response", "data": { "output": "all events fired", "status": "completed" } }
+      ]
+    }
+  ]
+}

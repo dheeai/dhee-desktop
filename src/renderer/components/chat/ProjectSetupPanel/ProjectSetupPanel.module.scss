@@ -263,6 +263,30 @@
   justify-content: flex-end;
 }
 
+.storyTextarea {
+  width: 100%;
+  min-height: 160px;
+  resize: vertical;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-md;
+  background: rgba(255, 255, 255, 0.02);
+  color: $color-text-primary;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+  font-family: inherit;
+  margin-bottom: $spacing-sm;
+
+  &:focus {
+    outline: none;
+    border-color: rgba(var(--color-accent-primary-rgb), 0.34);
+  }
+
+  &::placeholder {
+    color: rgba(255, 255, 255, 0.4);
+  }
+}
+
 .continueButton {
   @include button-primary;
   min-width: 120px;

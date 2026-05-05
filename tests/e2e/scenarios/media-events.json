@@ -1,0 +1,90 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "show me the shot 1 video" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-vid",
+            "toolName": "image_to_video",
+            "arguments": { "scene": "s1", "shot": 1 },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 250,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-vid", "isError": false }
+        },
+        {
+          "after": 280,
+          "event": "media_generated",
+          "data": {
+            "kind": "video",
+            "path": "/tmp/noir.kshana/.kshana/cache/s1_shot_1.mp4",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 320,
+          "event": "agent_response",
+          "data": {
+            "output": "Rendered the video for **s1 shot 1**.",
+            "status": "completed"
+          }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "mixed media" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-mix",
+            "toolName": "scene_render",
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 200,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/storyboard.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 230,
+          "event": "media_generated",
+          "data": {
+            "kind": "video",
+            "path": "/tmp/noir.kshana/.kshana/cache/scene1_render.mp4",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 260,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-mix", "isError": false }
+        },
+        {
+          "after": 300,
+          "event": "agent_response",
+          "data": {
+            "output": "Storyboard + render done.",
+            "status": "completed"
+          }
+        }
+      ]
+    }
+  ]
+}

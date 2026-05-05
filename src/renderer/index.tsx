@@ -1,6 +1,16 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
+const IS_TEST_BRIDGE = process.env.KSHANA_TEST_BRIDGE === '1';
+
+// In Layer-2 e2e mode: install in-memory fakes for window.kshana /
+// window.electron BEFORE App renders. The side-effect import wires up
+// the bridge + exposes window.__kshanaTest for Playwright tests.
+if (IS_TEST_BRIDGE) {
+  // eslint-disable-next-line global-require, @typescript-eslint/no-require-imports
+  require('./testing/installFakeBridge');
+}
+
 // Error boundary for renderer
 window.addEventListener('error', (event) => {
   console.error('Renderer error:', event.error);
@@ -30,8 +40,15 @@ if (!container) {
 } else {
   try {
     const root = createRoot(container);
-    root.render(<App />);
-    console.log('React app rendered successfully');
+    if (IS_TEST_BRIDGE) {
+      // eslint-disable-next-line global-require, @typescript-eslint/no-require-imports
+      const TestApp = require('./testing/TestApp').default;
+      root.render(<TestApp />);
+      console.log('[test-bridge] TestApp rendered');
+    } else {
+      root.render(<App />);
+      console.log('React app rendered successfully');
+    }
   } catch (error) {
     console.error('Failed to render React app:', error);
     container.innerHTML = `<div style="padding: 20px; color: red;">Error: ${(error as Error).message}</div>`;

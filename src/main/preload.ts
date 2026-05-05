@@ -1,12 +1,7 @@
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
-import type {
-  BackendConnectionInfo,
-  BackendState,
-  ServerConnectionConfig,
-} from '../shared/backendTypes';
-import type { AppSettings } from '../shared/settingsTypes';
+import type { AccountInfo, AppSettings } from '../shared/settingsTypes';
 import type {
   FileNode,
   RecentProject,
@@ -22,7 +17,31 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
-import type { AccountInfo } from '../shared/settingsTypes';
+
+// ─── kshana bridge — typed access to the embedded kshana-ink ──────────
+// Replaces the old WebSocket-based protocol (renderer → backend) with a
+// direct main-process IPC layer. Channel + payload shapes live in
+// `src/shared/kshanaIpc.ts`.
+import {
+  KSHANA_CHANNELS,
+  KSHANA_EVENT_CHANNEL,
+  type KshanaEvent,
+  type KshanaEventName,
+  type CreateSessionRequest,
+  type CreateSessionResponse,
+  type RunnerCancelResponse,
+  type RunnerStatusResponse,
+  type ConfigureProjectRequest,
+  type OkResponse,
+  type RunTaskRequest,
+  type SendResponseRequest,
+  type CancelTaskRequest,
+  type CancelTaskResponse,
+  type RedoNodeRequest,
+  type FocusProjectRequest,
+  type SetAutonomousRequest,
+  type DeleteSessionRequest,
+} from '../shared/kshanaIpc';
 
 interface WordTimestamp {
   text: string;
@@ -80,33 +99,6 @@ export interface AppUpdateStatus {
 }
 
 export type Channels = 'ipc-example';
-
-const backendBridge = {
-  start(config?: ServerConnectionConfig): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:start', config);
-  },
-  restart(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:restart');
-  },
-  stop(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:stop');
-  },
-  getState(): Promise<BackendState> {
-    return ipcRenderer.invoke('backend:get-state');
-  },
-  getConnectionInfo(): Promise<BackendConnectionInfo> {
-    return ipcRenderer.invoke('backend:get-connection-info');
-  },
-  onStateChange(callback: (state: BackendState) => void) {
-    const subscription = (_event: IpcRendererEvent, state: BackendState) => {
-      callback(state);
-    };
-    ipcRenderer.on('backend:state', subscription);
-    return () => {
-      ipcRenderer.removeListener('backend:state', subscription);
-    };
-  },
-};
 
 const settingsBridge = {
   get(): Promise<AppSettings> {
@@ -170,10 +162,7 @@ const projectBridge = {
   readFileGuarded(filePath: string, meta?: FileOpMeta): Promise<string> {
     return ipcRenderer.invoke('project:read-file-guarded', filePath, meta);
   },
-  readFileBufferGuarded(
-    filePath: string,
-    meta?: FileOpMeta,
-  ): Promise<string> {
+  readFileBufferGuarded(filePath: string, meta?: FileOpMeta): Promise<string> {
     return ipcRenderer.invoke(
       'project:read-file-buffer-guarded',
       filePath,
@@ -192,7 +181,9 @@ const projectBridge = {
   ): Promise<{ isFile: boolean; isDirectory: boolean; size: number }> {
     return ipcRenderer.invoke('project:stat-path', targetPath, meta);
   },
-  readAllFiles(projectDir: string): Promise<Array<{ path: string; content: string; isBinary: boolean }>> {
+  readAllFiles(
+    projectDir: string,
+  ): Promise<Array<{ path: string; content: string; isBinary: boolean }>> {
     return ipcRenderer.invoke('project:read-all-files', projectDir);
   },
   readProjectSnapshot(projectDir: string): Promise<{
@@ -208,7 +199,11 @@ const projectBridge = {
   readFileBase64(filePath: string): Promise<string | null> {
     return ipcRenderer.invoke('project:read-file-base64', filePath);
   },
-  writeFile(filePath: string, content: string, meta?: FileOpMeta): Promise<void> {
+  writeFile(
+    filePath: string,
+    content: string,
+    meta?: FileOpMeta,
+  ): Promise<void> {
     return ipcRenderer.invoke('project:write-file', filePath, content, meta);
   },
   writeFileBinary(
@@ -228,14 +223,24 @@ const projectBridge = {
     relativePath: string,
     meta?: FileOpMeta,
   ): Promise<string | null> {
-    return ipcRenderer.invoke('project:create-file', basePath, relativePath, meta);
+    return ipcRenderer.invoke(
+      'project:create-file',
+      basePath,
+      relativePath,
+      meta,
+    );
   },
   createFolder(
     basePath: string,
     relativePath: string,
     meta?: FileOpMeta,
   ): Promise<string | null> {
-    return ipcRenderer.invoke('project:create-folder', basePath, relativePath, meta);
+    return ipcRenderer.invoke(
+      'project:create-folder',
+      basePath,
+      relativePath,
+      meta,
+    );
   },
   rename(oldPath: string, newName: string): Promise<string> {
     return ipcRenderer.invoke('project:rename', oldPath, newName);
@@ -338,7 +343,12 @@ const projectBridge = {
       aspectRatio: '16:9' | '9:16';
       quality: 'standard' | 'high';
     },
-  ): Promise<{ success: boolean; outputPath?: string; duration?: number; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    outputPath?: string;
+    duration?: number;
+    error?: string;
+  }> {
     return ipcRenderer.invoke(
       'project:compose-timeline-video',
       timelineItems,
@@ -427,7 +437,7 @@ const remotionBridge = {
   getJob(jobId: string): Promise<RemotionJob | null> {
     return ipcRenderer.invoke('remotion:get-job', jobId);
   },
-  renderFromServerRequest(
+  async renderFromServerRequest(
     projectDirectory: string,
     request: RemotionServerRenderRequest,
     onProgress?: (progress: RemotionServerRenderProgress) => void,
@@ -448,21 +458,23 @@ const remotionBridge = {
       ipcRenderer.on('remotion:server-progress', subscription);
     }
 
-    return ipcRenderer
-      .invoke(
+    try {
+      return await ipcRenderer.invoke(
         'remotion:render-from-server-request',
         projectDirectory,
         request,
-      )
-      .finally(() => {
-        if (onProgress) {
-          ipcRenderer.removeListener('remotion:server-progress', subscription);
-        }
-      });
+      );
+    } finally {
+      if (onProgress) {
+        ipcRenderer.removeListener('remotion:server-progress', subscription);
+      }
+    }
   },
   onProgress(callback: (progress: RemotionProgress) => void) {
-    const subscription = (_event: IpcRendererEvent, progress: RemotionProgress) =>
-      callback(progress);
+    const subscription = (
+      _event: IpcRendererEvent,
+      progress: RemotionProgress,
+    ) => callback(progress);
     ipcRenderer.on('remotion:progress', subscription);
     return () => ipcRenderer.removeListener('remotion:progress', subscription);
   },
@@ -470,7 +482,8 @@ const remotionBridge = {
     const subscription = (_event: IpcRendererEvent, job: RemotionJob) =>
       callback(job);
     ipcRenderer.on('remotion:job-complete', subscription);
-    return () => ipcRenderer.removeListener('remotion:job-complete', subscription);
+    return () =>
+      ipcRenderer.removeListener('remotion:job-complete', subscription);
   },
 };
 
@@ -572,7 +585,10 @@ const updateBridge = {
     return ipcRenderer.invoke('app-update:check-now');
   },
   onStatusChange(callback: (status: AppUpdateStatus) => void) {
-    const subscription = (_event: IpcRendererEvent, status: AppUpdateStatus) => {
+    const subscription = (
+      _event: IpcRendererEvent,
+      status: AppUpdateStatus,
+    ) => {
       callback(status);
     };
     ipcRenderer.on('app-update:status', subscription);
@@ -598,7 +614,12 @@ const accountBridge = {
   signOut(): Promise<{ success: boolean }> {
     return ipcRenderer.invoke('account:sign-out');
   },
-  refreshBalance(): Promise<{ balance: number | null }> {
+  refreshBalance(): Promise<{
+    status: 'ok' | 'expired' | 'error';
+    balance: number | null;
+    httpStatus?: number;
+    errorMessage?: string;
+  }> {
     return ipcRenderer.invoke('account:refresh-balance');
   },
   getBillingUrl(): Promise<string> {
@@ -609,7 +630,10 @@ const accountBridge = {
   },
   onChange(callback: (account: AccountInfo | null) => void) {
     const subscription = () => {
-      ipcRenderer.invoke('account:get').then(callback).catch(() => {});
+      ipcRenderer
+        .invoke('account:get')
+        .then(callback)
+        .catch(() => {});
     };
     ipcRenderer.on('account:changed', subscription);
     return () => {
@@ -617,6 +641,64 @@ const accountBridge = {
     };
   },
 };
+
+const kshanaBridge = {
+  createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.CREATE_SESSION, req);
+  },
+  configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.CONFIGURE_PROJECT, req);
+  },
+  runTask(req: RunTaskRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.RUN_TASK, req);
+  },
+  sendResponse(req: SendResponseRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.SEND_RESPONSE, req);
+  },
+  cancelTask(req: CancelTaskRequest): Promise<CancelTaskResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.CANCEL_TASK, req);
+  },
+  redoNode(req: RedoNodeRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.REDO_NODE, req);
+  },
+  focusProject(req: FocusProjectRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.FOCUS_PROJECT, req);
+  },
+  setAutonomous(req: SetAutonomousRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.SET_AUTONOMOUS, req);
+  },
+  deleteSession(req: DeleteSessionRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_SESSION, req);
+  },
+  runnerCancel(): Promise<RunnerCancelResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_CANCEL);
+  },
+  runnerStatus(): Promise<RunnerStatusResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_STATUS);
+  },
+  /**
+   * Subscribe to streaming events from the embedded ConversationManager.
+   * Filter by eventName ('tool_call', 'media_generated', etc) — handlers
+   * only fire for matching events. Returns an unsubscribe function.
+   */
+  on(
+    eventName: KshanaEventName | '*',
+    cb: (event: KshanaEvent) => void,
+  ): () => void {
+    const listener = (_event: IpcRendererEvent, payload: KshanaEvent) => {
+      if (eventName === '*' || payload.eventName === eventName) {
+        cb(payload);
+      }
+    };
+    ipcRenderer.on(KSHANA_EVENT_CHANNEL, listener);
+    return () => {
+      ipcRenderer.removeListener(KSHANA_EVENT_CHANNEL, listener);
+    };
+  },
+};
+
+contextBridge.exposeInMainWorld('kshana', kshanaBridge);
+export type KshanaBridge = typeof kshanaBridge;
 
 const electronHandler = {
   ipcRenderer: {
@@ -636,7 +718,6 @@ const electronHandler = {
       ipcRenderer.once(channel, (_event, ...ipcArgs) => func(...ipcArgs));
     },
   },
-  backend: backendBridge,
   settings: settingsBridge,
   project: projectBridge,
   remotion: remotionBridge,

@@ -1,0 +1,45 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "show me s1 shot 1" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-s1-shot-1",
+            "toolName": "image_text_to_image",
+            "arguments": { "scene": "s1", "shot": 1 },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 250,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-s1-shot-1", "isError": false }
+        },
+        {
+          "after": 280,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/s1_shot_1.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 320,
+          "event": "agent_response",
+          "data": {
+            "output": "Here is **s1 shot 1**.",
+            "status": "completed"
+          }
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,147 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "show me s1 shot 1" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-create",
+            "toolName": "image_text_to_image",
+            "arguments": { "scene": "s1", "shot": 1 },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 180,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-create", "isError": false }
+        },
+        {
+          "after": 200,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/v1.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 240,
+          "event": "agent_response",
+          "data": { "output": "Created v1.", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "darker" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-edit-1",
+            "toolName": "image_edit",
+            "arguments": { "instruction": "darker tones", "source": "v1.png" },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 180,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-edit-1", "isError": false }
+        },
+        {
+          "after": 200,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/v2.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 240,
+          "event": "agent_response",
+          "data": { "output": "v2: darker.", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "vibrant" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-edit-2",
+            "toolName": "image_edit",
+            "arguments": {
+              "instruction": "more vibrant rim light",
+              "source": "v2.png"
+            },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 180,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-edit-2", "isError": false }
+        },
+        {
+          "after": 200,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/v3.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 240,
+          "event": "agent_response",
+          "data": { "output": "v3: vibrant rim light.", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "fog" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-edit-3",
+            "toolName": "image_edit",
+            "arguments": { "instruction": "add ground fog", "source": "v3.png" },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 180,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-edit-3", "isError": false }
+        },
+        {
+          "after": 200,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/v4.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 240,
+          "event": "agent_response",
+          "data": { "output": "v4: with ground fog.", "status": "completed" }
+        }
+      ]
+    }
+  ]
+}

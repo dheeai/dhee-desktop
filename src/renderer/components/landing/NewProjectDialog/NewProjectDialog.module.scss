@@ -43,35 +43,6 @@
   padding: 0;
 }
 
-.cloudNotice {
-  border-radius: $radius-md;
-  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.25);
-  background: rgba(var(--color-accent-primary-rgb), 0.06);
-  padding: $spacing-md;
-  display: flex;
-  flex-direction: column;
-  gap: $spacing-sm;
-}
-
-.cloudNoticeTitle {
-  margin: 0;
-  font-size: $font-size-sm;
-  font-weight: $font-weight-semibold;
-  color: $color-text-primary;
-}
-
-.cloudNoticeText {
-  margin: 0;
-  font-size: $font-size-sm;
-  color: $color-text-secondary;
-  line-height: 1.45;
-}
-
-.signInButton {
-  @include button-primary;
-  align-self: flex-start;
-  margin-top: 2px;
-}
 
 .form {
   display: flex;

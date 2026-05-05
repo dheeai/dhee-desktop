@@ -1,0 +1,61 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "trigger info" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "notification",
+          "data": { "level": "info", "message": "Cache primed for scene 1." }
+        },
+        {
+          "after": 100,
+          "event": "agent_response",
+          "data": { "output": "ok", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "trigger warning" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "notification",
+          "data": {
+            "level": "warning",
+            "message": "ComfyUI queue depth: 12 — generation may be slow."
+          }
+        },
+        {
+          "after": 100,
+          "event": "agent_response",
+          "data": { "output": "ok", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "trigger empty" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "notification",
+          "data": { "level": "info" }
+        },
+        {
+          "after": 100,
+          "event": "notification",
+          "data": { "message": "no level field" }
+        },
+        {
+          "after": 150,
+          "event": "agent_response",
+          "data": { "output": "ok", "status": "completed" }
+        }
+      ]
+    }
+  ]
+}

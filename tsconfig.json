@@ -16,5 +16,5 @@
     "outDir": ".erb/dll",
     "types": ["node"]
   },
-  "exclude": ["test", "release/build", "release/app/dist", ".erb/dll"]
+  "exclude": ["test", "tests", "release/build", "release/app/dist", ".erb/dll"]
 }

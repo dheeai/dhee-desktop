@@ -47,6 +47,6 @@
     "remotion": "4.0.409",
     "three": "^0.183.1",
     "zod": "3.22.3",
-    "kshana-core": "file:vendor/kshana-ink-0.1.0.tgz"
+    "kshana-core": "file:../kshana-core"
   }
 }

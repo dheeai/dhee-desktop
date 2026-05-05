@@ -1,0 +1,124 @@
+{
+  "project": {
+    "name": "noir",
+    "directory": "/tmp/noir.kshana"
+  },
+  "rules": [
+    {
+      "on": { "channel": "runTask", "match": "show me s1 shot 1" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-create",
+            "toolName": "image_text_to_image",
+            "arguments": { "scene": "s1", "shot": 1 },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 200,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-create", "isError": false }
+        },
+        {
+          "after": 230,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/s1_shot_1_v1.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 280,
+          "event": "agent_response",
+          "data": { "output": "Here is **s1 shot 1**.", "status": "completed" }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "make it darker" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-edit-fail",
+            "toolName": "image_edit",
+            "arguments": {
+              "instruction": "make it darker",
+              "source": "s1_shot_1_v1.png"
+            },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 250,
+          "event": "tool_result",
+          "data": {
+            "toolCallId": "tc-edit-fail",
+            "isError": true
+          }
+        },
+        {
+          "after": 280,
+          "event": "notification",
+          "data": {
+            "level": "error",
+            "message": "ComfyUI returned 500: workflow node missing input image."
+          }
+        },
+        {
+          "after": 320,
+          "event": "agent_response",
+          "data": {
+            "output": "Edit failed — please retry.",
+            "status": "error"
+          }
+        }
+      ]
+    },
+    {
+      "on": { "channel": "runTask", "match": "try again with more grain" },
+      "emit": [
+        {
+          "after": 50,
+          "event": "tool_call",
+          "data": {
+            "toolCallId": "tc-edit-retry",
+            "toolName": "image_edit",
+            "arguments": {
+              "instruction": "make it darker with more grain",
+              "source": "s1_shot_1_v1.png"
+            },
+            "status": "in_progress"
+          }
+        },
+        {
+          "after": 200,
+          "event": "tool_result",
+          "data": { "toolCallId": "tc-edit-retry", "isError": false }
+        },
+        {
+          "after": 230,
+          "event": "media_generated",
+          "data": {
+            "kind": "image",
+            "path": "/tmp/noir.kshana/.kshana/cache/s1_shot_1_v2.png",
+            "project": "noir"
+          }
+        },
+        {
+          "after": 280,
+          "event": "agent_response",
+          "data": {
+            "output": "Recovered — here is the **darker, grainier** version.",
+            "status": "completed"
+          }
+        }
+      ]
+    }
+  ]
+}

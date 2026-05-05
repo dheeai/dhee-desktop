@@ -2,13 +2,28 @@
  * Base webpack config used across other specific configs
  */
 
+import type { Configuration } from 'webpack';
 import webpack from './webpack.instance';
 import TsconfigPathsPlugins from 'tsconfig-paths-webpack-plugin';
 import webpackPaths from './webpack.paths';
 import { dependencies as externals } from '../../release/app/package.json';
 
-const configuration: webpack.Configuration = {
-  externals: [...Object.keys(externals || {})],
+const configuration: Configuration = {
+  // `kshana-ink` is required by the embedded main-process integration.
+  // Externalize ALL kshana-ink subpaths (`./manager`, `./core/llm`,
+  // `./runners`, `./agent/pi`) so webpack doesn't try to bundle the
+  // CJS artifacts (which have peer-dep imports that fail at bundle
+  // time). At runtime, Node resolves them via require() the same as
+  // any other electron dep.
+  externals: [
+    ...Object.keys(externals || {}),
+    ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
+      if (request && /^kshana-core(\/|$)/.test(request)) {
+        return callback(null, `commonjs ${request}`);
+      }
+      callback();
+    },
+  ] as never[],
 
   stats: 'errors-only',
 

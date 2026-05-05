@@ -49,6 +49,10 @@ function normalizeComfyUIMode(value: unknown): ComfyUIMode | null {
   return null;
 }
 
+function normalizeBackendMode(value: unknown): BackendMode {
+  return value === 'cloud' ? 'cloud' : 'local';
+}
+
 function normalizeComfyUIUrl(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
@@ -67,10 +71,6 @@ function normalizeThemeId(value: unknown): ThemeId {
     return value;
   }
   return DEFAULT_THEME_ID;
-}
-
-function normalizeBackendMode(value: unknown): BackendMode {
-  return value === 'cloud' ? 'cloud' : 'local';
 }
 
 function normalizeLLMProvider(value: unknown): LLMProvider {
@@ -94,10 +94,10 @@ function normalizeString(value: unknown, fallback = ''): string {
 
 function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings {
   const comfyuiUrl = normalizeComfyUIUrl(value?.comfyuiUrl);
+  const backendMode = normalizeBackendMode(value?.backendMode);
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
-  const backendMode = normalizeBackendMode(value?.backendMode);
   const llmProvider = normalizeLLMProvider(value?.llmProvider);
   const lmStudioUrl = normalizeString(value?.lmStudioUrl, DEFAULT_LM_STUDIO_URL);
   const lmStudioModel = normalizeString(
@@ -179,8 +179,8 @@ export const updateSettings = (patch: Partial<AppSettings>): AppSettings => {
 export {
   normalizeSettings,
   normalizeThemeId,
-  normalizeBackendMode,
   normalizeLLMProvider,
+  normalizeBackendMode,
   DEFAULT_THEME_ID,
 };
 

@@ -34,23 +34,16 @@ import {
 } from './utils/projectFileOpGuard';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import backendManager from './backendManager';
-import {
-  AppSettings,
-  getSettings,
-  updateSettings,
-} from './settingsManager';
-import {
-  shouldRestartCloudBackendForAccountChange,
-  shouldStopCloudBackendOnSignOut,
-} from './accountBackendSync';
-import {
-  getAccount,
-  setAccount,
-  clearAccount,
-  refreshBalance,
-} from './accountManager';
+import { KshanaCoreManager } from './kshanaCoreManager';
+import { registerKshanaIpcBridge } from './kshanaIpcBridge';
 import { parseDesktopAuthToken } from './desktopAuthToken';
+import {
+  clearAccount,
+  getAccount,
+  refreshBalance,
+  setAccount,
+} from './accountManager';
+import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import fileSystemManager from './fileSystemManager';
 import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
@@ -63,12 +56,6 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
-import type {
-  BackendConnectionInfo,
-  BackendState,
-  CloudBackendRuntimeConfig,
-  ServerConnectionConfig,
-} from '../shared/backendTypes';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportChatJsonWithDialog } from './services/chatExportService';
 import {
@@ -107,6 +94,7 @@ if (app.isPackaged) {
 
 let mainWindow: BrowserWindow | null = null;
 let pendingDesktopAuthState: string | null = null;
+let kshanaCoreManager: KshanaCoreManager;
 let appUpdateStatus: AppUpdateStatus = {
   phase: 'idle',
   message: 'No update check yet',
@@ -115,20 +103,8 @@ let appUpdateStatus: AppUpdateStatus = {
 };
 
 interface RuntimeConfig {
-  /** Kshana website (Next.js): /auth/desktop, /api/credits/balance, etc. */
+  /** Kshana website (Next.js): /auth/desktop, proxy routes, billing APIs. */
   kshanaWebsiteUrl?: string;
-  /** Alias for kshanaWebsiteUrl */
-  websiteUrl?: string;
-  /** Authenticated proxy base URL for paid upstream calls. */
-  kshanaProxyBaseUrl?: string;
-  /** Alias for kshanaProxyBaseUrl */
-  proxyBaseUrl?: string;
-  /** Legacy hosted kshana-core URL retained for dev/fallback metadata only. */
-  kshanaCoreUrl?: string;
-  /** Alias for kshanaCoreUrl */
-  coreUrl?: string;
-  /** Legacy key from older release pipelines. */
-  cloudServerUrl?: string;
 }
 
 async function readRuntimeConfig(): Promise<RuntimeConfig | null> {
@@ -150,7 +126,9 @@ async function readRuntimeConfig(): Promise<RuntimeConfig | null> {
       return null;
     }),
   );
-  return configs.find((config): config is RuntimeConfig => Boolean(config)) ?? null;
+  return (
+    configs.find((config): config is RuntimeConfig => Boolean(config)) ?? null
+  );
 }
 
 function normalizeServerUrl(value?: string): string | undefined {
@@ -169,36 +147,13 @@ function normalizeServerUrl(value?: string): string | undefined {
   }
 }
 
-/** Website origin for cloud sign-in and billing APIs (not the agent backend URL). */
 async function resolveKshanaWebsiteUrl(): Promise<string> {
   const fromEnv = normalizeServerUrl(process.env.KSHANA_CLOUD_URL);
   if (fromEnv) return fromEnv;
   const parsed = await readRuntimeConfig();
-  const fromFile = normalizeServerUrl(
-    parsed?.kshanaWebsiteUrl || parsed?.websiteUrl,
-  );
+  const fromFile = normalizeServerUrl(parsed?.kshanaWebsiteUrl);
   if (fromFile) return fromFile;
   return 'http://localhost:3000';
-}
-
-async function resolveKshanaProxyBaseUrl(): Promise<string> {
-  const fromEnv = normalizeServerUrl(process.env.KSHANA_PROXY_BASE_URL);
-  if (fromEnv) return fromEnv;
-  const parsed = await readRuntimeConfig();
-  const fromFile = normalizeServerUrl(
-    parsed?.kshanaProxyBaseUrl || parsed?.proxyBaseUrl,
-  );
-  if (fromFile) return fromFile;
-  return resolveKshanaWebsiteUrl();
-}
-
-async function resolveLegacyKshanaCoreUrl(): Promise<string | undefined> {
-  const fromEnv = normalizeServerUrl(process.env.KSHANA_CORE_URL);
-  if (fromEnv) return fromEnv;
-  const parsed = await readRuntimeConfig();
-  return normalizeServerUrl(
-    parsed?.kshanaCoreUrl || parsed?.coreUrl || parsed?.cloudServerUrl,
-  );
 }
 
 async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
@@ -206,20 +161,13 @@ async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
   return `${websiteBase}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
-async function resolveCloudBackendRuntime(
-  desktopToken?: string,
-  proxyOverride?: string,
-): Promise<CloudBackendRuntimeConfig> {
-  const [websiteUrl, configuredProxyBaseUrl, legacyCoreUrl] = await Promise.all([
-    resolveKshanaWebsiteUrl(),
-    resolveKshanaProxyBaseUrl(),
-    resolveLegacyKshanaCoreUrl(),
-  ]);
+async function getCloudAuthRuntime(settings: AppSettings) {
+  if (settings.backendMode !== 'cloud') return null;
+  const account = getAccount();
+  if (!account?.token) return null;
   return {
-    websiteUrl,
-    proxyBaseUrl: normalizeServerUrl(proxyOverride) || configuredProxyBaseUrl,
-    desktopToken,
-    legacyCoreUrl,
+    websiteUrl: await resolveKshanaWebsiteUrl(),
+    desktopToken: account.token,
   };
 }
 
@@ -350,89 +298,10 @@ const broadcastAppUpdateStatus = (
   }
 };
 
-backendManager.on('state', (state: BackendState) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('backend:state', state);
-  }
-});
-
 ipcMain.on('ipc-example', async (event, arg) => {
   const msgTemplate = (pingPong: string) => `IPC test: ${pingPong}`;
   console.log(msgTemplate(arg));
   event.reply('ipc-example', msgTemplate('pong'));
-});
-
-ipcMain.handle('backend:get-state', async (): Promise<BackendState> => {
-  return backendManager.status;
-});
-
-ipcMain.handle(
-  'backend:get-connection-info',
-  async (): Promise<BackendConnectionInfo> => {
-    const settings = getSettings();
-    const cloudRuntime = await resolveCloudBackendRuntime(getAccount()?.token);
-    return backendManager.getConnectionInfo(settings, cloudRuntime);
-  },
-);
-
-ipcMain.handle(
-  'backend:start',
-  async (_event, config?: ServerConnectionConfig): Promise<BackendState> => {
-    try {
-      const settings = getSettings();
-      const account = getAccount();
-      if (settings.backendMode === 'cloud' && !account?.token) {
-        return {
-          status: 'error',
-          mode: 'cloud',
-          message: 'Sign in to Kshana Cloud before using cloud credits.',
-        };
-      }
-      const cloudRuntime =
-        settings.backendMode === 'cloud'
-          ? await resolveCloudBackendRuntime(account?.token, config?.serverUrl)
-          : undefined;
-      return await backendManager.start(settings, cloudRuntime);
-    } catch (error) {
-      log.error(`Failed to start backend: ${(error as Error).message}`);
-      return {
-        status: 'error',
-        message: (error as Error).message,
-      };
-    }
-  },
-);
-
-ipcMain.handle(
-  'backend:restart',
-  async (_event, config?: ServerConnectionConfig) => {
-    try {
-      const settings = getSettings();
-      const account = getAccount();
-      if (settings.backendMode === 'cloud' && !account?.token) {
-        return {
-          status: 'error',
-          mode: 'cloud',
-          message: 'Sign in to Kshana Cloud before using cloud credits.',
-        };
-      }
-      const cloudRuntime =
-        settings.backendMode === 'cloud'
-          ? await resolveCloudBackendRuntime(account?.token, config?.serverUrl)
-          : undefined;
-      return await backendManager.restart(settings, cloudRuntime);
-    } catch (error) {
-      log.error(`Failed to restart backend: ${(error as Error).message}`);
-      return {
-        status: 'error',
-        message: (error as Error).message,
-      };
-    }
-  },
-);
-
-ipcMain.handle('backend:stop', async () => {
-  return backendManager.stop();
 });
 
 ipcMain.handle('settings:get', async (): Promise<AppSettings> => {
@@ -443,6 +312,19 @@ ipcMain.handle(
   'settings:update',
   async (_event, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const updated = updateSettings(patch);
+    try {
+      await kshanaCoreManager.restart(
+        updated,
+        await getCloudAuthRuntime(updated),
+      );
+      if (mainWindow) {
+        registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+      }
+    } catch (error) {
+      log.error(
+        `Failed to restart embedded kshana after settings update: ${(error as Error).message}`,
+      );
+    }
     if (mainWindow) {
       mainWindow.webContents.send('settings:updated', updated);
     }
@@ -602,16 +484,16 @@ ipcMain.handle(
     const now = Date.now();
     const ttlMs = 1000;
 
-    const cached = (globalThis as any).__kshanaReadTreeCache?.get?.(cacheKey) as
-      | { value: unknown; expiresAt: number }
-      | undefined;
+    const cached = (globalThis as any).__kshanaReadTreeCache?.get?.(
+      cacheKey,
+    ) as { value: unknown; expiresAt: number } | undefined;
     if (cached && cached.expiresAt > now) {
       return cached.value;
     }
 
-    const inflightMap: Map<string, Promise<unknown>> =
-      (globalThis as any).__kshanaReadTreeInflight ??
-      ((globalThis as any).__kshanaReadTreeInflight = new Map());
+    const inflightMap: Map<string, Promise<unknown>> = (globalThis as any)
+      .__kshanaReadTreeInflight ??
+    ((globalThis as any).__kshanaReadTreeInflight = new Map());
     const cacheMap: Map<string, { value: unknown; expiresAt: number }> =
       (globalThis as any).__kshanaReadTreeCache ??
       ((globalThis as any).__kshanaReadTreeCache = new Map());
@@ -1386,12 +1268,11 @@ ipcMain.handle(
     relativePath: string,
     meta?: FileOpMeta,
   ): Promise<string | null> => {
-    const absoluteBase = path.isAbsolute(basePath) ? path.resolve(basePath) : null;
+    const absoluteBase = path.isAbsolute(basePath)
+      ? path.resolve(basePath)
+      : null;
     let activeProjectRoot: string | null;
-    if (
-      meta?.source === 'renderer' &&
-      meta?.intent === 'new_project_parent'
-    ) {
+    if (meta?.source === 'renderer' && meta?.intent === 'new_project_parent') {
       if (!absoluteBase) {
         throw createIpcFileOpError(
           'INVALID_FILE_PATH',
@@ -1626,7 +1507,12 @@ ipcMain.handle(
     overlayItems?: ExportOverlayItem[],
     textOverlayCues?: ExportTextOverlayCue[],
     promptOverlayCues?: ExportPromptOverlayCue[],
-  ): Promise<{ success: boolean; outputPath?: string; duration?: number; error?: string }> => {
+  ): Promise<{
+    success: boolean;
+    outputPath?: string;
+    duration?: number;
+    error?: string;
+  }> => {
     console.log('[Export:CapCut] Starting CapCut export...');
     try {
       const projectName =
@@ -2155,7 +2041,12 @@ ipcMain.handle(
     textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
     exportOptions?: ExportRenderOptions,
-  ): Promise<{ success: boolean; outputPath?: string; duration?: number; error?: string }> => {
+  ): Promise<{
+    success: boolean;
+    outputPath?: string;
+    duration?: number;
+    error?: string;
+  }> => {
     console.log('[VideoComposition] Starting video composition...');
     console.log('[VideoComposition] Timeline items:', timelineItems.length);
 
@@ -2909,7 +2800,10 @@ ipcMain.handle(
       return {
         success: true,
         outputPath: finalOutputPath,
-        duration: timelineItems.reduce((sum, item) => sum + (item.duration || 0), 0),
+        duration: timelineItems.reduce(
+          (sum, item) => sum + (item.duration || 0),
+          0,
+        ),
       };
     } catch (error) {
       console.error('[VideoComposition] Error during composition:', error);
@@ -3127,7 +3021,10 @@ const isDebug =
   process.env.NODE_ENV === 'development' || process.env.DEBUG_PROD === 'true';
 
 if (isDebug) {
-  require('electron-debug').default();
+  // Install reload + inspect-element keyboard shortcuts, but DON'T
+  // auto-open DevTools on every BrowserWindow. Devs can still toggle
+  // them with Cmd+Opt+I / Ctrl+Shift+I when they want.
+  require('electron-debug').default({ showDevTools: false });
 }
 
 const installExtensions = async () => {
@@ -3324,13 +3221,13 @@ const createWindow = async () => {
   // Add error handlers for debugging
   mainWindow.webContents.on(
     'did-fail-load',
-    (event, errorCode, errorDescription, validatedURL) => {
+    (_event, errorCode, errorDescription, validatedURL) => {
       log.error(`Failed to load: ${errorCode} - ${errorDescription}`);
       log.error(`URL: ${validatedURL || htmlPath}`);
     },
   );
 
-  mainWindow.webContents.on('render-process-gone', (event, details) => {
+  mainWindow.webContents.on('render-process-gone', (_event, details) => {
     log.error(`Renderer process gone: ${details.reason}`);
   });
 
@@ -3386,23 +3283,42 @@ app.on('window-all-closed', () => {
   }
 });
 
+// Embedded kshana-ink runtime — replaces the spawn+WS local backend.
+// Renderer talks to this via window.kshana (registerKshanaIpcBridge
+// below registers the ipcMain handlers + sets up event forwarding).
+kshanaCoreManager = new KshanaCoreManager();
+
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
-  backendManager.stop().catch((error) => {
-    log.error(`Failed to stop backend: ${(error as Error).message}`);
-  });
+  try {
+    kshanaCoreManager.stop();
+  } catch (error) {
+    log.error(`Failed to stop embedded kshana: ${(error as Error).message}`);
+  }
 });
 
 const bootstrapBackend = async () => {
   try {
     const settings = getSettings();
-    const cloudRuntime =
-      settings.backendMode === 'cloud'
-        ? await resolveCloudBackendRuntime(getAccount()?.token)
-        : undefined;
-    await backendManager.start(settings, cloudRuntime);
+    // Tell kshana-ink we're inside the packaged Electron build so its
+    // path defaults flip from REPO_ROOT (dev) to ~/Kshana (user data
+    // dir). Must be set BEFORE kshanaCoreManager.start, which calls
+    // loadDevEnv → getProjectsDir() to decide where to chdir.
+    if (app.isPackaged) {
+      process.env.KSHANA_PACKAGED = '1';
+    }
+    // Embedded kshana-ink — the only backend path. Starts synchronously
+    // (in-process), so the IPC bridge can register immediately and the
+    // renderer's window.kshana.* calls can land.
+    await kshanaCoreManager.start(
+      settings,
+      await getCloudAuthRuntime(settings),
+    );
+    if (mainWindow) {
+      registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+    }
   } catch (error) {
-    log.error(`Failed to start backend: ${(error as Error).message}`);
+    log.error(`Failed to start embedded kshana: ${(error as Error).message}`);
   }
 };
 
@@ -3415,14 +3331,44 @@ const startBackendInBackground = () => {
   backendPromise.catch(handleBackendStartup);
 };
 
-// ─── Kshana Cloud deep-link protocol ─────────────────────────────────────────
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', (_event, argv) => {
+    const deepLink = argv.find((arg) => arg.startsWith('kshana://'));
+    if (deepLink) {
+      handleDeepLink(deepLink);
+    }
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    }
+  });
+}
 
-// Register kshana:// as the custom URL scheme
 if (!app.isDefaultProtocolClient('kshana')) {
   app.setAsDefaultProtocolClient('kshana');
 }
 
-/** Parses kshana://auth?token=xxx&state=xxx and stores the account. */
+async function restartEmbeddedAfterAccountChange(
+  reason: string,
+): Promise<void> {
+  try {
+    const settings = getSettings();
+    await kshanaCoreManager.restart(
+      settings,
+      await getCloudAuthRuntime(settings),
+    );
+    if (mainWindow) {
+      registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+    }
+  } catch (error) {
+    log.error(
+      `[Account] Embedded kshana restart failed after ${reason}: ${(error as Error).message}`,
+    );
+  }
+}
+
 async function handleDeepLink(url: string): Promise<void> {
   try {
     const parsed = new URL(url);
@@ -3443,110 +3389,57 @@ async function handleDeepLink(url: string): Promise<void> {
     }
 
     pendingDesktopAuthState = null;
-    const previousAccount = getAccount();
-
     setAccount({
-      userId: payload.sub ?? '',
-      email: payload.email ?? '',
+      userId: payload.sub,
+      email: payload.email,
       name: payload.name ?? null,
       credits: 0,
       token,
     });
 
-    // Fetch balance immediately so the Account tab shows it
-    const websiteBase = await resolveKshanaWebsiteUrl();
-    await refreshBalance(websiteBase);
-
-    const settings = getSettings();
-    if (
-      shouldRestartCloudBackendForAccountChange(
-        settings,
-        previousAccount,
-        token,
-      )
-    ) {
-      try {
-        const cloudRuntime = await resolveCloudBackendRuntime(token);
-        const state = await backendManager.restart(settings, cloudRuntime);
-        if (state.status === 'error') {
-          log.error(
-            `[Account] Cloud backend restart failed after sign-in: ${state.message ?? 'unknown error'}`,
-          );
-        }
-      } catch (error) {
-        log.error(
-          `[Account] Cloud backend restart failed after sign-in: ${(error as Error).message}`,
-        );
-      }
-    }
-
-    // Notify renderer that account changed
+    await refreshBalance(await resolveKshanaWebsiteUrl());
+    updateSettings({ backendMode: 'cloud' });
+    await restartEmbeddedAfterAccountChange('sign-in');
+    mainWindow?.webContents.send('settings:updated', getSettings());
     mainWindow?.webContents.send('account:changed');
     log.info('[Account] Desktop sign-in complete:', payload.email);
-  } catch (err) {
-    log.error('[Account] Failed to handle deep link:', err);
+  } catch (error) {
+    log.error('[Account] Failed to handle deep link:', error);
   }
 }
 
-// macOS: app is already running, open-url fires
 app.on('open-url', (event, url) => {
   event.preventDefault();
   handleDeepLink(url);
 });
-
-// Windows / Linux: second-instance argv carries the URL
-app.on('second-instance', (_event, argv) => {
-  const deepLink = argv.find((arg) => arg.startsWith('kshana://'));
-  if (deepLink) handleDeepLink(deepLink);
-  // Focus the existing window
-  if (mainWindow) {
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
-  }
-});
-
-// ─── Account IPC handlers ──────────────────────────────────────────────────
 
 ipcMain.handle('account:get', () => {
   return getAccount();
 });
 
 ipcMain.handle('account:sign-in', async () => {
-  // Generate a random state token for CSRF protection
   const state = randomUUID();
   pendingDesktopAuthState = state;
-  const websiteBase = await resolveKshanaWebsiteUrl();
-  const url = `${websiteBase}/auth/desktop?state=${encodeURIComponent(state)}`;
+  const url = await resolveKshanaWebsitePath(
+    `/auth/desktop?state=${encodeURIComponent(state)}`,
+  );
   await shell.openExternal(url);
   return { opened: true };
 });
 
 ipcMain.handle('account:sign-out', async () => {
-  const settings = getSettings();
   clearAccount();
-  if (shouldStopCloudBackendOnSignOut(settings)) {
-    try {
-      const state = await backendManager.stop();
-      if (state.status === 'error') {
-        log.error(
-          `[Account] Cloud backend stop failed after sign-out: ${state.message ?? 'unknown error'}`,
-        );
-      }
-    } catch (error) {
-      log.error(
-        `[Account] Cloud backend stop failed after sign-out: ${(error as Error).message}`,
-      );
-    }
-  }
+  updateSettings({ backendMode: 'local' });
+  await restartEmbeddedAfterAccountChange('sign-out');
+  mainWindow?.webContents.send('settings:updated', getSettings());
   mainWindow?.webContents.send('account:changed');
   return { success: true };
 });
 
 ipcMain.handle('account:refresh-balance', async () => {
-  const websiteBase = await resolveKshanaWebsiteUrl();
-  const balance = await refreshBalance(websiteBase);
+  const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   mainWindow?.webContents.send('account:changed');
-  return { balance };
+  return result;
 });
 
 ipcMain.handle('account:get-billing-url', async () => {
@@ -3558,8 +3451,6 @@ ipcMain.handle('account:open-billing', async () => {
   await shell.openExternal(url);
   return { opened: true, url };
 });
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 app
   .whenReady()

@@ -1,11 +1,10 @@
 # Kshana Desktop
 
-Electron desktop application for Kshana. The app bundles the `kshana-core` TypeScript backend and can run in two modes:
+Electron desktop application for Kshana. The app bundles the `kshana-core` TypeScript backend and runs it locally:
 
-- `Local`: starts the bundled `kshana-core` server on an internal localhost port
-- `Cloud`: connects to a release-configured remote backend
+- The desktop starts the bundled `kshana-core` server on an internal localhost port and the renderer talks to it over HTTP/WebSocket.
 
-The renderer always talks to a backend over HTTP/WebSocket. In local mode, the desktop app starts that backend itself as a child process.
+Hosted/cloud kshana-core mode has been descoped — the app is local-only at present. ComfyUI cloud (pointing at `https://cloud.comfy.org` or another remote ComfyUI URL) is unrelated and still supported in Settings → Connection.
 
 ## Prerequisites
 
@@ -45,24 +44,14 @@ npm run start
 
 In development:
 
-- `Cloud` mode connects to the configured cloud URL
-- `Local` mode starts `../kshana-core/dist/server/cli.cjs` automatically
+- the desktop starts `../kshana-core/dist/server/cli.cjs` automatically
 - the local backend chooses a free loopback port automatically
 
-You do not need to run `kshana-core` separately for the normal desktop local flow. You only need `pnpm build` in the sibling repo.
+You do not need to run `kshana-core` separately for the normal desktop flow. You only need `pnpm build` in the sibling repo.
 
 ## Settings
 
-The Connection settings are mode-aware:
-
-- `Local`
-  - lets you configure ComfyUI and provider settings
-  - starts bundled `kshana-core` on localhost
-- `Cloud`
-  - connects to the release-configured cloud backend
-  - shows connection info only
-
-Local mode currently supports:
+Connection settings cover ComfyUI and the LLM provider for the bundled local backend. Currently supported providers:
 
 - LM Studio
 - Gemini
@@ -126,16 +115,9 @@ npm run release
 
 ## Runtime Model
 
-### Local mode
-
 - desktop starts bundled `kshana-core`
 - desktop waits for `/api/v1/health`
 - renderer connects over WebSocket/HTTP to the localhost backend
-
-### Cloud mode
-
-- desktop does not start a local backend
-- desktop connects to the cloud URL injected at release time
 
 ## Bundled Backend Assets
 
