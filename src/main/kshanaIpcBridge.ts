@@ -128,14 +128,14 @@ export function registerKshanaIpcBridge(
 
   ipcMain.handle(
     KSHANA_CHANNELS.RUNNER_CANCEL,
-    (): RunnerCancelResponse => {
-      return { cancelled: manager.cancelBackgroundTask() };
+    async (): Promise<RunnerCancelResponse> => {
+      return { cancelled: await manager.cancelBackgroundTask() };
     },
   );
 
   ipcMain.handle(
     KSHANA_CHANNELS.RUNNER_STATUS,
-    (): RunnerStatusResponse => {
+    async (): Promise<RunnerStatusResponse> => {
       return manager.getBackgroundTaskStatus();
     },
   );

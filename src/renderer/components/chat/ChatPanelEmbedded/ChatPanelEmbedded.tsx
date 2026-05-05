@@ -958,15 +958,21 @@ export default function ChatPanelEmbedded() {
               : 'Open a project from the sidebar to begin.'}
           </div>
         ) : (
-          messages.map((m) =>
-            m.role === 'question' ? (
+          groupConsecutiveProgress(messages).map((item) =>
+            item.kind === 'progressGroup' ? (
+              <ProgressGroup key={item.id} rows={item.rows} />
+            ) : item.message.role === 'question' ? (
               <QuestionRow
-                key={m.id}
-                message={m}
-                onSelect={(opt) => handleSelectOption(m.id, opt)}
+                key={item.message.id}
+                message={item.message}
+                onSelect={(opt) => handleSelectOption(item.message.id, opt)}
               />
             ) : (
-              <MessageRow key={m.id} message={m} />
+              <MessageRow
+                key={item.message.id}
+                message={item.message}
+                projectDirectory={projectDirectory}
+              />
             ),
           )
         )}
@@ -1190,7 +1196,158 @@ function statusColor(status: ToolStatus | undefined): string {
   }
 }
 
-function MessageRow({ message: m }: { message: ChatMessage }) {
+/**
+ * Render a single progress line with the muted styling. Extracted so
+ * both the standalone path (legacy / orphan progress rows) and the
+ * grouped collapsible accordion render identical bubbles — keeps the
+ * "muted, monospaced, indented" treatment in one place.
+ */
+function ProgressRow({ text }: { text: string | undefined }) {
+  return (
+    <div
+      aria-label="Run progress"
+      style={{
+        marginLeft: 18,
+        padding: '4px 10px',
+        background: 'rgba(255,255,255,0.025)',
+        borderLeft: '2px solid rgba(255,255,255,0.12)',
+        borderRadius: 3,
+        fontSize: 11,
+        lineHeight: 1.4,
+        fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+        color: '#a8b0bd',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+/**
+ * Collapsible group for consecutive progress rows under one
+ * kshana_run_to (or other long-running) tool call. Default state is
+ * COLLAPSED so the chat doesn't drown in per-step heartbeat lines —
+ * the user sees only the most recent step plus an "N steps" expander
+ * button. Click expands; click again collapses.
+ */
+function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const last = rows[rows.length - 1];
+  const count = rows.length;
+  const buttonStyle: React.CSSProperties = {
+    marginLeft: 18,
+    marginTop: 2,
+    padding: '2px 8px',
+    background: 'transparent',
+    border: 'none',
+    color: '#7a8190',
+    fontSize: 10,
+    fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+    cursor: 'pointer',
+    textAlign: 'left',
+  };
+  return (
+    <div aria-label="Run progress group">
+      {expanded ? (
+        <>
+          {rows.map((r) => (
+            <ProgressRow key={r.id} text={r.progressText} />
+          ))}
+          <button
+            aria-label="Collapse run progress"
+            onClick={() => setExpanded(false)}
+            style={buttonStyle}
+            type="button"
+          >
+            ▴ collapse {count} step{count === 1 ? '' : 's'}
+          </button>
+        </>
+      ) : (
+        <>
+          {last && <ProgressRow text={last.progressText} />}
+          {count > 1 && (
+            <button
+              aria-label="Expand run progress"
+              onClick={() => setExpanded(true)}
+              style={buttonStyle}
+              type="button"
+            >
+              ▾ show {count} step{count === 1 ? '' : 's'}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+interface ProgressGroupItem {
+  kind: 'progressGroup';
+  id: string;
+  toolCallId: string;
+  rows: ChatMessage[];
+}
+
+interface MessageItem {
+  kind: 'message';
+  message: ChatMessage;
+}
+
+type RenderItem = ProgressGroupItem | MessageItem;
+
+/**
+ * Walk the flat message list once and fold consecutive progress rows
+ * sharing the same parent toolCallId into a single accordion item.
+ * Pure helper — exported only conceptually (no consumers outside this
+ * file). Kept as a free function so it's trivially memoizable.
+ */
+function groupConsecutiveProgress(messages: ChatMessage[]): RenderItem[] {
+  const out: RenderItem[] = [];
+  for (const m of messages) {
+    if (m.role === 'progress' && m.progressForToolCallId) {
+      const last = out[out.length - 1];
+      if (
+        last &&
+        last.kind === 'progressGroup' &&
+        last.toolCallId === m.progressForToolCallId
+      ) {
+        last.rows.push(m);
+        continue;
+      }
+      out.push({
+        kind: 'progressGroup',
+        id: `pg-${m.id}`,
+        toolCallId: m.progressForToolCallId,
+        rows: [m],
+      });
+      continue;
+    }
+    out.push({ kind: 'message', message: m });
+  }
+  return out;
+}
+
+function resolveMediaSrc(path: string, projectDirectory: string | null): string {
+  // ExecutorAgent emits project-relative paths (assets/images/foo.png)
+  // in tool_result.file_path. Resolving them here against the open
+  // workspace project's absolute dir yields a file:// URL the Electron
+  // renderer can actually load — without this prefix the <img> 404s
+  // and gets hidden by onError, matching the "shows path but never
+  // the actual asset" report.
+  if (path.startsWith('/')) return `file://${path}`;
+  if (projectDirectory) return `file://${projectDirectory}/${path}`;
+  return `file://${path}`;
+}
+
+function MessageRow({
+  message: m,
+  projectDirectory,
+}: {
+  message: ChatMessage;
+  projectDirectory: string | null;
+}) {
   if (m.role === 'tool') {
     // Compact one-liner: glyph + monospaced tool name + faint args.
     // Per-line progress for long-running tools (e.g. kshana_run_to)
@@ -1219,30 +1376,11 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
     );
   }
   if (m.role === 'progress') {
-    // One row per chunk from a long-running tool. Indented + faint
-    // accent so the user can scan the run's heartbeat at a glance,
-    // while still getting one discrete "block" per progress event
-    // (instead of one big concatenated <pre>).
-    return (
-      <div
-        aria-label="Run progress"
-        style={{
-          marginLeft: 18,
-          padding: '4px 10px',
-          background: 'rgba(255,255,255,0.025)',
-          borderLeft: '2px solid rgba(255,255,255,0.12)',
-          borderRadius: 3,
-          fontSize: 11,
-          lineHeight: 1.4,
-          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-          color: '#a8b0bd',
-          whiteSpace: 'pre-wrap',
-          wordBreak: 'break-word',
-        }}
-      >
-        {m.progressText}
-      </div>
-    );
+    // Standalone (un-grouped) progress row — falls through to the
+    // shared ProgressRow renderer. The normal grouped path
+    // (kshana_run_to with N stream_chunks) is rendered by
+    // ProgressGroup at the parent level.
+    return <ProgressRow text={m.progressText} />;
   }
   if (m.role === 'system') {
     // Compact "the user just took an action" pill — used for things
@@ -1284,22 +1422,35 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
     );
   }
   if (m.role === 'media') {
+    const resolvedSrc = m.mediaPath
+      ? resolveMediaSrc(m.mediaPath, projectDirectory)
+      : '';
     return (
       <div style={messageBubbleStyle('rgba(80,160,80,0.10)', 'flex-start')}>
         <div style={{ fontSize: 10, opacity: 0.6, marginBottom: 4 }}>
           generated {m.mediaKind} · {m.mediaProject ?? ''}
         </div>
-        {m.mediaKind === 'image' && m.mediaPath ? (
+        {m.mediaKind === 'image' && resolvedSrc ? (
           <img
-            src={`file://${m.mediaPath}`}
+            src={resolvedSrc}
             alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
-            style={{ maxWidth: '100%', borderRadius: 4 }}
+            // Compact thumbnail — full-width assets dominated the chat
+            // panel and made each generation feel "heavy". Click to
+            // open in a system viewer if the user wants the real size.
+            style={{ maxWidth: '220px', borderRadius: 4, cursor: 'zoom-in' }}
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}
           />
+        ) : m.mediaKind === 'video' && resolvedSrc ? (
+          <video
+            src={resolvedSrc}
+            controls
+            preload="metadata"
+            style={{ maxWidth: '220px', borderRadius: 4 }}
+          />
         ) : (
-          <div style={{ fontSize: 12 }}>📹 {m.mediaPath}</div>
+          <div style={{ fontSize: 12 }}>📁 {m.mediaPath}</div>
         )}
       </div>
     );

@@ -410,6 +410,238 @@ describe('ChatPanelEmbedded', () => {
     });
   });
 
+  /**
+   * GIVEN a workspace project is open at an absolute path
+   *       (e.g. /tmp/noir.kshana) AND the executor emits a
+   *       media_generated event with a PROJECT-RELATIVE path
+   *       (assets/images/foo.png — that's what ExecutorAgent
+   *       writes to tool_result.file_path).
+   *
+   *  WHEN the chat panel renders the resulting media bubble.
+   *
+   *  THEN the <img>'s src must be a usable absolute file:// URL
+   *       (file:///tmp/noir.kshana/assets/images/foo.png), not the
+   *       broken `file://assets/images/foo.png` form that produces
+   *       a silent 404 + onError-hidden element — the bug the user
+   *       reported as "shows the path but never the actual image".
+   */
+  it('media_generated with a relative path resolves to an absolute file:// URL under the workspace project dir', async () => {
+    mockWorkspaceProjectName = 'noir';
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('media_generated', {
+        kind: 'image',
+        project: 'noir',
+        path: 'assets/images/s1shot1_first_frame.png',
+        source: 'kshana_run_to',
+      });
+    });
+
+    await waitFor(() => {
+      const img = document.querySelector(
+        'img[src^="file://"]',
+      ) as HTMLImageElement | null;
+      expect(img).not.toBeNull();
+      expect(img!.src).toBe(
+        'file:///tmp/noir.kshana/assets/images/s1shot1_first_frame.png',
+      );
+    });
+  });
+
+  /**
+   * GIVEN the executor emits a media_generated event for a video
+   *       (mp4) under the workspace project dir.
+   *
+   *  WHEN the chat panel renders it.
+   *
+   *  THEN the bubble must contain a <video> element (so the user
+   *       can actually play the clip inline), with src resolved to
+   *       an absolute file:// URL under the project dir — not just
+   *       a 📹 emoji + path text, which is what the current code
+   *       falls back to.
+   */
+  it('media_generated with a video path renders a <video> element with absolute file:// src', async () => {
+    mockWorkspaceProjectName = 'noir';
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('media_generated', {
+        kind: 'video',
+        project: 'noir',
+        path: 'assets/videos/s1shot1.mp4',
+        source: 'kshana_run_to',
+      });
+    });
+
+    await waitFor(() => {
+      // <video> has no implicit ARIA role, so query by tag.
+      const video = document.querySelector('video') as HTMLVideoElement | null;
+      expect(video).not.toBeNull();
+      expect(video!.src).toBe(
+        'file:///tmp/noir.kshana/assets/videos/s1shot1.mp4',
+      );
+    });
+  });
+
+  /**
+   * GIVEN a kshana_run_to tool_call followed by several stream_chunks
+   *       (the per-line progress the executor pumps out — one for the
+   *       "[info] [N/M] Working on: …" headline, one for each
+   *       sub-step like "[generate_image]" or "→ assets/…").
+   *
+   *  WHEN the chat renders the run.
+   *
+   *  THEN the progress rows must collapse into a SINGLE group element
+   *       (queryable via aria-label="Run progress group"), defaulting
+   *       to collapsed state with at most one summary line visible —
+   *       not N separate bubbles. The user reported the chat is "quite
+   *       heavy" with one bubble per event; this is the structural
+   *       grouping that fixes it.
+   */
+  it('progress events under one kshana_run_to call collapse into a single group element by default', async () => {
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('tool_call', {
+        toolCallId: 'task:run-1',
+        toolName: 'kshana_run_to',
+        arguments: { project: 'noir' },
+      });
+      // The executor's per-step heartbeat — each line arrives as its
+      // own stream_chunk in production.
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '  [info] [40/67] Working on: Shot Composition: S2 Shot 6\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '  [generate_shot_image_prompt]\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '    → completed\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '  [info] [41/67] Working on: Shot Composition: S2 Shot 7\n',
+      });
+    });
+
+    await waitFor(() => {
+      const groups = document.querySelectorAll('[aria-label="Run progress group"]');
+      expect(groups.length).toBe(1);
+    });
+
+    // Default: collapsed — most rows hidden. We allow at most one
+    // visible "current step" line as the summary.
+    const visibleProgressRows = document.querySelectorAll(
+      '[aria-label="Run progress"]',
+    );
+    expect(visibleProgressRows.length).toBeLessThanOrEqual(1);
+  });
+
+  /**
+   * GIVEN a collapsed progress group with several stream_chunks already
+   *       inside it.
+   *
+   *  WHEN the user clicks the group's expand toggle (a button
+   *       inside the group with aria-label="Expand run progress").
+   *
+   *  THEN every stream_chunk row that was hidden becomes visible.
+   */
+  it('clicking the run progress group expander reveals every stream_chunk row', async () => {
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('tool_call', {
+        toolCallId: 'task:run-2',
+        toolName: 'kshana_run_to',
+        arguments: { project: 'noir' },
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-2',
+        content: '  [info] [10/67] Working on: Character A\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-2',
+        content: '  [generate_image]\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-2',
+        content: '    → completed\n',
+      });
+    });
+
+    const expander = await screen.findByRole('button', {
+      name: /expand run progress/i,
+    });
+    fireEvent.click(expander);
+
+    await waitFor(() => {
+      const rows = document.querySelectorAll('[aria-label="Run progress"]');
+      // 3 chunks → 3 rows visible after expanding.
+      expect(rows.length).toBe(3);
+    });
+  });
+
+  /**
+   * GIVEN media_generated arrives, WHEN the chat renders, THEN the
+   *       resulting <img> must display as a compact thumbnail with
+   *       a max-width <= 240px — not full-bleed (the previous styling
+   *       used `maxWidth: '100%'` which dominated the chat panel and
+   *       made the run feel "heavy").
+   */
+  it('generated images render as compact thumbnails (max-width <= 240px), not full-bleed', async () => {
+    mockWorkspaceProjectName = 'noir';
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('media_generated', {
+        kind: 'image',
+        project: 'noir',
+        path: 'assets/images/foo.png',
+        source: 'kshana_run_to',
+      });
+    });
+
+    await waitFor(() => {
+      const img = document.querySelector(
+        'img[src^="file://"]',
+      ) as HTMLImageElement | null;
+      expect(img).not.toBeNull();
+      // Inline style, not computed style — we control how it's set in
+      // the component, and JSDOM doesn't run a layout engine to honour
+      // computed CSS.
+      const maxWidth = img!.style.maxWidth;
+      // Either an explicit pixel value <= 240, or a width/maxWidth
+      // pattern that doesn't say "100%".
+      const px = /(\d+)px/.exec(maxWidth);
+      expect(px).not.toBeNull();
+      expect(parseInt(px![1]!, 10)).toBeLessThanOrEqual(240);
+    });
+  });
+
   it('auto-focuses the workspace project on the kshana session once both are ready', async () => {
     // The user has navigated into a project (chhaya_60s_anime) — the
     // workspace context exposes that as `projectName`. The chat panel
@@ -483,9 +715,11 @@ describe('ChatPanelEmbedded', () => {
 
   it('renders each tool stream chunk as its own discrete progress row (not one concatenated blob)', async () => {
     // The user explicitly wants each [info] / [N/M] / [tool] →
-    // completed line to appear as its own block in the chat. The
-    // earlier implementation concatenated all chunks into a single
-    // `<pre>` inside the tool card which was unreadable.
+    // completed line to appear as its own block in the chat — NOT
+    // fused into one <pre>. After the muting redesign these rows
+    // are wrapped in a collapsible group (default collapsed); this
+    // test verifies the underlying granularity by expanding the
+    // group and counting individual rows.
     const { container } = render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
@@ -501,13 +735,9 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
-    // Three discrete log events arrive over time. Spacing them with
-    // setTimeout-equivalent gaps via 250ms+ "wall time" simulation
-    // isn't trivial in jest, but the production runtime relies on a
-    // 250ms coalescing window; chunks separated by >250ms become
-    // separate rows. Use a newline-terminated chunk pattern to force
-    // line splits regardless of timing — that's the contract:
-    // newlines break rows.
+    // Three discrete log events arrive over time. The production
+    // 250ms coalescing window is irrelevant here because newlines
+    // always break rows.
     act(() => {
       publishEvent('stream_chunk', {
         toolCallId: 'tc-run',
@@ -516,20 +746,23 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
+    // Expand the group so every row is visible — the killer
+    // assertion still holds: each progress line is its own DOM row.
+    const expander = await screen.findByRole('button', {
+      name: /expand run progress/i,
+    });
+    fireEvent.click(expander);
+
     await waitFor(() => {
-      expect(container.textContent).toContain('Working on: Plot Outline');
-      expect(container.textContent).toContain('Working on: Full Story');
-      expect(container.textContent).toContain('Working on: Story Essence');
+      const progressRows = container.querySelectorAll(
+        '[aria-label="Run progress"]',
+      );
+      expect(progressRows.length).toBe(3);
     });
 
-    // The killer assertion: each progress line is its own DOM row,
-    // not three lines fused inside one element. We render
-    // role='progress' messages with aria-label="Run progress", so
-    // count those.
-    const progressRows = container.querySelectorAll(
-      '[aria-label="Run progress"]',
-    );
-    expect(progressRows.length).toBe(3);
+    expect(container.textContent).toContain('Working on: Plot Outline');
+    expect(container.textContent).toContain('Working on: Full Story');
+    expect(container.textContent).toContain('Working on: Story Essence');
   });
 
   it('drops tool-tagged chunks whose parent tool is NOT a kshana_* tool (filters bash/read/grep noise)', async () => {
