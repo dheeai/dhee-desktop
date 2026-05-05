@@ -33,10 +33,18 @@ export async function imageToBase64(imagePath: string): Promise<string | null> {
 
 /**
  * Checks if an image should be converted to base64
- * For test images, we prefer base64 for reliability
  */
 export function shouldUseBase64(filePath: string): boolean {
-  // Use base64 for test images if they're in test directories
+  // In test environments (Playwright), file:// URLs can't be loaded by <img>.
+  // Use base64 for any local file path so images render reliably in tests.
+  if (typeof window !== 'undefined' && window.__kshanaTest !== undefined) {
+    return (
+      filePath.startsWith('/') ||
+      filePath.startsWith('file://') ||
+      /^[A-Za-z]:/.test(filePath)
+    );
+  }
+  // Legacy: bundled test asset directories
   if (filePath.includes('test_image/') || filePath.includes('test_video/')) {
     return true;
   }

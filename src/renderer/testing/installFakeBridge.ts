@@ -354,30 +354,6 @@ const fakeElectron = {
     on: () => () => {},
     once: noop,
   },
-  backend: {
-    start: () => {
-      record('backend.start', undefined);
-      return Promise.resolve(bridgeReturn('backend.start', { status: 'idle' }));
-    },
-    restart: () => {
-      record('backend.restart', undefined);
-      return Promise.resolve(bridgeReturn('backend.restart', { status: 'idle' }));
-    },
-    stop: () => {
-      record('backend.stop', undefined);
-      return Promise.resolve(bridgeReturn('backend.stop', { status: 'idle' }));
-    },
-    getState: () => {
-      record('backend.getState', undefined);
-      return Promise.resolve(bridgeReturn('backend.getState', { status: 'idle' }));
-    },
-    getConnectionInfo: () => {
-      record('backend.getConnectionInfo', undefined);
-      return Promise.resolve(bridgeReturn('backend.getConnectionInfo', {}));
-    },
-    onStateChange: (cb: (payload: unknown) => void) =>
-      subscribeElectron('backend:state', cb),
-  },
   settings: {
     get: () => {
       record('settings.get', undefined);
@@ -474,7 +450,10 @@ const fakeElectron = {
     readProjectSnapshot: () =>
       Promise.resolve({ files: {}, directories: [], projectRoot: '' }),
     mkdir: noopAsync,
-    readFileBase64: () => Promise.resolve(null),
+    readFileBase64: (p: string) => {
+      record('project.readFileBase64', p);
+      return Promise.resolve(bridgeReturn('project.readFileBase64', null, [p]));
+    },
     writeFile: (p: string, contents: unknown) => {
       record('project.writeFile', { path: p, contents });
       return Promise.resolve();

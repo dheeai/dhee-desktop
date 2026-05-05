@@ -19,7 +19,10 @@ import {
   KSHANA_EVENT_CHANNEL,
   type KshanaEvent,
   type KshanaEventName,
+  type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelResponse,
+  type RunnerStatusResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
@@ -54,10 +57,13 @@ export function registerKshanaIpcBridge(
     } catch { /* ignore — handler may not be registered yet */ }
   }
 
-  ipcMain.handle(KSHANA_CHANNELS.CREATE_SESSION, (): CreateSessionResponse => {
-    const sessionId = manager.createSession();
-    return { sessionId };
-  });
+  ipcMain.handle(
+    KSHANA_CHANNELS.CREATE_SESSION,
+    (_event, req?: CreateSessionRequest): CreateSessionResponse => {
+      const sessionId = manager.createSession(req?.role);
+      return { sessionId };
+    },
+  );
 
   ipcMain.handle(
     KSHANA_CHANNELS.CONFIGURE_PROJECT,
@@ -117,6 +123,20 @@ export function registerKshanaIpcBridge(
     (_event, req: CancelTaskRequest): CancelTaskResponse => {
       const cancelled = manager.cancelTask(req.sessionId);
       return { cancelled };
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.RUNNER_CANCEL,
+    (): RunnerCancelResponse => {
+      return { cancelled: manager.cancelBackgroundTask() };
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.RUNNER_STATUS,
+    (): RunnerStatusResponse => {
+      return manager.getBackgroundTaskStatus();
     },
   );
 

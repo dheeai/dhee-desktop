@@ -16,17 +16,52 @@
  *   - agent_question: inline question prompt with option buttons.
  *   - phase_transition: phase banner system message.
  *   - context_usage: footer token-usage indicator.
- *   - backend:state error: dismissible connection-error banner.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import {
+  AlertCircle,
+  ArrowUp,
+  ChevronDown,
+  Download,
+  Loader2,
+  X,
+} from 'lucide-react';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import type { KshanaEvent } from '../../../../shared/kshanaIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
+import ProjectSetupPanel, {
+  type SetupPanelMode,
+  type SetupStep,
+} from '../ProjectSetupPanel';
+import { buildWizardKickoff } from './buildWizardKickoff';
+import { shouldAutoOpenWizard } from './setupAutoOpen';
+import {
+  WIZARD_TEMPLATES,
+  WIZARD_DURATION_PRESETS,
+  WIZARD_DEFAULT_TEMPLATE_ID,
+  WIZARD_DEFAULT_STYLE_ID,
+  WIZARD_DEFAULT_DURATION_SECONDS,
+} from './wizardCatalog';
+import { loadPersistedProjectSetup } from './loadPersistedProjectSetup';
+import {
+  classifyProjectState,
+  type ProjectLifecycleState,
+} from './classifyProjectState';
+import ProjectCTA, { type CTAAction } from './ProjectCTA';
+import ProjectRunButton from './ProjectRunButton';
 
-type Role = 'user' | 'assistant' | 'tool' | 'system' | 'media' | 'question' | 'phase';
+type Role =
+  | 'user'
+  | 'assistant'
+  | 'tool'
+  | 'system'
+  | 'media'
+  | 'question'
+  | 'phase'
+  | 'progress';
 type ToolStatus = 'in_progress' | 'completed' | 'error';
 
 interface ChatMessage {
@@ -37,6 +72,16 @@ interface ChatMessage {
   toolCallId?: string;
   toolStatus?: ToolStatus;
   toolArgsSummary?: string;
+  /**
+   * For role='progress' rows: the toolCallId of the originating tool
+   * (e.g. kshana_run_to). One row per stream_chunk event so each
+   * `[info] [N/M] Working on…` line is its own discrete block in the
+   * chat — easier to scan than the previous "all concatenated into
+   * one giant <pre> blob" rendering.
+   */
+  progressForToolCallId?: string;
+  /** For role='progress' rows: the line itself (already trimmed). */
+  progressText?: string;
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
@@ -59,29 +104,42 @@ function newMessageId(): string {
   return `msg-${nextMessageId++}`;
 }
 
-function normalizeAssistantText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
+/**
+ * Tool names whose execution is "the long pipeline" — running for
+ * minutes to hours. The header Run/Stop button shows Stop while any
+ * of these is in flight, regardless of which session dispatched it.
+ */
+const LONG_RUNNING_KSHANA_TOOLS = new Set([
+  'kshana_run_to',
+  'kshana_render_scene_bundle',
+  'kshana_audit_fidelity',
+]);
+
+function isLongRunningKshanaTool(toolName: string | undefined): boolean {
+  return !!toolName && LONG_RUNNING_KSHANA_TOOLS.has(toolName);
 }
 
-function isSameAssistantText(a: string | undefined, b: string): boolean {
-  return normalizeAssistantText(a ?? '') === normalizeAssistantText(b);
-}
-
-function mergeStreamText(current: string | undefined, chunk: string, done?: boolean): string {
-  const existing = current ?? '';
-  if (!done || !chunk) {
-    return existing + chunk;
+/**
+ * Detect the "text concatenated with itself" pattern that the
+ * upstream LLM stream sometimes produces (e.g. an entire multi-
+ * paragraph response repeated twice in a single bubble) and return
+ * just the first half.
+ *
+ * The bug's symptom in the wild is always paragraph-length+ — so
+ * we set a generous minimum length (120 chars) to avoid
+ * false-positive collapses on legitimate short repetitions like
+ * "Yes! Yes!" or "ha ha ha ha". Above that threshold, an even-
+ * length string whose first half is byte-identical to the second
+ * half is overwhelmingly the bug, not real content.
+ */
+function dedupeDoubled(text: string): string {
+  const len = text.length;
+  if (len < 120 || len % 2 !== 0) return text;
+  const half = len / 2;
+  if (text.slice(0, half) === text.slice(half)) {
+    return text.slice(0, half);
   }
-
-  const normalizedExisting = normalizeAssistantText(existing);
-  const normalizedChunk = normalizeAssistantText(chunk);
-  if (normalizedExisting && normalizedChunk.includes(normalizedExisting)) {
-    return chunk;
-  }
-  if (normalizedChunk && normalizedExisting.includes(normalizedChunk)) {
-    return existing;
-  }
-  return existing + chunk;
+  return text;
 }
 
 function summarizeArgs(args: unknown): string {
@@ -105,23 +163,161 @@ export default function ChatPanelEmbedded() {
   const { projectName, projectDirectory } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
-  const [autonomousMode, setAutonomousMode] = useState(false);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  // Header dropdown menu (project name → caret → menu) state.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuWrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // ── New-project wizard state ──────────────────────────────────────
+  // Auto-spawns when the user opens an unconfigured project. Collects
+  // style → duration → story; on confirm, calls session.configureProject
+  // (persists template/style/duration into project.json) then runs a
+  // kickoff task that pi-agent routes to `kshana_new` with `existingDir`.
+  const [setupPanelMode, setSetupPanelMode] = useState<SetupPanelMode>('hidden');
+  const [setupStep, setSetupStep] = useState<SetupStep>('style');
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
+    WIZARD_DEFAULT_TEMPLATE_ID,
+  );
+  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(
+    WIZARD_DEFAULT_STYLE_ID,
+  );
+  const [selectedDuration, setSelectedDuration] = useState<number | null>(
+    WIZARD_DEFAULT_DURATION_SECONDS,
+  );
+  const [storyInput, setStoryInput] = useState('');
+  const [setupError, setSetupError] = useState<string | null>(null);
+  const [isConfiguringSetup, setIsConfiguringSetup] = useState(false);
+  const [isSetupConfigured, setIsSetupConfigured] = useState(false);
+  // Whether we've already finished the "is this project fresh?"
+  // probe. Until this flips true the auto-open effect mustn't fire,
+  // otherwise it'd flash open and then snap shut on a configured
+  // project.
+  const [setupProbeCompleted, setSetupProbeCompleted] = useState(false);
+  // Classified lifecycle state for the active project. Drives whether
+  // we render a contextual CTA (in_progress / completed) in the empty
+  // chat area; 'fresh' projects route to the wizard via setupPanelMode.
+  const [projectState, setProjectState] = useState<ProjectLifecycleState | null>(
+    null,
+  );
+  // Local "I clicked stop, waiting for the abort to land" flag. The
+  // cancel signal takes a beat to propagate through pi-agent → the
+  // executor → ComfyUI / LLM clients. Without immediate visual
+  // feedback the user assumes the click was ignored. Cleared when
+  // bgStatus leaves 'running'.
+  const [pendingCancel, setPendingCancel] = useState(false);
+
+  // ── Background task runner integration ───────────────────────────
+  //
+  // kshana_run_to (and the upcoming kshana_regen / render_scene_bundle
+  // dispatch tools) are now non-blocking on the kshana-core side —
+  // every call goes through the BackgroundTaskRunner singleton which
+  // detaches execution from the agent's tool-call loop. The renderer
+  // doesn't need a separate session anymore: pi-agent on the MAIN
+  // session calls the dispatch tool, returns immediately, and the
+  // runner's progress events flow back through the same session id.
+  //
+  // We keep `bgSessionId` as state for now so the rest of the panel's
+  // wiring (header Run/Stop button, status pill) can read it; it
+  // points at the main session id once available, used purely as a
+  // route key for cancel.
+  const [bgSessionId, setBgSessionId] = useState<string | null>(null);
+  // Tracks which session currently has a long-running kshana_* tool
+  // executing (kshana_run_to in particular). Set when tool_call fires
+  // for a long tool, cleared on tool_result. Drives the header Run/
+  // Stop button so the button reflects the actual run state — even
+  // if the user typed "continue the pipeline" into the MAIN session
+  // (where pi-agent then dispatched kshana_run_to) rather than
+  // clicking Resume.
+  const [activeLongRunSessionId, setActiveLongRunSessionId] = useState<
+    string | null
+  >(null);
+  // True from the moment the user clicks Stop until activeLongRunSessionId
+  // clears. Same role as the old bg-only `pendingCancel` but bound to
+  // the unified active-run state.
+  const [bgStatus, setBgStatus] = useState<'idle' | 'cancelling'>('idle');
   // Tracks the id of the currently-streaming assistant message so
   // multiple `stream_chunk` events accumulate into one bubble instead
   // of creating a new bubble per chunk.
   const streamingMsgIdRef = useRef<string | null>(null);
+  // toolCallId → toolName lookup, populated on tool_call and cleared
+  // on tool_result. We use it in the stream_chunk handler to filter:
+  // only the long-running kshana_* tools (kshana_run_to in
+  // particular) surface their per-line progress in the chat. Internal
+  // pi-agent tool output (bash, read, edit, grep …) gets dropped so
+  // the chat doesn't get flooded with file listings and grep
+  // results.
+  const toolNameByCallIdRef = useRef<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!session.sessionId) return;
+    const mainId = session.sessionId;
     const unsubscribe = session.subscribe('*', (event: KshanaEvent) => {
-      handleEvent(event, setMessages, streamingMsgIdRef, setContextUsage);
+      // Process events from EITHER the main session (user chat) or
+      // the background-run session — they merge into one
+      // chronological feed in the chat. Anything from another
+      // session (none right now, but defend anyway) is ignored.
+      if (event.sessionId !== mainId && event.sessionId !== bgSessionId) {
+        return;
+      }
+      // Sniff long-running kshana_* tool starts/ends to drive the
+      // header Run/Stop button. We track them PER SESSION so a
+      // run on the main session (because the user typed "continue
+      // the pipeline") flips the same state as a run on the bg
+      // session (clicked Resume). The button reflects "is anything
+      // long actually running" rather than just "is the bg session
+      // active".
+      if (event.eventName === 'tool_call') {
+        const data = event.data as {
+          toolCallId?: string;
+          toolName?: string;
+          status?: string;
+        };
+        if (
+          data.toolName &&
+          isLongRunningKshanaTool(data.toolName) &&
+          data.status !== 'completed' &&
+          data.status !== 'error'
+        ) {
+          setActiveLongRunSessionId(event.sessionId);
+        }
+      } else if (event.eventName === 'tool_result') {
+        const data = event.data as { toolCallId?: string };
+        const toolName =
+          data.toolCallId !== undefined
+            ? toolNameByCallIdRef.current?.get(data.toolCallId)
+            : undefined;
+        if (toolName && isLongRunningKshanaTool(toolName)) {
+          setActiveLongRunSessionId((prev) =>
+            prev === event.sessionId ? null : prev,
+          );
+          setBgStatus('idle');
+        }
+      }
+      handleEvent(
+        event,
+        setMessages,
+        streamingMsgIdRef,
+        setContextUsage,
+        toolNameByCallIdRef,
+      );
     });
     return unsubscribe;
-  }, [session.sessionId, session.subscribe]);
+  }, [session.sessionId, session.subscribe, bgSessionId]);
+
+  // Clear the local "Stopping…" flag once the active long run has
+  // actually wound down (no session has it active anymore).
+  useEffect(() => {
+    if (!activeLongRunSessionId && pendingCancel) {
+      setPendingCancel(false);
+    }
+  }, [activeLongRunSessionId, pendingCancel]);
+
+  // (was: bg-session teardown on project switch — no longer needed
+  // since the BackgroundTaskRunner singleton handles task lifecycle
+  // independent of session lifetime).
 
   useEffect(() => {
     if (!session.sessionId || !projectName) return;
@@ -131,46 +327,330 @@ export default function ChatPanelEmbedded() {
     session.focusProject(projectName, projectDirectory ?? undefined).catch(() => {});
   }, [session.sessionId, projectName, projectDirectory, session.focusProject]);
 
-  // Subscribe to backend state changes to surface connection errors.
-  useEffect(() => {
-    const api = window.electron?.backend;
-    if (!api?.onStateChange) return;
-    const unsubscribe = api.onStateChange((state: { status: string; message?: string }) => {
-      if (state.status === 'error') {
-        setConnectionError(state.message ?? 'Connection error');
-      } else if (state.status === 'ready') {
-        setConnectionError(null);
-      }
-    });
-    return unsubscribe;
-  }, []);
-
   // Auto-scroll to the latest message. (jsdom in tests omits scrollIntoView.)
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
   }, [messages]);
 
+  // Click-outside handler for the project header dropdown menu.
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onMouseDown = (event: MouseEvent) => {
+      if (
+        menuWrapperRef.current &&
+        !menuWrapperRef.current.contains(event.target as Node)
+      ) {
+        setMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [menuOpen]);
+
+  // Compute a friendly project label for the header.
+  const headerProjectName = projectName?.trim() || 'No project open';
+
+  // Probe project.json to decide whether this project still needs the
+  // setup wizard. Runs every time the user opens a different project.
+  // Also classifies the project's lifecycle state (fresh / in_progress /
+  // completed) so the CTA panel can show the right next-step prompt.
+  useEffect(() => {
+    setSetupProbeCompleted(false);
+    setIsSetupConfigured(false);
+    setProjectState(null);
+    if (!projectDirectory) return;
+    let cancelled = false;
+    const reader = {
+      readFile: (p: string) => window.electron.project.readFile(p),
+    };
+    (async () => {
+      const [persisted, lifecycle] = await Promise.all([
+        loadPersistedProjectSetup(projectDirectory, reader),
+        classifyProjectState(projectDirectory, reader),
+      ]);
+      if (cancelled) return;
+      if (persisted) {
+        setIsSetupConfigured(true);
+        setSelectedTemplateId(persisted.templateId);
+        setSelectedStyleId(persisted.style);
+        setSelectedDuration(persisted.duration);
+      } else {
+        // Reset selections to defaults so the wizard starts clean.
+        setSelectedTemplateId(WIZARD_DEFAULT_TEMPLATE_ID);
+        setSelectedStyleId(WIZARD_DEFAULT_STYLE_ID);
+        setSelectedDuration(WIZARD_DEFAULT_DURATION_SECONDS);
+        setStoryInput('');
+      }
+      setProjectState(lifecycle);
+      setSetupProbeCompleted(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDirectory]);
+
+  // Click handler for any CTA action: dispatch the pre-baked task as
+  // a chat message so it's visible in the user's history (matching
+  // typed-input behaviour).
+  const handleCTAAction = useCallback(
+    async (action: CTAAction) => {
+      if (!session.sessionId) return;
+      // Compact system bubble instead of dumping the verbose
+      // pre-baked task text. Each CTA carries a human-friendly
+      // `label` ("Continue the pipeline", "Show me the final video"
+      // …) which is what we want the user to see.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: action.label,
+        },
+      ]);
+      streamingMsgIdRef.current = null;
+      await session.runTask(action.task);
+    },
+    [session],
+  );
+
+  // Auto-spawn the wizard for fresh projects. The shared
+  // shouldAutoOpenWizard predicate keeps the trigger criteria honest.
+  useEffect(() => {
+    if (
+      !shouldAutoOpenWizard({
+        projectDirectory,
+        isProjectSetupConfigured: isSetupConfigured,
+        setupPanelMode,
+        templateCatalogLoaded: setupProbeCompleted,
+        isConfiguringProjectSetup: isConfiguringSetup,
+      })
+    ) {
+      return;
+    }
+    setSetupError(null);
+    setSetupStep('style');
+    setSetupPanelMode('wizard');
+  }, [
+    projectDirectory,
+    isSetupConfigured,
+    setupPanelMode,
+    setupProbeCompleted,
+    isConfiguringSetup,
+  ]);
+
+  // ── Wizard step handlers ──────────────────────────────────────────
+
+  const handleSelectStyle = useCallback((styleId: string) => {
+    setSelectedStyleId(styleId);
+    setSetupStep('duration');
+  }, []);
+
+  const handleSelectDuration = useCallback((duration: number) => {
+    setSelectedDuration(duration);
+    setSetupStep('story');
+  }, []);
+
+  const handleChangeStory = useCallback((value: string) => {
+    setStoryInput(value);
+  }, []);
+
+  const handleConfirmSetup = useCallback(async () => {
+    if (
+      !projectDirectory ||
+      !selectedTemplateId ||
+      !selectedStyleId ||
+      !selectedDuration
+    ) {
+      return;
+    }
+    const trimmedStory = storyInput.trim();
+    if (!trimmedStory) {
+      setSetupError('Please add a story or idea before continuing.');
+      return;
+    }
+
+    setSetupError(null);
+    setIsConfiguringSetup(true);
+
+    // Persist style/duration/template into project.json so re-opening
+    // this project later skips the wizard.
+    const configResult = await session.configureProject({
+      projectDir: projectDirectory,
+      templateId: selectedTemplateId,
+      style: selectedStyleId,
+      duration: selectedDuration,
+      // Autonomous mode is no longer surfaced in the UI — every run
+      // is manual / interactive. configure_project still accepts the
+      // flag, so we pass a fixed `false` rather than dropping the
+      // field (keeps the server contract unchanged).
+      autonomousMode: false,
+    });
+    if (!configResult.ok) {
+      setSetupError(
+        `Failed to save setup: ${configResult.error ?? 'unknown error'}`,
+      );
+      setIsConfiguringSetup(false);
+      return;
+    }
+
+    // Build the kickoff and dispatch as a chat task; pi-agent will
+    // route this to kshana_new with `existingDir` set to the
+    // pre-created folder.
+    const projectDirName =
+      projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') ||
+      projectName ||
+      'project';
+    const { message } = buildWizardKickoff({
+      projectDir: projectDirectory,
+      projectName: projectDirName,
+      templateId: selectedTemplateId,
+      style: selectedStyleId,
+      duration: selectedDuration,
+      story: trimmedStory,
+    });
+    if (!message) {
+      setIsConfiguringSetup(false);
+      return;
+    }
+
+    // Hide the panel before runTask so the chat takes the spotlight.
+    setSetupPanelMode('hidden');
+    setIsSetupConfigured(true);
+    setIsConfiguringSetup(false);
+    setStoryInput('');
+
+    // Surface the user's intent in the chat as a regular user bubble,
+    // matching the way handleSend renders typed input.
+    setMessages((prev) => [
+      ...prev,
+      { id: newMessageId(), role: 'user', text: message },
+    ]);
+    streamingMsgIdRef.current = null;
+    await session.runTask(message);
+  }, [
+    projectDirectory,
+    projectName,
+    selectedDuration,
+    selectedStyleId,
+    selectedTemplateId,
+    session,
+    storyInput,
+  ]);
+
+  const handleSubmitStory = useCallback(() => {
+    void handleConfirmSetup();
+  }, [handleConfirmSetup]);
+
+  // Autonomous-mode toggle was removed from the UI; the wizard panel
+  // still requires the prop, so this is a fixed no-op that keeps the
+  // selection visually pinned to "manual".
+  const handleSelectAutonomousMode = useCallback((_enabled: boolean) => {}, []);
+
+  const handleSetupBack = useCallback(() => {
+    if (setupStep === 'duration') setSetupStep('style');
+    else if (setupStep === 'story') setSetupStep('duration');
+  }, [setupStep]);
+
+  const handleOpenSetupWizard = useCallback(() => {
+    setSetupError(null);
+    setSetupStep('style');
+    setSetupPanelMode('wizard');
+  }, []);
+
+  const handleEditSetup = useCallback(() => {
+    handleOpenSetupWizard();
+  }, [handleOpenSetupWizard]);
+
+  // Template selection is stubbed — the embedded wizard hides the
+  // template step entirely (template defaults to 'narrative').
+  const handleSelectTemplate = useCallback(() => {}, []);
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || !session.sessionId) return;
+
+    // Guard: if pi-agent is already mid-reply, dispatching a new
+    // runTask will overwrite its `currentResolve` and orphan the
+    // first response. Surface a system message instead of firing.
+    // (This shouldn't happen if the textarea's `disabled` /
+    // onKeyDown gate is in sync with isMainBusy, but the gate has
+    // edge cases — defending here is cheap and visible.)
+    if (session.status === 'running') {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: 'Still finishing the previous reply — please wait a moment and try again.',
+        },
+      ]);
+      return;
+    }
+
     setMessages((prev) => [
       ...prev,
       { id: newMessageId(), role: 'user', text },
     ]);
     setInput('');
     streamingMsgIdRef.current = null;
-    await session.runTask(text);
+
+    const result = await session.runTask(text);
+    if (!result.ok) {
+      // Don't let a failed dispatch leave the chat in a "user
+      // typed, nothing happened" state — surface the error so the
+      // user can react (retry, restart, etc).
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
+        },
+      ]);
+    }
   };
 
-  const handleCancel = async () => {
-    await session.cancel();
-  };
+  const handleCancel = useCallback(async () => {
+    // Cancel goes directly through the BackgroundTaskRunner IPC,
+    // independent of any chat session. The runner aborts whatever
+    // long task it currently has active and emits a 'cancelled'
+    // event back to the originating session — same code path as a
+    // natural completion. The Stop button stays instant even when
+    // the main session's pi-agent is mid-reply.
+    setPendingCancel(true);
+    setBgStatus('cancelling');
+    await window.kshana.runnerCancel().catch(() => undefined);
+  }, []);
 
-  const handleToggleAutonomous = useCallback(async () => {
-    const next = !autonomousMode;
-    setAutonomousMode(next);
-    await session.setAutonomous(next);
-  }, [autonomousMode, session]);
+  // Build the "resume the pipeline" task and run it on the MAIN
+  // session. kshana-core's pi-agent will receive it, call
+  // kshana_run_to, which now dispatches to the BackgroundTaskRunner
+  // and returns immediately — keeping this chat session free for
+  // follow-up questions while the run streams progress in parallel.
+  // (Was a separate bg session in an earlier iteration; the runner
+  // singleton replaces that mechanism.)
+  const handleStartRun = useCallback(async () => {
+    if (!projectDirectory || !session.sessionId) return;
+    setBgSessionId(session.sessionId);
+
+    const projectDirName =
+      projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') ||
+      projectName ||
+      'project';
+    const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
+    const task = `Continue running the kshana pipeline for ${params} all the way to completion. Use kshana_run_to with no stage so it runs to the end. Stream progress as nodes finish.`;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newMessageId(),
+        role: 'system',
+        text: 'Resuming pipeline run…',
+      },
+    ]);
+    streamingMsgIdRef.current = null;
+    await session.runTask(task);
+  }, [projectDirectory, projectName, session]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
@@ -198,8 +678,22 @@ export default function ChatPanelEmbedded() {
     await session.sendResponse(option);
   }, [session]);
 
-  const isRunning = session.status === 'running';
-  const isReady = session.sessionId !== null && session.status !== 'connecting';
+  // The header Run/Stop button reflects "is a long kshana_* run
+  // active anywhere", regardless of which session dispatched it.
+  // This way it shows Stop whether the user clicked Resume (bg
+  // session) OR typed "continue the pipeline" into the main session
+  // (and pi-agent decided to call kshana_run_to there).
+  const isRunning =
+    activeLongRunSessionId !== null || bgStatus === 'cancelling';
+  // Main-session readiness gates the textarea / send button. We
+  // explicitly DON'T factor bgStatus in here — the user must be able
+  // to chat while the long pipeline runs.
+  const isReady =
+    session.sessionId !== null && session.status !== 'connecting';
+  // The main session's own loop ('running' while it processes a user
+  // turn). Used to disable Send during that brief window so we don't
+  // pile prompts on top of each other in pi-agent.
+  const isMainBusy = session.status === 'running';
 
   const contextPct = contextUsage
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
@@ -217,9 +711,170 @@ export default function ChatPanelEmbedded() {
         fontSize: 14,
       }}
     >
-      <header style={{ padding: '8px 12px', borderBottom: '1px solid #2a2c30', fontSize: 11, opacity: 0.6 }}>
-        kshana embedded — session {session.sessionId ?? '(connecting…)'} · status: {session.status}
-        {session.error ? ` · ${session.error}` : ''}
+      {/* Animation for the Loader2 "Stopping…" spinner. The codebase
+          uses inline styles (no styled-components / Tailwind) so we
+          inject the keyframe via a contained <style> block. */}
+      <style>{`
+        @keyframes kshana-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
+        .kshana-spin { animation: kshana-spin 800ms linear infinite; }
+      `}</style>
+      <header
+        style={{
+          padding: '10px 14px',
+          borderBottom: '1px solid #2a2c30',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+        }}
+      >
+        <div ref={menuWrapperRef} style={{ position: 'relative' }}>
+          <button
+            type="button"
+            onClick={() => setMenuOpen((open) => !open)}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            aria-label="Project menu"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: 'inherit',
+              cursor: 'pointer',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              padding: '4px 8px',
+              margin: '-4px -8px',
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: 600,
+            }}
+          >
+            <span
+              style={{
+                maxWidth: 240,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {headerProjectName}
+            </span>
+            <ChevronDown
+              size={14}
+              style={{
+                opacity: 0.6,
+                transform: menuOpen ? 'rotate(180deg)' : 'none',
+                transition: 'transform 120ms ease',
+              }}
+            />
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              aria-label="Project actions"
+              style={{
+                position: 'absolute',
+                top: 'calc(100% + 4px)',
+                left: 0,
+                minWidth: 180,
+                background: '#1a1c20',
+                border: '1px solid #2a2c30',
+                borderRadius: 6,
+                padding: 4,
+                boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
+                zIndex: 10,
+              }}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void handleExport();
+                }}
+                disabled={!isReady || messages.length === 0}
+                style={{
+                  width: '100%',
+                  background: 'transparent',
+                  border: 'none',
+                  color: 'inherit',
+                  cursor: messages.length === 0 ? 'not-allowed' : 'pointer',
+                  textAlign: 'left',
+                  padding: '8px 10px',
+                  borderRadius: 4,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 8,
+                  fontSize: 13,
+                  opacity: messages.length === 0 ? 0.4 : 1,
+                }}
+                onMouseEnter={(e) => {
+                  if (messages.length > 0)
+                    (e.currentTarget as HTMLButtonElement).style.background =
+                      'rgba(255,255,255,0.05)';
+                }}
+                onMouseLeave={(e) => {
+                  (e.currentTarget as HTMLButtonElement).style.background =
+                    'transparent';
+                }}
+              >
+                <Download size={14} />
+                Export chat
+              </button>
+            </div>
+          )}
+        </div>
+        <div
+          style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 10,
+          }}
+        >
+          <ProjectRunButton
+            projectState={projectState}
+            running={isRunning}
+            ready={isReady}
+            pendingCancel={pendingCancel}
+            onStart={() => void handleStartRun()}
+            onCancel={() => void handleCancel()}
+          />
+          <div
+            aria-label={`Status: ${session.status}`}
+            title={
+              session.error
+                ? `Error: ${session.error}`
+                : `Status: ${session.status}`
+            }
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              fontSize: 11,
+              opacity: 0.65,
+            }}
+          >
+          <span
+            style={{
+              width: 7,
+              height: 7,
+              borderRadius: '50%',
+              background:
+                session.status === 'error' || connectionError
+                  ? '#d05a5a'
+                  : isRunning
+                    ? '#d4a72c'
+                    : isReady
+                      ? '#5cba6a'
+                      : '#666',
+              boxShadow: isRunning ? '0 0 6px #d4a72c' : 'none',
+              transition: 'background 120ms ease',
+            }}
+          />
+            <span style={{ textTransform: 'capitalize' }}>{session.status}</span>
+          </div>
+        </div>
       </header>
 
       {connectionError && (
@@ -227,31 +882,80 @@ export default function ChatPanelEmbedded() {
           role="alert"
           aria-label="Connection error"
           style={{
-            padding: '6px 12px',
-            background: 'rgba(160,40,40,0.25)',
-            borderBottom: '1px solid #a02828',
+            padding: '8px 14px',
+            background: 'rgba(208,90,90,0.10)',
+            borderBottom: '1px solid rgba(208,90,90,0.35)',
             fontSize: 12,
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
+            gap: 8,
+            color: '#f0c4c4',
           }}
         >
-          <span>⚠ Connection error: {connectionError}</span>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <AlertCircle size={13} />
+            Connection error: {connectionError}
+          </span>
           <button
             type="button"
             aria-label="Dismiss connection error"
             onClick={() => setConnectionError(null)}
-            style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', padding: '0 4px' }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'inherit',
+              cursor: 'pointer',
+              padding: 2,
+              display: 'inline-flex',
+              alignItems: 'center',
+            }}
           >
-            ✕
+            <X size={14} />
           </button>
         </div>
       )}
 
+      <ProjectSetupPanel
+        mode={setupPanelMode}
+        step={setupStep}
+        templates={WIZARD_TEMPLATES}
+        durationPresets={WIZARD_DURATION_PRESETS}
+        selectedTemplateId={selectedTemplateId}
+        selectedStyleId={selectedStyleId}
+        selectedDuration={selectedDuration}
+        selectedAutonomousMode={false}
+        storyInput={storyInput}
+        loading={false}
+        configuring={isConfiguringSetup}
+        error={setupError}
+        onOpenWizard={handleOpenSetupWizard}
+        onEditSetup={handleEditSetup}
+        onSelectTemplate={handleSelectTemplate}
+        onSelectStyle={handleSelectStyle}
+        onSelectDuration={handleSelectDuration}
+        onChangeStory={handleChangeStory}
+        onSubmitStory={handleSubmitStory}
+        onSelectAutonomousMode={handleSelectAutonomousMode}
+        onConfirmSetup={() => void handleConfirmSetup()}
+        onBack={handleSetupBack}
+      />
+
       <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-        {messages.length === 0 ? (
-          <div style={{ opacity: 0.5, fontSize: 13, textAlign: 'center', marginTop: 32 }}>
-            Type a task to begin.
+        {messages.length === 0 && setupPanelMode === 'hidden' && projectState === null ? (
+          // Probe still in flight — neutral placeholder so we don't
+          // flash anything before classification completes.
+          <div
+            style={{
+              opacity: 0.4,
+              fontSize: 12,
+              textAlign: 'center',
+              marginTop: 32,
+            }}
+          >
+            {projectDirectory
+              ? 'Loading project…'
+              : 'Open a project from the sidebar to begin.'}
           </div>
         ) : (
           messages.map((m) =>
@@ -269,83 +973,146 @@ export default function ChatPanelEmbedded() {
         <div ref={messagesEndRef} />
       </div>
 
-      <footer style={{ padding: 10, borderTop: '1px solid #2a2c30', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <footer
+        style={{
+          padding: 12,
+          borderTop: '1px solid #2a2c30',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+        }}
+      >
+        {/*
+          Contextual CTA renders here — directly above the input —
+          when the chat is empty and the project's lifecycle is
+          either in_progress or completed. Position rationale: action
+          prompts belong next to the action surface (the typing
+          area). Matches modern chat patterns (suggested-prompts
+          rails sit above the composer in ChatGPT, Cursor, etc.).
+          'fresh' projects route to the full wizard panel above the
+          messages region, not here.
+        */}
+        {messages.length === 0 &&
+          setupPanelMode === 'hidden' &&
+          (projectState === 'in_progress' || projectState === 'completed') && (
+            <ProjectCTA
+              state={projectState}
+              projectName={headerProjectName}
+              projectDir={projectDirectory ?? ''}
+              onAction={(a) => void handleCTAAction(a)}
+            />
+          )}
+        <div style={{ position: 'relative' }}>
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder={
+              isMainBusy
+                ? 'Thinking…'
+                : isRunning
+                  ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
+                  : 'Type a task and press Enter…'
+            }
+            rows={2}
+            disabled={!isReady}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!isMainBusy && input.trim().length > 0) handleSend();
+              }
+            }}
+            style={{
+              width: '100%',
+              background: 'var(--bg-elev, #1a1c20)',
+              color: 'inherit',
+              border: '1px solid #2a2c30',
+              borderRadius: 10,
+              // Bottom padding leaves room for the inline button
+              // (32px button + 8px inset = 40 → round up to 44 for
+              // a comfortable gap above the button).
+              padding: '12px 56px 44px 14px',
+              fontSize: 13,
+              lineHeight: 1.45,
+              resize: 'none',
+              minHeight: 84,
+              fontFamily: 'inherit',
+              boxSizing: 'border-box',
+              outline: 'none',
+              transition: 'border-color 120ms ease',
+              display: 'block',
+            }}
+            onFocus={(e) => {
+              (e.currentTarget as HTMLTextAreaElement).style.borderColor =
+                'rgba(120,160,220,0.45)';
+            }}
+            onBlur={(e) => {
+              (e.currentTarget as HTMLTextAreaElement).style.borderColor =
+                '#2a2c30';
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleSend}
+            aria-label="Send"
+            title={
+              isMainBusy
+                ? 'Wait for the current reply to finish…'
+                : 'Send (Enter)'
+            }
+            disabled={
+              !isReady || isMainBusy || input.trim().length === 0
+            }
+            style={{
+              position: 'absolute',
+              right: 8,
+              bottom: 8,
+              width: 32,
+              height: 32,
+              padding: 0,
+              borderRadius: 8,
+              border: 'none',
+              cursor:
+                !isReady || isMainBusy || input.trim().length === 0
+                  ? 'not-allowed'
+                  : 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              lineHeight: 0,
+              background:
+                input.trim().length > 0 && isReady && !isMainBusy
+                  ? '#3a7aa1'
+                  : '#2a2c30',
+              color:
+                input.trim().length > 0 && isReady && !isMainBusy
+                  ? '#fff'
+                  : '#7a8190',
+              transition: 'background 120ms ease, color 120ms ease',
+              boxSizing: 'border-box',
+            }}
+          >
+            {isMainBusy ? (
+              <Loader2 size={14} className="kshana-spin" />
+            ) : (
+              <ArrowUp size={18} strokeWidth={2.5} />
+            )}
+          </button>
+        </div>
         {contextPct !== null && (
           <div
             aria-label="Context usage"
             style={{
-              fontSize: 11,
-              color: contextPct >= 80 ? '#d05a5a' : '#5cba6a',
-              opacity: 0.8,
+              fontSize: 10,
+              color: contextPct >= 80 ? '#d05a5a' : '#7a8190',
+              opacity: 0.85,
+              fontVariantNumeric: 'tabular-nums',
             }}
           >
-            Context: {contextUsage!.used.toLocaleString()} / {contextUsage!.limit.toLocaleString()} tokens ({contextPct}%)
+            {contextUsage!.used.toLocaleString()} /{' '}
+            {contextUsage!.limit.toLocaleString()} tokens · {contextPct}%
           </div>
         )}
-        <textarea
-          ref={inputRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Type a task and press send…"
-          rows={2}
-          disabled={!isReady}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              if (!isRunning) handleSend();
-            }
-          }}
-          style={{
-            width: '100%',
-            background: 'var(--bg-elev, #1a1c20)',
-            color: 'inherit',
-            border: '1px solid #2a2c30',
-            borderRadius: 6,
-            padding: 6,
-            fontSize: 13,
-            resize: 'vertical',
-            fontFamily: 'inherit',
-            boxSizing: 'border-box',
-          }}
-        />
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', alignItems: 'center' }}>
-          <button
-            type="button"
-            onClick={handleToggleAutonomous}
-            aria-pressed={autonomousMode}
-            title="Toggle autonomous mode"
-            disabled={!isReady}
-            style={{
-              ...chipBtnStyle(autonomousMode ? '#5a7a3a' : '#3a3c40'),
-              marginRight: 'auto',
-            }}
-          >
-            AUTO
-          </button>
-          <button
-            type="button"
-            onClick={handleExport}
-            aria-label="Export chat history as JSON"
-            title="Export chat history as JSON"
-            disabled={!isReady || messages.length === 0}
-            style={chipBtnStyle('#3a4a5a')}
-          >
-            Export Chat
-          </button>
-          {isRunning && (
-            <button type="button" onClick={handleCancel} style={chipBtnStyle('#a13a3a')}>
-              Cancel
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={handleSend}
-            disabled={!isReady || isRunning || input.trim().length === 0}
-            style={chipBtnStyle('#3a7aa1')}
-          >
-            Send
-          </button>
-        </div>
       </footer>
     </div>
   );
@@ -399,18 +1166,6 @@ function QuestionRow({
   );
 }
 
-function chipBtnStyle(bg: string): React.CSSProperties {
-  return {
-    background: bg,
-    color: '#fff',
-    border: 'none',
-    borderRadius: 6,
-    padding: '5px 12px',
-    fontSize: 12,
-    cursor: 'pointer',
-  };
-}
-
 function statusGlyph(status: ToolStatus | undefined): string {
   switch (status) {
     case 'completed':
@@ -438,6 +1193,9 @@ function statusColor(status: ToolStatus | undefined): string {
 function MessageRow({ message: m }: { message: ChatMessage }) {
   if (m.role === 'tool') {
     // Compact one-liner: glyph + monospaced tool name + faint args.
+    // Per-line progress for long-running tools (e.g. kshana_run_to)
+    // streams in as separate `progress` rows, one per chunk —
+    // rendered just below this row by the parent message list.
     return (
       <div
         style={{
@@ -445,12 +1203,14 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
           alignItems: 'baseline',
           gap: 6,
           padding: '2px 4px',
-          fontSize: 11,
           opacity: 0.85,
+          fontSize: 11,
           fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
         }}
       >
-        <span style={{ color: statusColor(m.toolStatus), width: 12 }}>{statusGlyph(m.toolStatus)}</span>
+        <span style={{ color: statusColor(m.toolStatus), width: 12 }}>
+          {statusGlyph(m.toolStatus)}
+        </span>
         <span style={{ color: '#9aa3b2' }}>{m.toolName}</span>
         {m.toolArgsSummary && (
           <span style={{ opacity: 0.55, fontSize: 10 }}>{m.toolArgsSummary}</span>
@@ -458,9 +1218,51 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
       </div>
     );
   }
-  if (m.role === 'system') {
+  if (m.role === 'progress') {
+    // One row per chunk from a long-running tool. Indented + faint
+    // accent so the user can scan the run's heartbeat at a glance,
+    // while still getting one discrete "block" per progress event
+    // (instead of one big concatenated <pre>).
     return (
-      <div style={{ padding: '2px 4px', fontSize: 11, opacity: 0.6, fontStyle: 'italic' }}>
+      <div
+        aria-label="Run progress"
+        style={{
+          marginLeft: 18,
+          padding: '4px 10px',
+          background: 'rgba(255,255,255,0.025)',
+          borderLeft: '2px solid rgba(255,255,255,0.12)',
+          borderRadius: 3,
+          fontSize: 11,
+          lineHeight: 1.4,
+          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+          color: '#a8b0bd',
+          whiteSpace: 'pre-wrap',
+          wordBreak: 'break-word',
+        }}
+      >
+        {m.progressText}
+      </div>
+    );
+  }
+  if (m.role === 'system') {
+    // Compact "the user just took an action" pill — used for things
+    // like "Resuming pipeline run…" or CTA labels. Distinct enough
+    // from chat bubbles that the eye reads it as metadata, not as
+    // either party speaking.
+    return (
+      <div
+        style={{
+          alignSelf: 'center',
+          padding: '4px 12px',
+          fontSize: 11,
+          color: '#9aa3b2',
+          background: 'rgba(255,255,255,0.04)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: 999,
+          fontWeight: 500,
+          letterSpacing: 0.2,
+        }}
+      >
         {m.text}
       </div>
     );
@@ -514,7 +1316,11 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
       }}
     >
       {m.role === 'assistant' ? (
-        <MarkdownContent text={m.text ?? ''} />
+        // Render-layer dedup as a safety net: the upstream LLM
+        // stream sometimes accumulates the same text twice
+        // (stream_chunk arriving with full content twice). Catching
+        // it here covers every code path that builds the bubble.
+        <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
       ) : (
         <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
       )}
@@ -601,6 +1407,7 @@ function handleEvent(
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   streamingMsgIdRef: React.RefObject<string | null>,
   setContextUsage: React.Dispatch<React.SetStateAction<ContextUsage | null>>,
+  toolNameByCallIdRef: React.RefObject<Map<string, string>>,
 ): void {
   switch (event.eventName) {
     case 'tool_call': {
@@ -613,6 +1420,11 @@ function handleEvent(
       // Finalize any in-flight streaming bubble — once a tool call
       // fires the agent isn't actively typing user-facing text.
       streamingMsgIdRef.current = null;
+      // Record the toolName so subsequent stream_chunk events can
+      // filter by it.
+      if (data.toolCallId && data.toolName) {
+        toolNameByCallIdRef.current?.set(data.toolCallId, data.toolName);
+      }
       setMessages((prev) => [
         ...prev,
         {
@@ -639,14 +1451,82 @@ function handleEvent(
             : m,
         ),
       );
+      // Tool is done — drop the toolName entry to keep the map small.
+      if (data.toolCallId) {
+        toolNameByCallIdRef.current?.delete(data.toolCallId);
+      }
       return;
     }
     case 'stream_chunk': {
       const data = event.data as { content?: string; done?: boolean; toolCallId?: string };
-      // tool_streaming events also use this channel — they include
-      // toolCallId. Skip those for now (they belong to the tool card,
-      // not the assistant bubble).
-      if (data.toolCallId) return;
+      // tool_streaming events also use this channel — they include a
+      // toolCallId. Each chunk gets its OWN row so the long
+      // kshana_run_to log doesn't become one unreadable concatenated
+      // blob. The originating tool card stays compact at the top of
+      // the run; the per-line rows stream in below it (and naturally
+      // interleave with any user chat that comes in mid-run).
+      if (data.toolCallId) {
+        // Filter: only kshana_* tools (kshana_run_to, kshana_render_*)
+        // surface their per-line progress in the chat. Internal
+        // pi-agent tool output (bash listings, file reads, grep
+        // results, …) gets dropped — without this filter the chat
+        // gets flooded with `ls -la` outputs and file dumps.
+        const parentToolName = toolNameByCallIdRef.current?.get(
+          data.toolCallId,
+        );
+        if (!parentToolName || !parentToolName.startsWith('kshana_')) {
+          return;
+        }
+        const chunk = data.content ?? '';
+        // Pi-agent's stream_chunk events sometimes split a logical
+        // line across multiple chunks (e.g. when the executor's
+        // output emits "  [tool] " then "  → completed" within ms).
+        // Coalesce within a 250ms window per toolCallId so we don't
+        // explode one conceptual log line into two rows. Lines
+        // separated by the executor's own newline boundaries always
+        // create a fresh row.
+        const trimmed = chunk.trim();
+        if (!trimmed) return;
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          const NOW = Date.now();
+          const lastTs = (
+            last as ChatMessage & { _ts?: number } | undefined
+          )?._ts;
+          const canCoalesce =
+            last?.role === 'progress' &&
+            last.progressForToolCallId === data.toolCallId &&
+            !chunk.includes('\n') &&
+            !(last.progressText ?? '').includes('\n') &&
+            typeof lastTs === 'number' &&
+            NOW - lastTs < 250;
+          if (canCoalesce) {
+            return prev.map((m, i) =>
+              i === prev.length - 1
+                ? {
+                    ...m,
+                    progressText: ((m.progressText ?? '') + chunk).trim(),
+                    // refresh the timestamp so subsequent very-close
+                    // chunks keep coalescing
+                    ...({ _ts: NOW } as Record<string, unknown>),
+                  }
+                : m,
+            );
+          }
+          // Each chunk that looks like multiple lines: split, push
+          // one row per non-empty line.
+          const lines = chunk.split('\n').map((s) => s.trim()).filter(Boolean);
+          const newRows: ChatMessage[] = lines.map((line) => ({
+            id: newMessageId(),
+            role: 'progress' as const,
+            progressForToolCallId: data.toolCallId,
+            progressText: line,
+            ...({ _ts: NOW } as Record<string, unknown>),
+          }));
+          return [...prev, ...newRows];
+        });
+        return;
+      }
       const chunk = data.content ?? '';
       setMessages((prev) => {
         const id = streamingMsgIdRef.current;
@@ -674,7 +1554,12 @@ function handleEvent(
     case 'agent_response': {
       const data = event.data as { output?: string; status?: string };
       if (!data.output) return;
-      const output = data.output;
+      // Defense against an upstream bug where the LLM stream
+      // sometimes emits the same response twice concatenated
+      // (saw "Full Story generated.Full Story generated." in
+      // the wild). dedupeDoubled collapses a perfectly-doubled
+      // string back to one copy.
+      const finalOutput = dedupeDoubled(data.output);
       // If we have a streaming bubble in flight, replace its text
       // with the canonical final string. Otherwise update the last
       // assistant bubble when this is the same final response arriving
@@ -682,28 +1567,14 @@ function handleEvent(
       const id = streamingMsgIdRef.current;
       if (id) {
         setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, text: output, streaming: false } : m)),
+          prev.map((m) => (m.id === id ? { ...m, text: finalOutput, streaming: false } : m)),
         );
         streamingMsgIdRef.current = null;
       } else {
-        setMessages((prev) => {
-          const lastAssistantIndex = [...prev]
-            .reverse()
-            .findIndex((m) => m.role === 'assistant');
-          if (lastAssistantIndex >= 0) {
-            const idx = prev.length - 1 - lastAssistantIndex;
-            const last = prev[idx];
-            if (isSameAssistantText(last.text, output)) {
-              return prev.map((m, i) =>
-                i === idx ? { ...m, text: output, streaming: false } : m,
-              );
-            }
-          }
-          return [
-            ...prev,
-            { id: newMessageId(), role: 'assistant', text: output },
-          ];
-        });
+        setMessages((prev) => [
+          ...prev,
+          { id: newMessageId(), role: 'assistant', text: finalOutput },
+        ]);
       }
       return;
     }

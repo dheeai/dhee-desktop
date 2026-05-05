@@ -19,7 +19,6 @@ import {
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useAgent } from '../../../contexts/AgentContext';
-import { useTimelineWebSocket } from '../../../hooks/useTimelineWebSocket';
 import { type TimelineItem } from '../../../hooks/useTimelineData';
 import { useTimelineDataContext } from '../../../contexts/TimelineDataContext';
 import {
@@ -1472,25 +1471,9 @@ export default function TimelinePanel({
     [updateVideoSplitOverrides],
   );
 
-  // WebSocket integration for timeline markers
-  const handleMarkerUpdate = useCallback(
-    (
-      markerId: string,
-      status: TimelineMarker['status'],
-      artifactId?: string,
-    ) => {
-      setMarkers((prev) =>
-        prev.map((marker) =>
-          marker.id === markerId
-            ? { ...marker, status, generatedArtifactId: artifactId }
-            : marker,
-        ),
-      );
-    },
-    [],
-  );
-
-  const { sendTimelineMarker } = useTimelineWebSocket(handleMarkerUpdate);
+  // Timeline marker WebSocket removed with the legacy backend.
+  // Markers can be added to the timeline locally but no longer trigger
+  // backend artifact generation.
 
   // Scene-based functionality removed for placement-based timeline
 
@@ -1528,45 +1511,16 @@ export default function TimelinePanel({
         ),
       );
 
-      // Send to backend via WebSocket
-      try {
-        // Get current timeline item context (placement-based)
-        const currentItem = timelineItems.find(
-          (item) => position >= item.startTime && position < item.endTime,
-        );
-
-        const previousItems = timelineItems
-          .filter((item) => item.endTime <= position)
-          .map((item) => ({
-            placementNumber: item.placementNumber,
-            label: item.label,
-            prompt: item.prompt,
-          }));
-
-        await sendTimelineMarker({
-          marker_id: newMarker.id,
-          position,
-          prompt,
-          scene_context: {
-            current_scene: currentItem?.placementNumber,
-            previous_scenes: previousItems
-              .filter((item) => item.placementNumber !== undefined)
-              .map((item) => ({
-                scene_number: item.placementNumber!,
-                description: item.prompt || item.label,
-              })),
-          },
-        });
-      } catch {
-        // Update marker status to error
-        setMarkers((prev) =>
-          prev.map((m) =>
-            m.id === newMarker.id ? { ...m, status: 'error' } : m,
-          ),
-        );
-      }
+      // Marker artifact generation went through the removed legacy
+      // backend; mark the new marker as error until embedded
+      // generation lands.
+      setMarkers((prev) =>
+        prev.map((m) =>
+          m.id === newMarker.id ? { ...m, status: 'error' } : m,
+        ),
+      );
     },
-    [timelineItems, sendTimelineMarker, pushUndoSnapshot],
+    [pushUndoSnapshot],
   );
 
   // Open marker popover at current playhead position (keyboard shortcut)

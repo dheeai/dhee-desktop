@@ -10,8 +10,6 @@ import { ChevronUp, FolderKanban, Clapperboard, FileCode2, Layers } from 'lucide
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
-import { useAppSettings } from '../../../contexts/AppSettingsContext';
-import { useBackendHealth } from '../../../hooks/useBackendHealth';
 import type { SceneVersions } from '../../../types/kshana/timeline';
 import AssetsView from '../AssetsView/AssetsView';
 import StoryboardView from '../StoryboardView/StoryboardView';
@@ -36,7 +34,6 @@ export default function PreviewPanel() {
 
   const { projectDirectory, pendingFileNavigation, clearFileNavigation } =
     useWorkspace();
-  const { settings } = useAppSettings();
 
   const tabs = useMemo(
     () => [
@@ -165,9 +162,6 @@ export default function PreviewPanel() {
     },
     [timelineHeight],
   );
-
-  // Sync backend health from the main process without renderer polling.
-  useBackendHealth(settings);
 
   const shouldHydrateTimeline = activeTab === 'video-library' || timelineOpen;
 

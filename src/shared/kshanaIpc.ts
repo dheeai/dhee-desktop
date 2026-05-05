@@ -20,6 +20,15 @@ export const KSHANA_CHANNELS = {
   FOCUS_PROJECT: 'kshana:focusProject',
   SET_AUTONOMOUS: 'kshana:setAutonomous',
   DELETE_SESSION: 'kshana:deleteSession',
+  /**
+   * Background task runner cancellation. Cancels whatever long
+   * kshana_* job is currently dispatched on the runner singleton —
+   * independent of any chat session, so the Stop button stays
+   * instant even while the main session's pi-agent is busy.
+   */
+  RUNNER_CANCEL: 'kshana:runnerCancel',
+  /** Background task runner status snapshot (active task or null). */
+  RUNNER_STATUS: 'kshana:runnerStatus',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -59,8 +68,35 @@ export interface KshanaEvent {
 
 // ── Request / response shapes per channel ────────────────────────────
 
+/**
+ * Session role. `'interactive'` (default) is the user's chat
+ * session — long-running pipeline tools (kshana_run_to,
+ * kshana_render_scene_bundle, kshana_audit_fidelity) are stripped
+ * so a chat message can't block on a multi-hour run. `'background'`
+ * is the dedicated long-run session (created when the user clicks
+ * Resume); it gets the full toolkit.
+ */
+export type CreateSessionRole = 'interactive' | 'background';
+
+export interface CreateSessionRequest {
+  role?: CreateSessionRole;
+}
+
 export interface CreateSessionResponse {
   sessionId: string;
+}
+
+export interface RunnerCancelResponse {
+  cancelled: boolean;
+}
+
+export interface RunnerStatusResponse {
+  active: boolean;
+  taskId?: string;
+  kind?: string;
+  projectName?: string;
+  startedAt?: number;
+  sessionId?: string;
 }
 
 export interface ConfigureProjectRequest {

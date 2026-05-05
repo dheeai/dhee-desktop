@@ -132,8 +132,23 @@ export function applyEnvFromSettings(settings: AppSettings): void {
   const comfyUiUrl = getComfyUiUrl(settings);
   setIfPresent('COMFYUI_BASE_URL', comfyUiUrl);
 
-  if (isComfyCloudUrl(comfyUiUrl) && settings.comfyCloudApiKey.trim()) {
-    process.env['COMFY_CLOUD_API_KEY'] = settings.comfyCloudApiKey.trim();
+  // Auto-derive COMFY_MODE from the URL. Without this, the
+  // ComfyUI client in kshana-core falls back to its 'local'
+  // default and uses COMFYUI_BASE_URL even when the URL points
+  // at cloud.comfy.org — meaning the cloud-specific code path
+  // (api-key auth, /api prefix, cloud workflow selection) is
+  // skipped and image generation hits the wrong endpoint
+  // shape. See ComfyUIClient.getComfyConfig + WorkflowModeRegistry.
+  if (isComfyCloudUrl(comfyUiUrl)) {
+    process.env['COMFY_MODE'] = 'cloud';
+    if (settings.comfyCloudApiKey.trim()) {
+      process.env['COMFY_CLOUD_API_KEY'] = settings.comfyCloudApiKey.trim();
+    }
+    // Tell the cloud client where to actually post — it reads
+    // COMFY_CLOUD_URL, not COMFYUI_BASE_URL, in cloud mode.
+    setIfPresent('COMFY_CLOUD_URL', comfyUiUrl);
+  } else {
+    process.env['COMFY_MODE'] = 'local';
   }
   // Note: we no longer `delete COMFY_CLOUD_API_KEY` when the user is
   // not on a cloud URL — that previously clobbered `.env`-supplied
@@ -329,10 +344,27 @@ export class KshanaCoreManager {
     return this.cm !== null;
   }
 
-  /** Create a new session; returns the session id. */
-  createSession(): string {
+  /**
+   * Create a new session; returns the session id.
+   *
+   * `role` controls long-running tool availability — `'interactive'`
+   * (default) strips kshana_run_to / render_scene_bundle /
+   * audit_fidelity so a chat session can't accidentally block on a
+   * 1–4h task. `'background'` opts in to the full toolkit.
+   */
+  createSession(role?: 'interactive' | 'background'): string {
     const cm = this.requireStarted();
-    const session = cm.createSession();
+    // ConversationManager.createSession(mode, remoteFs, role) —
+    // 3rd arg defaults to 'interactive' on the kshana-core side.
+    const session = (
+      cm as unknown as {
+        createSession: (
+          mode?: 'local' | 'remote',
+          remoteFs?: undefined,
+          role?: 'interactive' | 'background',
+        ) => { id: string };
+      }
+    ).createSession('local', undefined, role ?? 'interactive');
     return session.id;
   }
 
@@ -394,6 +426,57 @@ export class KshanaCoreManager {
   cancelTask(sessionId: string): boolean {
     if (!this.cm) return false;
     return (this.cm as unknown as { cancelTask: (s: string) => boolean }).cancelTask(sessionId);
+  }
+
+  /**
+   * Cancel whatever the BackgroundTaskRunner is currently
+   * executing. Independent of any chat session — used by the Stop
+   * button so cancellation is instant even while the main session
+   * is mid-reply.
+   */
+  cancelBackgroundTask(): boolean {
+    // The runner is a kshana-core singleton; reach it via the
+    // already-loaded kshana-core bundle. Dynamic import keeps the
+    // dist-aware require path consistent with how the rest of this
+    // file pulls in core modules.
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('kshana-core/runners') as {
+      getBackgroundTaskRunner: () => {
+        cancel: () => boolean;
+      };
+    };
+    return mod.getBackgroundTaskRunner().cancel();
+  }
+
+  /** Snapshot of the runner's current state (or `{ active: false }`). */
+  getBackgroundTaskStatus(): {
+    active: boolean;
+    taskId?: string;
+    kind?: string;
+    projectName?: string;
+    startedAt?: number;
+    sessionId?: string;
+  } {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const mod = require('kshana-core/runners') as {
+      getBackgroundTaskRunner: () => {
+        getActive: () => null | {
+          id: string;
+          spec: { kind: string; projectName: string; sessionId: string };
+          startedAt: number;
+        };
+      };
+    };
+    const active = mod.getBackgroundTaskRunner().getActive();
+    if (!active) return { active: false };
+    return {
+      active: true,
+      taskId: active.id,
+      kind: active.spec.kind,
+      projectName: active.spec.projectName,
+      startedAt: active.startedAt,
+      sessionId: active.spec.sessionId,
+    };
   }
 
   async redoNode(

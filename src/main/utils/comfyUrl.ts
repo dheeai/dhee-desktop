@@ -24,7 +24,17 @@ export function getComfyUiUrl(settings: AppSettings): string {
 }
 
 export function isComfyCloudUrl(url: string): boolean {
-  return /(^|\.)cloud\.comfy\.org/.test(url);
+  // Use the URL parser instead of a regex. The previous
+  // `/(^|\.)cloud\.comfy\.org/` matched bare hostnames and subdomains
+  // (e.g. `cloud.comfy.org`, `eu.cloud.comfy.org`) but NOT a full URL
+  // like `https://cloud.comfy.org/api` — the host is preceded by `//`
+  // there, which neither anchor accepts. That left COMFY_MODE='local'
+  // for cloud-URL settings, breaking the embedded image-gen path.
+  try {
+    return new URL(url).hostname.toLowerCase() === 'cloud.comfy.org';
+  } catch {
+    return false;
+  }
 }
 
 export function withV1Suffix(url: string): string {

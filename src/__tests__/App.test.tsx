@@ -31,13 +31,6 @@ describe('App', () => {
           update: jest.fn(),
           onChange: jest.fn(() => jest.fn()),
         },
-        backend: {
-          getState: jest.fn().mockResolvedValue({ status: 'disconnected' }),
-          getConnectionInfo: jest.fn().mockResolvedValue({
-            localBackendAvailable: true,
-          }),
-          onStateChange: jest.fn(() => jest.fn()),
-        },
         project: {
           watchDirectory: jest.fn().mockResolvedValue(undefined),
           getRecentProjects: jest.fn().mockResolvedValue([]),

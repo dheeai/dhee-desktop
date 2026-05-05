@@ -68,7 +68,7 @@ const STYLE_PREVIEW_SRC: Record<string, string> = {
   watercolor: styleWatercolorPreview,
 };
 
-export type SetupStep = 'template' | 'style' | 'duration' | 'autonomous';
+export type SetupStep = 'template' | 'style' | 'duration' | 'story' | 'autonomous';
 export type SetupPanelMode = 'hidden' | 'banner' | 'wizard' | 'summary';
 
 interface ProjectSetupPanelProps {
@@ -80,6 +80,7 @@ interface ProjectSetupPanelProps {
   selectedStyleId: string | null;
   selectedDuration: number | null;
   selectedAutonomousMode: boolean;
+  storyInput: string;
   loading: boolean;
   configuring: boolean;
   error: string | null;
@@ -88,6 +89,8 @@ interface ProjectSetupPanelProps {
   onSelectTemplate: (templateId: string) => void;
   onSelectStyle: (styleId: string) => void;
   onSelectDuration: (seconds: number) => void;
+  onChangeStory: (value: string) => void;
+  onSubmitStory: () => void;
   onSelectAutonomousMode: (enabled: boolean) => void;
   onConfirmSetup: () => void;
   onBack: () => void;
@@ -133,6 +136,7 @@ export default function ProjectSetupPanel({
   selectedStyleId,
   selectedDuration,
   selectedAutonomousMode,
+  storyInput,
   loading,
   configuring,
   error,
@@ -141,6 +145,8 @@ export default function ProjectSetupPanel({
   onSelectTemplate,
   onSelectStyle,
   onSelectDuration,
+  onChangeStory,
+  onSubmitStory,
   onSelectAutonomousMode,
   onConfirmSetup,
   onBack,
@@ -182,6 +188,8 @@ export default function ProjectSetupPanel({
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.repeat) return;
+      // Story step uses a textarea — let the user type freely.
+      if (step === 'story') return;
       if (event.key < '1' || event.key > '9') return;
 
       const index = Number(event.key) - 1;
@@ -325,16 +333,18 @@ export default function ProjectSetupPanel({
             </button>
           )}
           <span className={styles.wizardStep}>
-            {step === 'template' && 'Step 1 of 4'}
-            {step === 'style' && 'Step 2 of 4'}
-            {step === 'duration' && 'Step 3 of 4'}
-            {step === 'autonomous' && 'Step 4 of 4'}
+            {step === 'template' && 'Setup'}
+            {step === 'style' && 'Step 1 of 3'}
+            {step === 'duration' && 'Step 2 of 3'}
+            {step === 'story' && 'Step 3 of 3'}
+            {step === 'autonomous' && 'Setup'}
           </span>
         </div>
         <h3 className={styles.wizardTitle}>
           {step === 'template' && 'Choose a Template'}
           {step === 'style' && 'Choose a Style'}
           {step === 'duration' && 'Choose Duration'}
+          {step === 'story' && 'Tell Us the Story'}
           {step === 'autonomous' && 'Autonomous Mode'}
         </h3>
       </div>
@@ -444,6 +454,30 @@ export default function ProjectSetupPanel({
                   disabled={configuring}
                 >
                   Set
+                </button>
+              </div>
+            </>
+          )}
+
+          {step === 'story' && (
+            <>
+              <textarea
+                className={styles.storyTextarea}
+                placeholder="A noir detective walks into the rain... or paste a longer story / outline here. The agent will build everything from this seed."
+                rows={8}
+                value={storyInput}
+                onChange={(event) => onChangeStory(event.target.value)}
+                disabled={configuring}
+                aria-label="Project story or idea"
+              />
+              <div className={styles.autonomousFooter}>
+                <button
+                  type="button"
+                  className={styles.continueButton}
+                  onClick={onSubmitStory}
+                  disabled={configuring || storyInput.trim().length === 0}
+                >
+                  Continue
                 </button>
               </div>
             </>

@@ -25,22 +25,7 @@ describe('SettingsPanel', () => {
   beforeEach(() => {
     Object.defineProperty(window, 'electron', {
       configurable: true,
-      value: {
-        backend: {
-          getState: jest.fn().mockResolvedValue({ status: 'ready', serverUrl: 'http://127.0.0.1:8001' }),
-          getConnectionInfo: jest.fn().mockResolvedValue({
-            effectiveServerUrl: 'http://127.0.0.1:8001',
-            localServerUrl: 'http://127.0.0.1:8001',
-            localBackendAvailable: true,
-            bundledVersion: {
-              packageVersion: '0.1.0',
-              gitBranch: 'main',
-              gitCommit: 'abcdef1234567',
-            },
-          }),
-          onStateChange: jest.fn(() => jest.fn()),
-        },
-      },
+      value: {},
     });
   });
 
@@ -85,6 +70,5 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('ComfyUI URL')).toBeInTheDocument();
     expect(screen.getByLabelText('Comfy Cloud API Key')).toBeInTheDocument();
     expect(screen.getByText('OpenAI-Compatible')).toBeInTheDocument();
-    expect(screen.getByText('Connected to Local')).toBeInTheDocument();
   });
 });
