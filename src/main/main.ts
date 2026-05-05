@@ -161,7 +161,8 @@ async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
   return `${websiteBase}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
-async function getCloudAuthRuntime() {
+async function getCloudAuthRuntime(settings: AppSettings) {
+  if (settings.backendMode !== 'cloud') return null;
   const account = getAccount();
   if (!account?.token) return null;
   return {
@@ -312,7 +313,10 @@ ipcMain.handle(
   async (_event, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const updated = updateSettings(patch);
     try {
-      await kshanaCoreManager.restart(updated, await getCloudAuthRuntime());
+      await kshanaCoreManager.restart(
+        updated,
+        await getCloudAuthRuntime(updated),
+      );
       if (mainWindow) {
         registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
       }
@@ -3306,7 +3310,10 @@ const bootstrapBackend = async () => {
     // Embedded kshana-ink — the only backend path. Starts synchronously
     // (in-process), so the IPC bridge can register immediately and the
     // renderer's window.kshana.* calls can land.
-    await kshanaCoreManager.start(settings, await getCloudAuthRuntime());
+    await kshanaCoreManager.start(
+      settings,
+      await getCloudAuthRuntime(settings),
+    );
     if (mainWindow) {
       registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
     }
@@ -3347,7 +3354,11 @@ async function restartEmbeddedAfterAccountChange(
   reason: string,
 ): Promise<void> {
   try {
-    await kshanaCoreManager.restart(getSettings(), await getCloudAuthRuntime());
+    const settings = getSettings();
+    await kshanaCoreManager.restart(
+      settings,
+      await getCloudAuthRuntime(settings),
+    );
     if (mainWindow) {
       registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
     }
@@ -3387,7 +3398,9 @@ async function handleDeepLink(url: string): Promise<void> {
     });
 
     await refreshBalance(await resolveKshanaWebsiteUrl());
+    updateSettings({ backendMode: 'cloud' });
     await restartEmbeddedAfterAccountChange('sign-in');
+    mainWindow?.webContents.send('settings:updated', getSettings());
     mainWindow?.webContents.send('account:changed');
     log.info('[Account] Desktop sign-in complete:', payload.email);
   } catch (error) {
@@ -3416,15 +3429,17 @@ ipcMain.handle('account:sign-in', async () => {
 
 ipcMain.handle('account:sign-out', async () => {
   clearAccount();
+  updateSettings({ backendMode: 'local' });
   await restartEmbeddedAfterAccountChange('sign-out');
+  mainWindow?.webContents.send('settings:updated', getSettings());
   mainWindow?.webContents.send('account:changed');
   return { success: true };
 });
 
 ipcMain.handle('account:refresh-balance', async () => {
-  const balance = await refreshBalance(await resolveKshanaWebsiteUrl());
+  const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   mainWindow?.webContents.send('account:changed');
-  return { balance };
+  return result;
 });
 
 ipcMain.handle('account:get-billing-url', async () => {

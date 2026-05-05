@@ -124,6 +124,7 @@ __setManagerLoader(async () => ({
 } as unknown as Parameters<typeof __setManagerLoader>[0] extends () => Promise<infer M> ? M : never));
 
 const baseSettings: AppSettings = {
+  backendMode: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',

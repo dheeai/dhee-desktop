@@ -328,6 +328,9 @@ export default function LandingScreen() {
             <Play size={20} className={styles.playIcon} />
           </div>
           <h1 className={styles.brandTitle}>Kshana Desktop</h1>
+          <div className={styles.modeBadge}>
+            {settings?.backendMode === 'cloud' ? 'Cloud Mode' : 'Local Mode'}
+          </div>
         </div>
 
         <div className={styles.sidebarSection}>

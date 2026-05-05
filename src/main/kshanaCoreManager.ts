@@ -18,12 +18,6 @@
  * `KshanaCoreEvent` stream the IPC bridge can re-publish over
  * `webContents.send`.
  */
-import type {
-  ConversationManager,
-  ConversationManagerConfig,
-  ConversationEvents,
-} from 'kshana-core/manager';
-import type { LLMClientConfig } from 'kshana-core/core/llm';
 import type { AppSettings } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/kshanaIpc';
 import { getComfyUiUrl, isComfyCloudUrl, withV1Suffix } from './utils/comfyUrl';
@@ -32,6 +26,24 @@ export interface KshanaCloudAuthRuntime {
   websiteUrl: string;
   desktopToken: string;
 }
+
+type LLMClientConfig = {
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+};
+
+type ConversationManagerConfig = {
+  llmConfig: LLMClientConfig;
+};
+
+type ConversationEvents = Record<string, (...args: any[]) => void>;
+
+type ConversationManager = {
+  shutdown: () => void;
+};
+
+const KSHANA_CORE_MANAGER_MODULE = 'kshana-core/manager';
 
 type ManagerModule = {
   ConversationManager: new (
@@ -68,7 +80,7 @@ type ManagerModule = {
  */
 let loadManagerModule: () => Promise<ManagerModule> = () =>
   import(
-    /* webpackIgnore: true */ 'kshana-core/manager'
+    /* webpackIgnore: true */ KSHANA_CORE_MANAGER_MODULE
   ) as Promise<ManagerModule>;
 
 /** Test seam — replace the loader so unit tests can supply a fake. */

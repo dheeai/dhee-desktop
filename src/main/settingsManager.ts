@@ -1,6 +1,7 @@
 import Store from 'electron-store';
 import type {
   AppSettings,
+  BackendMode,
   ComfyUIMode,
   LLMProvider,
   ThemeId,
@@ -17,6 +18,7 @@ const DEFAULT_OPENAI_MODEL = 'gpt-4o';
 const DEFAULT_OPENROUTER_MODEL = 'z-ai/glm-4.7-flash';
 
 const defaults: AppSettings = {
+  backendMode: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -45,6 +47,10 @@ function normalizeComfyUIMode(value: unknown): ComfyUIMode | null {
     return value;
   }
   return null;
+}
+
+function normalizeBackendMode(value: unknown): BackendMode {
+  return value === 'cloud' ? 'cloud' : 'local';
 }
 
 function normalizeComfyUIUrl(value: unknown): string {
@@ -88,6 +94,7 @@ function normalizeString(value: unknown, fallback = ''): string {
 
 function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings {
   const comfyuiUrl = normalizeComfyUIUrl(value?.comfyuiUrl);
+  const backendMode = normalizeBackendMode(value?.backendMode);
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
@@ -127,6 +134,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     : derivedMode;
 
   const normalized: AppSettings = {
+    backendMode,
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
     comfyCloudApiKey,
@@ -172,6 +180,7 @@ export {
   normalizeSettings,
   normalizeThemeId,
   normalizeLLMProvider,
+  normalizeBackendMode,
   DEFAULT_THEME_ID,
 };
 

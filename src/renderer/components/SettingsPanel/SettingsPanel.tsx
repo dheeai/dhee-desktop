@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type {
+  AccountInfo,
   AppSettings,
   LLMProvider,
   ThemeId,
@@ -22,6 +23,7 @@ type Props = {
 };
 
 const emptySettings: AppSettings = {
+  backendMode: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -46,6 +48,7 @@ function withV1Suffix(url: string): string {
 function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   const next = input ?? emptySettings;
   const comfyuiUrl = (next.comfyuiUrl || '').trim();
+  const backendMode = next.backendMode === 'cloud' ? 'cloud' : 'local';
   const llmProvider =
     next.llmProvider === 'openrouter' || next.llmProvider === 'lmstudio'
       ? 'openai'
@@ -70,6 +73,7 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   return {
     ...emptySettings,
     ...next,
+    backendMode,
     llmProvider,
     comfyuiMode: comfyuiUrl ? 'custom' : 'inherit',
     comfyuiUrl,
@@ -85,6 +89,12 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
     openRouterModel:
       next.openRouterModel?.trim() || emptySettings.openRouterModel,
   };
+}
+
+function getAccountBridge() {
+  return (window.electron as typeof window.electron & {
+    account?: typeof window.electron.account;
+  }).account;
 }
 
 export default function SettingsPanel({
@@ -103,6 +113,8 @@ export default function SettingsPanel({
     normalizeConnectionSettings(settings),
   );
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [cloudModeWarning, setCloudModeWarning] = useState<string | null>(null);
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
   }, [settings, isVisible]);
@@ -126,6 +138,20 @@ export default function SettingsPanel({
     return () => window.removeEventListener('keydown', handleEscape);
   }, [isOpen, isSavingConnection, onClose, isEmbedded]);
 
+  useEffect(() => {
+    if (!isVisible) return undefined;
+    const accountBridge = getAccountBridge();
+    if (!accountBridge) return undefined;
+
+    accountBridge.get().then(setAccount).catch(() => setAccount(null));
+    return accountBridge.onChange((nextAccount) => {
+      setAccount(nextAccount);
+      if (nextAccount) {
+        setCloudModeWarning(null);
+      }
+    });
+  }, [isVisible]);
+
   if (!isVisible) {
     return null;
   }
@@ -134,6 +160,15 @@ export default function SettingsPanel({
     key: keyof AppSettings,
     value: string | number | undefined,
   ) => {
+    if (key === 'backendMode' && value === 'cloud' && !account) {
+      setCloudModeWarning('Sign in to Kshana Cloud before switching to Cloud mode.');
+      return;
+    }
+
+    if (key === 'backendMode') {
+      setCloudModeWarning(null);
+    }
+
     setForm((prev) => ({
       ...prev,
       [key]: value,
@@ -143,6 +178,7 @@ export default function SettingsPanel({
   const saveConnectionSettings = async (nextForm: AppSettings) => {
     const normalized = normalizeConnectionSettings(nextForm);
     await onSaveConnection({
+      backendMode: normalized.backendMode,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
@@ -170,6 +206,23 @@ export default function SettingsPanel({
     }
   };
 
+  const isCloudMode = form.backendMode === 'cloud';
+  const isCloudReady = isCloudMode && Boolean(account);
+  const statusLabel = isCloudReady || !isCloudMode ? 'Ready' : 'Sign in';
+  const statusBadgeClass = isCloudReady || !isCloudMode
+    ? styles.statusBadgeSuccess
+    : styles.statusBadgeWarning;
+  const statusHeadline = isCloudMode
+    ? isCloudReady
+      ? 'Connected to Cloud'
+      : 'Cloud sign-in required'
+    : 'Connected to Local';
+  const statusSupportText = isCloudMode
+    ? isCloudReady
+      ? 'The bundled core is running locally while paid calls use Kshana Cloud credits through the proxy.'
+      : 'Sign in to Kshana Cloud to route paid calls through the authenticated proxy.'
+    : 'The bundled core is running locally with the provider settings shown below.';
+
   const renderProviderToggle = (provider: LLMProvider, label: string) => (
     <label className={styles.radioLabel}>
       <input
@@ -178,6 +231,7 @@ export default function SettingsPanel({
         name="llm-provider"
         value={provider}
         checked={form.llmProvider === provider}
+        disabled={isCloudMode}
         onChange={(event) =>
           handleInput(
             'llmProvider',
@@ -245,7 +299,7 @@ export default function SettingsPanel({
           >
             <span className={styles.tabLabel}>Connection</span>
             <span className={styles.tabDescription}>
-              BYO provider configuration
+              Local providers or Kshana Cloud credits
             </span>
           </button>
         </aside>
@@ -297,16 +351,76 @@ export default function SettingsPanel({
               <>
                 <div className={styles.sectionHeader}>
                   <h3>Connection</h3>
-                  <p>Provider configuration used when you are signed out.</p>
+                  <p>Choose BYO keys or Kshana Cloud credits for paid calls.</p>
                 </div>
 
-                <div className={styles.localSettings}>
+                <div className={styles.statusCard}>
+                  <div className={styles.statusTopRow}>
+                    <div>
+                      <div className={styles.statusHeader}>
+                        Connection Status
+                      </div>
+                      <div className={styles.statusHeadline}>
+                        {statusHeadline}
+                      </div>
+                      <p className={styles.statusSupportText}>
+                        {statusSupportText}
+                      </p>
+                    </div>
+                    <div className={`${styles.statusBadge} ${statusBadgeClass}`}>
+                      <span className={styles.statusDot} />
+                      {statusLabel}
+                    </div>
+                  </div>
+                </div>
+
+                <fieldset className={`${styles.fieldset} ${styles.modeFieldset}`}>
+                  <legend>Backend Mode</legend>
+                  <div
+                    className={styles.modeSwitch}
+                    role="radiogroup"
+                    aria-label="Backend Mode"
+                  >
+                    <label className={styles.radioLabel}>
+                      <input
+                        type="radio"
+                        className={styles.radioInput}
+                        name="backend-mode"
+                        value="local"
+                        checked={form.backendMode === 'local'}
+                        onChange={() => handleInput('backendMode', 'local')}
+                      />
+                      <span className={styles.modeOption}>Local</span>
+                    </label>
+                    <label className={styles.radioLabel}>
+                      <input
+                        type="radio"
+                        className={styles.radioInput}
+                        name="backend-mode"
+                        value="cloud"
+                        checked={form.backendMode === 'cloud'}
+                        onChange={() => handleInput('backendMode', 'cloud')}
+                      />
+                      <span className={styles.modeOption}>Cloud</span>
+                    </label>
+                  </div>
+                  {cloudModeWarning ? (
+                    <p className={styles.warningText}>{cloudModeWarning}</p>
+                  ) : null}
+                </fieldset>
+
+                <div
+                  className={`${styles.localSettings} ${
+                    isCloudMode ? styles.localSettingsDisabled : ''
+                  }`}
+                >
                   <label className={styles.label}>
                     ComfyUI URL
                     <input
                       type="url"
                       className={styles.input}
                       value={form.comfyuiUrl}
+                      disabled={isCloudMode}
                       onChange={(event) =>
                         handleInput('comfyuiUrl', event.target.value)
                       }
@@ -320,6 +434,7 @@ export default function SettingsPanel({
                       type="password"
                       className={styles.input}
                       value={form.comfyCloudApiKey}
+                      disabled={isCloudMode}
                       onChange={(event) =>
                         handleInput('comfyCloudApiKey', event.target.value)
                       }
@@ -332,7 +447,7 @@ export default function SettingsPanel({
                     connections ignore it.
                   </p>
 
-                  <fieldset className={styles.fieldset}>
+                  <fieldset className={styles.fieldset} disabled={isCloudMode}>
                     <legend>LLM Provider</legend>
                     <div className={styles.radios}>
                       {renderProviderToggle('gemini', 'Gemini')}
@@ -348,6 +463,7 @@ export default function SettingsPanel({
                           type="password"
                           className={styles.input}
                           value={form.googleApiKey}
+                          disabled={isCloudMode}
                           onChange={(event) =>
                             handleInput('googleApiKey', event.target.value)
                           }
@@ -361,6 +477,7 @@ export default function SettingsPanel({
                           type="text"
                           className={styles.input}
                           value={form.geminiModel}
+                          disabled={isCloudMode}
                           onChange={(event) =>
                             handleInput('geminiModel', event.target.value)
                           }
@@ -378,6 +495,7 @@ export default function SettingsPanel({
                           <button
                             type="button"
                             className={styles.inlineButton}
+                            disabled={isCloudMode}
                             onClick={() =>
                               handleInput(
                                 'openaiBaseUrl',
@@ -392,6 +510,7 @@ export default function SettingsPanel({
                           type="url"
                           className={styles.input}
                           value={form.openaiBaseUrl}
+                          disabled={isCloudMode}
                           onChange={(event) =>
                             handleInput('openaiBaseUrl', event.target.value)
                           }
@@ -406,6 +525,7 @@ export default function SettingsPanel({
                           type="text"
                           className={styles.input}
                           value={form.openaiModel}
+                          disabled={isCloudMode}
                           onChange={(event) =>
                             handleInput('openaiModel', event.target.value)
                           }
@@ -419,6 +539,7 @@ export default function SettingsPanel({
                           type="password"
                           className={styles.input}
                           value={form.openaiApiKey}
+                          disabled={isCloudMode}
                           onChange={(event) =>
                             handleInput('openaiApiKey', event.target.value)
                           }

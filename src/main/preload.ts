@@ -614,7 +614,12 @@ const accountBridge = {
   signOut(): Promise<{ success: boolean }> {
     return ipcRenderer.invoke('account:sign-out');
   },
-  refreshBalance(): Promise<{ balance: number | null }> {
+  refreshBalance(): Promise<{
+    status: 'ok' | 'expired' | 'error';
+    balance: number | null;
+    httpStatus?: number;
+    errorMessage?: string;
+  }> {
     return ipcRenderer.invoke('account:refresh-balance');
   },
   getBillingUrl(): Promise<string> {

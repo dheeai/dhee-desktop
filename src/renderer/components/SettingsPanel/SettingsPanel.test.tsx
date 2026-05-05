@@ -4,6 +4,7 @@ jest.mock('react', () => jest.requireActual('react'));
 import SettingsPanel from './SettingsPanel';
 
 const baseSettings = {
+  backendMode: 'local' as const,
   comfyuiMode: 'inherit' as const,
   comfyuiUrl: '',
   comfyCloudApiKey: '',

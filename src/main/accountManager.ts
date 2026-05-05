@@ -26,9 +26,14 @@ export function clearAccount(): void {
 
 export async function refreshBalance(
   kshanaWebsiteUrl: string,
-): Promise<number | null> {
+): Promise<{
+  status: 'ok' | 'expired' | 'error';
+  balance: number | null;
+  httpStatus?: number;
+  errorMessage?: string;
+}> {
   const account = getAccount();
-  if (!account) return null;
+  if (!account) return { status: 'error', balance: null };
 
   try {
     // eslint-disable-next-line compat/compat
@@ -37,9 +42,26 @@ export async function refreshBalance(
     });
     if (res.status === 401) {
       clearAccount();
-      return null;
+      return { status: 'expired', balance: null, httpStatus: 401 };
     }
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = (await res.json().catch(() => null)) as null | {
+        error?: unknown;
+        message?: unknown;
+      };
+      const errorMessage =
+        body && typeof body.message === 'string'
+          ? body.message
+          : body && typeof body.error === 'string'
+            ? body.error
+            : undefined;
+      return {
+        status: 'error',
+        balance: null,
+        httpStatus: res.status,
+        ...(errorMessage ? { errorMessage } : {}),
+      };
+    }
 
     const { balance, planId, planLabel, subscriptionStatus } =
       (await res.json()) as {
@@ -56,8 +78,8 @@ export async function refreshBalance(
       planLabel,
       subscriptionStatus,
     });
-    return balance;
+    return { status: 'ok', balance, httpStatus: res.status };
   } catch {
-    return null;
+    return { status: 'error', balance: null };
   }
 }

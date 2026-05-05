@@ -13,6 +13,7 @@ import {
 } from './settingsManager';
 
 const baseSettings = {
+  backendMode: 'local' as const,
   comfyuiMode: 'inherit' as const,
   comfyuiUrl: '',
   comfyCloudApiKey: '',

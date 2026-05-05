@@ -67,11 +67,19 @@ export default function AccountTab() {
     try {
       const result = await getAccountBridge()?.refreshBalance();
       await loadAccount();
-      setRefreshError(
-        account && result?.balance === null
-          ? 'Your desktop session expired. Sign in again to refresh credits.'
-          : '',
-      );
+      if (result?.status === 'expired') {
+        setRefreshError(
+          'Your desktop session expired. Sign in again to refresh credits.',
+        );
+        return;
+      }
+      if (result?.status === 'error') {
+        setRefreshError(
+          `Couldn’t refresh credits right now${result.httpStatus ? ` (HTTP ${result.httpStatus})` : ''}${result.errorMessage ? `: ${result.errorMessage}` : '.'}`,
+        );
+        return;
+      }
+      setRefreshError('');
     } finally {
       setRefreshing(false);
     }

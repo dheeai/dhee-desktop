@@ -1,4 +1,5 @@
 export type ComfyUIMode = 'inherit' | 'custom';
+export type BackendMode = 'local' | 'cloud';
 export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
 export type ThemeId =
   | 'studio-neutral'
@@ -22,6 +23,8 @@ export interface AccountInfo {
 }
 
 export interface AppSettings {
+  /** Whether embedded kshana-core uses BYO settings or Kshana Cloud proxy credits. */
+  backendMode: BackendMode;
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */
