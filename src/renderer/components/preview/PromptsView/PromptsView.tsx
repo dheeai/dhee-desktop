@@ -248,16 +248,56 @@ interface ShotAssets {
   video?: string;
 }
 
-interface ProjectShot {
-  shotNumber?: number;
-  firstFrame?: { path?: string };
-  lastFrame?: { path?: string };
-  video?: { path?: string };
-}
-
-interface ProjectScene {
-  sceneNumber?: number;
-  shots?: ProjectShot[];
+/**
+ * Walk `executorState.nodes` to extract per-shot first frame /
+ * last frame / video paths. Two-level fallback because the
+ * graph evolved over time:
+ *
+ *   - Legacy combined node `shot_image:scene_N_shot_M` carries
+ *     both frames in `.outputPaths.first_frame` and
+ *     `.outputPaths.last_frame`.
+ *   - Pattern-B split (recent) introduced
+ *     `shot_image_last_frame:scene_N_shot_M.outputPath` for the
+ *     last frame; `shot_image:…` keeps `outputPaths.first_frame`.
+ *
+ * Prefer the newer split when both are present; fall back
+ * otherwise. Video lives on `shot_video:scene_N_shot_M.outputPath`
+ * regardless of the topology.
+ *
+ * Note: `project.scenes[].shots[]` would be a cleaner source, but
+ * desktop-created projects don't populate that tree — they live
+ * entirely in `executorState`. Reading from nodes works for both.
+ */
+function extractShotAssets(
+  nodes: Record<string, { outputPath?: string; outputPaths?: Record<string, string> }>,
+): Map<string, ShotAssets> {
+  const assets = new Map<string, ShotAssets>();
+  const idRe = /^(shot_image|shot_image_last_frame|shot_video):scene_(\d+)_shot_(\d+)$/;
+  for (const [id, node] of Object.entries(nodes)) {
+    const m = idRe.exec(id);
+    if (!m) continue;
+    const kind = m[1] as 'shot_image' | 'shot_image_last_frame' | 'shot_video';
+    const scene = parseInt(m[2] ?? '0', 10);
+    const shot = parseInt(m[3] ?? '0', 10);
+    const key = `${scene}-${shot}`;
+    const existing = assets.get(key) ?? {};
+    if (kind === 'shot_image') {
+      const ff =
+        node.outputPaths?.['first_frame'] ?? node.outputPath;
+      const lf = node.outputPaths?.['last_frame'];
+      if (ff) existing.firstFrame = existing.firstFrame ?? ff;
+      if (lf) existing.lastFrame = existing.lastFrame ?? lf;
+    } else if (kind === 'shot_image_last_frame') {
+      // Pattern-B split: last frame lives here. Prefer over the
+      // legacy combined node's outputPaths.last_frame.
+      if (node.outputPath) existing.lastFrame = node.outputPath;
+    } else {
+      // shot_video
+      if (node.outputPath) existing.video = node.outputPath;
+    }
+    assets.set(key, existing);
+  }
+  return assets;
 }
 
 export default function PromptsView() {
@@ -290,9 +330,11 @@ export default function PromptsView() {
         if (cancelled || !raw) return;
         const project = JSON.parse(raw) as {
           executorState?: {
-            nodes?: Record<string, { outputPath?: string }>;
+            nodes?: Record<
+              string,
+              { outputPath?: string; outputPaths?: Record<string, string> }
+            >;
           };
-          scenes?: ProjectScene[];
         };
         const nodes = project.executorState?.nodes ?? {};
         const map = new Map<string, string>();
@@ -301,19 +343,7 @@ export default function PromptsView() {
             map.set(id, `${projectDirectory}/${node.outputPath}`);
           }
         }
-        const assets = new Map<string, ShotAssets>();
-        for (const scene of project.scenes ?? []) {
-          if (typeof scene.sceneNumber !== 'number') continue;
-          for (const shot of scene.shots ?? []) {
-            if (typeof shot.shotNumber !== 'number') continue;
-            const key = `${scene.sceneNumber}-${shot.shotNumber}`;
-            assets.set(key, {
-              ...(shot.firstFrame?.path ? { firstFrame: shot.firstFrame.path } : {}),
-              ...(shot.lastFrame?.path ? { lastFrame: shot.lastFrame.path } : {}),
-              ...(shot.video?.path ? { video: shot.video.path } : {}),
-            });
-          }
-        }
+        const assets = extractShotAssets(nodes);
         if (!cancelled) {
           setRefMap(map);
           setShotAssets(assets);
