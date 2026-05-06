@@ -1,0 +1,169 @@
+@import '../../../styles/tokens';
+@import '../../../styles/mixins';
+
+.container {
+  @include flex-column;
+  height: 100%;
+  background-color: $color-background-dark;
+  overflow: auto;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: $color-text-muted;
+  gap: $spacing-md;
+}
+
+.emptyIcon {
+  opacity: 0.5;
+}
+
+.loading {
+  padding: $spacing-xl;
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+}
+
+.scenesList {
+  padding: $spacing-lg;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xl;
+}
+
+.sceneSection {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.sceneHeader {
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  padding-bottom: $spacing-sm;
+  border-bottom: 1px solid $color-panel-border;
+}
+
+.shotCard {
+  background-color: $color-panel-background;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-md;
+  padding: $spacing-lg;
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.shotHeader {
+  font-size: $font-size-md;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+}
+
+.shotMeta {
+  font-size: $font-size-xs;
+  color: $color-text-muted;
+  margin-left: $spacing-sm;
+  font-weight: $font-weight-normal;
+}
+
+.promptBlock {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-xs;
+}
+
+.promptLabel {
+  font-size: $font-size-xs;
+  font-weight: $font-weight-bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: $color-text-muted;
+}
+
+.promptText {
+  font-size: $font-size-sm;
+  line-height: 1.7;
+  color: $color-text-secondary;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.refMention {
+  display: inline;
+  font-weight: $font-weight-medium;
+  border-bottom: 1px dashed currentColor;
+  padding: 0 1px;
+  cursor: help;
+  position: relative;
+
+  &:hover .refPreview {
+    display: flex;
+  }
+}
+
+.refPreview {
+  display: none;
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px;
+  background-color: $color-background-dark;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-sm;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+  min-width: 160px;
+  max-width: 280px;
+
+  img {
+    width: 100%;
+    height: auto;
+    max-height: 200px;
+    object-fit: contain;
+    border-radius: $radius-sm;
+  }
+}
+
+.refLabel {
+  font-size: $font-size-xs;
+  color: $color-text-muted;
+  text-align: center;
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+.refMissing {
+  font-style: italic;
+  opacity: 0.6;
+  font-size: $font-size-xs;
+  text-align: center;
+}
+
+.negativeBlock {
+  margin-top: $spacing-sm;
+
+  details {
+    summary {
+      cursor: pointer;
+      font-size: $font-size-xs;
+      color: $color-text-muted;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      font-weight: $font-weight-bold;
+      padding: $spacing-xs 0;
+
+      &:hover {
+        color: $color-text-secondary;
+      }
+    }
+  }
+}

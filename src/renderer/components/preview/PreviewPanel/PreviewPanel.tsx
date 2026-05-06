@@ -6,20 +6,21 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { ChevronUp, FolderKanban, Clapperboard, FileCode2, Layers } from 'lucide-react';
+import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
 import type { SceneVersions } from '../../../types/kshana/timeline';
 import AssetsView from '../AssetsView/AssetsView';
 import StoryboardView from '../StoryboardView/StoryboardView';
+import PromptsView from '../PromptsView/PromptsView';
 import VideoLibraryView from '../VideoLibraryView/VideoLibraryView';
 import PlansView from '../PlansView/PlansView';
 import TimelinePanel from '../TimelinePanel/TimelinePanel';
 import { TimelineDockIcon } from '../EditorIcons';
 import styles from './PreviewPanel.module.scss';
 
-type Tab = 'storyboard' | 'assets' | 'video-library' | 'preview';
+type Tab = 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
 
 export default function PreviewPanel() {
   const [activeTab, setActiveTab] = useState<Tab>('video-library');
@@ -46,6 +47,11 @@ export default function PreviewPanel() {
         id: 'storyboard' as const,
         label: 'Storyboard',
         icon: Layers,
+      },
+      {
+        id: 'prompts' as const,
+        label: 'Prompts',
+        icon: FileText,
       },
       {
         id: 'assets' as const,
@@ -168,6 +174,7 @@ export default function PreviewPanel() {
   const renderActiveContent = () => (
     <div className={styles.content}>
       {activeTab === 'storyboard' && <StoryboardView />}
+      {activeTab === 'prompts' && <PromptsView />}
       {activeTab === 'assets' && <AssetsView />}
       {activeTab === 'video-library' && (
         <VideoLibraryView
