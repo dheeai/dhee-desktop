@@ -11,7 +11,7 @@
  * outputPath), since that's the canonical place per-node generated
  * artifacts live.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import styles from './PromptsView.module.scss';
@@ -171,18 +171,114 @@ function PromptBlock({
   );
 }
 
+/**
+ * One row: media on the left (when generated), prompt on the right.
+ * Falls back to a single-column prompt block when no media is on
+ * disk yet — mid-pipeline the user still wants to read the prompt
+ * even before the asset lands.
+ */
+function MediaPromptRow({
+  label,
+  mediaPath,
+  mediaKind,
+  text,
+  references,
+  resolveRef,
+  projectDirectory,
+}: {
+  label: string;
+  mediaPath: string | undefined;
+  mediaKind: 'image' | 'video';
+  text: string | undefined;
+  references: PromptReference[] | undefined;
+  resolveRef: (refId: string) => string | null;
+  projectDirectory: string;
+}) {
+  if (!text && !mediaPath) return null;
+  if (!mediaPath) {
+    // Prompt-only path: single column, full width.
+    return (
+      <PromptBlock
+        label={label}
+        text={text}
+        references={references}
+        resolveRef={resolveRef}
+      />
+    );
+  }
+  const src = `file://${projectDirectory}/${mediaPath}`;
+  return (
+    <div className={styles.mediaPromptRow}>
+      <div className={styles.mediaCell}>
+        {mediaKind === 'image' ? (
+          <img src={src} alt={label} className={styles.mediaImage} />
+        ) : (
+          <video
+            src={src}
+            controls
+            preload="metadata"
+            className={styles.mediaVideo}
+          />
+        )}
+      </div>
+      <div className={styles.promptCell}>
+        {text ? (
+          <PromptBlock
+            label={label}
+            text={text}
+            references={references}
+            resolveRef={resolveRef}
+          />
+        ) : (
+          <div className={styles.promptBlock}>
+            <div className={styles.promptLabel}>{label}</div>
+            <span className={styles.promptText} style={{ opacity: 0.6 }}>
+              (no prompt recorded)
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface ShotAssets {
+  firstFrame?: string;
+  lastFrame?: string;
+  video?: string;
+}
+
+interface ProjectShot {
+  shotNumber?: number;
+  firstFrame?: { path?: string };
+  lastFrame?: { path?: string };
+  video?: { path?: string };
+}
+
+interface ProjectScene {
+  sceneNumber?: number;
+  shots?: ProjectShot[];
+}
+
 export default function PromptsView() {
   const { projectDirectory } = useWorkspace();
   const [shots, setShots] = useState<ShotEntry[]>([]);
   const [refMap, setRefMap] = useState<Map<string, string>>(new Map());
+  const [shotAssets, setShotAssets] = useState<Map<string, ShotAssets>>(
+    new Map(),
+  );
   const [loading, setLoading] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Build refId → absolute path resolver from project.json's
-  // executorState.nodes. Every node that's been generated has an
-  // outputPath relative to the project dir.
+  // Build refId → absolute path resolver AND per-shot asset map from
+  // project.json. Both come from a single read — refMap from
+  // executorState.nodes (for "image N" hover-resolution); shotAssets
+  // from project.scenes[].shots[] (canonical place for first frame /
+  // last frame / video paths).
   useEffect(() => {
     if (!projectDirectory) {
       setRefMap(new Map());
+      setShotAssets(new Map());
       return;
     }
     let cancelled = false;
@@ -196,6 +292,7 @@ export default function PromptsView() {
           executorState?: {
             nodes?: Record<string, { outputPath?: string }>;
           };
+          scenes?: ProjectScene[];
         };
         const nodes = project.executorState?.nodes ?? {};
         const map = new Map<string, string>();
@@ -204,9 +301,28 @@ export default function PromptsView() {
             map.set(id, `${projectDirectory}/${node.outputPath}`);
           }
         }
-        if (!cancelled) setRefMap(map);
+        const assets = new Map<string, ShotAssets>();
+        for (const scene of project.scenes ?? []) {
+          if (typeof scene.sceneNumber !== 'number') continue;
+          for (const shot of scene.shots ?? []) {
+            if (typeof shot.shotNumber !== 'number') continue;
+            const key = `${scene.sceneNumber}-${shot.shotNumber}`;
+            assets.set(key, {
+              ...(shot.firstFrame?.path ? { firstFrame: shot.firstFrame.path } : {}),
+              ...(shot.lastFrame?.path ? { lastFrame: shot.lastFrame.path } : {}),
+              ...(shot.video?.path ? { video: shot.video.path } : {}),
+            });
+          }
+        }
+        if (!cancelled) {
+          setRefMap(map);
+          setShotAssets(assets);
+        }
       } catch {
-        if (!cancelled) setRefMap(new Map());
+        if (!cancelled) {
+          setRefMap(new Map());
+          setShotAssets(new Map());
+        }
       }
     })();
     return () => {
@@ -327,8 +443,45 @@ export default function PromptsView() {
     );
   }
 
+  // Jump-to-shot dropdown: change handler scrolls the matching card
+  // into view. Card ids are deterministic (`shot-S-N`) so we don't
+  // need a ref-per-shot map.
+  const handleJumpTo = (value: string) => {
+    if (!value || !containerRef.current) return;
+    const el = containerRef.current.querySelector<HTMLElement>(`#${value}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   return (
-    <div className={styles.container}>
+    <div className={styles.container} ref={containerRef}>
+      <div className={styles.toolbar}>
+        <span className={styles.toolbarLabel}>Jump to:</span>
+        <select
+          className={styles.shotPicker}
+          defaultValue=""
+          onChange={(e) => {
+            handleJumpTo(e.target.value);
+            // Reset so the same option can be picked again to re-scroll.
+            e.target.value = '';
+          }}
+        >
+          <option value="" disabled>
+            Pick a shot…
+          </option>
+          {scenes.map(([sceneNumber, sceneShots]) => (
+            <optgroup key={sceneNumber} label={`Scene ${sceneNumber}`}>
+              {sceneShots.map((entry) => (
+                <option
+                  key={`${entry.scene}-${entry.shot}`}
+                  value={`shot-${entry.scene}-${entry.shot}`}
+                >
+                  Scene {entry.scene} · Shot {entry.shot}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </div>
       <div className={styles.scenesList}>
         {scenes.map(([sceneNumber, sceneShots]) => (
           <div key={sceneNumber} className={styles.sceneSection}>
@@ -338,9 +491,11 @@ export default function PromptsView() {
               const lf = entry.prompts?.frames?.last_frame;
               const md = entry.motion?.motionDirective;
               const neg = entry.prompts?.negativePrompt;
+              const assets = shotAssets.get(`${entry.scene}-${entry.shot}`);
               return (
                 <div
                   key={`${entry.scene}-${entry.shot}`}
+                  id={`shot-${entry.scene}-${entry.shot}`}
                   className={styles.shotCard}
                 >
                   <div className={styles.shotHeader}>
@@ -352,25 +507,34 @@ export default function PromptsView() {
                     )}
                   </div>
 
-                  <PromptBlock
+                  <MediaPromptRow
                     label="First frame prompt"
+                    mediaPath={assets?.firstFrame}
+                    mediaKind="image"
                     text={ff?.imagePrompt}
                     references={ff?.references}
                     resolveRef={resolveRef}
+                    projectDirectory={projectDirectory}
                   />
 
-                  <PromptBlock
+                  <MediaPromptRow
                     label="Last frame prompt"
+                    mediaPath={assets?.lastFrame}
+                    mediaKind="image"
                     text={lf?.imagePrompt}
                     references={lf?.references}
                     resolveRef={resolveRef}
+                    projectDirectory={projectDirectory}
                   />
 
-                  <PromptBlock
+                  <MediaPromptRow
                     label="Motion directive"
+                    mediaPath={assets?.video}
+                    mediaKind="video"
                     text={md}
                     references={undefined}
                     resolveRef={resolveRef}
+                    projectDirectory={projectDirectory}
                   />
 
                   {neg && (

@@ -8,6 +8,77 @@
   overflow: auto;
 }
 
+.toolbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-lg;
+  background-color: $color-panel-background;
+  border-bottom: 1px solid $color-panel-border;
+}
+
+.toolbarLabel {
+  font-size: $font-size-sm;
+  color: $color-text-muted;
+}
+
+.shotPicker {
+  flex: 0 0 auto;
+  min-width: 220px;
+  padding: $spacing-xs $spacing-sm;
+  font-size: $font-size-sm;
+  background-color: $color-background-dark;
+  color: $color-text-primary;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-sm;
+  cursor: pointer;
+
+  &:focus {
+    outline: 1px solid $color-accent-cyan;
+  }
+}
+
+.mediaPromptRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: $spacing-lg;
+  align-items: start;
+}
+
+.mediaCell {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.mediaImage {
+  max-width: 100%;
+  max-height: 360px;
+  width: auto;
+  height: auto;
+  border-radius: $radius-sm;
+  border: 1px solid $color-panel-border;
+  object-fit: contain;
+  background-color: $color-background-dark;
+}
+
+.mediaVideo {
+  max-width: 100%;
+  max-height: 360px;
+  width: 100%;
+  border-radius: $radius-sm;
+  border: 1px solid $color-panel-border;
+  background-color: $color-background-dark;
+}
+
+.promptCell {
+  display: flex;
+  flex-direction: column;
+}
+
 .emptyState {
   display: flex;
   flex-direction: column;
