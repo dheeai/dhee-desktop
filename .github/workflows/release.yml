@@ -1,4 +1,5 @@
 name: Release
+# Injects assets/runtime-config.json with the public Kshana website URL.
 
 on:
   push:
@@ -48,16 +49,14 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          KSHANA_CLOUD_SERVER_URL: ${{ secrets.KSHANA_SERVER_URL }}
-          KSHANA_WEBSITE_URL: ${{ secrets.KSHANA_WEBSITE_URL }}
+          # Public Next.js site (Cloud Run). Repo variable wins if both are set; else secret KSHANA_WEBSITE_URL.
+          KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
         run: |
           node << 'EOF'
           const fs = require('fs');
-          const backend = process.env.KSHANA_CLOUD_SERVER_URL;
           const website = process.env.KSHANA_WEBSITE_URL;
-          if (!backend) throw new Error('KSHANA_SERVER_URL is missing');
-          const cfg = { cloudServerUrl: backend };
-          if (website && website.trim()) cfg.kshanaWebsiteUrl = website.trim();
+          if (!website || !website.trim()) throw new Error('KSHANA_WEBSITE_URL is missing');
+          const cfg = { kshanaWebsiteUrl: website.trim().replace(/\/$/, '') };
           fs.writeFileSync(
             'assets/runtime-config.json',
             JSON.stringify(cfg, null, 2),
@@ -115,17 +114,12 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          KSHANA_CLOUD_SERVER_URL: ${{ secrets.KSHANA_SERVER_URL }}
-          KSHANA_WEBSITE_URL: ${{ secrets.KSHANA_WEBSITE_URL }}
+          KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
         run: |
-          $backend = $env:KSHANA_CLOUD_SERVER_URL
           $website = $env:KSHANA_WEBSITE_URL
-          if (-not $backend) { throw "KSHANA_SERVER_URL is missing" }
-          if ($website -and $website.Trim()) {
-            $obj = @{ cloudServerUrl = $backend; kshanaWebsiteUrl = $website.Trim() }
-          } else {
-            $obj = @{ cloudServerUrl = $backend }
-          }
+          if (-not ($website -and $website.Trim())) { throw "KSHANA_WEBSITE_URL is missing" }
+          $w = $website.Trim().TrimEnd('/')
+          $obj = @{ kshanaWebsiteUrl = $w }
           $json = $obj | ConvertTo-Json
           Set-Content -Path "assets/runtime-config.json" -Value $json -Encoding UTF8
           Write-Host "Wrote assets/runtime-config.json"

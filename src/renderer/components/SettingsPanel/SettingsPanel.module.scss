@@ -507,6 +507,69 @@
   gap: $spacing-sm $spacing-md;
 }
 
+.accountIdentity {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  min-width: 0;
+}
+
+.accountAvatar {
+  @include flex-center;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  border-radius: 50%;
+  background: $color-accent-primary;
+  color: $color-bg-app;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-bold;
+}
+
+.accountName {
+  color: $color-text-primary;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+}
+
+.accountEmail {
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+  overflow-wrap: anywhere;
+}
+
+.accountGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: $spacing-md;
+}
+
+.accountBalanceRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+}
+
+.accountCredits {
+  margin: $spacing-xs 0 0;
+  color: $color-success;
+  font-size: $font-size-2xl;
+  font-weight: $font-weight-semibold;
+  line-height: 1;
+
+  span {
+    color: $color-text-muted;
+    font-size: $font-size-sm;
+    font-weight: $font-weight-normal;
+  }
+}
+
+.actionsInline {
+  display: flex;
+  justify-content: flex-start;
+}
+
 .statusItem,
 .statusItemFull {
   display: flex;

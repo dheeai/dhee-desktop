@@ -1,6 +1,6 @@
 {
   "name": "kshana-desktop",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "Desktop application for Kshana video generation platform",
   "keywords": [
     "kshana",
@@ -45,7 +45,8 @@
     "release": "npm run verify:kshana-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --publish always",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
-    "start": "node ./.erb/scripts/kill-stale-instances.js && ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
+    "dev": "npm start",
+    "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
     "start:main": "concurrently -k -P \"cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true webpack --watch --config ./.erb/configs/webpack.config.main.dev.ts\" \"electronmon . -- {@}\" --",
     "start:preload": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.preload.dev.ts",
     "start:renderer": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack serve --config ./.erb/configs/webpack.config.renderer.dev.ts",
@@ -369,7 +370,14 @@
       "output": "release/build"
     },
     "extraResources": [
-      "./assets/**"
+      {
+        "from": "assets",
+        "to": "assets",
+        "filter": [
+          "**/*",
+          "!**/.git/**"
+        ]
+      }
     ],
     "publish": {
       "provider": "github",

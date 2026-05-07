@@ -117,6 +117,20 @@ async function validateOrDownloadModel(whisper) {
 async function ensureBundledWhisperRuntime(whisper) {
   fs.mkdirSync(path.dirname(runtimeFolder), { recursive: true });
 
+  const removeGitDirIfPresent = async () => {
+    const gitDir = path.join(runtimeFolder, '.git');
+    try {
+      const stat = await fs.promises.stat(gitDir);
+      if (!stat.isDirectory()) return;
+    } catch {
+      return;
+    }
+
+    // The packaged app should not ship with the full whisper.cpp git history.
+    // Removing it prevents huge `.pack` files from being copied into extraResources.
+    await fs.promises.rm(gitDir, { recursive: true, force: true });
+  };
+
   const installRuntime = () =>
     whisper.installWhisperCpp({
       to: runtimeFolder,
@@ -137,6 +151,8 @@ async function ensureBundledWhisperRuntime(whisper) {
     await fs.promises.rm(runtimeFolder, { recursive: true, force: true });
     await installRuntime();
   }
+
+  await removeGitDirIfPresent();
 
   if (!(await hasWhisperExecutable(runtimeFolder))) {
     throw new Error(

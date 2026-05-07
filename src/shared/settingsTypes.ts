@@ -1,4 +1,5 @@
 export type ComfyUIMode = 'inherit' | 'custom';
+export type BackendMode = 'local' | 'cloud';
 export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
 export type ThemeId =
   | 'studio-neutral'
@@ -7,7 +8,23 @@ export type ThemeId =
   | 'paper-light'
   | 'void-cut';
 
+export interface AccountInfo {
+  /** User ID from Kshana Cloud. */
+  userId: string;
+  email: string;
+  name?: string | null;
+  /** Cached credit balance. Refresh through account IPC before display. */
+  credits: number;
+  planId?: string;
+  planLabel?: string;
+  subscriptionStatus?: string;
+  /** Signed desktop JWT issued by the website. */
+  token: string;
+}
+
 export interface AppSettings {
+  /** Whether embedded kshana-core uses BYO settings or Kshana Cloud proxy credits. */
+  backendMode: BackendMode;
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */

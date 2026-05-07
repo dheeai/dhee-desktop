@@ -85,7 +85,7 @@ class FakeConversationManager {
 
   // No-ops for the rest of the surface
   setAutonomousMode(_sessionId: string, _enabled: boolean): void {}
-  focusSessionProject(_sessionId: string, _project: string): void {}
+  async focusSessionProject(_sessionId: string, _project: string): Promise<void> {}
   deleteSession(_sessionId: string): void {}
 }
 
@@ -124,6 +124,7 @@ __setManagerLoader(async () => ({
 } as unknown as Parameters<typeof __setManagerLoader>[0] extends () => Promise<infer M> ? M : never));
 
 const baseSettings: AppSettings = {
+  backendMode: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -149,6 +150,14 @@ beforeEach(() => {
   mockState.lastInstance = null;
   delete process.env['LLM_PROVIDER'];
   delete process.env['OPENAI_API_KEY'];
+  delete process.env['OPENAI_BASE_URL'];
+  delete process.env['OPENAI_MODEL'];
+  delete process.env['KSHANA_CLOUD'];
+  delete process.env['KSHANA_CLOUD_URL'];
+  delete process.env['LLM_CONTEXT_TOKENS'];
+  delete process.env['COMFY_MODE'];
+  delete process.env['COMFY_CLOUD_URL'];
+  delete process.env['COMFY_CLOUD_API_KEY'];
   delete process.env['COMFYUI_BASE_URL'];
   delete process.env['KSHANA_PROJECT_DIR'];
 });
@@ -161,6 +170,33 @@ describe('KshanaCoreManager', () => {
     expect(mockState.envSnapshots).toHaveLength(1);
     expect(mockState.envSnapshots[0]?.LLM_PROVIDER).toBe('openai');
     expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
+  });
+
+  it('start() maps a signed-in desktop token to the website proxy env expected by kshana-core', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start(baseSettings, {
+      websiteUrl: 'https://desktop.example.test/',
+      desktopToken: 'desktop-jwt',
+    });
+
+    expect(process.env['KSHANA_CLOUD']).toBe('true');
+    expect(process.env['KSHANA_CLOUD_URL']).toBe('https://desktop.example.test');
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['LLM_CONTEXT_TOKENS']).toBe('160000');
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_MODEL']).toBe('deepseek/deepseek-v4-flash');
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFY_CLOUD_URL']).toBe(
+      'https://desktop.example.test/comfy/api',
+    );
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['COMFYUI_TIMEOUT']).toBe('1800');
+    expect(process.env['KSHANA_PROXY_BASE_URL']).toBeUndefined();
+    expect(process.env['KSHANA_CLOUD_TOKEN']).toBeUndefined();
+    expect(process.env['COMFY_CLOUD_AUTH_TOKEN']).toBeUndefined();
   });
 
   it('runTask forwards onToolCall events to the supplied eventCb with the original payload', async () => {
@@ -177,15 +213,17 @@ describe('KshanaCoreManager', () => {
     expect(toolCallEvent?.data).toMatchObject({ toolName: 'kshana_run_to', toolCallId: 'tc-1' });
   });
 
-  it('runTask also forwards onAgentResponse events', async () => {
+  it('runTask forwards onAgentText events as stream chunks', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
     const sessionId = mgr.createSession();
-    const events: Array<{ eventName: string }> = [];
+    const events: Array<{ eventName: string; data: unknown }> = [];
 
     await mgr.runTask(sessionId, 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
 
-    expect(events.find((e) => e.eventName === 'agent_response')).toBeDefined();
+    const streamEvent = events.find((e) => e.eventName === 'stream_chunk');
+    expect(streamEvent).toBeDefined();
+    expect(streamEvent?.data).toMatchObject({ content: 'done', done: true });
   });
 
   it('cancelTask returns false when the session does not exist', async () => {
