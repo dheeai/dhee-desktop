@@ -1,19 +1,20 @@
-import { useCallback, useEffect, useMemo, useState, type FC, type SVGProps } from 'react';
 import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FC,
+  type SVGProps,
+} from 'react';
+import {
+  ChevronLeft as _ChevronLeft,
+  ChevronRight as _ChevronRight,
   FolderOpen as _FolderOpen,
   Plus as _Plus,
   Play as _Play,
   Settings as _Settings,
   Sparkles as _Sparkles,
 } from 'lucide-react';
-
-type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
-
-const FolderOpen = _FolderOpen as unknown as LucideFC;
-const Plus = _Plus as unknown as LucideFC;
-const Play = _Play as unknown as LucideFC;
-const Settings = _Settings as unknown as LucideFC;
-const Sparkles = _Sparkles as unknown as LucideFC;
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { safeJsonParse } from '../../../utils/safeJsonParse';
 import { useProject } from '../../../contexts/ProjectContext';
@@ -29,6 +30,17 @@ import { getProjectNameFromPath, sortRecentProjects } from '../projectDisplay';
 import styles from './LandingScreen.module.scss';
 import type { BackendProjectFile } from '../../../services/project/backendProjectAdapter';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
+import type { AccountInfo } from '../../../../shared/settingsTypes';
+
+type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
+
+const FolderOpen = _FolderOpen as unknown as LucideFC;
+const ChevronLeft = _ChevronLeft as unknown as LucideFC;
+const ChevronRight = _ChevronRight as unknown as LucideFC;
+const Plus = _Plus as unknown as LucideFC;
+const Play = _Play as unknown as LucideFC;
+const Settings = _Settings as unknown as LucideFC;
+const Sparkles = _Sparkles as unknown as LucideFC;
 
 const THUMBNAIL_CANDIDATES = [
   '.kshana/ui/thumbnail.jpg',
@@ -39,7 +51,9 @@ const THUMBNAIL_CANDIDATES = [
   'thumbnail.webp',
 ];
 const FALLBACK_APP_VERSION = 'v?.?.?';
+const PROJECTS_PER_PAGE = 9;
 type LandingView = 'projects' | 'settings';
+type AccountAuthStatus = 'idle' | 'waiting' | 'expired' | 'error';
 
 interface ProjectMetadata {
   manifestName?: string;
@@ -54,15 +68,82 @@ interface PendingProjectAction {
   name: string;
 }
 
+function getProjectPaginationItems(
+  currentPage: number,
+  totalPages: number,
+): Array<number | 'ellipsis-start' | 'ellipsis-end'> {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index);
+  }
+
+  const pages = new Set([
+    0,
+    totalPages - 1,
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+  ]);
+  const visiblePages = [...pages]
+    .filter((page) => page >= 0 && page < totalPages)
+    .sort((a, b) => a - b);
+  const items: Array<number | 'ellipsis-start' | 'ellipsis-end'> = [];
+
+  visiblePages.forEach((page, index) => {
+    const previousPage = visiblePages[index - 1];
+    if (index > 0 && page - previousPage > 1) {
+      items.push(page < currentPage ? 'ellipsis-start' : 'ellipsis-end');
+    }
+    items.push(page);
+  });
+
+  return items;
+}
+
+function getConnectionLabel(
+  authStatus: AccountAuthStatus,
+  backendMode: string | undefined,
+  account: AccountInfo | null,
+): string {
+  if (authStatus === 'waiting') return 'Connecting';
+  if (authStatus === 'expired') return 'Session expired';
+  if (backendMode === 'cloud' && account) return 'Cloud';
+  return 'Local';
+}
+
+function getHeroSubtitle(
+  account: AccountInfo | null,
+  authStatus: AccountAuthStatus,
+): string {
+  if (account) {
+    return `Signed in as ${account.email}. Create and manage projects from this desktop.`;
+  }
+  if (authStatus === 'waiting') {
+    return 'Finish sign-in in your browser, then choose Open Kshana Desktop when prompted.';
+  }
+  if (authStatus === 'expired') {
+    return 'Your cloud session expired. Local projects are still available.';
+  }
+  return 'Create locally, or sign in to use Kshana Cloud credits.';
+}
+
+function getConnectionClass(
+  authStatus: AccountAuthStatus,
+  backendMode: string | undefined,
+  account: AccountInfo | null,
+) {
+  if (authStatus === 'expired') return styles.modeBadgeWarning;
+  if (authStatus === 'waiting') return styles.modeBadgeConnecting;
+  if (backendMode === 'cloud' && account) return styles.modeBadgeCloud;
+  return styles.modeBadgeLocal;
+}
+
 function joinPath(basePath: string, segment: string): string {
   const normalizedBase = basePath.replace(/\/+$/, '');
   const normalizedSegment = segment.replace(/^\/+/, '');
   return `${normalizedBase}/${normalizedSegment}`;
 }
 
-async function findThumbnailPath(
-  projectPath: string,
-): Promise<string | null> {
+async function findThumbnailPath(projectPath: string): Promise<string | null> {
   const checks = await Promise.allSettled(
     THUMBNAIL_CANDIDATES.map(async (candidate) => {
       const fullPath = joinPath(projectPath, candidate);
@@ -123,6 +204,8 @@ export default function LandingScreen() {
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<LandingView>('projects');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
+  const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
   const [metadataByPath, setMetadataByPath] = useState<
     Record<string, ProjectMetadata>
   >({});
@@ -137,6 +220,7 @@ export default function LandingScreen() {
     null,
   );
   const [isProjectActionPending, setIsProjectActionPending] = useState(false);
+  const [projectPage, setProjectPage] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -188,6 +272,29 @@ export default function LandingScreen() {
     };
   }, []);
 
+  useEffect(() => {
+    const accountBridge = window.electron.account;
+    if (!accountBridge) {
+      setAccount(null);
+      setAuthStatus('idle');
+      return undefined;
+    }
+    accountBridge
+      .get()
+      .then(setAccount)
+      .catch(() => setAccount(null));
+    accountBridge
+      .getAuthStatus()
+      .then(setAuthStatus)
+      .catch(() => setAuthStatus('idle'));
+    const unsubscribeAccount = accountBridge.onChange(setAccount);
+    const unsubscribeStatus = accountBridge.onAuthStatusChange(setAuthStatus);
+    return () => {
+      unsubscribeAccount();
+      unsubscribeStatus();
+    };
+  }, []);
+
   const projectCards = useMemo<LandingProjectCard[]>(
     () =>
       sortRecentProjects(recentProjects).map((project) => {
@@ -208,6 +315,30 @@ export default function LandingScreen() {
       }),
     [metadataByPath, recentProjects],
   );
+  const totalProjectPages = Math.max(
+    1,
+    Math.ceil(projectCards.length / PROJECTS_PER_PAGE),
+  );
+  const visibleProjectCards = useMemo(() => {
+    const pageStart = projectPage * PROJECTS_PER_PAGE;
+    return projectCards.slice(pageStart, pageStart + PROJECTS_PER_PAGE);
+  }, [projectCards, projectPage]);
+  const projectPaginationItems = useMemo(
+    () => getProjectPaginationItems(projectPage, totalProjectPages),
+    [projectPage, totalProjectPages],
+  );
+  const projectRangeStart =
+    projectCards.length === 0 ? 0 : projectPage * PROJECTS_PER_PAGE + 1;
+  const projectRangeEnd = Math.min(
+    projectCards.length,
+    (projectPage + 1) * PROJECTS_PER_PAGE,
+  );
+
+  useEffect(() => {
+    setProjectPage((currentPage) =>
+      Math.min(currentPage, totalProjectPages - 1),
+    );
+  }, [totalProjectPages]);
 
   const handleOpenDirectory = useCallback(async () => {
     setError(null);
@@ -224,6 +355,11 @@ export default function LandingScreen() {
   const handleCreateNewProject = useCallback(() => {
     setError(null);
     setIsNewProjectDialogOpen(true);
+  }, []);
+
+  const handleAccountSignIn = useCallback(async () => {
+    setAuthStatus('waiting');
+    await window.electron.account?.signIn();
   }, []);
 
   const handleSelectRecent = useCallback(
@@ -320,6 +456,18 @@ export default function LandingScreen() {
     }
   }, [deleteTarget, refreshRecentProjects]);
 
+  const connectionLabel = getConnectionLabel(
+    authStatus,
+    settings?.backendMode,
+    account,
+  );
+  const connectionClass = getConnectionClass(
+    authStatus,
+    settings?.backendMode,
+    account,
+  );
+  const heroSubtitle = getHeroSubtitle(account, authStatus);
+
   return (
     <div className={styles.container}>
       <aside className={styles.sidebar}>
@@ -328,8 +476,9 @@ export default function LandingScreen() {
             <Play size={20} className={styles.playIcon} />
           </div>
           <h1 className={styles.brandTitle}>Kshana Desktop</h1>
-          <div className={styles.modeBadge}>
-            {settings?.backendMode === 'cloud' ? 'Cloud Mode' : 'Local Mode'}
+          <div className={`${styles.modeBadge} ${connectionClass}`}>
+            <span className={styles.modeDot} />
+            {connectionLabel}
           </div>
         </div>
 
@@ -393,10 +542,17 @@ export default function LandingScreen() {
               <Sparkles size={16} />
               <div>
                 <h2 className={styles.heroTitle}>Agentic Video Workspace</h2>
-                <p className={styles.heroSubtitle}>
-                  Create and manage your projects with a clean visual dashboard.
-                </p>
+                <p className={styles.heroSubtitle}>{heroSubtitle}</p>
               </div>
+              {!account ? (
+                <button
+                  type="button"
+                  className={styles.heroAccountButton}
+                  onClick={handleAccountSignIn}
+                >
+                  {authStatus === 'waiting' ? 'Open Browser Again' : 'Sign In'}
+                </button>
+              ) : null}
             </section>
 
             {error && <p className={styles.error}>{error}</p>}
@@ -422,7 +578,7 @@ export default function LandingScreen() {
                 </div>
               ) : (
                 <div className={styles.projectsGrid}>
-                  {projectCards.map((project) => (
+                  {visibleProjectCards.map((project) => (
                     <ProjectCard
                       key={project.path}
                       project={project}
@@ -433,6 +589,75 @@ export default function LandingScreen() {
                   ))}
                 </div>
               )}
+              {totalProjectPages > 1 ? (
+                <div
+                  className={styles.projectsPagination}
+                  aria-label="Projects pagination"
+                >
+                  <span className={styles.projectsPageCount}>
+                    {projectRangeStart}-{projectRangeEnd} of{' '}
+                    {projectCards.length}
+                  </span>
+                  <div className={styles.paginationControls}>
+                    <button
+                      type="button"
+                      className={styles.paginationArrow}
+                      aria-label="Previous projects page"
+                      onClick={() =>
+                        setProjectPage((currentPage) =>
+                          Math.max(0, currentPage - 1),
+                        )
+                      }
+                      disabled={projectPage === 0}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <div className={styles.paginationPages}>
+                      {projectPaginationItems.map((item) =>
+                        typeof item === 'number' ? (
+                          <button
+                            key={item}
+                            type="button"
+                            className={`${styles.paginationPage} ${
+                              item === projectPage
+                                ? styles.paginationPageActive
+                                : ''
+                            }`}
+                            aria-label={`Go to projects page ${item + 1}`}
+                            aria-current={
+                              item === projectPage ? 'page' : undefined
+                            }
+                            onClick={() => setProjectPage(item)}
+                          >
+                            {item + 1}
+                          </button>
+                        ) : (
+                          <span
+                            key={item}
+                            className={styles.paginationEllipsis}
+                            aria-hidden="true"
+                          >
+                            ...
+                          </span>
+                        ),
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.paginationArrow}
+                      aria-label="Next projects page"
+                      onClick={() =>
+                        setProjectPage((currentPage) =>
+                          Math.min(totalProjectPages - 1, currentPage + 1),
+                        )
+                      }
+                      disabled={projectPage >= totalProjectPages - 1}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </section>
           </>
         ) : (

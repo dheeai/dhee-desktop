@@ -1,0 +1,500 @@
+@import '../../../styles/tokens';
+@import '../../../styles/mixins';
+
+@keyframes kshana-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+.spinning {
+  animation: kshana-spin 800ms linear infinite;
+}
+
+// ── Root ────────────────────────────────────────────────────────────────────
+
+.root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: $color-bg-app;
+  color: $color-text-primary;
+  font-family: $font-family-base;
+  font-size: $font-size-base;
+}
+
+// ── Header ───────────────────────────────────────────────────────────────────
+
+.header {
+  padding: 10px 14px;
+  border-bottom: 1px solid $color-border-subtle;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.projectMenuTrigger {
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin: -4px -8px;
+  border-radius: $radius-sm;
+  font-size: $font-size-base;
+  font-weight: $font-weight-semibold;
+  transition: background $transition-fast;
+
+  &:hover {
+    background: rgba(var(--color-text-primary-rgb), 0.06);
+  }
+
+  .projectMenuTriggerLabel {
+    max-width: 240px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .projectMenuChevron {
+    opacity: 0.6;
+    transition: transform 120ms ease;
+
+    &.open {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.projectMenuWrapper {
+  position: relative;
+}
+
+.projectMenu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 180px;
+  background: $color-bg-panel-elevated;
+  border: 1px solid $color-border-subtle;
+  border-radius: $radius-sm;
+  padding: 4px;
+  box-shadow: $shadow-md;
+  z-index: $z-index-dropdown;
+}
+
+.projectMenuItem {
+  width: 100%;
+  background: transparent;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  padding: 8px 10px;
+  border-radius: $radius-clip;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: $font-size-sm;
+  transition: background $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-text-primary-rgb), 0.06);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+// ── Status indicator ─────────────────────────────────────────────────────────
+
+.statusRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.statusIndicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: $font-size-xs;
+  opacity: 0.65;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  transition: background 120ms ease;
+  background: $color-text-muted;
+
+  &[data-status='error'] {
+    background: $color-error;
+  }
+
+  &[data-status='running'] {
+    background: $color-warning;
+    box-shadow: 0 0 6px var(--color-warning);
+  }
+
+  &[data-status='ready'] {
+    background: $color-success;
+  }
+}
+
+// ── Error / connection banner ─────────────────────────────────────────────────
+
+.errorBanner {
+  padding: 8px 14px;
+  background: rgba(var(--color-error-rgb), 0.10);
+  border-bottom: 1px solid rgba(var(--color-error-rgb), 0.35);
+  font-size: $font-size-sm;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  color: $color-error;
+  flex-shrink: 0;
+}
+
+.errorBannerText {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.errorBannerDismiss {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  border-radius: $radius-clip;
+  transition: opacity $transition-fast;
+
+  &:hover {
+    opacity: 0.7;
+  }
+}
+
+// ── Message list area ─────────────────────────────────────────────────────────
+
+.messageList {
+  flex: 1;
+  overflow-y: auto;
+  @include custom-scrollbar;
+  padding: $spacing-md;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.emptyPlaceholder {
+  opacity: 0.4;
+  font-size: $font-size-sm;
+  text-align: center;
+  margin-top: 32px;
+}
+
+// ── Footer / input area ───────────────────────────────────────────────────────
+
+.footer {
+  padding: $spacing-md;
+  border-top: 1px solid $color-border-subtle;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.inputWrapper {
+  position: relative;
+}
+
+.textarea {
+  width: 100%;
+  background: $color-bg-panel-elevated;
+  color: inherit;
+  border: 1px solid $color-border-subtle;
+  border-radius: 10px;
+  padding: 12px 56px 44px 14px;
+  font-size: $font-size-sm;
+  line-height: 1.45;
+  resize: none;
+  min-height: 84px;
+  font-family: inherit;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 120ms ease;
+  display: block;
+
+  &::placeholder {
+    color: $color-text-muted;
+  }
+
+  &:focus {
+    border-color: rgba(var(--color-accent-primary-rgb), 0.45);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.sendButton {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  border: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+  box-sizing: border-box;
+  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+  background: $color-border-strong;
+  color: $color-text-muted;
+  cursor: not-allowed;
+
+  &.active {
+    background: $color-accent-primary;
+    color: $color-bg-app;
+    cursor: pointer;
+
+    &:hover {
+      background: $color-accent-primary-hover;
+    }
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.contextUsage {
+  font-size: 10px;
+  color: $color-text-muted;
+  opacity: 0.85;
+  font-variant-numeric: tabular-nums;
+
+  &.warning {
+    color: $color-error;
+  }
+}
+
+// ── Message row: tool call ────────────────────────────────────────────────────
+
+.toolRow {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 4px;
+  opacity: 0.85;
+  font-size: $font-size-xs;
+  font-family: $font-family-mono;
+}
+
+.toolGlyph {
+  width: 12px;
+
+  &[data-status='completed'] { color: $color-success; }
+  &[data-status='error']     { color: $color-error; }
+  &[data-status='in_progress'] { color: $color-warning; }
+}
+
+.toolName {
+  color: $color-text-secondary;
+}
+
+.toolArgs {
+  opacity: 0.55;
+  font-size: 10px;
+}
+
+// ── Message row: progress ─────────────────────────────────────────────────────
+
+.progressRow {
+  margin-left: 18px;
+  padding: 4px 10px;
+  background: rgba(var(--color-text-primary-rgb), 0.03);
+  border-left: 2px solid $color-border-strong;
+  border-radius: 3px;
+  font-size: $font-size-xs;
+  line-height: 1.4;
+  font-family: $font-family-mono;
+  color: $color-text-secondary;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+// ── Message row: system pill ──────────────────────────────────────────────────
+
+.systemPill {
+  align-self: center;
+  padding: 4px 12px;
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  background: $color-bg-subtle;
+  border: 1px solid $color-border-subtle;
+  border-radius: $radius-full;
+  font-weight: $font-weight-medium;
+  letter-spacing: 0.2px;
+}
+
+// ── Message row: phase banner ─────────────────────────────────────────────────
+
+.phaseRow {
+  padding: 3px 8px;
+  font-size: $font-size-xs;
+  background: rgba(var(--color-accent-primary-rgb), 0.10);
+  border-left: 2px solid rgba(var(--color-accent-primary-rgb), 0.45);
+  color: $color-accent-primary;
+  border-radius: $radius-clip;
+}
+
+// ── Message row: media ────────────────────────────────────────────────────────
+
+.mediaRow {
+  background: rgba(var(--color-success-rgb), 0.08);
+  border: 1px solid rgba(var(--color-success-rgb), 0.2);
+  border-radius: 8px;
+  padding: 6px 10px;
+  align-self: flex-start;
+}
+
+.mediaLabel {
+  font-size: 10px;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.mediaImage {
+  max-width: 100%;
+  border-radius: $radius-clip;
+}
+
+// ── Message row: chat bubbles ─────────────────────────────────────────────────
+
+.bubble {
+  border: 1px solid $color-border-subtle;
+  border-radius: 8px;
+  padding: 6px 10px;
+  color: inherit;
+}
+
+.bubbleUser {
+  background: rgba(var(--color-accent-primary-rgb), 0.14);
+  border-color: rgba(var(--color-accent-primary-rgb), 0.28);
+  align-self: flex-end;
+  max-width: 85%;
+  white-space: pre-wrap;
+}
+
+.bubbleAssistant {
+  background: $color-bg-subtle;
+  align-self: flex-start;
+  max-width: 85%;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+}
+
+// Markdown overrides inside .bubbleAssistant
+.bubbleAssistant {
+  :global(h1) { font-size: 18px; margin: 6px 0; }
+  :global(h2) { font-size: 16px; margin: 6px 0; }
+  :global(h3) { font-size: 15px; margin: 4px 0; }
+  :global(p)  { margin: 4px 0; }
+  :global(ul),
+  :global(ol) { margin: 4px 0; padding-left: 18px; }
+
+  :global(code) {
+    background: rgba(var(--color-text-primary-rgb), 0.08);
+    padding: 1px 4px;
+    border-radius: 3px;
+    font-family: $font-family-mono;
+    font-size: 0.92em;
+  }
+
+  :global(pre) {
+    background: $color-code-bg;
+    border: 1px solid $color-code-border;
+    padding: 8px;
+    border-radius: $radius-clip;
+    overflow-x: auto;
+    margin: 6px 0;
+    font-size: $font-size-sm;
+
+    :global(code) {
+      background: transparent;
+      padding: 0;
+    }
+  }
+
+  :global(a) {
+    color: $color-accent-primary;
+    text-decoration: none;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+}
+
+// ── Question row ──────────────────────────────────────────────────────────────
+
+.questionRow {
+  background: rgba(var(--color-accent-primary-rgb), 0.08);
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.22);
+  border-radius: 8px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.questionText {
+  font-size: $font-size-sm;
+  font-weight: $font-weight-medium;
+}
+
+.questionOptions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.questionOption {
+  background: rgba(var(--color-accent-primary-rgb), 0.14);
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.35);
+  border-radius: $radius-clip;
+  color: inherit;
+  cursor: pointer;
+  font-size: $font-size-sm;
+  padding: 3px 10px;
+  transition: background $transition-fast, border-color $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-accent-primary-rgb), 0.24);
+    border-color: rgba(var(--color-accent-primary-rgb), 0.5);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
