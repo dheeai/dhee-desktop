@@ -1,3 +1,5 @@
+import { describe, expect, it, jest } from '@jest/globals';
+
 jest.mock('electron-store', () =>
   jest.fn().mockImplementation(() => ({
     store: {},

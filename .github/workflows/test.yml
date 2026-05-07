@@ -1,0 +1,81 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+# Cancel in-progress runs for the same branch when a new commit lands —
+# we only need the latest result.
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: jest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout kshana-desktop
+        uses: actions/checkout@v4
+
+      # The desktop loads kshana-core from a local path
+      # (release/app/package.json) and `kshanaCoreManager.ts` does a
+      # `import('kshana-core/runners')` dynamic import; without the
+      # sibling kshana-core checkout + built dist, that test suite
+      # fails with TS2307. Mirror the layout release.yml uses.
+      - name: Checkout kshana-core
+        uses: actions/checkout@v4
+        with:
+          repository: anveshane/kshana-core
+          path: kshana-core
+          token: ${{ secrets.BACKEND_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      # Desktop's own package.json doesn't declare `packageManager`,
+      # so pnpm/action-setup needs an explicit version. Pin to the
+      # same 10.24.0 release.yml uses.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Build kshana-core
+        working-directory: kshana-core
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install desktop dependencies
+        run: npm ci
+
+      # `kshanaCoreManager.ts` does `import('kshana-core/runners')` —
+      # jest's TS resolution needs that subpath available in
+      # node_modules. Install kshana-core as a local file dep into
+      # the desktop tree so ts-jest can find it.
+      - name: Link kshana-core into desktop node_modules
+        run: npm install --no-save --ignore-scripts ./kshana-core
+
+      # `setupFiles` in jest config runs check-build-exists.ts which
+      # asserts dist/main + dist/renderer are present. Locally these
+      # are built by `npm start`; on CI we have to build them up front
+      # before jest runs or every suite fails to load.
+      - name: Build main + renderer bundles
+        run: npm run build
+
+      # The unit + integration jest suite. Playwright e2e specs under
+      # tests/e2e/ are excluded by jest's testPathIgnorePatterns; we
+      # leave those to a separate workflow if/when they're wired up.
+      - name: Run jest
+        env:
+          KSHANA_INK_PATH: ${{ github.workspace }}/kshana-core
+        run: npx jest

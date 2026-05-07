@@ -53,14 +53,12 @@ jest.mock('../../../contexts/AppSettingsContext', () => ({
   }),
 }));
 
-// react-markdown is ESM-only; Jest's CJS env can't transform its
-// `export` syntax. Replace it with a passthrough <div> for tests —
-// behavior we care about is that the assistant text reaches the DOM.
-jest.mock('react-markdown', () => ({
-  __esModule: true,
-  default: ({ children }: { children?: string }) => <div>{children}</div>,
-}));
-jest.mock('remark-gfm', () => ({ __esModule: true, default: () => null }));
+// Inline mocks deferred to the global moduleNameMapper in
+// package.json (see .erb/mocks/reactMarkdownMock.tsx). The previous
+// inline jest.mock factory returned a function but the rendered
+// output didn't reach the DOM in this test environment; the global
+// mock is the one path of truth and it's exercised by every test
+// that touches ReactMarkdown.
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
 import ChatPanelEmbedded from './ChatPanelEmbedded';

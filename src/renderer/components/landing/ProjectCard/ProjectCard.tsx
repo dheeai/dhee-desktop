@@ -94,6 +94,7 @@ export default function ProjectCard({
         <button
           type="button"
           className={styles.openButton}
+          aria-label={`Open ${project.name}`}
           onClick={() => onOpen(project.path)}
         >
           <div className={styles.overlay}>

@@ -207,11 +207,15 @@ function normalizeSceneText(value: string): string {
 }
 
 function buildPromptFingerprint(prompt: string): string {
-  return normalizeSceneText(prompt)
-    .split(' ')
-    .filter((token) => token.length > 3)
-    .slice(0, 12)
-    .join(' ');
+  // First N tokens of the normalized prompt as a verbatim signature.
+  // Previously we filtered out short tokens (`the`, `of`, etc.) before
+  // joining — but the trailing text we match against still contains
+  // those small words, so the resulting fingerprint was never a
+  // substring of the haystack. Keeping every token makes
+  // `content.includes(fingerprint)` work for a literal restatement,
+  // which is what `isDuplicateSceneSummary` is actually trying to
+  // detect.
+  return normalizeSceneText(prompt).split(' ').slice(0, 12).join(' ');
 }
 
 export function isDuplicateSceneSummary(

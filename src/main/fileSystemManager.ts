@@ -523,16 +523,22 @@ class FileSystemManager extends EventEmitter {
       return renamedPath;
     }
 
+    let renamedPathExists = false;
     try {
       await fs.promises.stat(renamedPath);
+      renamedPathExists = true;
+    } catch (error: unknown) {
+      const err = error as { code?: string };
+      // Only ENOENT is recoverable. Anything else (EACCES, EIO, …)
+      // bubbles so the caller sees the real reason rename can't run.
+      if (err.code !== 'ENOENT') {
+        throw error;
+      }
+    }
+    if (renamedPathExists) {
       throw new Error(
         `A project named "${trimmedName}" already exists in this location.`,
       );
-    } catch (error: unknown) {
-      const err = error as { code?: string };
-      if (err.code && err.code !== 'ENOENT') {
-        throw error;
-      }
     }
 
     await fs.promises.rename(projectPath, renamedPath);
