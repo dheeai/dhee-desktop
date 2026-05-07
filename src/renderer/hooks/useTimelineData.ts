@@ -384,6 +384,24 @@ function getLayerIdentity(
   asset?: AssetInfo,
   explicitPath?: string,
 ): TimelineIdentity {
+  // When the caller passes an explicitPath, they want the IDENTITY OF
+  // THAT PATH — not the layer/asset's intended identity. A filename
+  // like `Scene2_shot1_video.mp4` is authoritative for "what is on
+  // disk at this path", which is exactly the corruption we have to
+  // detect (asset metadata says scene 1 shot 3, but the active layer
+  // points at a Scene2_shot1 file). Parse the path first; only fall
+  // through to layer / asset metadata when the path itself doesn't
+  // carry identity.
+  if (explicitPath) {
+    const pathIdentity = parseIdentityFromText(explicitPath);
+    if (
+      pathIdentity.sceneNumber !== undefined &&
+      pathIdentity.shotNumber !== undefined
+    ) {
+      return pathIdentity;
+    }
+  }
+
   const metadata = isObjectRecord(layer?.metadata) ? layer.metadata : undefined;
   const metadataIdentity = {
     sceneNumber: getMetadataNumber(
