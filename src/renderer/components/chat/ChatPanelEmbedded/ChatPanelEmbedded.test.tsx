@@ -26,6 +26,33 @@ jest.mock('../../../contexts/WorkspaceContext', () => ({
   }),
 }));
 
+// AppSettingsContext: the chat panel reads piOversight + vlmJudge
+// for its header toggle buttons. Default both ON for tests; the
+// saveConnectionSettings stub records writes so the toggle-click
+// tests can assert on them.
+let mockSavedConnectionSettings: Array<Record<string, unknown>> = [];
+jest.mock('../../../contexts/AppSettingsContext', () => ({
+  useAppSettings: () => ({
+    settings: {
+      piOversight: true,
+      vlmJudge: true,
+    },
+    saveConnectionSettings: jest.fn(async (patch: Record<string, unknown>) => {
+      mockSavedConnectionSettings.push(patch);
+      return true;
+    }),
+    isLoaded: true,
+    error: null,
+    isSettingsOpen: false,
+    themeId: 'studio-neutral',
+    isSavingConnection: false,
+    openSettings: () => {},
+    closeSettings: () => {},
+    updateTheme: jest.fn(async () => undefined),
+    clearError: () => {},
+  }),
+}));
+
 // react-markdown is ESM-only; Jest's CJS env can't transform its
 // `export` syntax. Replace it with a passthrough <div> for tests —
 // behavior we care about is that the assistant text reaches the DOM.
@@ -66,6 +93,7 @@ function publishEvent(eventName: KshanaEventName, data: unknown): void {
 
 beforeEach(() => {
   mockWorkspaceProjectName = null;
+  mockSavedConnectionSettings = [];
   mockState = {
     runTaskCalls: [],
     cancelCalls: [],
@@ -88,6 +116,11 @@ beforeEach(() => {
     focusProject: jest.fn(async () => ({ ok: true })),
     setAutonomous: jest.fn(async () => ({ ok: true })),
     deleteSession: jest.fn(async () => ({ ok: true })),
+    // runnerStatus is the SINGLE SOURCE OF TRUTH for whether a long
+    // pipeline is in flight. The header Stop button is driven by it
+    // (polled), not by tool-call events. Default: idle.
+    runnerStatus: jest.fn(async () => ({ active: false })),
+    runnerCancel: jest.fn(async () => ({ cancelled: true })),
     on: jest.fn((eventName: KshanaEventName | '*', cb: EventListener) => {
       const slot = { eventName, cb, active: true };
       mockState.listeners.push(slot);
@@ -410,6 +443,313 @@ describe('ChatPanelEmbedded', () => {
     });
   });
 
+  /**
+   * GIVEN a workspace project is open at an absolute path
+   *       (e.g. /tmp/noir.kshana) AND the executor emits a
+   *       media_generated event with a PROJECT-RELATIVE path
+   *       (assets/images/foo.png — that's what ExecutorAgent
+   *       writes to tool_result.file_path).
+   *
+   *  WHEN the chat panel renders the resulting media bubble.
+   *
+   *  THEN the <img>'s src must be a usable absolute file:// URL
+   *       (file:///tmp/noir.kshana/assets/images/foo.png), not the
+   *       broken `file://assets/images/foo.png` form that produces
+   *       a silent 404 + onError-hidden element — the bug the user
+   *       reported as "shows the path but never the actual image".
+   */
+  it('media_generated with a relative path resolves to an absolute file:// URL under the workspace project dir', async () => {
+    mockWorkspaceProjectName = 'noir';
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('media_generated', {
+        kind: 'image',
+        project: 'noir',
+        path: 'assets/images/s1shot1_first_frame.png',
+        source: 'kshana_run_to',
+      });
+    });
+
+    await waitFor(() => {
+      const img = document.querySelector(
+        'img[src^="file://"]',
+      ) as HTMLImageElement | null;
+      expect(img).not.toBeNull();
+      expect(img!.src).toBe(
+        'file:///tmp/noir.kshana/assets/images/s1shot1_first_frame.png',
+      );
+    });
+  });
+
+  /**
+   * GIVEN the executor emits a media_generated event for a video
+   *       (mp4) under the workspace project dir.
+   *
+   *  WHEN the chat panel renders it.
+   *
+   *  THEN the bubble must contain a <video> element (so the user
+   *       can actually play the clip inline), with src resolved to
+   *       an absolute file:// URL under the project dir — not just
+   *       a 📹 emoji + path text, which is what the current code
+   *       falls back to.
+   */
+  it('media_generated with a video path renders a <video> element with absolute file:// src', async () => {
+    mockWorkspaceProjectName = 'noir';
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('media_generated', {
+        kind: 'video',
+        project: 'noir',
+        path: 'assets/videos/s1shot1.mp4',
+        source: 'kshana_run_to',
+      });
+    });
+
+    await waitFor(() => {
+      // <video> has no implicit ARIA role, so query by tag.
+      const video = document.querySelector('video') as HTMLVideoElement | null;
+      expect(video).not.toBeNull();
+      expect(video!.src).toBe(
+        'file:///tmp/noir.kshana/assets/videos/s1shot1.mp4',
+      );
+    });
+  });
+
+  /**
+   * GIVEN a kshana_run_to tool_call followed by several stream_chunks
+   *       (the per-line progress the executor pumps out — one for the
+   *       "[info] [N/M] Working on: …" headline, one for each
+   *       sub-step like "[generate_image]" or "→ assets/…").
+   *
+   *  WHEN the chat renders the run.
+   *
+   *  THEN the progress rows must collapse into a SINGLE group element
+   *       (queryable via aria-label="Run progress group"), defaulting
+   *       to collapsed state with at most one summary line visible —
+   *       not N separate bubbles. The user reported the chat is "quite
+   *       heavy" with one bubble per event; this is the structural
+   *       grouping that fixes it.
+   */
+  it('progress events under one kshana_run_to call collapse into a single group element by default', async () => {
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('tool_call', {
+        toolCallId: 'task:run-1',
+        toolName: 'kshana_run_to',
+        arguments: { project: 'noir' },
+      });
+      // The executor's per-step heartbeat — each line arrives as its
+      // own stream_chunk in production.
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '  [info] [40/67] Working on: Shot Composition: S2 Shot 6\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '  [generate_shot_image_prompt]\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '    → completed\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-1',
+        content: '  [info] [41/67] Working on: Shot Composition: S2 Shot 7\n',
+      });
+    });
+
+    await waitFor(() => {
+      const groups = document.querySelectorAll('[aria-label="Run progress group"]');
+      expect(groups.length).toBe(1);
+    });
+
+    // Default: collapsed — most rows hidden. We allow at most one
+    // visible "current step" line as the summary.
+    const visibleProgressRows = document.querySelectorAll(
+      '[aria-label="Run progress"]',
+    );
+    expect(visibleProgressRows.length).toBeLessThanOrEqual(1);
+  });
+
+  /**
+   * GIVEN a collapsed progress group with several stream_chunks already
+   *       inside it.
+   *
+   *  WHEN the user clicks the group's expand toggle (a button
+   *       inside the group with aria-label="Expand run progress").
+   *
+   *  THEN every stream_chunk row that was hidden becomes visible.
+   */
+  it('clicking the run progress group expander reveals every stream_chunk row', async () => {
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('tool_call', {
+        toolCallId: 'task:run-2',
+        toolName: 'kshana_run_to',
+        arguments: { project: 'noir' },
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-2',
+        content: '  [info] [10/67] Working on: Character A\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-2',
+        content: '  [generate_image]\n',
+      });
+      publishEvent('stream_chunk', {
+        toolCallId: 'task:run-2',
+        content: '    → completed\n',
+      });
+    });
+
+    const expander = await screen.findByRole('button', {
+      name: /expand run progress/i,
+    });
+    fireEvent.click(expander);
+
+    await waitFor(() => {
+      const rows = document.querySelectorAll('[aria-label="Run progress"]');
+      // 3 chunks → 3 rows visible after expanding.
+      expect(rows.length).toBe(3);
+    });
+  });
+
+  /**
+   * GIVEN media_generated arrives, WHEN the chat renders, THEN the
+   *       resulting <img> must display as a compact thumbnail with
+   *       a max-width <= 240px — not full-bleed (the previous styling
+   *       used `maxWidth: '100%'` which dominated the chat panel and
+   *       made the run feel "heavy").
+   */
+  it('generated images render as compact thumbnails (max-width <= 240px), not full-bleed', async () => {
+    mockWorkspaceProjectName = 'noir';
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('media_generated', {
+        kind: 'image',
+        project: 'noir',
+        path: 'assets/images/foo.png',
+        source: 'kshana_run_to',
+      });
+    });
+
+    await waitFor(() => {
+      const img = document.querySelector(
+        'img[src^="file://"]',
+      ) as HTMLImageElement | null;
+      expect(img).not.toBeNull();
+      // Inline style, not computed style — we control how it's set in
+      // the component, and JSDOM doesn't run a layout engine to honour
+      // computed CSS.
+      const maxWidth = img!.style.maxWidth;
+      // Either an explicit pixel value <= 240, or a width/maxWidth
+      // pattern that doesn't say "100%".
+      const px = /(\d+)px/.exec(maxWidth);
+      expect(px).not.toBeNull();
+      expect(parseInt(px![1]!, 10)).toBeLessThanOrEqual(240);
+    });
+  });
+
+  /**
+   * GIVEN the user dispatched a task that's still in flight (the main
+   *       session's status is 'running' — pi-agent is mid-turn,
+   *       running tools, awaiting LLM, etc.).
+   *
+   *  WHEN the user types a follow-up clarification and clicks Send.
+   *
+   *  THEN the previous turn must be cancelled (via cancelTask on the
+   *       same session) AND the new task dispatched — instead of the
+   *       previous "please wait a moment and try again" no-op that
+   *       made the chat feel non-interactive. Pi-agent regularly
+   *       does multi-minute tool sequences (regen + bash + regen);
+   *       blocking the user from interjecting until that drains is
+   *       the whole bug from the field.
+   */
+  it('clicking Send while the main session is running cancels the in-flight turn and dispatches the new task', async () => {
+    // Hold the first runTask in a deferred promise so the session
+    // stays in status='running' for the duration of the test.
+    let resolveFirst: () => void = () => {};
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let runTaskCount = 0;
+    (window as unknown as { kshana: Record<string, unknown> }).kshana.runTask =
+      jest.fn(async (req: { sessionId: string; task: string }) => {
+        runTaskCount += 1;
+        mockState.runTaskCalls.push(req);
+        if (runTaskCount === 1) {
+          // Hang the first call — emulates pi-agent mid-turn.
+          await firstFinished;
+        }
+        return { ok: true };
+      }) as never;
+
+    render(<ChatPanelEmbedded />);
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    // First task — fire and forget; session goes to 'running'.
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    fireEvent.change(textarea, { target: { value: 'first task' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(mockState.runTaskCalls.map((c) => c.task)).toEqual(['first task']);
+
+    // Type the follow-up while runTask #1 is still hanging.
+    fireEvent.change(textarea, {
+      target: {
+        value: 'actually wait — your suggestion does not work for this case',
+      },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    // Expected: cancelTask was called (to abort the in-flight turn),
+    // then runTask was called with the new text.
+    expect(mockState.cancelCalls.length).toBeGreaterThanOrEqual(1);
+    expect(mockState.cancelCalls[mockState.cancelCalls.length - 1]?.sessionId)
+      .toBe('s-1');
+    expect(mockState.runTaskCalls.map((c) => c.task)).toContain(
+      'actually wait — your suggestion does not work for this case',
+    );
+
+    // Cleanup: let the hanging promise resolve so React effects unwind.
+    resolveFirst();
+    await act(async () => {
+      await firstFinished;
+    });
+  });
+
   it('auto-focuses the workspace project on the kshana session once both are ready', async () => {
     // The user has navigated into a project (chhaya_60s_anime) — the
     // workspace context exposes that as `projectName`. The chat panel
@@ -483,9 +823,11 @@ describe('ChatPanelEmbedded', () => {
 
   it('renders each tool stream chunk as its own discrete progress row (not one concatenated blob)', async () => {
     // The user explicitly wants each [info] / [N/M] / [tool] →
-    // completed line to appear as its own block in the chat. The
-    // earlier implementation concatenated all chunks into a single
-    // `<pre>` inside the tool card which was unreadable.
+    // completed line to appear as its own block in the chat — NOT
+    // fused into one <pre>. After the muting redesign these rows
+    // are wrapped in a collapsible group (default collapsed); this
+    // test verifies the underlying granularity by expanding the
+    // group and counting individual rows.
     const { container } = render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
@@ -501,13 +843,9 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
-    // Three discrete log events arrive over time. Spacing them with
-    // setTimeout-equivalent gaps via 250ms+ "wall time" simulation
-    // isn't trivial in jest, but the production runtime relies on a
-    // 250ms coalescing window; chunks separated by >250ms become
-    // separate rows. Use a newline-terminated chunk pattern to force
-    // line splits regardless of timing — that's the contract:
-    // newlines break rows.
+    // Three discrete log events arrive over time. The production
+    // 250ms coalescing window is irrelevant here because newlines
+    // always break rows.
     act(() => {
       publishEvent('stream_chunk', {
         toolCallId: 'tc-run',
@@ -516,20 +854,23 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
+    // Expand the group so every row is visible — the killer
+    // assertion still holds: each progress line is its own DOM row.
+    const expander = await screen.findByRole('button', {
+      name: /expand run progress/i,
+    });
+    fireEvent.click(expander);
+
     await waitFor(() => {
-      expect(container.textContent).toContain('Working on: Plot Outline');
-      expect(container.textContent).toContain('Working on: Full Story');
-      expect(container.textContent).toContain('Working on: Story Essence');
+      const progressRows = container.querySelectorAll(
+        '[aria-label="Run progress"]',
+      );
+      expect(progressRows.length).toBe(3);
     });
 
-    // The killer assertion: each progress line is its own DOM row,
-    // not three lines fused inside one element. We render
-    // role='progress' messages with aria-label="Run progress", so
-    // count those.
-    const progressRows = container.querySelectorAll(
-      '[aria-label="Run progress"]',
-    );
-    expect(progressRows.length).toBe(3);
+    expect(container.textContent).toContain('Working on: Plot Outline');
+    expect(container.textContent).toContain('Working on: Full Story');
+    expect(container.textContent).toContain('Working on: Story Essence');
   });
 
   it('drops tool-tagged chunks whose parent tool is NOT a kshana_* tool (filters bash/read/grep noise)', async () => {
@@ -773,7 +1114,7 @@ describe('ChatPanelEmbedded', () => {
     expect(last?.task).toMatch(/kshana_run_to/);
   });
 
-  it('header Stop button calls window.kshana.runnerCancel() (direct runner, not session-scoped)', async () => {
+  it('clicking Resume kicks off a kshana_run_to task, then Stop appears once runnerStatus reports active', async () => {
     mockWorkspaceProjectName = 'BurgerEating';
     (window as unknown as { electron: unknown }).electron = {
       project: {
@@ -791,10 +1132,14 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    // Mock the runner-cancel IPC.
+    // Mock the IPCs. Runner is idle until Resume is clicked, then
+    // the next poll observes active=true.
     const runnerCancel = jest.fn(async () => ({ cancelled: true }));
+    let runnerActive = false;
     (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
       runnerCancel as never;
+    (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      jest.fn(async () => ({ active: runnerActive })) as never;
 
     render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
@@ -811,31 +1156,16 @@ describe('ChatPanelEmbedded', () => {
       fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
     });
 
-    // Once the kshana-core runner emits a tool_call for the
-    // background run_to, our header flips to Stop. The runner's
-    // events are tagged with the originating chat session id; the
-    // panel doesn't care which session — Stop just calls the
-    // runner directly.
-    await act(async () => {
-      mockState.listeners.forEach((l) => {
-        if (l.active) {
-          l.cb({
-            eventName: 'tool_call',
-            sessionId: 's-1',
-            data: {
-              toolCallId: 'task:abc',
-              toolName: 'kshana_run_to',
-              arguments: { project: 'BurgerEating' },
-              status: 'in_progress',
-            },
-          } as never);
-        }
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByRole('button', { name: /stop run/i })).not.toBeNull();
-    });
+    // Simulate the runner picking up the task.
+    runnerActive = true;
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByRole('button', { name: /stop run/i }),
+        ).not.toBeNull();
+      },
+      { timeout: 3000 },
+    );
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /stop run/i }));
@@ -865,117 +1195,185 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    let createCount = 0;
-    let bgSessionId = '';
-    (
-      window as unknown as { kshana: { createSession: jest.Mock } }
-    ).kshana.createSession = jest.fn(async () => {
-      const id = createCount++ === 0 ? 'main-1' : `bg-${createCount - 1}`;
-      if (id.startsWith('bg-')) bgSessionId = id;
-      return { sessionId: id };
-    }) as never;
     (
       window as unknown as { kshana: { runTask: jest.Mock } }
     ).kshana.runTask = jest.fn(async (req: { sessionId: string; task: string }) => {
       mockState.runTaskCalls.push(req);
       return new Promise<{ ok: boolean }>(() => {});
     }) as never;
+    // Runner reports active — same scenario as a long pipeline mid-run.
+    (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
 
     render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
         expect(
-          screen.queryByRole('button', { name: /resume run/i }),
+          screen.queryByRole('button', { name: /stop run/i }),
         ).not.toBeNull();
       },
-      { timeout: 1500 },
+      { timeout: 3000 },
     );
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
-    });
-    await act(async () => {
-      mockState.listeners.forEach((l) => {
-        if (l.active) {
-          l.cb({
-            eventName: 'tool_call',
-            sessionId: bgSessionId,
-            data: {
-              toolCallId: 'tc-bg-2',
-              toolName: 'kshana_run_to',
-              arguments: { project: 'BurgerEating' },
-              status: 'in_progress',
-            },
-          } as never);
-        }
-      });
-    });
 
-    // Header now has a Stop button (bg session running) — but the
-    // INLINE send button stays Send. There must be exactly ONE
-    // button labelled /send/i and ZERO labelled /^cancel$/i in the
-    // textarea region.
+    // Header has Stop (runner active) — but the INLINE send button
+    // must stay Send. There must be exactly ONE button labelled
+    // /send/i and ZERO labelled /^cancel$/i in the textarea region.
     expect(screen.queryByRole('button', { name: /^send$/i })).not.toBeNull();
     // Only the header has Stop. The textarea region must not contain a Cancel.
     const cancelButtons = screen.queryAllByRole('button', { name: /^cancel$/i });
     expect(cancelButtons.length).toBe(0);
   });
 
-  it('header shows Stop when kshana_run_to fires on the MAIN session (user typed "continue the pipeline")', async () => {
-    // Critical UX guarantee: the Run button reflects an active long
-    // run regardless of which session dispatched it. If the user
-    // typed a request into the chat (main session) and pi-agent
-    // chose to call kshana_run_to, we must still show Stop — not
-    // a stale Resume button while a 1–4h run grinds on.
-    mockWorkspaceProjectName = 'BurgerEating';
-    (window as unknown as { electron: unknown }).electron = {
-      project: {
-        readFile: jest.fn(async (path: string) =>
-          path.endsWith('project.json')
-            ? JSON.stringify({
-                style: 'cinematic_realism',
-                templateId: 'narrative',
-                targetDuration: 60,
-              })
-            : null,
-        ),
-        exportChatJson: jest.fn(async () => undefined),
-      },
-      logger: { logUserInput: jest.fn() },
+  // ── Single source of truth: runnerStatus drives the Stop button ──
+  //
+  // Earlier the header Stop button was driven by a hard-coded
+  // tool-name allowlist (`LONG_RUNNING_KSHANA_TOOLS`). That broke
+  // whenever pi-agent generated a project via a path that didn't
+  // call one of those exact tools — the runner would be busy for
+  // hours but the button would never appear, and the user couldn't
+  // stop the run. Fix: poll `window.kshana.runnerStatus()` and
+  // treat its `.active` field as the only truth.
+  describe('header Stop button — runnerStatus is the source of truth', () => {
+    const setupProjectFiles = () => {
+      (window as unknown as { electron: unknown }).electron = {
+        project: {
+          readFile: jest.fn(async (path: string) =>
+            path.endsWith('project.json')
+              ? JSON.stringify({
+                  style: 'cinematic_realism',
+                  templateId: 'narrative',
+                  targetDuration: 60,
+                })
+              : null,
+          ),
+          exportChatJson: jest.fn(async () => undefined),
+        },
+        logger: { logUserInput: jest.fn() },
+      };
     };
 
-    render(<ChatPanelEmbedded />);
-    await waitFor(() => screen.getByRole('textbox'));
-    await waitFor(() => {
-      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    it('GIVEN runnerStatus reports active=true WHEN the panel mounts THEN Stop is visible (no tool_call needed)', async () => {
+      mockWorkspaceProjectName = 'BurgerEating';
+      setupProjectFiles();
+      // Mock the runner as already busy — same shape as a real
+      // `kshana-core` task running in the background.
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+        jest.fn(async () => ({
+          active: true,
+          taskId: 'task-abc',
+          kind: 'run_to',
+          projectName: 'BurgerEating',
+        })) as never;
+
+      render(<ChatPanelEmbedded />);
+      await waitFor(() => screen.getByRole('textbox'));
+
+      // Allow the mount-time poll + first interval tick to land.
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByRole('button', { name: /stop run/i }),
+          ).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+      // And no Resume button — the run IS active.
+      expect(screen.queryByRole('button', { name: /resume run/i })).toBeNull();
     });
 
-    // Pi-agent fires kshana_run_to on the MAIN session — same flow
-    // that happens when the user types "continue the pipeline" and
-    // the LLM picks kshana_run_to itself.
-    await act(async () => {
-      mockState.listeners.forEach((l) => {
-        if (l.active) {
-          l.cb({
-            eventName: 'tool_call',
-            sessionId: 's-1', // mockState.nextSessionId default
-            data: {
-              toolCallId: 'tc-main-1',
-              toolName: 'kshana_run_to',
-              arguments: { project: 'BurgerEating' },
-              status: 'in_progress',
-            },
-          } as never);
-        }
+    it('GIVEN runnerStatus reports active=false THEN Stop is NOT visible even when a tool_call(kshana_run_to) fires', async () => {
+      mockWorkspaceProjectName = 'BurgerEating';
+      setupProjectFiles();
+      // Runner is idle. The OLD design would have shown Stop based
+      // on the tool_call alone — pin that this no longer happens.
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+        jest.fn(async () => ({ active: false })) as never;
+
+      render(<ChatPanelEmbedded />);
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(() =>
+        expect(mockState.listeners.some((l) => l.active)).toBe(true),
+      );
+
+      // Fire a synthetic tool_call as the OLD code path used to —
+      // this should NOT cause Stop to appear under the new contract.
+      await act(async () => {
+        mockState.listeners.forEach((l) => {
+          if (l.active) {
+            l.cb({
+              eventName: 'tool_call',
+              sessionId: 's-1',
+              data: {
+                toolCallId: 'tc-1',
+                toolName: 'kshana_run_to',
+                status: 'in_progress',
+              },
+            } as never);
+          }
+        });
       });
+
+      // Wait long enough for one poll cycle to confirm runnerStatus
+      // is still reporting idle.
+      await new Promise((resolve) => setTimeout(resolve, 1700));
+      expect(screen.queryByRole('button', { name: /stop run/i })).toBeNull();
     });
 
-    await waitFor(() => {
-      expect(
-        screen.queryByRole('button', { name: /stop run/i }),
-      ).not.toBeNull();
+    it('GIVEN runnerStatus flips from active=true to active=false WHEN polled THEN Stop disappears', async () => {
+      mockWorkspaceProjectName = 'BurgerEating';
+      setupProjectFiles();
+      let active = true;
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+        jest.fn(async () => ({ active })) as never;
+
+      render(<ChatPanelEmbedded />);
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByRole('button', { name: /stop run/i }),
+          ).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+
+      // Run finishes — flip the mock and let the next poll observe it.
+      active = false;
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByRole('button', { name: /stop run/i }),
+          ).toBeNull();
+        },
+        { timeout: 3000 },
+      );
     });
-    // No Resume button while the run is active.
-    expect(screen.queryByRole('button', { name: /resume run/i })).toBeNull();
+
+    it('GIVEN runnerStatus reports active=true WHEN user clicks Stop THEN runnerCancel() is invoked', async () => {
+      mockWorkspaceProjectName = 'BurgerEating';
+      setupProjectFiles();
+      const runnerCancel = jest.fn(async () => ({ cancelled: true }));
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+        jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
+        runnerCancel as never;
+
+      render(<ChatPanelEmbedded />);
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByRole('button', { name: /stop run/i }),
+          ).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /stop run/i }));
+      });
+      expect(runnerCancel).toHaveBeenCalledTimes(1);
+    });
   });
 });

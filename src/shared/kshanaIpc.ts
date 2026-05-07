@@ -19,6 +19,18 @@ export const KSHANA_CHANNELS = {
   REDO_NODE: 'kshana:redoNode',
   FOCUS_PROJECT: 'kshana:focusProject',
   SET_AUTONOMOUS: 'kshana:setAutonomous',
+  /**
+   * Pi-agent oversight toggle. When on, pi-agent is auto-engaged on
+   * runner events (failed/completed/per-asset-with-VLM) so it can
+   * judge generation outcomes and intervene. Persists per project.
+   */
+  SET_PI_OVERSIGHT: 'kshana:setPiOversight',
+  /**
+   * VLM master switch — gates all vision-LLM calls (the new
+   * describeImageWithVLM AND the executor-internal review-once gate).
+   * Effective only when piOversight is also on. Persists per project.
+   */
+  SET_VLM_JUDGE: 'kshana:setVlmJudge',
   DELETE_SESSION: 'kshana:deleteSession',
   /**
    * Background task runner cancellation. Cancels whatever long
@@ -156,6 +168,16 @@ export interface FocusProjectRequest {
 }
 
 export interface SetAutonomousRequest {
+  sessionId: string;
+  enabled: boolean;
+}
+
+export interface SetPiOversightRequest {
+  sessionId: string;
+  enabled: boolean;
+}
+
+export interface SetVlmJudgeRequest {
   sessionId: string;
   enabled: boolean;
 }

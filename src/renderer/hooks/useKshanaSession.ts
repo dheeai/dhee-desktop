@@ -182,6 +182,7 @@ export function useKshanaSession(): KshanaSessionApi {
     [],
   );
 
+
   const sendResponse = useCallback<KshanaSessionApi['sendResponse']>(
     async (response, toolCallId) => {
       const id = sessionIdRef.current;

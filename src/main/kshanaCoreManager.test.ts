@@ -140,6 +140,8 @@ const baseSettings: AppSettings = {
   openRouterApiKey: '',
   openRouterModel: 'z-ai/glm-4.7-flash',
   themeId: 'studio-neutral',
+  piOversight: true,
+  vlmJudge: true,
 };
 
 beforeEach(() => {

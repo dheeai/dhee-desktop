@@ -40,6 +40,8 @@ import {
   type RedoNodeRequest,
   type FocusProjectRequest,
   type SetAutonomousRequest,
+  type SetPiOversightRequest,
+  type SetVlmJudgeRequest,
   type DeleteSessionRequest,
 } from '../shared/kshanaIpc';
 
@@ -683,6 +685,12 @@ const kshanaBridge = {
   },
   setAutonomous(req: SetAutonomousRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.SET_AUTONOMOUS, req);
+  },
+  setPiOversight(req: SetPiOversightRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.SET_PI_OVERSIGHT, req);
+  },
+  setVlmJudge(req: SetVlmJudgeRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.SET_VLM_JUDGE, req);
   },
   deleteSession(req: DeleteSessionRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_SESSION, req);

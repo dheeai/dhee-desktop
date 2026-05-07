@@ -56,4 +56,20 @@ export interface AppSettings {
   /** Global desktop theme selection. */
   themeId: ThemeId;
   projectDir?: string;
+  /**
+   * Pi-agent oversight: when true, pi-agent is auto-engaged on
+   * runner events (failed / completed / per-asset-when-vlmJudge-on).
+   * Global preference — applies to all projects. Quick-toggle in
+   * the chat header writes to the same value as the Settings panel.
+   * Default: true.
+   */
+  piOversight: boolean;
+  /**
+   * VLM master switch: gates all vision-LLM calls (the oversight
+   * `describeImageWithVLM` AND the executor's legacy
+   * `reviewImageWithVLM` retry-once gate). Effective only when
+   * piOversight is also true — VLM standalone has no consumer.
+   * Default: true.
+   */
+  vlmJudge: boolean;
 }

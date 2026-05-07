@@ -38,6 +38,11 @@ import {
   getThumbnailPreviewTime,
   getVisibleVideoTime,
 } from '../../../utils/videoPreview';
+import {
+  buildFinalVideoVersions,
+  summarizeChanges,
+  type FinalVideoVersion,
+} from './buildFinalVideoVersions';
 import type { Artifact } from '../../../types/projectState';
 import type { SceneRef } from '../../../types/kshana/entities';
 import type { SceneVersions } from '../../../types/kshana/timeline';
@@ -272,6 +277,11 @@ function VideoCard({ artifact, formatDate, projectDirectory }: VideoCardProps) {
             <span>{formatDate(artifact.created_at)}</span>
           </div>
         </div>
+        {artifact.metadata?.summary ? (
+          <div className={styles.videoSummary}>
+            {artifact.metadata.summary as string}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -394,39 +404,40 @@ export default function VideoLibraryView({
     }
   }, [totalDuration, onTotalDurationChange]);
 
-  // Get video artifacts from asset manifest for the sidebar
-  const videoArtifacts = useMemo(() => {
+  // Watch tab — version list. Only `final_video` assets surface here,
+  // sorted oldest-first and labelled V1, V2, V3, …. Per-shot
+  // `scene_video` artifacts are intentionally excluded: they're
+  // already shown next to their prompts in the Prompts tab, so
+  // listing them here was duplicative. The earlier `videoArtifacts`
+  // derivation that mixed both types is preserved in git history if
+  // we ever need it back.
+  const finalVideoVersions = useMemo<FinalVideoVersion[]>(() => {
     if (!assetManifest?.assets) return [];
-    return assetManifest.assets
-      .filter(
-        (asset) =>
-          asset.type === 'scene_video' ||
-          (asset.type === 'final_video' && validFinalVideoIds?.has(asset.id)),
-      )
-      .map((asset) => {
-        let createdAt: string;
-        if (asset.created_at) {
-          const date = new Date(asset.created_at);
-          createdAt = isNaN(date.getTime())
-            ? new Date().toISOString()
-            : date.toISOString();
-        } else {
-          createdAt = new Date().toISOString();
-        }
-        return {
-          artifact_id: asset.id,
-          artifact_type: 'video',
-          file_path: asset.path,
-          created_at: createdAt,
-          scene_number: asset.scene_number,
-          metadata: {
-            title: asset.path.replace(/\\/g, '/').split('/').pop(),
-            duration: asset.metadata?.duration,
-            imported: asset.metadata?.imported,
-          },
-        };
-      });
+    const versions = buildFinalVideoVersions(assetManifest.assets);
+    // Validity gate (e.g. "the file no longer exists on disk") is
+    // tracked separately by `validFinalVideoIds`; honour it so
+    // already-deleted finals don't appear as ghost cards.
+    if (!validFinalVideoIds) return versions;
+    return versions.filter((v) => validFinalVideoIds.has(v.assetId));
   }, [assetManifest, validFinalVideoIds]);
+
+  const videoArtifacts = useMemo(
+    () =>
+      finalVideoVersions.map((v) => ({
+        artifact_id: v.assetId,
+        artifact_type: 'video' as const,
+        file_path: v.path,
+        created_at: v.createdAtMs ? new Date(v.createdAtMs).toISOString() : new Date().toISOString(),
+        scene_number: undefined as number | undefined,
+        metadata: {
+          title: v.versionLabel,
+          duration: v.durationSeconds,
+          summary: summarizeChanges(v.changes),
+          imported: undefined,
+        },
+      })),
+    [finalVideoVersions],
+  );
 
   // Refs must be declared before usePlaybackController hook
   const videoRef = useRef<HTMLVideoElement | null>(null);

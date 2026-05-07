@@ -2,13 +2,20 @@ import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { FileText } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import MarkdownEditor from '../MarkdownEditor';
+import {
+  groupPlanFiles,
+  type PlanCategory,
+  type PlanFile as CategorizedPlanFile,
+} from './planFileCategorization';
 import styles from './PlansView.module.scss';
 
 interface PlanFile {
+  /** filename basename — kept for compatibility with the editor's
+   *  expected `fileName` prop. The user-facing label is `displayName`. */
   name: string;
   displayName: string;
   path: string;
-  category: 'content' | 'other';
+  category: PlanCategory;
 }
 
 interface PlansViewProps {
@@ -34,66 +41,17 @@ const getRelativeProjectPath = (
   return normalizedFilePath.replace(/^\/+/, '');
 };
 
-const toTitleCase = (value: string): string => {
-  return value
-    .split(/[\s._-]+/)
-    .filter(Boolean)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(' ');
-};
+// Categorization + display naming live in `planFileCategorization.ts`
+// (with full GWT coverage). PlansView now only owns I/O + rendering.
 
-const getPlanDisplayName = (relativePath: string): string => {
-  const segments = relativePath.split('/');
-  const fileName = segments[segments.length - 1] || relativePath;
-  const baseName = fileName.replace(/\.md$/i, '');
-
-  if (baseName === 'original_input') {
-    return 'Original Input';
-  }
-
-  return toTitleCase(baseName);
-};
-
-const categorizeMarkdownFile = (relativePath: string): PlanFile['category'] => {
-  if (
-    relativePath === 'original_input.md' ||
-    relativePath.startsWith('plans/') ||
-    relativePath.startsWith('content/')
-  ) {
-    return 'content';
-  }
-
-  return 'other';
-};
-
-const comparePlanFiles = (left: PlanFile, right: PlanFile): number => {
-  if (left.category !== right.category) {
-    return left.category === 'content' ? -1 : 1;
-  }
-
-  const leftPriority =
-    left.path === 'content/transcript.md'
-      ? 0
-      : left.path === 'plans/content-plan.md'
-        ? 1
-        : left.path === 'original_input.md'
-          ? 2
-          : 3;
-  const rightPriority =
-    right.path === 'content/transcript.md'
-      ? 0
-      : right.path === 'plans/content-plan.md'
-        ? 1
-        : right.path === 'original_input.md'
-          ? 2
-          : 3;
-
-  if (leftPriority !== rightPriority) {
-    return leftPriority - rightPriority;
-  }
-
-  return left.path.localeCompare(right.path);
-};
+function toPlanFile(categorized: CategorizedPlanFile): PlanFile {
+  return {
+    path: categorized.path,
+    displayName: categorized.displayName,
+    category: categorized.category,
+    name: categorized.path.split('/').pop() || categorized.path,
+  };
+}
 
 export default function PlansView({
   fileToOpen,
@@ -192,17 +150,18 @@ export default function PlansView({
     try {
       const snapshot =
         await window.electron.project.readProjectSnapshot(projectDirectory);
-      const plans = Object.keys(snapshot.files)
-        .filter((relativePath) =>
-          relativePath.toLowerCase().endsWith(MARKDOWN_EXTENSION),
-        )
-        .map<PlanFile>((relativePath) => ({
-          name: relativePath.split('/').pop() || relativePath,
-          displayName: getPlanDisplayName(relativePath),
-          path: relativePath,
-          category: categorizeMarkdownFile(relativePath),
-        }))
-        .sort(comparePlanFiles);
+      const grouped = groupPlanFiles(Object.keys(snapshot.files));
+      // Order in which sections appear in the sidebar.
+      const SECTION_ORDER: PlanCategory[] = [
+        'content',
+        'scenes',
+        'settings',
+        'characters',
+        'other',
+      ];
+      const plans: PlanFile[] = SECTION_ORDER.flatMap((cat) =>
+        grouped[cat].map(toPlanFile),
+      );
 
       setAvailablePlans(plans);
       if (
@@ -378,14 +337,19 @@ export default function PlansView({
     selectedPlan,
   ]);
 
-  const contentFiles = useMemo(
-    () => availablePlans.filter((plan) => plan.category === 'content'),
-    [availablePlans],
-  );
-  const otherFiles = useMemo(
-    () => availablePlans.filter((plan) => plan.category === 'other'),
-    [availablePlans],
-  );
+  const sectionsByCategory = useMemo(() => {
+    const groups: Record<PlanCategory, PlanFile[]> = {
+      content: [],
+      scenes: [],
+      settings: [],
+      characters: [],
+      other: [],
+    };
+    for (const plan of availablePlans) {
+      groups[plan.category].push(plan);
+    }
+    return groups;
+  }, [availablePlans]);
 
   const renderPlanSection = (title: string, plans: PlanFile[]) => {
     if (plans.length === 0) {
@@ -412,7 +376,6 @@ export default function PlansView({
               <FileText size={15} className={styles.planIcon} />
               <span className={styles.planMeta}>
                 <span className={styles.planName}>{plan.displayName}</span>
-                <span className={styles.planFileName}>{plan.path}</span>
               </span>
             </button>
           ))}
@@ -431,22 +394,25 @@ export default function PlansView({
       <aside className={styles.sidebar}>
         <div className={styles.sidebarHeader}>
           <div>
-            <p className={styles.eyebrow}>Markdown Navigator</p>
-            <h2 className={styles.sidebarTitle}>Project Documents</h2>
+            <p className={styles.eyebrow}>Project</p>
+            <h2 className={styles.sidebarTitle}>Content</h2>
           </div>
           <span className={styles.totalCount}>{availablePlans.length}</span>
         </div>
 
         {isLoadingPlans ? (
-          <div className={styles.loading}>Loading markdown files...</div>
+          <div className={styles.loading}>Loading content...</div>
         ) : availablePlans.length > 0 ? (
           <div className={styles.sidebarContent}>
-            {renderPlanSection('Content Files', contentFiles)}
-            {renderPlanSection('Markdown Files', otherFiles)}
+            {renderPlanSection('Content', sectionsByCategory.content)}
+            {renderPlanSection('Scenes', sectionsByCategory.scenes)}
+            {renderPlanSection('Settings', sectionsByCategory.settings)}
+            {renderPlanSection('Characters', sectionsByCategory.characters)}
+            {renderPlanSection('Other', sectionsByCategory.other)}
           </div>
         ) : (
           <div className={styles.emptyList}>
-            No markdown files found in this project yet.
+            No content files in this project yet.
           </div>
         )}
       </aside>

@@ -6,23 +6,32 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-import { ChevronUp, FolderKanban, Clapperboard, FileCode2, Layers } from 'lucide-react';
+// FolderKanban (Assets) and Layers (Storyboard) icons retained for the
+// deprecated tabs — kept imported so re-enabling those tabs is a
+// single-line change in the `tabs` array below.
+import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
 import type { SceneVersions } from '../../../types/kshana/timeline';
 import AssetsView from '../AssetsView/AssetsView';
 import StoryboardView from '../StoryboardView/StoryboardView';
+import PromptsView from '../PromptsView/PromptsView';
 import VideoLibraryView from '../VideoLibraryView/VideoLibraryView';
 import PlansView from '../PlansView/PlansView';
 import TimelinePanel from '../TimelinePanel/TimelinePanel';
 import { TimelineDockIcon } from '../EditorIcons';
 import styles from './PreviewPanel.module.scss';
 
-type Tab = 'storyboard' | 'assets' | 'video-library' | 'preview';
+type Tab = 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
 
 export default function PreviewPanel() {
-  const [activeTab, setActiveTab] = useState<Tab>('video-library');
+  // Default to Prompts — the per-shot prompt + media inspector is the
+  // primary workspace surface as of 2026-05-06. Storyboard and Assets
+  // are deprecated (still importable / renderable in this file so we
+  // can re-enable later), but excluded from the visible tab list
+  // below.
+  const [activeTab, setActiveTab] = useState<Tab>('prompts');
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [timelineHeight, setTimelineHeight] = useState(320);
 
@@ -35,26 +44,27 @@ export default function PreviewPanel() {
   const { projectDirectory, pendingFileNavigation, clearFileNavigation } =
     useWorkspace();
 
+  // Visible tab list. Order matters — Prompts first (primary surface),
+  // Library second, Files last. Storyboard + Assets are deprecated as
+  // of 2026-05-06: their components still ship in this file's imports
+  // and `renderActiveContent` switch arms, so the views can be
+  // reinstated by re-adding entries here without touching the rest of
+  // the panel.
   const tabs = useMemo(
     () => [
       {
+        id: 'prompts' as const,
+        label: 'Prompts',
+        icon: FileText,
+      },
+      {
         id: 'video-library' as const,
-        label: 'Library',
+        label: 'Watch',
         icon: Clapperboard,
       },
       {
-        id: 'storyboard' as const,
-        label: 'Storyboard',
-        icon: Layers,
-      },
-      {
-        id: 'assets' as const,
-        label: 'Assets',
-        icon: FolderKanban,
-      },
-      {
         id: 'preview' as const,
-        label: 'Files',
+        label: 'Content',
         icon: FileCode2,
       },
     ],
@@ -168,6 +178,7 @@ export default function PreviewPanel() {
   const renderActiveContent = () => (
     <div className={styles.content}>
       {activeTab === 'storyboard' && <StoryboardView />}
+      {activeTab === 'prompts' && <PromptsView />}
       {activeTab === 'assets' && <AssetsView />}
       {activeTab === 'video-library' && (
         <VideoLibraryView

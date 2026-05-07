@@ -145,6 +145,32 @@ export function __setManagerLoader(loader: () => Promise<ManagerModule>): void {
 }
 
 /**
+ * `kshana-core/runners` is also ESM-only, so it has to come in via the
+ * same `webpackIgnore`'d dynamic import as the manager bundle. The
+ * earlier `require('kshana-core/runners')` threw `ERR_REQUIRE_ESM` at
+ * the IPC boundary — Stop button "worked" in the UI (local spinner)
+ * while the main process silently failed to call `runner.cancel()`.
+ */
+type RunnersModule = {
+  getBackgroundTaskRunner: () => {
+    cancel: () => boolean;
+    getActive: () => null | {
+      id: string;
+      spec: { kind: string; projectName: string; sessionId: string };
+      startedAt: number;
+    };
+  };
+};
+
+let loadRunnersModule: () => Promise<RunnersModule> = () =>
+  import(/* webpackIgnore: true */ 'kshana-core/runners') as Promise<RunnersModule>;
+
+/** Test seam — replace the loader so unit tests can supply a fake. */
+export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
+  loadRunnersModule = loader;
+}
+
+/**
  * Single normalized event the IPC bridge publishes downstream.
  * Mirrors the existing WebSocket `ServerMessage` shape so the renderer
  * doesn't have to learn a new schema — only the transport changes.
@@ -507,6 +533,15 @@ export class KshanaCoreManager {
       llmConfig: buildLLMConfig(settings, cloudAuth),
     };
     this.cm = new this.managerModule.ConversationManager(config);
+    // Seed core's process-wide oversightState from the persisted
+    // AppSettings on the very first run. Subsequent updates flow
+    // through main.ts's `settings:update` IPC handler, which
+    // calls setPiOversight / setVlmJudge directly. Without this
+    // seed, a fresh manager would default both to true and then
+    // immediately get overwritten on the user's next settings
+    // change — fine in practice but the symmetry's nicer.
+    this.setPiOversight('', settings.piOversight);
+    this.setVlmJudge('', settings.vlmJudge);
   }
 
   /** Tear down the manager. Safe to call when not started. */
@@ -631,39 +666,21 @@ export class KshanaCoreManager {
    * button so cancellation is instant even while the main session
    * is mid-reply.
    */
-  cancelBackgroundTask(): boolean {
-    // The runner is a kshana-core singleton; reach it via the
-    // already-loaded kshana-core bundle. Dynamic import keeps the
-    // dist-aware require path consistent with how the rest of this
-    // file pulls in core modules.
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('kshana-core/runners') as {
-      getBackgroundTaskRunner: () => {
-        cancel: () => boolean;
-      };
-    };
+  async cancelBackgroundTask(): Promise<boolean> {
+    const mod = await loadRunnersModule();
     return mod.getBackgroundTaskRunner().cancel();
   }
 
   /** Snapshot of the runner's current state (or `{ active: false }`). */
-  getBackgroundTaskStatus(): {
+  async getBackgroundTaskStatus(): Promise<{
     active: boolean;
     taskId?: string;
     kind?: string;
     projectName?: string;
     startedAt?: number;
     sessionId?: string;
-  } {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('kshana-core/runners') as {
-      getBackgroundTaskRunner: () => {
-        getActive: () => null | {
-          id: string;
-          spec: { kind: string; projectName: string; sessionId: string };
-          startedAt: number;
-        };
-      };
-    };
+  }> {
+    const mod = await loadRunnersModule();
     const active = mod.getBackgroundTaskRunner().getActive();
     if (!active) return { active: false };
     return {
@@ -710,6 +727,18 @@ export class KshanaCoreManager {
         setAutonomousMode: (s: string, e: boolean) => void;
       }
     ).setAutonomousMode(sessionId, enabled);
+  }
+
+  setPiOversight(sessionId: string, enabled: boolean): void {
+    if (!this.cm) return;
+    const fn = (this.cm as unknown as { setPiOversight?: (s: string, e: boolean) => void }).setPiOversight;
+    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
+  }
+
+  setVlmJudge(sessionId: string, enabled: boolean): void {
+    if (!this.cm) return;
+    const fn = (this.cm as unknown as { setVLMJudge?: (s: string, e: boolean) => void }).setVLMJudge;
+    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
   }
 
   async focusSessionProject(

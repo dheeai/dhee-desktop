@@ -39,6 +39,8 @@ const emptySettings: AppSettings = {
   openRouterApiKey: '',
   openRouterModel: 'z-ai/glm-4.7-flash',
   themeId: 'studio-neutral',
+  piOversight: true,
+  vlmJudge: true,
 };
 
 function withV1Suffix(url: string): string {
@@ -345,6 +347,83 @@ export default function SettingsPanel({
                       </button>
                     );
                   })}
+                </div>
+
+                {/*
+                  AI Oversight toggles. Global preferences (apply to
+                  all projects). Both default ON. VLM is gated by the
+                  supervisor toggle — disabled here when supervisor
+                  is off, mirroring the chat-header quick-toggle.
+                  Saves immediately on click via onSaveConnection so
+                  the runtime fan-out (main.ts → kshanaCoreManager →
+                  oversightState) fires.
+                */}
+                <div className={styles.sectionHeader} style={{ marginTop: 24 }}>
+                  <h3>AI Oversight</h3>
+                  <p>
+                    Pi-agent observes runner events and intervenes when
+                    something looks off. VLM provides image descriptions
+                    so pi-agent can judge generated assets against the
+                    prompt.
+                  </p>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={
+                        settings?.piOversight ?? emptySettings.piOversight
+                      }
+                      onChange={(event) =>
+                        onSaveConnection({ piOversight: event.target.checked })
+                      }
+                      style={{ marginTop: 4 }}
+                    />
+                    <span style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 500 }}>Pi-agent oversight</span>
+                      <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
+                        Auto-engages pi-agent on runner events (failed,
+                        completed, per-asset when VLM is on).
+                      </span>
+                    </span>
+                  </label>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: 12,
+                      cursor: (settings?.piOversight ?? true)
+                        ? 'pointer'
+                        : 'not-allowed',
+                      opacity: (settings?.piOversight ?? true) ? 1 : 0.5,
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={settings?.vlmJudge ?? emptySettings.vlmJudge}
+                      disabled={!(settings?.piOversight ?? true)}
+                      onChange={(event) =>
+                        onSaveConnection({ vlmJudge: event.target.checked })
+                      }
+                      style={{ marginTop: 4 }}
+                    />
+                    <span style={{ display: 'flex', flexDirection: 'column' }}>
+                      <span style={{ fontWeight: 500 }}>VLM judge</span>
+                      <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
+                        Vision-LLM describes generated images for
+                        pi-agent. Requires VLM_PROVIDER / VLM_API_KEY /
+                        VLM_MODEL in .env. Disabled when oversight is
+                        off (VLM standalone has no consumer).
+                      </span>
+                    </span>
+                  </label>
                 </div>
               </>
             ) : (

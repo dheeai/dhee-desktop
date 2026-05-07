@@ -32,6 +32,8 @@ import {
   type RedoNodeRequest,
   type FocusProjectRequest,
   type SetAutonomousRequest,
+  type SetPiOversightRequest,
+  type SetVlmJudgeRequest,
   type DeleteSessionRequest,
 } from '../shared/kshanaIpc';
 import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
@@ -128,14 +130,14 @@ export function registerKshanaIpcBridge(
 
   ipcMain.handle(
     KSHANA_CHANNELS.RUNNER_CANCEL,
-    (): RunnerCancelResponse => {
-      return { cancelled: manager.cancelBackgroundTask() };
+    async (): Promise<RunnerCancelResponse> => {
+      return { cancelled: await manager.cancelBackgroundTask() };
     },
   );
 
   ipcMain.handle(
     KSHANA_CHANNELS.RUNNER_STATUS,
-    (): RunnerStatusResponse => {
+    async (): Promise<RunnerStatusResponse> => {
       return manager.getBackgroundTaskStatus();
     },
   );
@@ -172,6 +174,22 @@ export function registerKshanaIpcBridge(
     KSHANA_CHANNELS.SET_AUTONOMOUS,
     (_event, req: SetAutonomousRequest): OkResponse => {
       manager.setAutonomousMode(req.sessionId, req.enabled);
+      return { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.SET_PI_OVERSIGHT,
+    (_event, req: SetPiOversightRequest): OkResponse => {
+      manager.setPiOversight(req.sessionId, req.enabled);
+      return { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.SET_VLM_JUDGE,
+    (_event, req: SetVlmJudgeRequest): OkResponse => {
+      manager.setVlmJudge(req.sessionId, req.enabled);
       return { ok: true };
     },
   );

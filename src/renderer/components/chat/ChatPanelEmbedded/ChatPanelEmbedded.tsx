@@ -25,12 +25,15 @@ import {
   ArrowUp,
   ChevronDown,
   Download,
-  Loader2,
+  Eye,
+  EyeOff,
+  ScanEye,
   X,
 } from 'lucide-react';
 import styles from './ChatPanelEmbedded.module.scss';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import type { KshanaEvent } from '../../../../shared/kshanaIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import ProjectSetupPanel, {
@@ -106,19 +109,15 @@ function newMessageId(): string {
 }
 
 /**
- * Tool names whose execution is "the long pipeline" — running for
- * minutes to hours. The header Run/Stop button shows Stop while any
- * of these is in flight, regardless of which session dispatched it.
+ * How often to poll `window.kshana.runnerStatus()` for the active
+ * task. The runner is the single source of truth for whether a long
+ * pipeline is in flight; this poll interval bounds how quickly the
+ * header Stop button appears/disappears in response to runner state
+ * changes. 1500ms is a reasonable trade-off — fast enough that the
+ * user perceives Stop appearing "right after" they hit Resume, slow
+ * enough that we don't flood the IPC layer.
  */
-const LONG_RUNNING_KSHANA_TOOLS = new Set([
-  'kshana_run_to',
-  'kshana_render_scene_bundle',
-  'kshana_audit_fidelity',
-]);
-
-function isLongRunningKshanaTool(toolName: string | undefined): boolean {
-  return !!toolName && LONG_RUNNING_KSHANA_TOOLS.has(toolName);
-}
+const RUNNER_STATUS_POLL_MS = 1500;
 
 /**
  * Detect the "text concatenated with itself" pattern that the
@@ -239,20 +238,26 @@ export default function ChatPanelEmbedded() {
   // points at the main session id once available, used purely as a
   // route key for cancel.
   const [bgSessionId, setBgSessionId] = useState<string | null>(null);
-  // Tracks which session currently has a long-running kshana_* tool
-  // executing (kshana_run_to in particular). Set when tool_call fires
-  // for a long tool, cleared on tool_result. Drives the header Run/
-  // Stop button so the button reflects the actual run state — even
-  // if the user typed "continue the pipeline" into the MAIN session
-  // (where pi-agent then dispatched kshana_run_to) rather than
-  // clicking Resume.
-  const [activeLongRunSessionId, setActiveLongRunSessionId] = useState<
-    string | null
-  >(null);
-  // True from the moment the user clicks Stop until activeLongRunSessionId
-  // clears. Same role as the old bg-only `pendingCancel` but bound to
-  // the unified active-run state.
-  const [bgStatus, setBgStatus] = useState<'idle' | 'cancelling'>('idle');
+  // Whether the BackgroundTaskRunner reports an active task. Polled
+  // from `window.kshana.runnerStatus()` — see the effect below. This
+  // is the SINGLE source of truth for the header Stop button, so the
+  // button reflects reality regardless of which tool pi-agent fired
+  // to start the run.
+  const [runnerActive, setRunnerActive] = useState(false);
+
+  /**
+   * Pi-agent oversight + VLM judge runtime toggles read from
+   * AppSettings. They are GLOBAL — same value applies across all
+   * projects. The chat-header buttons and the Settings panel both
+   * write to AppSettings; main-process pushes the new values into
+   * core's `oversightState` global on every change.
+   *
+   * Default to true when settings haven't loaded yet — matches
+   * the "default ON" rule and avoids a flash-of-OFF on mount.
+   */
+  const appSettings = useAppSettings();
+  const piOversight = appSettings.settings?.piOversight ?? true;
+  const vlmJudge = appSettings.settings?.vlmJudge ?? true;
   // Tracks the id of the currently-streaming assistant message so
   // multiple `stream_chunk` events accumulate into one bubble instead
   // of creating a new bubble per chunk.
@@ -278,40 +283,15 @@ export default function ChatPanelEmbedded() {
       if (event.sessionId !== mainId && event.sessionId !== bgSessionId) {
         return;
       }
-      // Sniff long-running kshana_* tool starts/ends to drive the
-      // header Run/Stop button. We track them PER SESSION so a
-      // run on the main session (because the user typed "continue
-      // the pipeline") flips the same state as a run on the bg
-      // session (clicked Resume). The button reflects "is anything
-      // long actually running" rather than just "is the bg session
-      // active".
-      if (event.eventName === 'tool_call') {
-        const data = event.data as {
-          toolCallId?: string;
-          toolName?: string;
-          status?: string;
-        };
-        if (
-          data.toolName &&
-          isLongRunningKshanaTool(data.toolName) &&
-          data.status !== 'completed' &&
-          data.status !== 'error'
-        ) {
-          setActiveLongRunSessionId(event.sessionId);
-        }
-      } else if (event.eventName === 'tool_result') {
-        const data = event.data as { toolCallId?: string };
-        const toolName =
-          data.toolCallId !== undefined
-            ? toolNameByCallIdRef.current?.get(data.toolCallId)
-            : undefined;
-        if (toolName && isLongRunningKshanaTool(toolName)) {
-          setActiveLongRunSessionId((prev) =>
-            prev === event.sessionId ? null : prev,
-          );
-          setBgStatus('idle');
-        }
-      }
+      // The header Stop button is no longer driven by tool-name
+      // sniffing here. The previous tool-name allowlist
+      // (`LONG_RUNNING_KSHANA_TOOLS`) only flipped on for THREE
+      // hard-coded names — any other path pi-agent took to
+      // generate a project left the button hidden for the entire
+      // run. Now `runnerStatus()` (polled below) is the single
+      // source of truth: if the BackgroundTaskRunner reports a
+      // task active, the button shows. See the
+      // `runnerActive` poll effect below.
       handleEvent(
         event,
         setMessages,
@@ -323,13 +303,35 @@ export default function ChatPanelEmbedded() {
     return unsubscribe;
   }, [session.sessionId, session.subscribe, bgSessionId]);
 
-  // Clear the local "Stopping…" flag once the active long run has
-  // actually wound down (no session has it active anymore).
+  // Poll runnerStatus to drive `runnerActive`. The runner emits no
+  // push events to the renderer today (only `runnerStatus` /
+  // `runnerCancel` IPC), so polling is the path. An immediate fetch
+  // happens on mount so a user who reopens the panel mid-run sees
+  // Stop without waiting for the first interval tick.
   useEffect(() => {
-    if (!activeLongRunSessionId && pendingCancel) {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const status = await window.kshana.runnerStatus();
+        if (!cancelled) setRunnerActive(!!status?.active);
+      } catch {
+        if (!cancelled) setRunnerActive(false);
+      }
+    };
+    tick();
+    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, []);
+
+  // Clear the local "Stopping…" flag once the runner reports idle.
+  useEffect(() => {
+    if (!runnerActive && pendingCancel) {
       setPendingCancel(false);
     }
-  }, [activeLongRunSessionId, pendingCancel]);
+  }, [runnerActive, pendingCancel]);
 
   // (was: bg-session teardown on project switch — no longer needed
   // since the BackgroundTaskRunner singleton handles task lifecycle
@@ -585,22 +587,15 @@ export default function ChatPanelEmbedded() {
     const text = input.trim();
     if (!text || !session.sessionId) return;
 
-    // Guard: if pi-agent is already mid-reply, dispatching a new
-    // runTask will overwrite its `currentResolve` and orphan the
-    // first response. Surface a system message instead of firing.
-    // (This shouldn't happen if the textarea's `disabled` /
-    // onKeyDown gate is in sync with isMainBusy, but the gate has
-    // edge cases — defending here is cheap and visible.)
+    // If pi-agent is mid-turn (e.g. running a multi-step regen +
+    // bash + regen sequence), the user often wants to interject
+    // with a clarification — "actually that won't work, do X
+    // instead". The earlier behavior bounced this with a "please
+    // wait" system message, which made the chat feel broken
+    // ("non-interactive after the first message"). Cancel the
+    // current turn and dispatch the new one instead.
     if (session.status === 'running') {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'system',
-          text: 'Still finishing the previous reply — please wait a moment and try again.',
-        },
-      ]);
-      return;
+      await session.cancel().catch(() => undefined);
     }
 
     setMessages((prev) => [
@@ -626,6 +621,29 @@ export default function ChatPanelEmbedded() {
     }
   };
 
+  /**
+   * Toggle pi-agent oversight via AppSettings. The change is global —
+   * applies to all projects. Main-process pushes the new value into
+   * core's `oversightState` global on settings:update so the runtime
+   * picks it up on the next task dispatch (and via `setVLMEnabled`
+   * mid-run for VLM).
+   *
+   * VLM follows: when supervisor flips off the VLM toggle becomes a
+   * no-op (UI disabled, runtime gate also off) but its stored value
+   * is preserved so flipping supervisor back on restores the prior
+   * choice.
+   */
+  const handleTogglePiOversight = useCallback(async () => {
+    const next = !piOversight;
+    await appSettings.saveConnectionSettings({ piOversight: next });
+  }, [piOversight, appSettings]);
+
+  const handleToggleVlmJudge = useCallback(async () => {
+    if (!piOversight) return; // VLM is gated by supervisor; UI is disabled, but defend.
+    const next = !vlmJudge;
+    await appSettings.saveConnectionSettings({ vlmJudge: next });
+  }, [piOversight, vlmJudge, appSettings]);
+
   const handleCancel = useCallback(async () => {
     // Cancel goes directly through the BackgroundTaskRunner IPC,
     // independent of any chat session. The runner aborts whatever
@@ -634,7 +652,6 @@ export default function ChatPanelEmbedded() {
     // natural completion. The Stop button stays instant even when
     // the main session's pi-agent is mid-reply.
     setPendingCancel(true);
-    setBgStatus('cancelling');
     await window.kshana.runnerCancel().catch(() => undefined);
   }, []);
 
@@ -694,13 +711,11 @@ export default function ChatPanelEmbedded() {
     await session.sendResponse(option);
   }, [session]);
 
-  // The header Run/Stop button reflects "is a long kshana_* run
-  // active anywhere", regardless of which session dispatched it.
-  // This way it shows Stop whether the user clicked Resume (bg
-  // session) OR typed "continue the pipeline" into the main session
-  // (and pi-agent decided to call kshana_run_to there).
-  const isRunning =
-    activeLongRunSessionId !== null || bgStatus === 'cancelling';
+  // Single source of truth: the BackgroundTaskRunner. If it reports
+  // a task active, the header shows Stop. Optimistic `pendingCancel`
+  // also keeps the button in its "Stopping…" state during the brief
+  // window between click and the runner actually winding down.
+  const isRunning = runnerActive || pendingCancel;
   // Main-session readiness gates the textarea / send button. We
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.
@@ -777,6 +792,92 @@ export default function ChatPanelEmbedded() {
             onStart={() => void handleStartRun()}
             onCancel={() => void handleCancel()}
           />
+          {/*
+            Pi-agent oversight toggle. Eye when on (watching),
+            EyeOff when off. Click flips the local state + persists
+            via IPC. Independent of the VLM toggle in storage; the
+            VLM toggle's enabled-state mirrors this one.
+          */}
+          <button
+            type="button"
+            aria-label={
+              piOversight
+                ? 'Pi-agent oversight: ON (click to turn off)'
+                : 'Pi-agent oversight: OFF (click to turn on)'
+            }
+            title={
+              piOversight
+                ? 'Pi-agent oversight: ON — auto-engages on runner events'
+                : 'Pi-agent oversight: OFF — chat-only, no auto-engagement'
+            }
+            onClick={() => void handleTogglePiOversight()}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              height: 26,
+              padding: 0,
+              borderRadius: 6,
+              border: '1px solid #2a2c30',
+              background: piOversight ? 'rgba(120,160,220,0.18)' : 'transparent',
+              color: piOversight ? '#a8bce0' : '#7a8190',
+              cursor: 'pointer',
+              transition: 'background 120ms ease, color 120ms ease',
+            }}
+          >
+            {piOversight ? <Eye size={14} /> : <EyeOff size={14} />}
+          </button>
+          {/*
+            VLM judge toggle. Disabled when supervisor is off (VLM
+            standalone has no consumer). Tooltip explains the
+            dependency. Always renders — disabled state is an
+            obvious affordance, not a hidden control.
+          */}
+          <button
+            type="button"
+            disabled={!piOversight}
+            aria-label={
+              !piOversight
+                ? 'VLM judge — turn supervisor on first'
+                : vlmJudge
+                  ? 'VLM judge: ON (click to turn off)'
+                  : 'VLM judge: OFF (click to turn on)'
+            }
+            title={
+              !piOversight
+                ? 'VLM judge — turn supervisor on first'
+                : vlmJudge
+                  ? 'VLM judge: ON — vision-LLM describes generated images for pi-agent'
+                  : 'VLM judge: OFF — pi-agent has no vision feedback on assets'
+            }
+            onClick={() => void handleToggleVlmJudge()}
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              width: 26,
+              height: 26,
+              padding: 0,
+              borderRadius: 6,
+              border: '1px solid #2a2c30',
+              background: !piOversight
+                ? 'transparent'
+                : vlmJudge
+                  ? 'rgba(120,160,220,0.18)'
+                  : 'transparent',
+              color: !piOversight
+                ? '#444'
+                : vlmJudge
+                  ? '#a8bce0'
+                  : '#7a8190',
+              cursor: piOversight ? 'pointer' : 'not-allowed',
+              opacity: piOversight ? 1 : 0.45,
+              transition: 'background 120ms ease, color 120ms ease, opacity 120ms ease',
+            }}
+          >
+            <ScanEye size={14} />
+          </button>
           <div
             aria-label={`Status: ${session.status}`}
             title={
@@ -848,15 +949,21 @@ export default function ChatPanelEmbedded() {
               : 'Open a project from the sidebar to begin.'}
           </div>
         ) : (
-          messages.map((m) =>
-            m.role === 'question' ? (
+          groupConsecutiveProgress(messages).map((item) =>
+            item.kind === 'progressGroup' ? (
+              <ProgressGroup key={item.id} rows={item.rows} />
+            ) : item.message.role === 'question' ? (
               <QuestionRow
-                key={m.id}
-                message={m}
-                onSelect={(opt) => handleSelectOption(m.id, opt)}
+                key={item.message.id}
+                message={item.message}
+                onSelect={(opt) => handleSelectOption(item.message.id, opt)}
               />
             ) : (
-              <MessageRow key={m.id} message={m} />
+              <MessageRow
+                key={item.message.id}
+                message={item.message}
+                projectDirectory={projectDirectory}
+              />
             ),
           )
         )}
@@ -901,7 +1008,7 @@ export default function ChatPanelEmbedded() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (!isMainBusy && input.trim().length > 0) handleSend();
+                if (input.trim().length > 0) handleSend();
               }
             }}
             className={styles.textarea}
@@ -912,7 +1019,7 @@ export default function ChatPanelEmbedded() {
             aria-label="Send"
             title={
               isMainBusy
-                ? 'Wait for the current reply to finish…'
+                ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
             disabled={!isReady || isMainBusy || input.trim().length === 0}
@@ -1024,22 +1131,32 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
     );
   }
   if (m.role === 'media') {
+    const resolvedSrc = m.mediaPath
+      ? resolveMediaSrc(m.mediaPath, projectDirectory)
+      : '';
     return (
       <div className={styles.mediaRow}>
         <div className={styles.mediaLabel}>
           generated {m.mediaKind} · {m.mediaProject ?? ''}
         </div>
-        {m.mediaKind === 'image' && m.mediaPath ? (
+        {m.mediaKind === 'image' && resolvedSrc ? (
           <img
-            src={`file://${m.mediaPath}`}
+            src={resolvedSrc}
             alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
             className={styles.mediaImage}
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}
           />
+        ) : m.mediaKind === 'video' && resolvedSrc ? (
+          <video
+            src={resolvedSrc}
+            controls
+            preload="metadata"
+            style={{ maxWidth: '220px', borderRadius: 4 }}
+          />
         ) : (
-          <div style={{ fontSize: 12 }}>📹 {m.mediaPath}</div>
+          <div style={{ fontSize: 12 }}>📁 {m.mediaPath}</div>
         )}
       </div>
     );
