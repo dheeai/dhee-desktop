@@ -12,6 +12,16 @@ const RECENTS = [
   { name: 'sci-fi', path: '/tmp/sci-fi.kshana', lastOpened: 1700000010000 },
 ];
 
+const MANY_RECENTS = Array.from({ length: 11 }, (_, index) => {
+  const projectNumber = index + 1;
+  const name = `project-${projectNumber.toString().padStart(2, '0')}`;
+  return {
+    name,
+    path: `/tmp/${name}.kshana`,
+    lastOpened: 1700000000000 + projectNumber,
+  };
+});
+
 test.describe('Feature: Landing screen, recent projects', () => {
   test.describe('Given two recent projects seeded into the bridge', () => {
     test('When the page boots, Then both project cards render with names + paths', async ({
@@ -84,6 +94,44 @@ test.describe('Feature: Landing screen, recent projects', () => {
         window.__kshanaTest!.getCalls('project.selectDirectory'),
       );
       expect(calls.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  test.describe('Given more than 9 recent projects seeded into the bridge', () => {
+    test('When the user pages through projects, Then older projects remain reachable', async ({
+      page,
+      bootInline,
+    }) => {
+      // Given
+      await bootInline({
+        surface: 'landing',
+        bridgeReturns: { 'project.getRecent': MANY_RECENTS },
+        rules: [],
+      });
+
+      // Then — page 1 shows the newest 9 and hides older projects.
+      await expect(
+        page.getByRole('heading', { name: /^project-11$/, level: 3 }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: /^project-03$/, level: 3 }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: /^project-02$/, level: 3 }),
+      ).toHaveCount(0);
+      await expect(page.getByText('1-9 of 11')).toBeVisible();
+
+      // When
+      await page.getByRole('button', { name: 'Next projects page' }).click();
+
+      // Then — page 2 exposes the remaining older projects.
+      await expect(
+        page.getByRole('heading', { name: /^project-02$/, level: 3 }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: /^project-01$/, level: 3 }),
+      ).toBeVisible();
+      await expect(page.getByText('10-11 of 11')).toBeVisible();
     });
   });
 });

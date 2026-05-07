@@ -9,7 +9,7 @@ const mockSaveConnectionSettings = jest.fn<() => Promise<boolean>>();
 const mockClearError = jest.fn<() => void>();
 let mockProjectLoading = false;
 
-const recentProjects = [
+let mockRecentProjects = [
   {
     path: '/projects/demo',
     name: 'Demo',
@@ -19,7 +19,7 @@ const recentProjects = [
 
 jest.mock('../../../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
-    recentProjects,
+    recentProjects: mockRecentProjects,
     openProject: mockOpenProject,
     refreshRecentProjects: mockRefreshRecentProjects,
     isLoading: false,
@@ -47,6 +47,18 @@ jest.mock('../../../contexts/AppSettingsContext', () => ({
 jest.mock('../../SettingsPanel', () => () => null);
 jest.mock('../NewProjectDialog/NewProjectDialog', () => () => null);
 
+function buildRecentProjects(count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const projectNumber = index + 1;
+    const name = `project-${projectNumber.toString().padStart(2, '0')}`;
+    return {
+      path: `/projects/${name}`,
+      name,
+      lastOpened: projectNumber,
+    };
+  });
+}
+
 describe('LandingScreen', () => {
   const mockReadFile = jest.fn<(path: string) => Promise<string | null>>();
   const mockCheckFileExists = jest.fn<(path: string) => Promise<boolean>>();
@@ -67,6 +79,13 @@ describe('LandingScreen', () => {
     mockDeleteProject.mockReset();
     mockGetVersion.mockReset();
     mockProjectLoading = false;
+    mockRecentProjects = [
+      {
+        path: '/projects/demo',
+        name: 'Demo',
+        lastOpened: Date.now(),
+      },
+    ];
 
     mockReadFile.mockResolvedValue(
       JSON.stringify({
@@ -154,5 +173,73 @@ describe('LandingScreen', () => {
       expect(mockDeleteProject).toHaveBeenCalledWith('/projects/demo');
     });
     expect(mockRefreshRecentProjects).toHaveBeenCalled();
+  });
+
+  it('shows 9 project cards on the first page and paginates to the rest', async () => {
+    mockRecentProjects = buildRecentProjects(11);
+
+    render(<LandingScreen />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Rename project-11' }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Rename project-03' }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Rename project-02' }),
+    ).toBeNull();
+    expect(screen.getByText('1-9 of 11')).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next projects page' }));
+
+    expect(
+      await screen.findByRole('button', { name: 'Rename project-02' }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Rename project-01' }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Rename project-03' }),
+    ).toBeNull();
+    expect(screen.getByText('10-11 of 11')).not.toBeNull();
+  });
+
+  it('does not show pagination for 9 or fewer projects', async () => {
+    mockRecentProjects = buildRecentProjects(9);
+
+    render(<LandingScreen />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Rename project-09' }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Next projects page' }),
+    ).toBeNull();
+  });
+
+  it('clamps the active project page when the current page disappears', async () => {
+    mockRecentProjects = buildRecentProjects(10);
+    const { rerender } = render(<LandingScreen />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Next projects page' }),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Rename project-01' }),
+    ).not.toBeNull();
+
+    mockRecentProjects = buildRecentProjects(9);
+    rerender(<LandingScreen />);
+
+    expect(
+      await screen.findByRole('button', { name: 'Rename project-09' }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Rename project-01' }),
+    ).not.toBeNull();
+    expect(
+      screen.queryByRole('button', { name: 'Next projects page' }),
+    ).toBeNull();
   });
 });

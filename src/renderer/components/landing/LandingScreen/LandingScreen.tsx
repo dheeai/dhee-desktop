@@ -7,6 +7,8 @@ import {
   type SVGProps,
 } from 'react';
 import {
+  ChevronLeft as _ChevronLeft,
+  ChevronRight as _ChevronRight,
   FolderOpen as _FolderOpen,
   Plus as _Plus,
   Play as _Play,
@@ -33,6 +35,8 @@ import type { AccountInfo } from '../../../../shared/settingsTypes';
 type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
 
 const FolderOpen = _FolderOpen as unknown as LucideFC;
+const ChevronLeft = _ChevronLeft as unknown as LucideFC;
+const ChevronRight = _ChevronRight as unknown as LucideFC;
 const Plus = _Plus as unknown as LucideFC;
 const Play = _Play as unknown as LucideFC;
 const Settings = _Settings as unknown as LucideFC;
@@ -47,6 +51,7 @@ const THUMBNAIL_CANDIDATES = [
   'thumbnail.webp',
 ];
 const FALLBACK_APP_VERSION = 'v?.?.?';
+const PROJECTS_PER_PAGE = 9;
 type LandingView = 'projects' | 'settings';
 type AccountAuthStatus = 'idle' | 'waiting' | 'expired' | 'error';
 
@@ -61,6 +66,37 @@ interface ProjectMetadata {
 interface PendingProjectAction {
   path: string;
   name: string;
+}
+
+function getProjectPaginationItems(
+  currentPage: number,
+  totalPages: number,
+): Array<number | 'ellipsis-start' | 'ellipsis-end'> {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index);
+  }
+
+  const pages = new Set([
+    0,
+    totalPages - 1,
+    currentPage - 1,
+    currentPage,
+    currentPage + 1,
+  ]);
+  const visiblePages = [...pages]
+    .filter((page) => page >= 0 && page < totalPages)
+    .sort((a, b) => a - b);
+  const items: Array<number | 'ellipsis-start' | 'ellipsis-end'> = [];
+
+  visiblePages.forEach((page, index) => {
+    const previousPage = visiblePages[index - 1];
+    if (index > 0 && page - previousPage > 1) {
+      items.push(page < currentPage ? 'ellipsis-start' : 'ellipsis-end');
+    }
+    items.push(page);
+  });
+
+  return items;
 }
 
 function getConnectionLabel(
@@ -184,6 +220,7 @@ export default function LandingScreen() {
     null,
   );
   const [isProjectActionPending, setIsProjectActionPending] = useState(false);
+  const [projectPage, setProjectPage] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -278,6 +315,30 @@ export default function LandingScreen() {
       }),
     [metadataByPath, recentProjects],
   );
+  const totalProjectPages = Math.max(
+    1,
+    Math.ceil(projectCards.length / PROJECTS_PER_PAGE),
+  );
+  const visibleProjectCards = useMemo(() => {
+    const pageStart = projectPage * PROJECTS_PER_PAGE;
+    return projectCards.slice(pageStart, pageStart + PROJECTS_PER_PAGE);
+  }, [projectCards, projectPage]);
+  const projectPaginationItems = useMemo(
+    () => getProjectPaginationItems(projectPage, totalProjectPages),
+    [projectPage, totalProjectPages],
+  );
+  const projectRangeStart =
+    projectCards.length === 0 ? 0 : projectPage * PROJECTS_PER_PAGE + 1;
+  const projectRangeEnd = Math.min(
+    projectCards.length,
+    (projectPage + 1) * PROJECTS_PER_PAGE,
+  );
+
+  useEffect(() => {
+    setProjectPage((currentPage) =>
+      Math.min(currentPage, totalProjectPages - 1),
+    );
+  }, [totalProjectPages]);
 
   const handleOpenDirectory = useCallback(async () => {
     setError(null);
@@ -517,7 +578,7 @@ export default function LandingScreen() {
                 </div>
               ) : (
                 <div className={styles.projectsGrid}>
-                  {projectCards.map((project) => (
+                  {visibleProjectCards.map((project) => (
                     <ProjectCard
                       key={project.path}
                       project={project}
@@ -528,6 +589,75 @@ export default function LandingScreen() {
                   ))}
                 </div>
               )}
+              {totalProjectPages > 1 ? (
+                <div
+                  className={styles.projectsPagination}
+                  aria-label="Projects pagination"
+                >
+                  <span className={styles.projectsPageCount}>
+                    {projectRangeStart}-{projectRangeEnd} of{' '}
+                    {projectCards.length}
+                  </span>
+                  <div className={styles.paginationControls}>
+                    <button
+                      type="button"
+                      className={styles.paginationArrow}
+                      aria-label="Previous projects page"
+                      onClick={() =>
+                        setProjectPage((currentPage) =>
+                          Math.max(0, currentPage - 1),
+                        )
+                      }
+                      disabled={projectPage === 0}
+                    >
+                      <ChevronLeft size={16} />
+                    </button>
+                    <div className={styles.paginationPages}>
+                      {projectPaginationItems.map((item) =>
+                        typeof item === 'number' ? (
+                          <button
+                            key={item}
+                            type="button"
+                            className={`${styles.paginationPage} ${
+                              item === projectPage
+                                ? styles.paginationPageActive
+                                : ''
+                            }`}
+                            aria-label={`Go to projects page ${item + 1}`}
+                            aria-current={
+                              item === projectPage ? 'page' : undefined
+                            }
+                            onClick={() => setProjectPage(item)}
+                          >
+                            {item + 1}
+                          </button>
+                        ) : (
+                          <span
+                            key={item}
+                            className={styles.paginationEllipsis}
+                            aria-hidden="true"
+                          >
+                            ...
+                          </span>
+                        ),
+                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.paginationArrow}
+                      aria-label="Next projects page"
+                      onClick={() =>
+                        setProjectPage((currentPage) =>
+                          Math.min(totalProjectPages - 1, currentPage + 1),
+                        )
+                      }
+                      disabled={projectPage >= totalProjectPages - 1}
+                    >
+                      <ChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </section>
           </>
         ) : (

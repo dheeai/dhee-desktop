@@ -278,6 +278,86 @@
   gap: $spacing-lg;
 }
 
+.projectsPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  min-height: 38px;
+}
+
+.projectsPageCount {
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+  white-space: nowrap;
+}
+
+.paginationControls {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.paginationPages {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paginationArrow,
+.paginationPage {
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.48);
+  background: rgba(var(--color-bg-panel-soft-rgb), 0.24);
+  color: $color-text-secondary;
+  cursor: pointer;
+  transition:
+    background-color $transition-fast,
+    border-color $transition-fast,
+    color $transition-fast;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(var(--color-accent-primary-rgb), 0.32);
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.5);
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.42;
+  }
+}
+
+.paginationArrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.paginationPage {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+}
+
+.paginationPageActive {
+  border-color: rgba(var(--color-accent-primary-rgb), 0.54);
+  background: rgba(var(--color-accent-primary-rgb), 0.18);
+  color: $color-text-primary;
+}
+
+.paginationEllipsis {
+  min-width: 18px;
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+  text-align: center;
+}
+
 .emptyState {
   @include panel-base;
   border-radius: $radius-lg;
@@ -339,5 +419,10 @@
 
   .projectsGrid {
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  }
+
+  .projectsPagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
