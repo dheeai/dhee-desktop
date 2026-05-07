@@ -6,7 +6,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.3);
+  background-color: rgba(var(--color-bg-app-rgb), 0.55);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -21,7 +21,7 @@
   padding: 24px;
   max-width: 500px;
   width: 90%;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  box-shadow: $shadow-lg;
 }
 
 .header {
@@ -42,7 +42,7 @@
 }
 
 .projectInfo {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(var(--color-text-primary-rgb), 0.04);
   border: 1px solid $color-panel-border;
   border-radius: 6px;
   padding: 16px;
@@ -138,14 +138,13 @@
   border-color: $color-error;
 
   &:hover:not(:disabled) {
-    background: #e03e36;
-    border-color: #e03e36;
+    filter: brightness(1.08);
   }
 }
 
 .warning {
   font-size: 12px;
-  color: rgba(255, 255, 255, 0.9);
+  color: rgba(var(--color-text-primary-rgb), 0.9);
   font-weight: normal;
   margin-left: auto;
 }

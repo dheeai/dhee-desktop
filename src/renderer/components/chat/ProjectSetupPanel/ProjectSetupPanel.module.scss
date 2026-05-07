@@ -32,7 +32,7 @@
   padding: $spacing-sm $spacing-md;
   border: 1px solid $color-panel-border;
   border-radius: $radius-md;
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(var(--color-text-primary-rgb), 0.03);
   display: flex;
   flex-direction: column;
   gap: $spacing-xs;
@@ -144,7 +144,7 @@
   text-align: left;
   border-radius: $radius-md;
   border: 1px solid rgba(var(--color-panel-border-rgb), 0.9);
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(var(--color-text-primary-rgb), 0.02);
   cursor: pointer;
   transition: border-color $transition-fast, background $transition-fast;
   display: flex;
@@ -166,8 +166,8 @@
   width: 100%;
   aspect-ratio: 1.9 / 1;
   background:
-    linear-gradient(135deg, rgba(var(--color-accent-primary-rgb), 0.22), rgba(255, 255, 255, 0.04)),
-    rgba(255, 255, 255, 0.04);
+    linear-gradient(135deg, rgba(var(--color-accent-primary-rgb), 0.22), rgba(var(--color-text-primary-rgb), 0.04)),
+    rgba(var(--color-text-primary-rgb), 0.04);
   border-bottom: 1px solid rgba(var(--color-panel-border-rgb), 0.85);
 }
 
@@ -243,7 +243,7 @@
   border: 1px solid $color-panel-border;
   border-radius: $radius-sm;
   padding: 0 $spacing-sm;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(var(--color-text-primary-rgb), 0.02);
   color: $color-text-primary;
   font-size: $font-size-sm;
 
@@ -270,7 +270,7 @@
   padding: $spacing-sm $spacing-md;
   border: 1px solid $color-panel-border;
   border-radius: $radius-md;
-  background: rgba(255, 255, 255, 0.02);
+  background: rgba(var(--color-text-primary-rgb), 0.02);
   color: $color-text-primary;
   font-size: $font-size-sm;
   line-height: 1.5;
@@ -283,7 +283,7 @@
   }
 
   &::placeholder {
-    color: rgba(255, 255, 255, 0.4);
+    color: $color-text-muted;
   }
 }
 
