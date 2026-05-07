@@ -27,7 +27,7 @@ describe('ShotRegenerateModal', () => {
         item={shotItem}
         isOpen
         onClose={jest.fn()}
-        onSubmit={jest.fn()}
+        onSubmit={jest.fn() as (prompt: string) => void}
       />,
     );
 
@@ -37,7 +37,7 @@ describe('ShotRegenerateModal', () => {
   });
 
   it('submits the edited prompt directly', () => {
-    const onSubmit = jest.fn();
+    const onSubmit = jest.fn<(prompt: string) => void>();
 
     render(
       <ShotRegenerateModal

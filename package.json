@@ -90,6 +90,10 @@
       "^react$": "<rootDir>/node_modules/react",
       "^react-dom$": "<rootDir>/node_modules/react-dom",
       "^react/jsx-runtime$": "<rootDir>/node_modules/react/jsx-runtime.js",
+      "^react-markdown$": "<rootDir>/.erb/mocks/reactMarkdownMock.tsx",
+      "^remark-gfm$": "<rootDir>/.erb/mocks/reactMarkdownMock.tsx",
+      "^react-syntax-highlighter$": "<rootDir>/.erb/mocks/reactMarkdownMock.tsx",
+      "^react-syntax-highlighter/dist/esm/styles/prism$": "<rootDir>/.erb/mocks/fileMock.js",
       "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "<rootDir>/.erb/mocks/fileMock.js",
       "\\.(css|less|sass|scss)$": "identity-obj-proxy"
     },
@@ -102,7 +106,9 @@
     },
     "testPathIgnorePatterns": [
       "release/app/dist",
-      ".erb/dll"
+      ".erb/dll",
+      "tests/e2e",
+      "kshana-core/"
     ],
     "transform": {
       "\\.(ts|tsx|js|jsx)$": "ts-jest"

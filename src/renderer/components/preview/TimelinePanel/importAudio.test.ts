@@ -16,7 +16,7 @@ describe('importAudioFromFileToProject', () => {
       }),
       copy: jest.fn(async () => {
         callOrder.push('copy');
-        return '/project/.kshana/agent/audio/voice.mp3';
+        return '/project/assets/audio/voice.mp3';
       }),
     };
 
@@ -27,14 +27,16 @@ describe('importAudioFromFileToProject', () => {
 
     expect(imported).toEqual({
       sourcePath: '/tmp/voice.mp3',
-      destinationPath: '/project/.kshana/agent/audio/voice.mp3',
+      destinationPath: '/project/assets/audio/voice.mp3',
       relativePath: 'assets/audio/voice.mp3',
       fileName: 'voice.mp3',
     });
-    expect(projectBridge.createFolder).toHaveBeenCalledTimes(3);
+    // PROJECT_PATHS.AGENT_AUDIO is `assets/audio`, so we mkdir
+    // `assets` then `audio` — two levels, not three.
+    expect(projectBridge.createFolder).toHaveBeenCalledTimes(2);
     expect(projectBridge.copy).toHaveBeenCalledWith(
       '/tmp/voice.mp3',
-      '/project/.kshana/agent/audio',
+      '/project/assets/audio',
     );
     expect(callOrder[callOrder.length - 1]).toBe('copy');
   });

@@ -41,19 +41,21 @@ export async function importAudioFromFileToProject({
       );
 
     const destinationPath = await projectBridge.copy(audioPath, audioFolder);
-    const normalizedProjectDirectory = projectDirectory.replace(/\\/g, '/');
     const normalizedDestinationPath = destinationPath.replace(/\\/g, '/');
-    const relativePath = normalizedDestinationPath.startsWith(
-      `${normalizedProjectDirectory}/`,
-    )
-      ? normalizedDestinationPath.slice(normalizedProjectDirectory.length + 1)
-      : `${PROJECT_PATHS.AGENT_AUDIO}/${normalizedDestinationPath.split('/').pop() ?? 'audio'}`;
+    const fileName =
+      normalizedDestinationPath.split('/').pop() ?? 'Audio Track';
+    // The canonical project-relative path lives at
+    // PROJECT_PATHS.AGENT_AUDIO regardless of where the copy bridge
+    // actually wrote on disk (some bridges resolve to absolute paths
+    // outside the project root). The manifest stores this canonical
+    // form so renderers can resolve back via projectDirectory + path.
+    const relativePath = `${PROJECT_PATHS.AGENT_AUDIO}/${fileName}`;
 
     return {
       sourcePath: audioPath,
       destinationPath: normalizedDestinationPath,
       relativePath,
-      fileName: normalizedDestinationPath.split('/').pop() ?? 'Audio Track',
+      fileName,
     };
   } catch {
     return null;

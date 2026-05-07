@@ -23,7 +23,7 @@ describe('ProjectCard', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /demo/i }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open Demo' }));
     expect(onOpen).toHaveBeenCalledWith('/projects/demo');
   });
 
