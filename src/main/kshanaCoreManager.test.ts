@@ -156,7 +156,6 @@ beforeEach(() => {
   delete process.env['KSHANA_CLOUD_URL'];
   delete process.env['LLM_CONTEXT_TOKENS'];
   delete process.env['COMFY_MODE'];
-  delete process.env['COMFY_CLOUD_URL'];
   delete process.env['COMFY_CLOUD_API_KEY'];
   delete process.env['COMFYUI_BASE_URL'];
   delete process.env['KSHANA_PROJECT_DIR'];
@@ -172,7 +171,7 @@ describe('KshanaCoreManager', () => {
     expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
   });
 
-  it('start() maps a signed-in desktop token to the website proxy env expected by kshana-core', async () => {
+  it('start() maps a signed-in desktop token to the Kshana Cloud route env expected by kshana-core', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings, {
       websiteUrl: 'https://desktop.example.test/',
@@ -189,7 +188,7 @@ describe('KshanaCoreManager', () => {
     );
     expect(process.env['OPENAI_MODEL']).toBe('deepseek/deepseek-v4-flash');
     expect(process.env['COMFY_MODE']).toBe('cloud');
-    expect(process.env['COMFY_CLOUD_URL']).toBe(
+    expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
     );
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');

@@ -1031,6 +1031,9 @@ ipcMain.handle(
       await assertCanonicalProjectContainment(resolvedPath, activeProjectRoot);
       return await fs.readdir(resolvedPath);
     } catch (error) {
+      if ((error as NodeJS.ErrnoException)?.code === 'ENOENT') {
+        return [];
+      }
       throwFileOpError({
         operation: 'project:list-directory',
         rawPath: dirPath,
