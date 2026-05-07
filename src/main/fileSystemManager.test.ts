@@ -115,4 +115,35 @@ describe('fileSystemManager project mutations', () => {
     });
     expect(manager.getRecentProjects()).toEqual([]);
   });
+
+  it('keeps more than 10 recent projects', async () => {
+    const manager = await loadManager();
+
+    for (let index = 1; index <= 12; index += 1) {
+      manager.addRecentProject(path.join(tempRoot, `project-${index}`));
+    }
+
+    expect(manager.getRecentProjects()).toHaveLength(12);
+  });
+
+  it('moves an existing recent project to the front without duplication', async () => {
+    const manager = await loadManager();
+    const nowSpy = jest.spyOn(Date, 'now');
+    const firstPath = path.join(tempRoot, 'first');
+    const secondPath = path.join(tempRoot, 'second');
+
+    nowSpy.mockReturnValueOnce(1000);
+    manager.addRecentProject(firstPath);
+    nowSpy.mockReturnValueOnce(2000);
+    manager.addRecentProject(secondPath);
+    nowSpy.mockReturnValueOnce(3000);
+    manager.addRecentProject(firstPath);
+
+    expect(manager.getRecentProjects()).toEqual([
+      { path: firstPath, name: 'first', lastOpened: 3000 },
+      { path: secondPath, name: 'second', lastOpened: 2000 },
+    ]);
+
+    nowSpy.mockRestore();
+  });
 });

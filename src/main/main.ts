@@ -93,8 +93,10 @@ if (app.isPackaged) {
 }
 
 let mainWindow: BrowserWindow | null = null;
+let authWindow: BrowserWindow | null = null;
 let pendingDesktopAuthState: string | null = null;
 let kshanaCoreManager: KshanaCoreManager;
+let lastAccountAuthStatus: 'idle' | 'waiting' | 'expired' | 'error' = 'idle';
 let appUpdateStatus: AppUpdateStatus = {
   phase: 'idle',
   message: 'No update check yet',
@@ -165,10 +167,16 @@ async function getCloudAuthRuntime(settings: AppSettings) {
   if (settings.backendMode !== 'cloud') return null;
   const account = getAccount();
   if (!account?.token) return null;
+  if (!parseDesktopAuthToken(account.token)) return null;
   return {
     websiteUrl: await resolveKshanaWebsiteUrl(),
     desktopToken: account.token,
   };
+}
+
+function broadcastAccountChanged(): void {
+  mainWindow?.webContents.send('account:changed');
+  mainWindow?.webContents.send('account:auth-status', lastAccountAuthStatus);
 }
 
 type GuardedFileOp =
@@ -3418,6 +3426,55 @@ async function restartEmbeddedAfterAccountChange(
   }
 }
 
+async function validateStoredDesktopAccountOnStartup(): Promise<void> {
+  const account = getAccount();
+  if (!account) {
+    lastAccountAuthStatus = 'idle';
+    return;
+  }
+
+  if (!parseDesktopAuthToken(account.token)) {
+    clearAccount();
+    updateSettings({ backendMode: 'local' });
+    lastAccountAuthStatus = 'expired';
+    mainWindow?.webContents.send('settings:updated', getSettings());
+    broadcastAccountChanged();
+    return;
+  }
+
+  updateSettings({ backendMode: 'cloud' });
+  const result = await refreshBalance(await resolveKshanaWebsiteUrl());
+  if (result.status === 'expired') {
+    updateSettings({ backendMode: 'local' });
+    lastAccountAuthStatus = 'expired';
+    mainWindow?.webContents.send('settings:updated', getSettings());
+  } else if (result.status === 'error') {
+    lastAccountAuthStatus = 'error';
+  } else {
+    lastAccountAuthStatus = 'idle';
+  }
+  mainWindow?.webContents.send('settings:updated', getSettings());
+  broadcastAccountChanged();
+}
+
+function restoreStoredDesktopAccountBeforeBackend(): void {
+  const account = getAccount();
+  if (!account) {
+    lastAccountAuthStatus = 'idle';
+    return;
+  }
+
+  if (!parseDesktopAuthToken(account.token)) {
+    clearAccount();
+    updateSettings({ backendMode: 'local' });
+    lastAccountAuthStatus = 'expired';
+    return;
+  }
+
+  updateSettings({ backendMode: 'cloud' });
+  lastAccountAuthStatus = 'idle';
+}
+
 async function handleDeepLink(url: string): Promise<void> {
   try {
     const parsed = new URL(url);
@@ -3438,6 +3495,7 @@ async function handleDeepLink(url: string): Promise<void> {
     }
 
     pendingDesktopAuthState = null;
+    lastAccountAuthStatus = 'idle';
     setAccount({
       userId: payload.sub,
       email: payload.email,
@@ -3450,11 +3508,68 @@ async function handleDeepLink(url: string): Promise<void> {
     updateSettings({ backendMode: 'cloud' });
     await restartEmbeddedAfterAccountChange('sign-in');
     mainWindow?.webContents.send('settings:updated', getSettings());
-    mainWindow?.webContents.send('account:changed');
+    broadcastAccountChanged();
     log.info('[Account] Desktop sign-in complete:', payload.email);
   } catch (error) {
+    lastAccountAuthStatus = 'error';
+    broadcastAccountChanged();
     log.error('[Account] Failed to handle deep link:', error);
   }
+}
+
+async function openDesktopAuthWindow(url: string): Promise<void> {
+  if (authWindow) {
+    try {
+      authWindow.focus();
+      await authWindow.loadURL(url);
+      return;
+    } catch {
+      authWindow.close();
+      authWindow = null;
+    }
+  }
+
+  authWindow = new BrowserWindow({
+    show: false,
+    width: 540,
+    height: 720,
+    resizable: true,
+    minimizable: true,
+    maximizable: false,
+    title: 'Sign in to Kshana Desktop',
+    backgroundColor: '#030508',
+    webPreferences: {
+      sandbox: false,
+    },
+  });
+
+  authWindow.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (navigationUrl.startsWith('kshana://')) {
+      event.preventDefault();
+      handleDeepLink(navigationUrl);
+      authWindow?.close();
+    }
+  });
+
+  authWindow.webContents.setWindowOpenHandler((edata) => {
+    // Keep OAuth flows inside the window when possible.
+    if (edata.url.startsWith('kshana://')) {
+      handleDeepLink(edata.url);
+      authWindow?.close();
+      return { action: 'deny' };
+    }
+    return { action: 'allow' };
+  });
+
+  authWindow.on('closed', () => {
+    authWindow = null;
+  });
+
+  await authWindow.loadURL(url);
+  authWindow.once('ready-to-show', () => {
+    authWindow?.show();
+    authWindow?.focus();
+  });
 }
 
 app.on('open-url', (event, url) => {
@@ -3466,28 +3581,52 @@ ipcMain.handle('account:get', () => {
   return getAccount();
 });
 
+ipcMain.handle('account:get-auth-status', () => {
+  return lastAccountAuthStatus;
+});
+
 ipcMain.handle('account:sign-in', async () => {
   const state = randomUUID();
   pendingDesktopAuthState = state;
+  lastAccountAuthStatus = 'waiting';
   const url = await resolveKshanaWebsitePath(
     `/auth/desktop?state=${encodeURIComponent(state)}`,
   );
-  await shell.openExternal(url);
-  return { opened: true };
+  // Prefer system browser for desktop deep-link prompt UX.
+  // Fall back to the embedded auth window if the OS browser open fails.
+  try {
+    await shell.openExternal(url);
+  } catch (error) {
+    log.warn('[Account] Failed to open system browser, falling back to embedded auth window:', error);
+    await openDesktopAuthWindow(url);
+  }
+  broadcastAccountChanged();
+  return { opened: true, state };
 });
 
 ipcMain.handle('account:sign-out', async () => {
   clearAccount();
   updateSettings({ backendMode: 'local' });
+  pendingDesktopAuthState = null;
+  lastAccountAuthStatus = 'idle';
   await restartEmbeddedAfterAccountChange('sign-out');
   mainWindow?.webContents.send('settings:updated', getSettings());
-  mainWindow?.webContents.send('account:changed');
+  broadcastAccountChanged();
   return { success: true };
 });
 
 ipcMain.handle('account:refresh-balance', async () => {
   const result = await refreshBalance(await resolveKshanaWebsiteUrl());
-  mainWindow?.webContents.send('account:changed');
+  if (result.status === 'expired') {
+    updateSettings({ backendMode: 'local' });
+    lastAccountAuthStatus = 'expired';
+    mainWindow?.webContents.send('settings:updated', getSettings());
+  } else if (result.status === 'ok') {
+    lastAccountAuthStatus = 'idle';
+  } else {
+    lastAccountAuthStatus = 'error';
+  }
+  broadcastAccountChanged();
   return result;
 });
 
@@ -3517,6 +3656,12 @@ app
 
     setupAutoUpdater();
     checkForAppUpdates();
+    restoreStoredDesktopAccountBeforeBackend();
+    mainWindow?.webContents.send('settings:updated', getSettings());
+    broadcastAccountChanged();
+    validateStoredDesktopAccountOnStartup().catch((error) => {
+      log.warn('[Account] Stored account validation failed:', error);
+    });
 
     // Start backend in background (non-blocking)
     // UI will show loading state while backend starts

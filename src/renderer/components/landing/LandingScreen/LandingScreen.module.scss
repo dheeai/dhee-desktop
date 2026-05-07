@@ -69,6 +69,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  gap: 5px;
   flex: 0 0 auto;
   min-height: 20px;
   padding: 0 7px;
@@ -81,6 +82,37 @@
   line-height: 1;
   letter-spacing: 0;
   text-transform: uppercase;
+}
+
+.modeDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.modeBadgeLocal {
+  border-color: rgba(var(--color-border-strong-rgb), 0.38);
+  background: rgba(var(--color-bg-panel-soft-rgb), 0.22);
+  color: $color-text-secondary;
+}
+
+.modeBadgeCloud {
+  border-color: rgba(var(--color-success-rgb), 0.34);
+  background: rgba(var(--color-success-rgb), 0.14);
+  color: $color-success;
+}
+
+.modeBadgeConnecting {
+  border-color: rgba(var(--color-warning-rgb), 0.28);
+  background: rgba(var(--color-warning-rgb), 0.12);
+  color: $color-warning;
+}
+
+.modeBadgeWarning {
+  border-color: rgba(var(--color-error-rgb), 0.28);
+  background: rgba(var(--color-error-rgb), 0.1);
+  color: $color-error;
 }
 
 .sectionLabel {
@@ -197,6 +229,11 @@
   border: 1px solid rgba(var(--color-border-strong-rgb), 0.65);
 }
 
+.hero > div {
+  min-width: 0;
+  flex: 1;
+}
+
 .heroTitle {
   margin: 0 0 2px;
   font-size: $font-size-2xl;
@@ -207,6 +244,13 @@
   margin: 0;
   color: $color-text-secondary;
   font-size: $font-size-base;
+}
+
+.heroAccountButton {
+  @include button-secondary;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: 112px;
 }
 
 .projectsSection {
@@ -232,6 +276,86 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
   gap: $spacing-lg;
+}
+
+.projectsPagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  min-height: 38px;
+}
+
+.projectsPageCount {
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+  white-space: nowrap;
+}
+
+.paginationControls {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
+.paginationPages {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.paginationArrow,
+.paginationPage {
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.48);
+  background: rgba(var(--color-bg-panel-soft-rgb), 0.24);
+  color: $color-text-secondary;
+  cursor: pointer;
+  transition:
+    background-color $transition-fast,
+    border-color $transition-fast,
+    color $transition-fast;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(var(--color-accent-primary-rgb), 0.32);
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.5);
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    cursor: default;
+    opacity: 0.42;
+  }
+}
+
+.paginationArrow {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.paginationPage {
+  min-width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  padding: 0 10px;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+}
+
+.paginationPageActive {
+  border-color: rgba(var(--color-accent-primary-rgb), 0.54);
+  background: rgba(var(--color-accent-primary-rgb), 0.18);
+  color: $color-text-primary;
+}
+
+.paginationEllipsis {
+  min-width: 18px;
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+  text-align: center;
 }
 
 .emptyState {
@@ -295,5 +419,10 @@
 
   .projectsGrid {
     grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  }
+
+  .projectsPagination {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }

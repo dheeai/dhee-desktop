@@ -30,6 +30,7 @@ import {
   ScanEye,
   X,
 } from 'lucide-react';
+import styles from './ChatPanelEmbedded.module.scss';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
@@ -729,92 +730,42 @@ export default function ChatPanelEmbedded() {
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
     : null;
 
+  const dotStatus =
+    session.status === 'error' || connectionError
+      ? 'error'
+      : isRunning
+        ? 'running'
+        : isReady
+          ? 'ready'
+          : 'idle';
+
+  const sendActive = input.trim().length > 0 && isReady && !isMainBusy;
+
   return (
-    <div
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        height: '100%',
-        background: 'var(--bg-base, #0d0e10)',
-        color: 'var(--text-primary, #e3e3e3)',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        fontSize: 14,
-      }}
-    >
-      {/* Animation for the Loader2 "Stopping…" spinner. The codebase
-          uses inline styles (no styled-components / Tailwind) so we
-          inject the keyframe via a contained <style> block. */}
-      <style>{`
-        @keyframes kshana-spin { from { transform: rotate(0); } to { transform: rotate(360deg); } }
-        .kshana-spin { animation: kshana-spin 800ms linear infinite; }
-      `}</style>
-      <header
-        style={{
-          padding: '10px 14px',
-          borderBottom: '1px solid #2a2c30',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: 12,
-        }}
-      >
-        <div ref={menuWrapperRef} style={{ position: 'relative' }}>
+    <div className={styles.root}>
+      <header className={styles.header}>
+        <div ref={menuWrapperRef} className={styles.projectMenuWrapper}>
           <button
             type="button"
             onClick={() => setMenuOpen((open) => !open)}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-label="Project menu"
-            style={{
-              background: 'transparent',
-              border: 'none',
-              color: 'inherit',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              padding: '4px 8px',
-              margin: '-4px -8px',
-              borderRadius: 6,
-              fontSize: 14,
-              fontWeight: 600,
-            }}
+            className={styles.projectMenuTrigger}
           >
-            <span
-              style={{
-                maxWidth: 240,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
+            <span className={styles.projectMenuTriggerLabel}>
               {headerProjectName}
             </span>
             <ChevronDown
               size={14}
-              style={{
-                opacity: 0.6,
-                transform: menuOpen ? 'rotate(180deg)' : 'none',
-                transition: 'transform 120ms ease',
-              }}
+              className={`${styles.projectMenuChevron}${menuOpen ? ` ${styles.open}` : ''}`}
             />
           </button>
           {menuOpen && (
             <div
               role="menu"
               aria-label="Project actions"
-              style={{
-                position: 'absolute',
-                top: 'calc(100% + 4px)',
-                left: 0,
-                minWidth: 180,
-                background: '#1a1c20',
-                border: '1px solid #2a2c30',
-                borderRadius: 6,
-                padding: 4,
-                boxShadow: '0 6px 20px rgba(0,0,0,0.4)',
-                zIndex: 10,
-              }}
+              className={styles.projectMenu}
             >
               <button
                 type="button"
@@ -824,30 +775,7 @@ export default function ChatPanelEmbedded() {
                   void handleExport();
                 }}
                 disabled={!isReady || messages.length === 0}
-                style={{
-                  width: '100%',
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'inherit',
-                  cursor: messages.length === 0 ? 'not-allowed' : 'pointer',
-                  textAlign: 'left',
-                  padding: '8px 10px',
-                  borderRadius: 4,
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 8,
-                  fontSize: 13,
-                  opacity: messages.length === 0 ? 0.4 : 1,
-                }}
-                onMouseEnter={(e) => {
-                  if (messages.length > 0)
-                    (e.currentTarget as HTMLButtonElement).style.background =
-                      'rgba(255,255,255,0.05)';
-                }}
-                onMouseLeave={(e) => {
-                  (e.currentTarget as HTMLButtonElement).style.background =
-                    'transparent';
-                }}
+                className={styles.projectMenuItem}
               >
                 <Download size={14} />
                 Export chat
@@ -855,13 +783,7 @@ export default function ChatPanelEmbedded() {
             </div>
           )}
         </div>
-        <div
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 10,
-          }}
-        >
+        <div className={styles.statusRow}>
           <ProjectRunButton
             projectState={projectState}
             running={isRunning}
@@ -963,31 +885,9 @@ export default function ChatPanelEmbedded() {
                 ? `Error: ${session.error}`
                 : `Status: ${session.status}`
             }
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              fontSize: 11,
-              opacity: 0.65,
-            }}
+            className={styles.statusIndicator}
           >
-          <span
-            style={{
-              width: 7,
-              height: 7,
-              borderRadius: '50%',
-              background:
-                session.status === 'error' || connectionError
-                  ? '#d05a5a'
-                  : isRunning
-                    ? '#d4a72c'
-                    : isReady
-                      ? '#5cba6a'
-                      : '#666',
-              boxShadow: isRunning ? '0 0 6px #d4a72c' : 'none',
-              transition: 'background 120ms ease',
-            }}
-          />
+            <span className={styles.statusDot} data-status={dotStatus} />
             <span style={{ textTransform: 'capitalize' }}>{session.status}</span>
           </div>
         </div>
@@ -997,19 +897,9 @@ export default function ChatPanelEmbedded() {
         <div
           role="alert"
           aria-label="Connection error"
-          style={{
-            padding: '8px 14px',
-            background: 'rgba(208,90,90,0.10)',
-            borderBottom: '1px solid rgba(208,90,90,0.35)',
-            fontSize: 12,
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
-            gap: 8,
-            color: '#f0c4c4',
-          }}
+          className={styles.errorBanner}
         >
-          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <span className={styles.errorBannerText}>
             <AlertCircle size={13} />
             Connection error: {connectionError}
           </span>
@@ -1017,15 +907,7 @@ export default function ChatPanelEmbedded() {
             type="button"
             aria-label="Dismiss connection error"
             onClick={() => setConnectionError(null)}
-            style={{
-              background: 'none',
-              border: 'none',
-              color: 'inherit',
-              cursor: 'pointer',
-              padding: 2,
-              display: 'inline-flex',
-              alignItems: 'center',
-            }}
+            className={styles.errorBannerDismiss}
           >
             <X size={14} />
           </button>
@@ -1057,18 +939,11 @@ export default function ChatPanelEmbedded() {
         onBack={handleSetupBack}
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div className={styles.messageList}>
         {messages.length === 0 && setupPanelMode === 'hidden' && projectState === null ? (
           // Probe still in flight — neutral placeholder so we don't
           // flash anything before classification completes.
-          <div
-            style={{
-              opacity: 0.4,
-              fontSize: 12,
-              textAlign: 'center',
-              marginTop: 32,
-            }}
-          >
+          <div className={styles.emptyPlaceholder}>
             {projectDirectory
               ? 'Loading project…'
               : 'Open a project from the sidebar to begin.'}
@@ -1095,15 +970,7 @@ export default function ChatPanelEmbedded() {
         <div ref={messagesEndRef} />
       </div>
 
-      <footer
-        style={{
-          padding: 12,
-          borderTop: '1px solid #2a2c30',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 10,
-        }}
-      >
+      <footer className={styles.footer}>
         {/*
           Contextual CTA renders here — directly above the input —
           when the chat is empty and the project's lifecycle is
@@ -1124,7 +991,7 @@ export default function ChatPanelEmbedded() {
               onAction={(a) => void handleCTAAction(a)}
             />
           )}
-        <div style={{ position: 'relative' }}>
+        <div className={styles.inputWrapper}>
           <textarea
             ref={inputRef}
             value={input}
@@ -1144,34 +1011,7 @@ export default function ChatPanelEmbedded() {
                 if (input.trim().length > 0) handleSend();
               }
             }}
-            style={{
-              width: '100%',
-              background: 'var(--bg-elev, #1a1c20)',
-              color: 'inherit',
-              border: '1px solid #2a2c30',
-              borderRadius: 10,
-              // Bottom padding leaves room for the inline button
-              // (32px button + 8px inset = 40 → round up to 44 for
-              // a comfortable gap above the button).
-              padding: '12px 56px 44px 14px',
-              fontSize: 13,
-              lineHeight: 1.45,
-              resize: 'none',
-              minHeight: 84,
-              fontFamily: 'inherit',
-              boxSizing: 'border-box',
-              outline: 'none',
-              transition: 'border-color 120ms ease',
-              display: 'block',
-            }}
-            onFocus={(e) => {
-              (e.currentTarget as HTMLTextAreaElement).style.borderColor =
-                'rgba(120,160,220,0.45)';
-            }}
-            onBlur={(e) => {
-              (e.currentTarget as HTMLTextAreaElement).style.borderColor =
-                '#2a2c30';
-            }}
+            className={styles.textarea}
           />
           <button
             type="button"
@@ -1182,44 +1022,20 @@ export default function ChatPanelEmbedded() {
                 ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
-            disabled={!isReady || input.trim().length === 0}
-            style={{
-              position: 'absolute',
-              right: 8,
-              bottom: 8,
-              width: 32,
-              height: 32,
-              padding: 0,
-              borderRadius: 8,
-              border: 'none',
-              cursor:
-                !isReady || input.trim().length === 0
-                  ? 'not-allowed'
-                  : 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              lineHeight: 0,
-              background:
-                input.trim().length > 0 && isReady ? '#3a7aa1' : '#2a2c30',
-              color:
-                input.trim().length > 0 && isReady ? '#fff' : '#7a8190',
-              transition: 'background 120ms ease, color 120ms ease',
-              boxSizing: 'border-box',
-            }}
+            disabled={!isReady || isMainBusy || input.trim().length === 0}
+            className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
           >
-            <ArrowUp size={18} strokeWidth={2.5} />
+            {isMainBusy ? (
+              <Loader2 size={14} className={styles.spinning} />
+            ) : (
+              <ArrowUp size={18} strokeWidth={2.5} />
+            )}
           </button>
         </div>
         {contextPct !== null && (
           <div
             aria-label="Context usage"
-            style={{
-              fontSize: 10,
-              color: contextPct >= 80 ? '#d05a5a' : '#7a8190',
-              opacity: 0.85,
-              fontVariantNumeric: 'tabular-nums',
-            }}
+            className={`${styles.contextUsage}${contextPct >= 80 ? ` ${styles.warning}` : ''}`}
           >
             {contextUsage!.used.toLocaleString()} /{' '}
             {contextUsage!.limit.toLocaleString()} tokens · {contextPct}%
@@ -1238,36 +1054,17 @@ function QuestionRow({
   onSelect: (option: string) => void;
 }) {
   return (
-    <div
-      style={{
-        background: 'rgba(100,140,200,0.10)',
-        border: '1px solid rgba(100,140,200,0.25)',
-        borderRadius: 8,
-        padding: '8px 12px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-      }}
-    >
-      <div style={{ fontSize: 13, fontWeight: 500 }}>{m.question}</div>
+    <div className={styles.questionRow}>
+      <div className={styles.questionText}>{m.question}</div>
       {m.options && m.options.length > 0 && (
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        <div className={styles.questionOptions}>
           {m.options.map((opt) => (
             <button
               key={opt}
               type="button"
               disabled={m.answered}
               onClick={() => onSelect(opt)}
-              style={{
-                background: 'rgba(100,140,200,0.2)',
-                border: '1px solid rgba(100,140,200,0.4)',
-                borderRadius: 4,
-                color: 'inherit',
-                cursor: m.answered ? 'default' : 'pointer',
-                fontSize: 12,
-                padding: '3px 10px',
-                opacity: m.answered ? 0.5 : 1,
-              }}
+              className={styles.questionOption}
             >
               {opt}
             </button>
@@ -1290,239 +1087,45 @@ function statusGlyph(status: ToolStatus | undefined): string {
   }
 }
 
-function statusColor(status: ToolStatus | undefined): string {
-  switch (status) {
-    case 'completed':
-      return '#5cba6a';
-    case 'error':
-      return '#d05a5a';
-    case 'in_progress':
-    default:
-      return '#a08a3a';
-  }
-}
-
-/**
- * Render a single progress line with the muted styling. Extracted so
- * both the standalone path (legacy / orphan progress rows) and the
- * grouped collapsible accordion render identical bubbles — keeps the
- * "muted, monospaced, indented" treatment in one place.
- */
-function ProgressRow({ text }: { text: string | undefined }) {
-  return (
-    <div
-      aria-label="Run progress"
-      style={{
-        marginLeft: 18,
-        padding: '4px 10px',
-        background: 'rgba(255,255,255,0.025)',
-        borderLeft: '2px solid rgba(255,255,255,0.12)',
-        borderRadius: 3,
-        fontSize: 11,
-        lineHeight: 1.4,
-        fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-        color: '#a8b0bd',
-        whiteSpace: 'pre-wrap',
-        wordBreak: 'break-word',
-      }}
-    >
-      {text}
-    </div>
-  );
-}
-
-/**
- * Collapsible group for consecutive progress rows under one
- * kshana_run_to (or other long-running) tool call. Default state is
- * COLLAPSED so the chat doesn't drown in per-step heartbeat lines —
- * the user sees only the most recent step plus an "N steps" expander
- * button. Click expands; click again collapses.
- */
-function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const last = rows[rows.length - 1];
-  const count = rows.length;
-  const buttonStyle: React.CSSProperties = {
-    marginLeft: 18,
-    marginTop: 2,
-    padding: '2px 8px',
-    background: 'transparent',
-    border: 'none',
-    color: '#7a8190',
-    fontSize: 10,
-    fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-    cursor: 'pointer',
-    textAlign: 'left',
-  };
-  return (
-    <div aria-label="Run progress group">
-      {expanded ? (
-        <>
-          {rows.map((r) => (
-            <ProgressRow key={r.id} text={r.progressText} />
-          ))}
-          <button
-            aria-label="Collapse run progress"
-            onClick={() => setExpanded(false)}
-            style={buttonStyle}
-            type="button"
-          >
-            ▴ collapse {count} step{count === 1 ? '' : 's'}
-          </button>
-        </>
-      ) : (
-        <>
-          {last && <ProgressRow text={last.progressText} />}
-          {count > 1 && (
-            <button
-              aria-label="Expand run progress"
-              onClick={() => setExpanded(true)}
-              style={buttonStyle}
-              type="button"
-            >
-              ▾ show {count} step{count === 1 ? '' : 's'}
-            </button>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-interface ProgressGroupItem {
-  kind: 'progressGroup';
-  id: string;
-  toolCallId: string;
-  rows: ChatMessage[];
-}
-
-interface MessageItem {
-  kind: 'message';
-  message: ChatMessage;
-}
-
-type RenderItem = ProgressGroupItem | MessageItem;
-
-/**
- * Walk the flat message list once and fold consecutive progress rows
- * sharing the same parent toolCallId into a single accordion item.
- * Pure helper — exported only conceptually (no consumers outside this
- * file). Kept as a free function so it's trivially memoizable.
- */
-function groupConsecutiveProgress(messages: ChatMessage[]): RenderItem[] {
-  const out: RenderItem[] = [];
-  for (const m of messages) {
-    if (m.role === 'progress' && m.progressForToolCallId) {
-      const last = out[out.length - 1];
-      if (
-        last &&
-        last.kind === 'progressGroup' &&
-        last.toolCallId === m.progressForToolCallId
-      ) {
-        last.rows.push(m);
-        continue;
-      }
-      out.push({
-        kind: 'progressGroup',
-        id: `pg-${m.id}`,
-        toolCallId: m.progressForToolCallId,
-        rows: [m],
-      });
-      continue;
-    }
-    out.push({ kind: 'message', message: m });
-  }
-  return out;
-}
-
-function resolveMediaSrc(path: string, projectDirectory: string | null): string {
-  // ExecutorAgent emits project-relative paths (assets/images/foo.png)
-  // in tool_result.file_path. Resolving them here against the open
-  // workspace project's absolute dir yields a file:// URL the Electron
-  // renderer can actually load — without this prefix the <img> 404s
-  // and gets hidden by onError, matching the "shows path but never
-  // the actual asset" report.
-  if (path.startsWith('/')) return `file://${path}`;
-  if (projectDirectory) return `file://${projectDirectory}/${path}`;
-  return `file://${path}`;
-}
-
-function MessageRow({
-  message: m,
-  projectDirectory,
-}: {
-  message: ChatMessage;
-  projectDirectory: string | null;
-}) {
+function MessageRow({ message: m }: { message: ChatMessage }) {
   if (m.role === 'tool') {
     // Compact one-liner: glyph + monospaced tool name + faint args.
     // Per-line progress for long-running tools (e.g. kshana_run_to)
     // streams in as separate `progress` rows, one per chunk —
     // rendered just below this row by the parent message list.
     return (
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          gap: 6,
-          padding: '2px 4px',
-          opacity: 0.85,
-          fontSize: 11,
-          fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-        }}
-      >
-        <span style={{ color: statusColor(m.toolStatus), width: 12 }}>
+      <div className={styles.toolRow}>
+        <span className={styles.toolGlyph} data-status={m.toolStatus ?? 'in_progress'}>
           {statusGlyph(m.toolStatus)}
         </span>
-        <span style={{ color: '#9aa3b2' }}>{m.toolName}</span>
+        <span className={styles.toolName}>{m.toolName}</span>
         {m.toolArgsSummary && (
-          <span style={{ opacity: 0.55, fontSize: 10 }}>{m.toolArgsSummary}</span>
+          <span className={styles.toolArgs}>{m.toolArgsSummary}</span>
         )}
       </div>
     );
   }
   if (m.role === 'progress') {
-    // Standalone (un-grouped) progress row — falls through to the
-    // shared ProgressRow renderer. The normal grouped path
-    // (kshana_run_to with N stream_chunks) is rendered by
-    // ProgressGroup at the parent level.
-    return <ProgressRow text={m.progressText} />;
+    // One row per chunk from a long-running tool. Indented + faint
+    // accent so the user can scan the run's heartbeat at a glance,
+    // while still getting one discrete "block" per progress event
+    // (instead of one big concatenated <pre>).
+    return (
+      <div aria-label="Run progress" className={styles.progressRow}>
+        {m.progressText}
+      </div>
+    );
   }
   if (m.role === 'system') {
     // Compact "the user just took an action" pill — used for things
     // like "Resuming pipeline run…" or CTA labels. Distinct enough
     // from chat bubbles that the eye reads it as metadata, not as
     // either party speaking.
-    return (
-      <div
-        style={{
-          alignSelf: 'center',
-          padding: '4px 12px',
-          fontSize: 11,
-          color: '#9aa3b2',
-          background: 'rgba(255,255,255,0.04)',
-          border: '1px solid rgba(255,255,255,0.08)',
-          borderRadius: 999,
-          fontWeight: 500,
-          letterSpacing: 0.2,
-        }}
-      >
-        {m.text}
-      </div>
-    );
+    return <div className={styles.systemPill}>{m.text}</div>;
   }
   if (m.role === 'phase') {
     return (
-      <div
-        aria-label="Phase transition"
-        style={{
-          padding: '3px 8px',
-          fontSize: 11,
-          background: 'rgba(100,100,200,0.12)',
-          borderLeft: '2px solid rgba(100,100,200,0.5)',
-          color: 'rgba(180,180,255,0.85)',
-        }}
-      >
+      <div aria-label="Phase transition" className={styles.phaseRow}>
         ▶ {m.text}
       </div>
     );
@@ -1532,18 +1135,15 @@ function MessageRow({
       ? resolveMediaSrc(m.mediaPath, projectDirectory)
       : '';
     return (
-      <div style={messageBubbleStyle('rgba(80,160,80,0.10)', 'flex-start')}>
-        <div style={{ fontSize: 10, opacity: 0.6, marginBottom: 4 }}>
+      <div className={styles.mediaRow}>
+        <div className={styles.mediaLabel}>
           generated {m.mediaKind} · {m.mediaProject ?? ''}
         </div>
         {m.mediaKind === 'image' && resolvedSrc ? (
           <img
             src={resolvedSrc}
             alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
-            // Compact thumbnail — full-width assets dominated the chat
-            // panel and made each generation feel "heavy". Click to
-            // open in a system viewer if the user wants the real size.
-            style={{ maxWidth: '220px', borderRadius: 4, cursor: 'zoom-in' }}
+            className={styles.mediaImage}
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}
@@ -1562,34 +1162,26 @@ function MessageRow({
     );
   }
   // user / assistant
+  if (m.role === 'user') {
+    return <div className={`${styles.bubble} ${styles.bubbleUser}`}>{m.text}</div>;
+  }
   return (
-    <div
-      style={{
-        ...messageBubbleStyle(
-          m.role === 'user' ? 'rgba(80,140,200,0.18)' : 'rgba(255,255,255,0.04)',
-          m.role === 'user' ? 'flex-end' : 'flex-start',
-        ),
-        maxWidth: '85%',
-      }}
-    >
-      {m.role === 'assistant' ? (
-        // Render-layer dedup as a safety net: the upstream LLM
-        // stream sometimes accumulates the same text twice
-        // (stream_chunk arriving with full content twice). Catching
-        // it here covers every code path that builds the bubble.
-        <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
-      ) : (
-        <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>
-      )}
+    <div className={`${styles.bubble} ${styles.bubbleAssistant}`}>
+      {/* Render-layer dedup as a safety net: the upstream LLM
+          stream sometimes accumulates the same text twice
+          (stream_chunk arriving with full content twice). Catching
+          it here covers every code path that builds the bubble. */}
+      <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
     </div>
   );
 }
 
 function MarkdownContent({ text }: { text: string }) {
   // remark-gfm gives us tables, strikethrough, autolinks, task lists.
+  // Heading/paragraph overrides tighten spacing for chat density —
+  // only structural layout, no hardcoded colors.
   const components = useMemo(
     () => ({
-      // Tighten heading + paragraph spacing for chat density.
       h1: (props: React.HTMLAttributes<HTMLHeadingElement>) => (
         <h1 style={{ fontSize: 18, margin: '6px 0' }} {...props} />
       ),
@@ -1608,55 +1200,15 @@ function MarkdownContent({ text }: { text: string }) {
       ol: (props: React.OlHTMLAttributes<HTMLOListElement>) => (
         <ol style={{ margin: '4px 0', paddingLeft: 18 }} {...props} />
       ),
-      code: (props: React.HTMLAttributes<HTMLElement>) => (
-        <code
-          style={{
-            background: 'rgba(255,255,255,0.06)',
-            padding: '1px 4px',
-            borderRadius: 3,
-            fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-            fontSize: '0.92em',
-          }}
-          {...props}
-        />
-      ),
-      pre: (props: React.HTMLAttributes<HTMLPreElement>) => (
-        <pre
-          style={{
-            background: 'rgba(255,255,255,0.06)',
-            padding: 8,
-            borderRadius: 4,
-            overflowX: 'auto',
-            margin: '6px 0',
-            fontSize: 12,
-          }}
-          {...props}
-        />
-      ),
-      a: (props: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
-        <a {...props} target="_blank" rel="noreferrer" style={{ color: '#7eb6ff' }} />
-      ),
+      // code/pre/a styling lives in .bubbleAssistant :global() in the SCSS module
     }),
     [],
   );
   return (
-    <div style={{ fontSize: 13, lineHeight: 1.5 }}>
-      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
-        {text}
-      </ReactMarkdown>
-    </div>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+      {text}
+    </ReactMarkdown>
   );
-}
-
-function messageBubbleStyle(bg: string, align: 'flex-start' | 'flex-end'): React.CSSProperties {
-  return {
-    background: bg,
-    border: '1px solid rgba(255,255,255,0.06)',
-    borderRadius: 8,
-    padding: '6px 10px',
-    color: 'inherit',
-    alignSelf: align,
-  };
 }
 
 function handleEvent(

@@ -18,8 +18,6 @@ const IGNORED_PATTERNS = [
   /\.tmp$/,
 ];
 
-const MAX_RECENT_PROJECTS = 10;
-
 interface FileSystemStore {
   recentProjects: RecentProject[];
 }
@@ -470,14 +468,16 @@ class FileSystemManager extends EventEmitter {
     const updated: RecentProject[] = [
       { path: projectPath, name, lastOpened: now },
       ...filtered,
-    ].slice(0, MAX_RECENT_PROJECTS);
+    ];
 
     this.store.set('recentProjects', updated);
   }
 
   removeRecentProject(projectPath: string): void {
     const recentProjects = this.getRecentProjects();
-    const filtered = recentProjects.filter((project) => project.path !== projectPath);
+    const filtered = recentProjects.filter(
+      (project) => project.path !== projectPath,
+    );
     if (filtered.length !== recentProjects.length) {
       this.store.set('recentProjects', filtered);
     }

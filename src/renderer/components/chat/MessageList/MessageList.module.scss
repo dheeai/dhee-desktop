@@ -45,8 +45,8 @@
 .phaseBanner {
   margin: $spacing-lg 0;
   padding: $spacing-md 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid $color-border-subtle;
+  border-bottom: 1px solid $color-border-subtle;
   text-align: center;
 }
 
@@ -55,7 +55,7 @@
   align-items: center;
   gap: $spacing-sm;
   padding: $spacing-sm $spacing-md;
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(var(--color-accent-primary-rgb), 0.10);
   border-radius: $radius-md;
 }
 
@@ -74,7 +74,7 @@
   padding: $spacing-md $spacing-lg;
   color: $color-text-secondary;
   font-size: $font-size-sm;
-  font-family: 'Monaco', 'Menlo', 'Courier New', monospace;
+  font-family: $font-family-mono;
 }
 
 .thinkingInline {
