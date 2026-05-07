@@ -101,6 +101,14 @@ function packKshanaInk(kshanaInkPath: string): string {
   return path.join(vendorPath, result.filename);
 }
 
+function buildKshanaInk(kshanaInkPath: string): void {
+  console.log(`Building kshana-core before packaging from ${kshanaInkPath}`);
+  runNpm(['run', 'build'], {
+    cwd: kshanaInkPath,
+    stdio: 'inherit',
+  });
+}
+
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -156,6 +164,7 @@ function installAppDeps(): void {
     throw new Error(`kshana-core repo not found at ${kshanaInkPath}`);
   }
 
+  buildKshanaInk(kshanaInkPath);
   const tarballPath = packKshanaInk(kshanaInkPath);
   const tarballRelativePath = path.relative(webpackPaths.appPath, tarballPath);
   syncReleaseAppPackage(mainPackagePath, tarballRelativePath);
