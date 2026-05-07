@@ -108,19 +108,15 @@ function newMessageId(): string {
 }
 
 /**
- * Tool names whose execution is "the long pipeline" — running for
- * minutes to hours. The header Run/Stop button shows Stop while any
- * of these is in flight, regardless of which session dispatched it.
+ * How often to poll `window.kshana.runnerStatus()` for the active
+ * task. The runner is the single source of truth for whether a long
+ * pipeline is in flight; this poll interval bounds how quickly the
+ * header Stop button appears/disappears in response to runner state
+ * changes. 1500ms is a reasonable trade-off — fast enough that the
+ * user perceives Stop appearing "right after" they hit Resume, slow
+ * enough that we don't flood the IPC layer.
  */
-const LONG_RUNNING_KSHANA_TOOLS = new Set([
-  'kshana_run_to',
-  'kshana_render_scene_bundle',
-  'kshana_audit_fidelity',
-]);
-
-function isLongRunningKshanaTool(toolName: string | undefined): boolean {
-  return !!toolName && LONG_RUNNING_KSHANA_TOOLS.has(toolName);
-}
+const RUNNER_STATUS_POLL_MS = 1500;
 
 /**
  * Detect the "text concatenated with itself" pattern that the
@@ -226,20 +222,12 @@ export default function ChatPanelEmbedded() {
   // points at the main session id once available, used purely as a
   // route key for cancel.
   const [bgSessionId, setBgSessionId] = useState<string | null>(null);
-  // Tracks which session currently has a long-running kshana_* tool
-  // executing (kshana_run_to in particular). Set when tool_call fires
-  // for a long tool, cleared on tool_result. Drives the header Run/
-  // Stop button so the button reflects the actual run state — even
-  // if the user typed "continue the pipeline" into the MAIN session
-  // (where pi-agent then dispatched kshana_run_to) rather than
-  // clicking Resume.
-  const [activeLongRunSessionId, setActiveLongRunSessionId] = useState<
-    string | null
-  >(null);
-  // True from the moment the user clicks Stop until activeLongRunSessionId
-  // clears. Same role as the old bg-only `pendingCancel` but bound to
-  // the unified active-run state.
-  const [bgStatus, setBgStatus] = useState<'idle' | 'cancelling'>('idle');
+  // Whether the BackgroundTaskRunner reports an active task. Polled
+  // from `window.kshana.runnerStatus()` — see the effect below. This
+  // is the SINGLE source of truth for the header Stop button, so the
+  // button reflects reality regardless of which tool pi-agent fired
+  // to start the run.
+  const [runnerActive, setRunnerActive] = useState(false);
 
   /**
    * Pi-agent oversight + VLM judge runtime toggles read from
@@ -279,40 +267,15 @@ export default function ChatPanelEmbedded() {
       if (event.sessionId !== mainId && event.sessionId !== bgSessionId) {
         return;
       }
-      // Sniff long-running kshana_* tool starts/ends to drive the
-      // header Run/Stop button. We track them PER SESSION so a
-      // run on the main session (because the user typed "continue
-      // the pipeline") flips the same state as a run on the bg
-      // session (clicked Resume). The button reflects "is anything
-      // long actually running" rather than just "is the bg session
-      // active".
-      if (event.eventName === 'tool_call') {
-        const data = event.data as {
-          toolCallId?: string;
-          toolName?: string;
-          status?: string;
-        };
-        if (
-          data.toolName &&
-          isLongRunningKshanaTool(data.toolName) &&
-          data.status !== 'completed' &&
-          data.status !== 'error'
-        ) {
-          setActiveLongRunSessionId(event.sessionId);
-        }
-      } else if (event.eventName === 'tool_result') {
-        const data = event.data as { toolCallId?: string };
-        const toolName =
-          data.toolCallId !== undefined
-            ? toolNameByCallIdRef.current?.get(data.toolCallId)
-            : undefined;
-        if (toolName && isLongRunningKshanaTool(toolName)) {
-          setActiveLongRunSessionId((prev) =>
-            prev === event.sessionId ? null : prev,
-          );
-          setBgStatus('idle');
-        }
-      }
+      // The header Stop button is no longer driven by tool-name
+      // sniffing here. The previous tool-name allowlist
+      // (`LONG_RUNNING_KSHANA_TOOLS`) only flipped on for THREE
+      // hard-coded names — any other path pi-agent took to
+      // generate a project left the button hidden for the entire
+      // run. Now `runnerStatus()` (polled below) is the single
+      // source of truth: if the BackgroundTaskRunner reports a
+      // task active, the button shows. See the
+      // `runnerActive` poll effect below.
       handleEvent(
         event,
         setMessages,
@@ -324,13 +287,35 @@ export default function ChatPanelEmbedded() {
     return unsubscribe;
   }, [session.sessionId, session.subscribe, bgSessionId]);
 
-  // Clear the local "Stopping…" flag once the active long run has
-  // actually wound down (no session has it active anymore).
+  // Poll runnerStatus to drive `runnerActive`. The runner emits no
+  // push events to the renderer today (only `runnerStatus` /
+  // `runnerCancel` IPC), so polling is the path. An immediate fetch
+  // happens on mount so a user who reopens the panel mid-run sees
+  // Stop without waiting for the first interval tick.
   useEffect(() => {
-    if (!activeLongRunSessionId && pendingCancel) {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const status = await window.kshana.runnerStatus();
+        if (!cancelled) setRunnerActive(!!status?.active);
+      } catch {
+        if (!cancelled) setRunnerActive(false);
+      }
+    };
+    tick();
+    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, []);
+
+  // Clear the local "Stopping…" flag once the runner reports idle.
+  useEffect(() => {
+    if (!runnerActive && pendingCancel) {
       setPendingCancel(false);
     }
-  }, [activeLongRunSessionId, pendingCancel]);
+  }, [runnerActive, pendingCancel]);
 
   // (was: bg-session teardown on project switch — no longer needed
   // since the BackgroundTaskRunner singleton handles task lifecycle
@@ -651,7 +636,6 @@ export default function ChatPanelEmbedded() {
     // natural completion. The Stop button stays instant even when
     // the main session's pi-agent is mid-reply.
     setPendingCancel(true);
-    setBgStatus('cancelling');
     await window.kshana.runnerCancel().catch(() => undefined);
   }, []);
 
@@ -711,13 +695,11 @@ export default function ChatPanelEmbedded() {
     await session.sendResponse(option);
   }, [session]);
 
-  // The header Run/Stop button reflects "is a long kshana_* run
-  // active anywhere", regardless of which session dispatched it.
-  // This way it shows Stop whether the user clicked Resume (bg
-  // session) OR typed "continue the pipeline" into the main session
-  // (and pi-agent decided to call kshana_run_to there).
-  const isRunning =
-    activeLongRunSessionId !== null || bgStatus === 'cancelling';
+  // Single source of truth: the BackgroundTaskRunner. If it reports
+  // a task active, the header shows Stop. Optimistic `pendingCancel`
+  // also keeps the button in its "Stopping…" state during the brief
+  // window between click and the runner actually winding down.
+  const isRunning = runnerActive || pendingCancel;
   // Main-session readiness gates the textarea / send button. We
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.

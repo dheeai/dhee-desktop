@@ -6,6 +6,9 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
+// FolderKanban (Assets) and Layers (Storyboard) icons retained for the
+// deprecated tabs — kept imported so re-enabling those tabs is a
+// single-line change in the `tabs` array below.
 import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
@@ -23,7 +26,12 @@ import styles from './PreviewPanel.module.scss';
 type Tab = 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
 
 export default function PreviewPanel() {
-  const [activeTab, setActiveTab] = useState<Tab>('video-library');
+  // Default to Prompts — the per-shot prompt + media inspector is the
+  // primary workspace surface as of 2026-05-06. Storyboard and Assets
+  // are deprecated (still importable / renderable in this file so we
+  // can re-enable later), but excluded from the visible tab list
+  // below.
+  const [activeTab, setActiveTab] = useState<Tab>('prompts');
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [timelineHeight, setTimelineHeight] = useState(320);
 
@@ -36,31 +44,27 @@ export default function PreviewPanel() {
   const { projectDirectory, pendingFileNavigation, clearFileNavigation } =
     useWorkspace();
 
+  // Visible tab list. Order matters — Prompts first (primary surface),
+  // Library second, Files last. Storyboard + Assets are deprecated as
+  // of 2026-05-06: their components still ship in this file's imports
+  // and `renderActiveContent` switch arms, so the views can be
+  // reinstated by re-adding entries here without touching the rest of
+  // the panel.
   const tabs = useMemo(
     () => [
-      {
-        id: 'video-library' as const,
-        label: 'Library',
-        icon: Clapperboard,
-      },
-      {
-        id: 'storyboard' as const,
-        label: 'Storyboard',
-        icon: Layers,
-      },
       {
         id: 'prompts' as const,
         label: 'Prompts',
         icon: FileText,
       },
       {
-        id: 'assets' as const,
-        label: 'Assets',
-        icon: FolderKanban,
+        id: 'video-library' as const,
+        label: 'Watch',
+        icon: Clapperboard,
       },
       {
         id: 'preview' as const,
-        label: 'Files',
+        label: 'Content',
         icon: FileCode2,
       },
     ],

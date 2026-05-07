@@ -307,8 +307,56 @@ export default function PromptsView() {
   const [shotAssets, setShotAssets] = useState<Map<string, ShotAssets>>(
     new Map(),
   );
+  // Per-shot status flag: true when shot_image_prompt:scene_N_shot_M is
+  // `completed` in executorState. After an invalidate/reset the JSON file
+  // stays on disk (the resetter preserves outputs by design) but the
+  // executor node goes back to `pending` — without this filter the panel
+  // would keep showing the stale prompt text from a prior generation.
+  const [completedShots, setCompletedShots] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  // Live-refresh tick. Bumped whenever the executor writes a new prompt /
+  // image / motion file or updates project.json. Without this the panel
+  // would only refetch on mount or when the user click-away-and-back-in,
+  // so newly-generated shots wouldn't appear during a live run.
+  const [refreshTick, setRefreshTick] = useState(0);
+  useEffect(() => {
+    if (!projectDirectory) return undefined;
+    const dirPrefix = projectDirectory.replace(/\\/g, '/');
+    let pending = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const schedule = () => {
+      if (pending) return;
+      pending = true;
+      // Debounce: writes come in clusters during a node's completion
+      // (prompt JSON + project.json + asset). Coalesce into one refresh.
+      timer = setTimeout(() => {
+        pending = false;
+        timer = null;
+        setRefreshTick((t) => t + 1);
+      }, 300);
+    };
+
+    const unsubscribe = window.electron.project.onFileChange((event) => {
+      const p = event.path.replace(/\\/g, '/');
+      if (!p.startsWith(dirPrefix)) return;
+      // Only refresh on the file types this panel actually renders.
+      const interesting =
+        p.includes('/prompts/images/shots/') ||
+        p.includes('/prompts/motion/') ||
+        p.includes('/assets/images/') ||
+        p.includes('/assets/videos/') ||
+        p.endsWith('/project.json');
+      if (interesting) schedule();
+    });
+
+    return () => {
+      unsubscribe();
+      if (timer) clearTimeout(timer);
+    };
+  }, [projectDirectory]);
 
   // Build refId → absolute path resolver AND per-shot asset map from
   // project.json. Both come from a single read — refMap from
@@ -332,33 +380,47 @@ export default function PromptsView() {
           executorState?: {
             nodes?: Record<
               string,
-              { outputPath?: string; outputPaths?: Record<string, string> }
+              {
+                outputPath?: string;
+                outputPaths?: Record<string, string>;
+                status?: string;
+              }
             >;
           };
         };
         const nodes = project.executorState?.nodes ?? {};
         const map = new Map<string, string>();
+        const completed = new Set<string>();
         for (const [id, node] of Object.entries(nodes)) {
           if (node.outputPath) {
             map.set(id, `${projectDirectory}/${node.outputPath}`);
+          }
+          // Track shot_image_prompt nodes whose status is still `completed`.
+          // Pending/failed/invalidated shots get filtered out of the panel so
+          // a reset visually clears stale entries.
+          const m = id.match(/^shot_image_prompt:(scene_\d+_shot_\d+)$/);
+          if (m && node.status === 'completed') {
+            completed.add(m[1]!);
           }
         }
         const assets = extractShotAssets(nodes);
         if (!cancelled) {
           setRefMap(map);
           setShotAssets(assets);
+          setCompletedShots(completed);
         }
       } catch {
         if (!cancelled) {
           setRefMap(new Map());
           setShotAssets(new Map());
+          setCompletedShots(new Set());
         }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [projectDirectory]);
+  }, [projectDirectory, refreshTick]);
 
   // Enumerate every prompt JSON on disk, then load each one + its
   // sibling motion file. Sorted scene-then-shot. Robust to gaps
@@ -393,6 +455,12 @@ export default function PromptsView() {
         const entries: ShotEntry[] = [];
         for (const { scene, shot, file } of ids) {
           if (cancelled) return;
+          // Skip shots whose shot_image_prompt node isn't currently
+          // `completed`. After a reset/invalidate the JSON file is still
+          // on disk (resetter preserves outputs) but the node is pending,
+          // and showing the stale prompt would mislead the user.
+          const itemId = `scene_${scene}_shot_${shot}`;
+          if (!completedShots.has(itemId)) continue;
           const promptPath = `${shotsDir}/${file}`;
           const motionPath = `${projectDirectory}/prompts/motion/scene_${scene}_shot_${shot}.json`;
           const [pRaw, mRaw] = await Promise.all([
@@ -423,7 +491,7 @@ export default function PromptsView() {
     return () => {
       cancelled = true;
     };
-  }, [projectDirectory]);
+  }, [projectDirectory, refreshTick, completedShots]);
 
   const resolveRef = useCallback(
     (refId: string): string | null => refMap.get(refId) ?? null,
