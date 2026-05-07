@@ -1,17 +1,19 @@
+@import '../../../styles/tokens';
+
 .container {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding: 8px 16px;
-  background-color: var(--color-bg-panel-elevated, #2d2d2d);
-  border-bottom: 1px solid var(--color-border, #3a3a3a);
-  font-family: var(--font-mono, monospace);
-  font-size: 13px;
+  gap: $spacing-md;
+  padding: $spacing-sm $spacing-lg;
+  background-color: $color-bg-panel-elevated;
+  border-bottom: 1px solid $color-border-subtle;
+  font-family: $font-family-mono;
+  font-size: $font-size-sm + 1; // 13px
   position: sticky;
   top: 0;
   z-index: 10;
-  color: var(--color-text-secondary, #a0a0a0);
+  color: $color-text-secondary;
   min-height: 36px;
 }
 
@@ -23,20 +25,20 @@
 }
 
 .agentName {
-  font-weight: 600;
-  color: var(--color-accent-primary, #0078d4);
-  margin-right: 8px;
+  font-weight: $font-weight-semibold;
+  color: $color-accent-primary;
+  margin-right: $spacing-sm;
 }
 
 .phaseName {
-  font-weight: 500;
-  color: var(--color-text-primary, #d4d4d4);
-  margin-right: 8px;
+  font-weight: $font-weight-medium;
+  color: $color-text-primary;
+  margin-right: $spacing-sm;
   padding: 2px 8px;
-  background-color: var(--color-bg-tertiary, #333333);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 999px;
-  font-size: 12px;
+  background-color: $color-bg-panel-soft;
+  border: 1px solid rgba(var(--color-border-subtle-rgb), 0.6);
+  border-radius: $radius-full;
+  font-size: $font-size-sm;
 }
 
 .statusIndicator {
@@ -44,27 +46,27 @@
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  margin-right: 8px;
+  margin-right: $spacing-sm;
   flex-shrink: 0;
 
   &.ready {
-    background-color: var(--color-success, #7c9a86);
-    box-shadow: 0 0 0 3px rgba(115, 187, 147, 0.16);
+    background-color: $color-success;
+    box-shadow: 0 0 0 3px rgba(var(--color-success-rgb), 0.16);
   }
 
   &.thinking, &.executing {
-    background-color: var(--color-warning, #b99258);
-    box-shadow: 0 0 0 3px rgba(215, 171, 98, 0.14);
+    background-color: $color-warning;
+    box-shadow: 0 0 0 3px rgba(var(--color-warning-rgb), 0.14);
     animation: pulse 1.5s infinite;
   }
 
   &.error {
-    background-color: var(--color-danger, #b87070);
-    box-shadow: 0 0 0 3px rgba(223, 118, 118, 0.14);
+    background-color: $color-error;
+    box-shadow: 0 0 0 3px rgba(var(--color-error-rgb), 0.14);
   }
 
   &.completed {
-    background-color: var(--color-accent-primary, #0078d4);
+    background-color: $color-accent-primary;
   }
 }
 
@@ -85,24 +87,24 @@
   display: inline-flex;
   align-items: center;
   min-height: 22px;
-  padding: 0 8px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background-color: rgba(255, 255, 255, 0.03);
-  font-size: 12px;
+  padding: 0 $spacing-sm;
+  border-radius: $radius-full;
+  border: 1px solid rgba(var(--color-border-subtle-rgb), 0.6);
+  background-color: rgba(var(--color-text-primary-rgb), 0.03);
+  font-size: $font-size-sm;
   font-variant-numeric: tabular-nums;
 }
 
 .metricRunning {
-  color: var(--color-warning, #b99258);
+  color: $color-warning;
 }
 
 .metricPaused {
-  color: var(--color-text-secondary, #a0a0a0);
+  color: $color-text-secondary;
 }
 
 .metricCompleted {
-  color: var(--color-success, #7c9a86);
+  color: $color-success;
 }
 
 @keyframes pulse {

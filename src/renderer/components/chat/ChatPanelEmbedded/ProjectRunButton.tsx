@@ -77,8 +77,10 @@ export default function ProjectRunButton({
           fontSize: 12,
           fontWeight: 500,
           fontFamily: 'inherit',
-          color: '#fff',
-          background: stopping ? 'rgba(161,58,58,0.7)' : '#a13a3a',
+          color: 'var(--color-bg-panel)',
+          background: stopping
+            ? 'rgba(var(--color-error-rgb), 0.7)'
+            : 'var(--color-error)',
           border: 'none',
           borderRadius: 6,
           cursor: stopping ? 'progress' : 'pointer',
@@ -110,8 +112,8 @@ export default function ProjectRunButton({
         fontSize: 12,
         fontWeight: 500,
         fontFamily: 'inherit',
-        color: '#fff',
-        background: '#3a7aa1',
+        color: 'var(--color-bg-panel)',
+        background: 'var(--color-accent-primary)',
         border: 'none',
         borderRadius: 6,
         cursor: ready ? 'pointer' : 'not-allowed',

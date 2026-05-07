@@ -865,9 +865,13 @@ export default function ChatPanelEmbedded() {
               height: 26,
               padding: 0,
               borderRadius: 6,
-              border: '1px solid #2a2c30',
-              background: piOversight ? 'rgba(120,160,220,0.18)' : 'transparent',
-              color: piOversight ? '#a8bce0' : '#7a8190',
+              border: '1px solid var(--color-border-subtle)',
+              background: piOversight
+                ? 'rgba(var(--color-accent-primary-rgb), 0.18)'
+                : 'transparent',
+              color: piOversight
+                ? 'var(--color-accent-primary)'
+                : 'var(--color-text-muted)',
               cursor: 'pointer',
               transition: 'background 120ms ease, color 120ms ease',
             }}
@@ -906,17 +910,17 @@ export default function ChatPanelEmbedded() {
               height: 26,
               padding: 0,
               borderRadius: 6,
-              border: '1px solid #2a2c30',
+              border: '1px solid var(--color-border-subtle)',
               background: !piOversight
                 ? 'transparent'
                 : vlmJudge
-                  ? 'rgba(120,160,220,0.18)'
+                  ? 'rgba(var(--color-accent-primary-rgb), 0.18)'
                   : 'transparent',
               color: !piOversight
-                ? '#444'
+                ? 'var(--color-text-muted)'
                 : vlmJudge
-                  ? '#a8bce0'
-                  : '#7a8190',
+                  ? 'var(--color-accent-primary)'
+                  : 'var(--color-text-muted)',
               cursor: piOversight ? 'pointer' : 'not-allowed',
               opacity: piOversight ? 1 : 0.45,
               transition: 'background 120ms ease, color 120ms ease, opacity 120ms ease',

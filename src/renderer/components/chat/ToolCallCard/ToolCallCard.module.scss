@@ -148,7 +148,7 @@
   font-family: $font-family-mono;
   font-size: $font-size-xs;
   color: $color-text-secondary;
-  background: rgba(0, 0, 0, 0.3);
+  background: $color-bg-panel-inset;
   padding: $spacing-xs $spacing-sm;
   border-radius: $radius-sm;
   display: block;
@@ -199,7 +199,7 @@
   font-family: $font-family-mono;
   font-size: $font-size-xs;
   color: $color-text-secondary;
-  background: rgba(0, 0, 0, 0.3);
+  background: $color-bg-panel-inset;
   padding: $spacing-xs $spacing-sm;
   border-radius: $radius-sm;
   white-space: pre-wrap;
@@ -545,7 +545,7 @@
   font-family: $font-family-mono;
   font-size: $font-size-xs;
   color: $color-text-secondary;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(var(--color-bg-panel-inset-rgb), 0.66);
   padding: $spacing-xs $spacing-sm;
   border-radius: $radius-sm;
   white-space: pre-wrap;

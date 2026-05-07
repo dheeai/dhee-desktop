@@ -135,8 +135,8 @@ export default function ProjectCTA({
       style={{
         margin: '8px 4px',
         padding: 16,
-        background: 'rgba(255,255,255,0.025)',
-        border: '1px solid #2a2c30',
+        background: 'rgba(var(--color-text-primary-rgb), 0.025)',
+        border: '1px solid var(--color-border-subtle)',
         borderRadius: 10,
         display: 'flex',
         flexDirection: 'column',
@@ -148,13 +148,13 @@ export default function ProjectCTA({
           style={{
             fontSize: 14,
             fontWeight: 600,
-            color: '#e3e3e3',
+            color: 'var(--color-text-primary)',
             marginBottom: 4,
           }}
         >
           {blueprint.title}
         </div>
-        <div style={{ fontSize: 12, color: '#8b95a4', lineHeight: 1.5 }}>
+        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
           {blueprint.body}
         </div>
       </div>
@@ -182,9 +182,13 @@ function ActionRow({
     gap: 10,
     padding: '8px 10px',
     border: '1px solid',
-    borderColor: isPrimary ? 'rgba(120,160,220,0.45)' : '#2a2c30',
+    borderColor: isPrimary
+      ? 'rgba(var(--color-accent-primary-rgb), 0.45)'
+      : 'var(--color-border-subtle)',
     borderRadius: 8,
-    background: isPrimary ? 'rgba(120,160,220,0.08)' : 'transparent',
+    background: isPrimary
+      ? 'rgba(var(--color-accent-primary-rgb), 0.08)'
+      : 'transparent',
     color: 'inherit',
     cursor: 'pointer',
     textAlign: 'left',
@@ -202,20 +206,20 @@ function ActionRow({
       onMouseEnter={(e) => {
         const el = e.currentTarget;
         el.style.background = isPrimary
-          ? 'rgba(120,160,220,0.14)'
-          : 'rgba(255,255,255,0.05)';
+          ? 'rgba(var(--color-accent-primary-rgb), 0.14)'
+          : 'rgba(var(--color-text-primary-rgb), 0.05)';
         el.style.borderColor = isPrimary
-          ? 'rgba(120,160,220,0.6)'
-          : '#3a3c40';
+          ? 'rgba(var(--color-accent-primary-rgb), 0.6)'
+          : 'var(--color-border-strong)';
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget;
         el.style.background = isPrimary
-          ? 'rgba(120,160,220,0.08)'
+          ? 'rgba(var(--color-accent-primary-rgb), 0.08)'
           : 'transparent';
         el.style.borderColor = isPrimary
-          ? 'rgba(120,160,220,0.45)'
-          : '#2a2c30';
+          ? 'rgba(var(--color-accent-primary-rgb), 0.45)'
+          : 'var(--color-border-subtle)';
       }}
     >
       <span
@@ -225,8 +229,12 @@ function ActionRow({
           height: 26,
           flexShrink: 0,
           borderRadius: 6,
-          background: isPrimary ? '#3a7aa1' : '#26282d',
-          color: isPrimary ? '#fff' : '#a8b0bd',
+          background: isPrimary
+            ? 'var(--color-accent-primary)'
+            : 'var(--color-bg-panel-soft)',
+          color: isPrimary
+            ? 'var(--color-bg-panel)'
+            : 'var(--color-text-secondary)',
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
@@ -248,7 +256,7 @@ function ActionRow({
           <span
             style={{
               fontSize: 11,
-              color: '#7a8190',
+              color: 'var(--color-text-muted)',
               lineHeight: 1.4,
             }}
           >
