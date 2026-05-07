@@ -41,6 +41,14 @@ export const KSHANA_CHANNELS = {
   RUNNER_CANCEL: 'kshana:runnerCancel',
   /** Background task runner status snapshot (active task or null). */
   RUNNER_STATUS: 'kshana:runnerStatus',
+  /**
+   * Mark executor nodes `pending` on disk without running them. Used
+   * by the Prompts-tab edit flow: after the user saves a per-shot
+   * prompt change, the dependent image / video node is invalidated
+   * here so the next pipeline run regenerates it. Pure state mutation
+   * — does NOT engage the agent or kick off a run.
+   */
+  INVALIDATE_NODES: 'kshana:invalidateNodes',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -184,4 +192,16 @@ export interface SetVlmJudgeRequest {
 
 export interface DeleteSessionRequest {
   sessionId: string;
+}
+
+export interface InvalidateNodesRequest {
+  sessionId: string;
+  nodeIds: string[];
+}
+
+export interface InvalidateNodesResponse {
+  ok: boolean;
+  invalidated?: string[];
+  notFound?: string[];
+  error?: string;
 }

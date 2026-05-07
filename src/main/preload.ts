@@ -43,6 +43,8 @@ import {
   type SetPiOversightRequest,
   type SetVlmJudgeRequest,
   type DeleteSessionRequest,
+  type InvalidateNodesRequest,
+  type InvalidateNodesResponse,
 } from '../shared/kshanaIpc';
 
 interface WordTimestamp {
@@ -700,6 +702,11 @@ const kshanaBridge = {
   },
   runnerStatus(): Promise<RunnerStatusResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_STATUS);
+  },
+  invalidateNodes(
+    req: InvalidateNodesRequest,
+  ): Promise<InvalidateNodesResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.INVALIDATE_NODES, req);
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.

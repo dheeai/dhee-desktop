@@ -35,6 +35,8 @@ import {
   type SetPiOversightRequest,
   type SetVlmJudgeRequest,
   type DeleteSessionRequest,
+  type InvalidateNodesRequest,
+  type InvalidateNodesResponse,
 } from '../shared/kshanaIpc';
 import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
 
@@ -199,6 +201,31 @@ export function registerKshanaIpcBridge(
     (_event, req: DeleteSessionRequest): OkResponse => {
       manager.deleteSession(req.sessionId);
       return { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.INVALIDATE_NODES,
+    async (
+      _event,
+      req: InvalidateNodesRequest,
+    ): Promise<InvalidateNodesResponse> => {
+      try {
+        const result = await manager.invalidateNodes(
+          req.sessionId,
+          req.nodeIds,
+        );
+        return {
+          ok: true,
+          invalidated: result.invalidated,
+          notFound: result.notFound,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
     },
   );
 }

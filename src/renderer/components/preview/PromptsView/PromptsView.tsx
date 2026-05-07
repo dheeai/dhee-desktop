@@ -12,8 +12,10 @@
  * artifacts live.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { FileText } from 'lucide-react';
+import { FileText, Pencil } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useAgent } from '../../../contexts/AgentContext';
+import { savePromptEdit, type PromptKind } from './savePromptEdit';
 import styles from './PromptsView.module.scss';
 
 interface PromptReference {
@@ -49,6 +51,10 @@ interface ShotEntry {
   shot: number;
   prompts: ShotPromptFile | null;
   motion: MotionFile | null;
+  /** Absolute path to the shot prompt JSON we read; reused on save. */
+  promptPath: string | null;
+  /** Absolute path to the motion JSON we read (if any). */
+  motionPath: string | null;
 }
 
 /**
@@ -151,22 +157,120 @@ function PromptText({
   );
 }
 
+/**
+ * Editing state propagated from the top-level PromptsView. When
+ * `editId` matches a block's identity, that block flips into edit
+ * mode and shows a textarea + Save/Cancel. The buffer + error live
+ * at the parent so a click on the pencil only mounts one editor at
+ * a time across the whole tab.
+ */
+interface EditCoordinator {
+  editId: { scene: number; shot: number; kind: PromptKind } | null;
+  buffer: string;
+  error: string | null;
+  isSaving: boolean;
+  onStartEdit(scene: number, shot: number, kind: PromptKind, text: string): void;
+  onChangeBuffer(text: string): void;
+  onSave(): void;
+  onCancel(): void;
+}
+
 function PromptBlock({
   label,
   text,
   references,
   resolveRef,
+  editable,
+  editor,
 }: {
   label: string;
   text: string | undefined;
   references: PromptReference[] | undefined;
   resolveRef: (refId: string) => string | null;
+  /**
+   * When supplied, the block grows a pencil affordance and can flip
+   * into edit mode. Omitted when the prompt isn't backed by a JSON
+   * file we can rewrite (defensive — shouldn't happen at runtime).
+   */
+  editable?: { scene: number; shot: number; kind: PromptKind };
+  editor?: EditCoordinator;
 }) {
   if (!text) return null;
+  const isActive =
+    !!editable &&
+    !!editor?.editId &&
+    editor.editId.scene === editable.scene &&
+    editor.editId.shot === editable.shot &&
+    editor.editId.kind === editable.kind;
+
   return (
     <div className={styles.promptBlock}>
-      <div className={styles.promptLabel}>{label}</div>
-      <PromptText text={text} references={references} resolveRef={resolveRef} />
+      <div className={styles.promptLabelRow}>
+        <div className={styles.promptLabel}>{label}</div>
+        {editable && editor && !isActive && (
+          <button
+            type="button"
+            className={styles.editButton}
+            aria-label={`Edit ${label}`}
+            title={`Edit ${label}`}
+            onClick={() =>
+              editor.onStartEdit(
+                editable.scene,
+                editable.shot,
+                editable.kind,
+                text,
+              )
+            }
+            disabled={editor.editId !== null}
+          >
+            <Pencil size={14} />
+          </button>
+        )}
+      </div>
+      {isActive && editor ? (
+        <PromptEditForm editor={editor} />
+      ) : (
+        <PromptText
+          text={text}
+          references={references}
+          resolveRef={resolveRef}
+        />
+      )}
+    </div>
+  );
+}
+
+function PromptEditForm({ editor }: { editor: EditCoordinator }) {
+  return (
+    <div className={styles.editForm}>
+      <textarea
+        className={styles.editTextarea}
+        value={editor.buffer}
+        onChange={(e) => editor.onChangeBuffer(e.target.value)}
+        rows={Math.min(20, Math.max(4, editor.buffer.split('\n').length))}
+        autoFocus
+        disabled={editor.isSaving}
+        spellCheck={false}
+      />
+      {editor.error && <div className={styles.editError}>{editor.error}</div>}
+      <div className={styles.editActions}>
+        <button
+          type="button"
+          className={styles.editButtonGhost}
+          onClick={editor.onCancel}
+          disabled={editor.isSaving}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={styles.editButtonPrimary}
+          onClick={editor.onSave}
+          disabled={editor.isSaving}
+        >
+          {editor.isSaving ? 'Saving…' : 'Save'}
+        </button>
+      </div>
     </div>
   );
 }
@@ -185,6 +289,8 @@ function MediaPromptRow({
   references,
   resolveRef,
   projectDirectory,
+  editable,
+  editor,
 }: {
   label: string;
   mediaPath: string | undefined;
@@ -193,6 +299,8 @@ function MediaPromptRow({
   references: PromptReference[] | undefined;
   resolveRef: (refId: string) => string | null;
   projectDirectory: string;
+  editable?: { scene: number; shot: number; kind: PromptKind };
+  editor?: EditCoordinator;
 }) {
   if (!text && !mediaPath) return null;
   if (!mediaPath) {
@@ -203,6 +311,8 @@ function MediaPromptRow({
         text={text}
         references={references}
         resolveRef={resolveRef}
+        editable={editable}
+        editor={editor}
       />
     );
   }
@@ -228,6 +338,8 @@ function MediaPromptRow({
             text={text}
             references={references}
             resolveRef={resolveRef}
+            editable={editable}
+            editor={editor}
           />
         ) : (
           <div className={styles.promptBlock}>
@@ -246,6 +358,13 @@ interface ShotAssets {
   firstFrame?: string;
   lastFrame?: string;
   video?: string;
+  /**
+   * True when `shot_image_last_frame:scene_N_shot_M` exists as its own
+   * node (Pattern-B split). Used by save-edit logic to pick the right
+   * invalidation target — without the split, last-frame edits fall
+   * back to the combined `shot_image:` node.
+   */
+  hasLastFrameNode?: boolean;
 }
 
 /**
@@ -291,6 +410,7 @@ function extractShotAssets(
       // Pattern-B split: last frame lives here. Prefer over the
       // legacy combined node's outputPaths.last_frame.
       if (node.outputPath) existing.lastFrame = node.outputPath;
+      existing.hasLastFrameNode = true;
     } else {
       // shot_video
       if (node.outputPath) existing.video = node.outputPath;
@@ -302,11 +422,25 @@ function extractShotAssets(
 
 export default function PromptsView() {
   const { projectDirectory } = useWorkspace();
+  const agent = useAgent();
   const [shots, setShots] = useState<ShotEntry[]>([]);
   const [refMap, setRefMap] = useState<Map<string, string>>(new Map());
   const [shotAssets, setShotAssets] = useState<Map<string, ShotAssets>>(
     new Map(),
   );
+  // Editing state at the panel level: at most one editor open across
+  // all shots. Tracks {target, original text, current buffer, error,
+  // saving} so the matching block can render its own form via the
+  // editor coordinator passed down through MediaPromptRow / PromptBlock.
+  const [editTarget, setEditTarget] = useState<{
+    scene: number;
+    shot: number;
+    kind: PromptKind;
+  } | null>(null);
+  const [editOriginal, setEditOriginal] = useState('');
+  const [editBuffer, setEditBuffer] = useState('');
+  const [editError, setEditError] = useState<string | null>(null);
+  const [isEditSaving, setIsEditSaving] = useState(false);
   // Per-shot status flag: true when shot_image_prompt:scene_N_shot_M is
   // `completed` in executorState. After an invalidate/reset the JSON file
   // stays on disk (the resetter preserves outputs by design) but the
@@ -480,7 +614,14 @@ export default function PromptsView() {
             /* malformed — skip */
           }
           if (prompts || motion) {
-            entries.push({ scene, shot, prompts, motion });
+            entries.push({
+              scene,
+              shot,
+              prompts,
+              motion,
+              promptPath: prompts ? promptPath : null,
+              motionPath: motion ? motionPath : null,
+            });
           }
         }
         if (!cancelled) setShots(entries);
@@ -496,6 +637,135 @@ export default function PromptsView() {
   const resolveRef = useCallback(
     (refId: string): string | null => refMap.get(refId) ?? null,
     [refMap],
+  );
+
+  // ── Edit handlers ────────────────────────────────────────────────
+  // The pencil click on a prompt block lands here. The block's full
+  // identity (scene, shot, kind) plus its current text seed the panel-
+  // level editor. Only one block can be in edit mode at a time.
+  const handleStartEdit = useCallback(
+    (scene: number, shot: number, kind: PromptKind, currentText: string) => {
+      setEditTarget({ scene, shot, kind });
+      setEditOriginal(currentText);
+      setEditBuffer(currentText);
+      setEditError(null);
+    },
+    [],
+  );
+
+  const handleCancelEdit = useCallback(() => {
+    setEditTarget(null);
+    setEditOriginal('');
+    setEditBuffer('');
+    setEditError(null);
+  }, []);
+
+  // Locate the entry for the current edit so save can compute the
+  // file path + invalidation target. Re-computed each render — cheap
+  // (we only have one editTarget at a time and `shots` is small).
+  const findEntry = useCallback(
+    (scene: number, shot: number): ShotEntry | undefined =>
+      shots.find((s) => s.scene === scene && s.shot === shot),
+    [shots],
+  );
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editTarget) return;
+    // Empty save (no actual change) is treated as cancel: no file
+    // write, no invalidation, no chat receipt.
+    if (editBuffer === editOriginal) {
+      handleCancelEdit();
+      return;
+    }
+    const entry = findEntry(editTarget.scene, editTarget.shot);
+    if (!entry) {
+      setEditError('Could not locate the shot to save.');
+      return;
+    }
+    const filePath =
+      editTarget.kind === 'motion' ? entry.motionPath : entry.promptPath;
+    if (!filePath) {
+      setEditError('No backing prompt file for this shot.');
+      return;
+    }
+    const assets = shotAssets.get(`${editTarget.scene}-${editTarget.shot}`);
+    const hasLastFrameNode = !!assets?.hasLastFrameNode;
+
+    setIsEditSaving(true);
+    setEditError(null);
+    const result = await savePromptEdit({
+      kind: editTarget.kind,
+      scene: editTarget.scene,
+      shot: editTarget.shot,
+      newText: editBuffer,
+      filePath,
+      hasLastFrameNode,
+      fs: {
+        readFile: (p) => window.electron.project.readFile(p),
+        writeFile: (p, content) =>
+          window.electron.project.writeFile(p, content),
+      },
+      invalidateNodes: agent
+        ? agent.invalidateNodes
+        : async () => ({
+            ok: false,
+            error: 'Agent context unavailable',
+          }),
+    });
+    setIsEditSaving(false);
+
+    if (!result.ok) {
+      setEditError(result.error ?? 'Save failed.');
+      return;
+    }
+
+    // Build the user-visible chat receipt. UI-only — the agent reads
+    // the rewritten file and the freshly-pending node directly off
+    // disk on its next turn, no preface needed.
+    const kindLabel: Record<PromptKind, string> = {
+      first_frame: 'first-frame prompt',
+      last_frame: 'last-frame prompt',
+      motion: 'motion directive',
+      negative: 'negative prompt',
+    };
+    agent?.notifyChatReceipt(
+      `📝 You edited and invalidated the ${kindLabel[editTarget.kind]} for Scene ${editTarget.scene}, Shot ${editTarget.shot}. It will regenerate on the next run.`,
+    );
+
+    // Bump refresh so the panel re-reads the updated JSON and shows
+    // the new text without a manual refetch.
+    setRefreshTick((t) => t + 1);
+    handleCancelEdit();
+  }, [
+    agent,
+    editBuffer,
+    editOriginal,
+    editTarget,
+    findEntry,
+    handleCancelEdit,
+    shotAssets,
+  ]);
+
+  const editor: EditCoordinator = useMemo(
+    () => ({
+      editId: editTarget,
+      buffer: editBuffer,
+      error: editError,
+      isSaving: isEditSaving,
+      onStartEdit: handleStartEdit,
+      onChangeBuffer: setEditBuffer,
+      onSave: handleSaveEdit,
+      onCancel: handleCancelEdit,
+    }),
+    [
+      editTarget,
+      editBuffer,
+      editError,
+      isEditSaving,
+      handleStartEdit,
+      handleSaveEdit,
+      handleCancelEdit,
+    ],
   );
 
   // Group shots by scene for display.
@@ -613,6 +883,16 @@ export default function PromptsView() {
                     references={ff?.references}
                     resolveRef={resolveRef}
                     projectDirectory={projectDirectory}
+                    editable={
+                      entry.promptPath
+                        ? {
+                            scene: entry.scene,
+                            shot: entry.shot,
+                            kind: 'first_frame',
+                          }
+                        : undefined
+                    }
+                    editor={editor}
                   />
 
                   <MediaPromptRow
@@ -623,6 +903,16 @@ export default function PromptsView() {
                     references={lf?.references}
                     resolveRef={resolveRef}
                     projectDirectory={projectDirectory}
+                    editable={
+                      entry.promptPath
+                        ? {
+                            scene: entry.scene,
+                            shot: entry.shot,
+                            kind: 'last_frame',
+                          }
+                        : undefined
+                    }
+                    editor={editor}
                   />
 
                   <MediaPromptRow
@@ -633,13 +923,38 @@ export default function PromptsView() {
                     references={undefined}
                     resolveRef={resolveRef}
                     projectDirectory={projectDirectory}
+                    editable={
+                      entry.motionPath
+                        ? {
+                            scene: entry.scene,
+                            shot: entry.shot,
+                            kind: 'motion',
+                          }
+                        : undefined
+                    }
+                    editor={editor}
                   />
 
                   {neg && (
                     <div className={styles.negativeBlock}>
                       <details>
                         <summary>Negative prompt</summary>
-                        <span className={styles.promptText}>{neg}</span>
+                        <PromptBlock
+                          label="Negative prompt"
+                          text={neg}
+                          references={undefined}
+                          resolveRef={resolveRef}
+                          editable={
+                            entry.promptPath
+                              ? {
+                                  scene: entry.scene,
+                                  shot: entry.shot,
+                                  kind: 'negative',
+                                }
+                              : undefined
+                          }
+                          editor={editor}
+                        />
                       </details>
                     </div>
                   )}

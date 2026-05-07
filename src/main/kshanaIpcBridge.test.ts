@@ -95,6 +95,11 @@ const fakeManager = {
   deleteSession: (sessionId: string) => {
     managerCalls.push({ method: 'deleteSession', args: [sessionId] });
   },
+  invalidateNodes: async (sessionId: string, nodeIds: string[]) => {
+    managerCalls.push({ method: 'invalidateNodes', args: [sessionId, nodeIds] });
+    if (sessionId === 'boom') throw new Error('forced failure');
+    return { invalidated: nodeIds, notFound: [] as string[] };
+  },
 };
 
 beforeEach(() => {
@@ -171,6 +176,39 @@ describe('kshanaIpcBridge', () => {
     const handler = handlerRegistry.get(KSHANA_CHANNELS.CANCEL_TASK)!;
     expect(await handler({} as never, { sessionId: 's-1' })).toEqual({ cancelled: true });
     expect(await handler({} as never, { sessionId: 'unknown' })).toEqual({ cancelled: false });
+  });
+
+  it('invalidateNodes channel forwards (sessionId, nodeIds) and returns the manager result', async () => {
+    registerKshanaIpcBridge(
+      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(KSHANA_CHANNELS.INVALIDATE_NODES)!;
+    const result = await handler({} as never, {
+      sessionId: 's-1',
+      nodeIds: ['shot_image:scene_1_shot_2'],
+    });
+    expect(result).toEqual({
+      ok: true,
+      invalidated: ['shot_image:scene_1_shot_2'],
+      notFound: [],
+    });
+    const call = managerCalls.find((c) => c.method === 'invalidateNodes');
+    expect(call?.args).toEqual(['s-1', ['shot_image:scene_1_shot_2']]);
+  });
+
+  it('invalidateNodes wraps manager errors in { ok: false, error }', async () => {
+    registerKshanaIpcBridge(
+      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(KSHANA_CHANNELS.INVALIDATE_NODES)!;
+    const result = (await handler({} as never, {
+      sessionId: 'boom',
+      nodeIds: ['x'],
+    })) as { ok: boolean; error?: string };
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/forced failure/);
   });
 
   it('redoNode channel forwards editedPrompt unchanged', async () => {

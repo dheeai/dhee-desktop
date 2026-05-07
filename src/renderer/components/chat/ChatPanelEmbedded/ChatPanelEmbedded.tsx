@@ -35,6 +35,7 @@ import styles from './ChatPanelEmbedded.module.scss';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
+import { useAgent } from '../../../contexts/AgentContext';
 import type { KshanaEvent } from '../../../../shared/kshanaIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import ProjectSetupPanel, {
@@ -222,6 +223,7 @@ function summarizeArgs(args: unknown): string {
 export default function ChatPanelEmbedded() {
   const session = useKshanaSession();
   const { projectName, projectDirectory } = useWorkspace();
+  const agent = useAgent();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
@@ -236,6 +238,29 @@ export default function ChatPanelEmbedded() {
   // style → duration → story; on confirm, calls session.configureProject
   // (persists template/style/duration into project.json) then runs a
   // kickoff task that pi-agent routes to `kshana_new` with `existingDir`.
+  // Surface system-style receipts pushed by other panels (e.g., the
+  // Prompts tab's edit-and-invalidate flow) into the chat history. The
+  // text is UI-only — the agent doesn't read it; on-disk state already
+  // reflects the edit + invalidation by the time this fires.
+  useEffect(() => {
+    if (!agent) return undefined;
+    return agent.registerNotifyChatReceipt((text) => {
+      setMessages((prev) => [
+        ...prev,
+        { id: newMessageId(), role: 'system', text },
+      ]);
+    });
+  }, [agent]);
+
+  // Expose this session's invalidateNodes so other panels (Prompts tab)
+  // can drive backend invalidation through the same chat session.
+  useEffect(() => {
+    if (!agent) return undefined;
+    return agent.registerInvalidateNodes((nodeIds) =>
+      session.invalidateNodes(nodeIds),
+    );
+  }, [agent, session]);
+
   const [setupPanelMode, setSetupPanelMode] = useState<SetupPanelMode>('hidden');
   const [setupStep, setSetupStep] = useState<SetupStep>('style');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
