@@ -53,6 +53,80 @@ describe('SettingsPanel', () => {
     expect(onThemeChange).toHaveBeenCalledWith('deep-forest-gold');
   });
 
+  it('renders an inline Sign In button when user clicks Cloud while signed-out', async () => {
+    const signIn = jest.fn().mockResolvedValue(undefined);
+    let onChangeHandler: ((account: unknown) => void) | null = null;
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        account: {
+          get: jest.fn().mockResolvedValue(null),
+          getBillingUrl: jest.fn().mockResolvedValue(''),
+          signIn,
+          signOut: jest.fn(),
+          refreshBalance: jest.fn(),
+          openBilling: jest.fn(),
+          onChange: (cb: (account: unknown) => void) => {
+            onChangeHandler = cb;
+            return () => {};
+          },
+        },
+      },
+    });
+
+    const onSaveConnection = jest.fn();
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSaveConnection}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    fireEvent.click(screen.getByText('Connection'));
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Cloud'));
+    });
+
+    expect(
+      screen.getByText('Sign in to Kshana Cloud to switch to Cloud mode.'),
+    ).toBeInTheDocument();
+    const signInButton = screen.getByRole('button', {
+      name: /Sign In to Kshana Cloud/i,
+    });
+
+    await act(async () => {
+      fireEvent.click(signInButton);
+    });
+    expect(signIn).toHaveBeenCalledTimes(1);
+
+    // Simulate the auth bridge reporting a signed-in account; the panel
+    // should clear the warning and auto-apply the pending Cloud switch.
+    await act(async () => {
+      onChangeHandler?.({
+        email: 'user@example.com',
+        name: 'User',
+        credits: 100,
+        planId: 'free',
+        planLabel: 'Free',
+        subscriptionStatus: 'active',
+      });
+    });
+
+    expect(
+      screen.queryByText('Sign in to Kshana Cloud to switch to Cloud mode.'),
+    ).not.toBeInTheDocument();
+    expect((screen.getByLabelText('Cloud') as HTMLInputElement).checked).toBe(
+      true,
+    );
+  });
+
   it('shows ComfyUI and provider settings on the Connection tab', async () => {
     await act(async () => {
       render(

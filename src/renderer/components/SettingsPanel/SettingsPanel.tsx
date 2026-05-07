@@ -117,6 +117,9 @@ export default function SettingsPanel({
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [cloudModeWarning, setCloudModeWarning] = useState<string | null>(null);
+  const [pendingCloudSwitch, setPendingCloudSwitch] = useState(false);
+  const [signingIn, setSigningIn] = useState(false);
+  const [signInError, setSignInError] = useState<string | null>(null);
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
   }, [settings, isVisible]);
@@ -150,9 +153,36 @@ export default function SettingsPanel({
       setAccount(nextAccount);
       if (nextAccount) {
         setCloudModeWarning(null);
+        setSignInError(null);
+        setPendingCloudSwitch((wasPending) => {
+          if (wasPending) {
+            setForm((prev) => ({ ...prev, backendMode: 'cloud' }));
+          }
+          return false;
+        });
       }
     });
   }, [isVisible]);
+
+  const handleInlineSignIn = async () => {
+    const accountBridge = getAccountBridge();
+    if (!accountBridge) {
+      setSignInError('Sign-in is unavailable in this build.');
+      return;
+    }
+    setSignInError(null);
+    setSigningIn(true);
+    try {
+      await accountBridge.signIn();
+    } catch (err) {
+      setSignInError(
+        err instanceof Error ? err.message : 'Sign-in failed. Please try again.',
+      );
+      setPendingCloudSwitch(false);
+    } finally {
+      setSigningIn(false);
+    }
+  };
 
   if (!isVisible) {
     return null;
@@ -163,12 +193,16 @@ export default function SettingsPanel({
     value: string | number | undefined,
   ) => {
     if (key === 'backendMode' && value === 'cloud' && !account) {
-      setCloudModeWarning('Sign in to Kshana Cloud before switching to Cloud mode.');
+      setCloudModeWarning('Sign in to Kshana Cloud to switch to Cloud mode.');
+      setPendingCloudSwitch(true);
+      setSignInError(null);
       return;
     }
 
     if (key === 'backendMode') {
       setCloudModeWarning(null);
+      setPendingCloudSwitch(false);
+      setSignInError(null);
     }
 
     setForm((prev) => ({
@@ -484,7 +518,23 @@ export default function SettingsPanel({
                     </label>
                   </div>
                   {cloudModeWarning ? (
-                    <p className={styles.warningText}>{cloudModeWarning}</p>
+                    <div className={styles.inlineSignIn}>
+                      <p className={styles.warningText}>{cloudModeWarning}</p>
+                      <p className={styles.infoText}>
+                        Sign-in opens your browser, then returns here automatically.
+                      </p>
+                      {signInError ? (
+                        <p className={styles.error}>{signInError}</p>
+                      ) : null}
+                      <button
+                        type="button"
+                        className={styles.submitButton}
+                        onClick={handleInlineSignIn}
+                        disabled={signingIn}
+                      >
+                        {signingIn ? 'Opening Browser…' : 'Sign In to Kshana Cloud'}
+                      </button>
+                    </div>
                   ) : null}
                 </fieldset>
 
