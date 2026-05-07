@@ -717,6 +717,25 @@ export class KshanaCoreManager {
     ).redoNode(sessionId, nodeId, opts);
   }
 
+  /**
+   * Mark executor nodes pending on disk without resuming the
+   * pipeline. Driven by the desktop's Prompts-tab edit flow.
+   */
+  async invalidateNodes(
+    sessionId: string,
+    nodeIds: string[],
+  ): Promise<{ invalidated: string[]; notFound: string[] }> {
+    if (!this.cm) throw new Error('KshanaCoreManager not started');
+    return (
+      this.cm as unknown as {
+        invalidateNodes(
+          s: string,
+          ids: string[],
+        ): Promise<{ invalidated: string[]; notFound: string[] }>;
+      }
+    ).invalidateNodes(sessionId, nodeIds);
+  }
+
   setAutonomousMode(sessionId: string, enabled: boolean): void {
     if (!this.cm) return;
     (

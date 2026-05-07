@@ -149,12 +149,110 @@
   gap: $spacing-xs;
 }
 
+.promptLabelRow {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+}
+
 .promptLabel {
   font-size: $font-size-xs;
   font-weight: $font-weight-bold;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: $color-text-muted;
+  flex: 1;
+}
+
+// Pencil button. Always visible but muted at rest so it doesn't
+// compete with the prompt text; full opacity on hover. Disabled while
+// another block is in edit mode (single-editor invariant).
+.editButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border-radius: $radius-sm;
+  border: 1px solid transparent;
+  background: transparent;
+  color: $color-text-muted;
+  cursor: pointer;
+  opacity: 0.5;
+  transition:
+    opacity $transition-fast,
+    background-color $transition-fast,
+    border-color $transition-fast,
+    color $transition-fast;
+
+  &:hover:not(:disabled) {
+    opacity: 1;
+    color: $color-text-primary;
+    background-color: rgba(var(--color-text-primary-rgb), 0.06);
+    border-color: rgba(var(--color-border-subtle-rgb), 0.6);
+  }
+
+  &:disabled {
+    opacity: 0.25;
+    cursor: not-allowed;
+  }
+}
+
+.editForm {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.editTextarea {
+  width: 100%;
+  padding: $spacing-sm $spacing-md;
+  font-size: $font-size-sm;
+  line-height: 1.6;
+  font-family: inherit;
+  color: $color-text-primary;
+  background-color: rgba(var(--color-text-primary-rgb), 0.02);
+  border: 1px solid $color-border-subtle;
+  border-radius: $radius-sm;
+  resize: vertical;
+  min-height: 80px;
+
+  &:focus {
+    outline: none;
+    border-color: rgba(var(--color-accent-primary-rgb), 0.45);
+    background-color: rgba(var(--color-text-primary-rgb), 0.04);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.editError {
+  font-size: $font-size-xs;
+  color: $color-error;
+  background-color: rgba(var(--color-error-rgb), 0.08);
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+  padding: $spacing-xs $spacing-sm;
+  border-radius: $radius-sm;
+}
+
+.editActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: $spacing-sm;
+}
+
+.editButtonPrimary {
+  @include button-primary;
+  min-width: 88px;
+}
+
+.editButtonGhost {
+  @include button-ghost;
+  min-width: 88px;
 }
 
 .promptText {

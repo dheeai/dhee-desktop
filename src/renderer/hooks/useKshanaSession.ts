@@ -54,6 +54,18 @@ export interface KshanaSessionApi {
   ) => Promise<{ ok: boolean; error?: string }>;
   setAutonomous: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
   sendResponse: (response: string, toolCallId?: string) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Mark executor nodes pending without resuming the pipeline. Used
+   * by the Prompts-tab edit flow after the user saves a per-shot
+   * prompt change. Returns `{ ok, invalidated, notFound }` so callers
+   * can surface partial-failure (mistyped node ids, etc.) inline.
+   */
+  invalidateNodes: (nodeIds: string[]) => Promise<{
+    ok: boolean;
+    invalidated?: string[];
+    notFound?: string[];
+    error?: string;
+  }>;
 
   /**
    * Subscribe to streaming events from kshana-ink. `eventName` is
@@ -196,6 +208,15 @@ export function useKshanaSession(): KshanaSessionApi {
     [],
   );
 
+  const invalidateNodes = useCallback<KshanaSessionApi['invalidateNodes']>(
+    async (nodeIds) => {
+      const id = sessionIdRef.current;
+      if (!id) return { ok: false, error: 'Session not yet created' };
+      return window.kshana.invalidateNodes({ sessionId: id, nodeIds });
+    },
+    [],
+  );
+
   const subscribe = useCallback<KshanaSessionApi['subscribe']>(
     (eventName, cb) => window.kshana.on(eventName, cb),
     [],
@@ -212,6 +233,7 @@ export function useKshanaSession(): KshanaSessionApi {
     focusProject,
     setAutonomous,
     sendResponse,
+    invalidateNodes,
     subscribe,
   };
 }
