@@ -9,7 +9,28 @@ import { DESKTOP_THEMES } from '../../themes';
 import AccountTab from './AccountTab';
 import styles from './SettingsPanel.module.scss';
 
-type SettingsTab = 'account' | 'appearance' | 'connection';
+type SettingsTab = 'account' | 'appearance' | 'connection' | 'diagnostics';
+
+interface LogsBridge {
+  getDir(): Promise<string>;
+  reveal(): Promise<{ ok: true; path: string } | { ok: false; error: string }>;
+  exportZip(): Promise<
+    | { ok: true; path: string; bytes: number; fileCount: number }
+    | { ok: false; error: string }
+  >;
+}
+
+function getLogsBridge(): LogsBridge | undefined {
+  return (window.electron as typeof window.electron & { logs?: LogsBridge })
+    .logs;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  if (n < 1024 * 1024 * 1024) return `${(n / 1024 / 1024).toFixed(1)} MB`;
+  return `${(n / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
 
 type Props = {
   isOpen: boolean;
@@ -120,6 +141,64 @@ export default function SettingsPanel({
   const [pendingCloudSwitch, setPendingCloudSwitch] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
+  const [logsDir, setLogsDir] = useState<string | null>(null);
+  const [diagnosticsBusy, setDiagnosticsBusy] = useState<
+    'reveal' | 'export' | null
+  >(null);
+  const [diagnosticsMessage, setDiagnosticsMessage] = useState<{
+    kind: 'success' | 'error';
+    text: string;
+  } | null>(null);
+
+  useEffect(() => {
+    if (activeTab !== 'diagnostics') return;
+    const bridge = getLogsBridge();
+    if (!bridge) return;
+    bridge
+      .getDir()
+      .then(setLogsDir)
+      .catch(() => setLogsDir(null));
+  }, [activeTab]);
+
+  const handleRevealLogs = async () => {
+    const bridge = getLogsBridge();
+    if (!bridge) return;
+    setDiagnosticsBusy('reveal');
+    setDiagnosticsMessage(null);
+    try {
+      const result = await bridge.reveal();
+      if (result.ok) {
+        setDiagnosticsMessage({
+          kind: 'success',
+          text: `Opened ${result.path}`,
+        });
+      } else {
+        setDiagnosticsMessage({ kind: 'error', text: result.error });
+      }
+    } finally {
+      setDiagnosticsBusy(null);
+    }
+  };
+
+  const handleExportLogs = async () => {
+    const bridge = getLogsBridge();
+    if (!bridge) return;
+    setDiagnosticsBusy('export');
+    setDiagnosticsMessage(null);
+    try {
+      const result = await bridge.exportZip();
+      if (result.ok) {
+        setDiagnosticsMessage({
+          kind: 'success',
+          text: `Saved ${result.fileCount} log files (${formatBytes(result.bytes)}) to ${result.path}`,
+        });
+      } else {
+        setDiagnosticsMessage({ kind: 'error', text: result.error });
+      }
+    } finally {
+      setDiagnosticsBusy(null);
+    }
+  };
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
   }, [settings, isVisible]);
@@ -338,6 +417,16 @@ export default function SettingsPanel({
               Local providers or Kshana Cloud credits
             </span>
           </button>
+          <button
+            type="button"
+            className={`${styles.tabButton} ${activeTab === 'diagnostics' ? styles.tabButtonActive : ''}`}
+            onClick={() => setActiveTab('diagnostics')}
+          >
+            <span className={styles.tabLabel}>Diagnostics</span>
+            <span className={styles.tabDescription}>
+              Logs &amp; troubleshooting
+            </span>
+          </button>
         </aside>
 
         <form className={styles.form} onSubmit={handleSubmit}>
@@ -458,6 +547,75 @@ export default function SettingsPanel({
                       </span>
                     </span>
                   </label>
+                </div>
+              </>
+            ) : activeTab === 'diagnostics' ? (
+              <>
+                <div className={styles.sectionHeader}>
+                  <h3>Diagnostics</h3>
+                  <p>
+                    Share Kshana&apos;s logs with support to debug issues. The
+                    logs include core runner output, ComfyUI debug
+                    breadcrumbs, and the desktop session transcript — they
+                    do not contain your project assets.
+                  </p>
+                </div>
+                <div className={styles.statusCard}>
+                  <div
+                    className={styles.statusHeader}
+                    style={{ marginBottom: 8 }}
+                  >
+                    Logs folder
+                  </div>
+                  <div
+                    style={{
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      opacity: 0.8,
+                      wordBreak: 'break-all',
+                      marginBottom: 16,
+                    }}
+                  >
+                    {logsDir ?? 'Resolving…'}
+                  </div>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      className={styles.submitButton}
+                      onClick={handleRevealLogs}
+                      disabled={diagnosticsBusy !== null}
+                    >
+                      {diagnosticsBusy === 'reveal'
+                        ? 'Opening…'
+                        : 'Reveal logs folder'}
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.submitButton}
+                      onClick={handleExportLogs}
+                      disabled={diagnosticsBusy !== null}
+                    >
+                      {diagnosticsBusy === 'export'
+                        ? 'Bundling…'
+                        : 'Export logs (.zip)'}
+                    </button>
+                  </div>
+                  {diagnosticsMessage && (
+                    <div
+                      className={
+                        diagnosticsMessage.kind === 'error'
+                          ? styles.error
+                          : undefined
+                      }
+                      style={{
+                        marginTop: 12,
+                        fontSize: 13,
+                        wordBreak: 'break-all',
+                      }}
+                    >
+                      {diagnosticsMessage.text}
+                    </div>
+                  )}
                 </div>
               </>
             ) : (
