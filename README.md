@@ -1,8 +1,6 @@
 # Kshana Desktop
 
-Electron desktop application for Kshana. The app bundles the `kshana-core` TypeScript backend and runs it locally:
-
-- The desktop starts the bundled `kshana-core` server on an internal localhost port and the renderer talks to it over HTTP/WebSocket.
+Electron desktop application for Kshana. The app bundles the `kshana-core` TypeScript backend and runs it **in the Electron main process** — there is no separate server, no localhost port, no spawned CLI. The renderer talks to the embedded `ConversationManager` over a typed IPC bridge (see `src/shared/kshanaIpc.ts`).
 
 Hosted/cloud kshana-core mode has been descoped — the app is local-only at present. ComfyUI cloud (pointing at `https://cloud.comfy.org` or another remote ComfyUI URL) is unrelated and still supported in Settings → Connection.
 
@@ -44,10 +42,10 @@ npm run start
 
 In development:
 
-- the desktop starts `../kshana-core/dist/server/cli.cjs` automatically
-- the local backend chooses a free loopback port automatically
+- `kshana-core/manager` is dynamically imported by the Electron main process at app start (see `src/main/kshanaCoreManager.ts`); it owns the `ConversationManager` for the lifetime of the app.
+- No subprocess is spawned and no localhost port is opened — everything runs in-process.
 
-You do not need to run `kshana-core` separately for the normal desktop flow. You only need `pnpm build` in the sibling repo.
+You do not need to run `kshana-core` separately for the normal desktop flow. You only need `pnpm build` in the sibling repo so the dist that the manager imports exists.
 
 ## Settings
 
@@ -115,9 +113,9 @@ npm run release
 
 ## Runtime Model
 
-- desktop starts bundled `kshana-core`
-- desktop waits for `/api/v1/health`
-- renderer connects over WebSocket/HTTP to the localhost backend
+- `KshanaCoreManager` (Electron main) dynamically imports `kshana-core/manager` and constructs a `ConversationManager` once on app start
+- the renderer calls into it via the typed `window.kshana.*` bridge (preload) which `ipcRenderer.invoke`s the channels in `src/shared/kshanaIpc.ts`
+- streaming events from the conversation manager (`tool_call`, `progress`, `agent_response`, `media_generated`, …) are republished from main → renderer over a single `kshana:event` channel
 
 ## Bundled Backend Assets
 
@@ -167,28 +165,39 @@ The outer project folder does not need a `.kshana` extension.
 - packaging may trigger Electron/native rebuild steps depending on dependency state
 - local build machines should use a current Node/npm toolchain compatible with the Electron version in this repo
 
-## WebSocket API
+## IPC API
 
-The `kshana-core` backend exposes a WebSocket API at `/api/v1/ws/chat`.
+There is no network protocol. The renderer talks to the embedded
+`ConversationManager` over typed Electron IPC. All channels and
+payload shapes live in `src/shared/kshanaIpc.ts`. The renderer-
+facing surface is `window.kshana.*` (see `src/main/preload.ts`).
 
-### Client → Server
+### Renderer → main (request/response)
 
-```ts
-{ type: "start_task", data: { task: "Create a video about..." } }
-{ type: "user_response", data: { response: "Yes, proceed" } }
-{ type: "cancel" }
-{ type: "ping" }
-```
+| Channel | Purpose |
+|---------|---------|
+| `kshana:createSession` | Create a chat session (returns `sessionId`) |
+| `kshana:configureProject` | Bind a session to a project + template/style/duration |
+| `kshana:focusProject` | Switch the session to an existing project on disk |
+| `kshana:runTask` | Dispatch a user message; streams events on `kshana:event` |
+| `kshana:sendResponse` | Reply to an `agent_question` |
+| `kshana:cancelTask` | Cancel the in-flight chat turn |
+| `kshana:redoNode` | Edit a prompt + invalidate dependents + resume |
+| `kshana:invalidateNodes` | Mark executor nodes pending without resuming (Prompts-tab edit flow) |
+| `kshana:setAutonomous` | Toggle autonomous mode for the session |
+| `kshana:setPiOversight` | Toggle pi-agent oversight |
+| `kshana:setVlmJudge` | Toggle VLM judge (gated by oversight) |
+| `kshana:runnerCancel` | Cancel the active background task (kshana_run_to et al) |
+| `kshana:runnerStatus` | Snapshot of the active background task or `null` |
+| `kshana:deleteSession` | Tear down a session |
 
-### Server → Client
+### Main → renderer (streaming events)
 
-```ts
-{ type: "status", sessionId, timestamp, data: { status: "connected" | "ready" | "busy" | "completed" | "error", message? } }
-{ type: "progress", sessionId, timestamp, data: { iteration, maxIterations, status } }
-{ type: "stream_chunk", sessionId, timestamp, data: { content, done } }
-{ type: "agent_response", sessionId, timestamp, data: { output, status } }
-{ type: "agent_question", sessionId, timestamp, data: { question, toolCallId } }
-{ type: "tool_call", sessionId, timestamp, data: { toolName, status, arguments, result?, error? } }
-{ type: "todo_update", sessionId, timestamp, data: { todos: [...] } }
-{ type: "error", sessionId, timestamp, data: { code, message, details? } }
-```
+All events publish on the single `kshana:event` channel as
+`{ eventName, sessionId, data }`. `eventName` mirrors `kshana-core`'s
+`ServerMessageType`:
+
+`progress`, `tool_call`, `tool_result`, `todo_updated`,
+`agent_response`, `agent_question`, `status`, `stream_chunk`,
+`context_usage`, `phase_transition`, `timeline_update`,
+`notification`, `project_focused`, `media_generated`.
