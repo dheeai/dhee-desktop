@@ -27,6 +27,7 @@ import {
   Download,
   Eye,
   EyeOff,
+  Loader2,
   ScanEye,
   X,
 } from 'lucide-react';
@@ -103,6 +104,10 @@ interface ContextUsage {
   limit: number;
 }
 
+type MessageListItem =
+  | { kind: 'message'; message: ChatMessage }
+  | { kind: 'progressGroup'; id: string; rows: ChatMessage[] };
+
 let nextMessageId = 1;
 function newMessageId(): string {
   return `msg-${nextMessageId++}`;
@@ -155,6 +160,47 @@ function mergeStreamText(prev: string | undefined, chunk: string, done?: boolean
     }
   }
   return base + chunk;
+}
+
+function groupConsecutiveProgress(messages: ChatMessage[]): MessageListItem[] {
+  const items: MessageListItem[] = [];
+  let pendingRows: ChatMessage[] = [];
+
+  const flushProgress = () => {
+    if (pendingRows.length === 0) return;
+    items.push({
+      kind: 'progressGroup',
+      id: `progress-${pendingRows[0].id}`,
+      rows: pendingRows,
+    });
+    pendingRows = [];
+  };
+
+  for (const message of messages) {
+    if (message.role === 'progress') {
+      pendingRows.push(message);
+      continue;
+    }
+
+    flushProgress();
+    items.push({ kind: 'message', message });
+  }
+
+  flushProgress();
+  return items;
+}
+
+function resolveMediaSrc(mediaPath: string, projectDirectory: string | null): string {
+  const trimmed = mediaPath.trim();
+  if (!trimmed) return '';
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+
+  const absolutePath =
+    trimmed.startsWith('/') || !projectDirectory
+      ? trimmed
+      : `${projectDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
+
+  return `file://${absolutePath}`;
 }
 
 function summarizeArgs(args: unknown): string {
@@ -739,7 +785,7 @@ export default function ChatPanelEmbedded() {
           ? 'ready'
           : 'idle';
 
-  const sendActive = input.trim().length > 0 && isReady && !isMainBusy;
+  const sendActive = input.trim().length > 0 && isReady;
 
   return (
     <div className={styles.root}>
@@ -1022,7 +1068,7 @@ export default function ChatPanelEmbedded() {
                 ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
-            disabled={!isReady || isMainBusy || input.trim().length === 0}
+            disabled={!isReady || input.trim().length === 0}
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
           >
             {isMainBusy ? (
@@ -1087,7 +1133,36 @@ function statusGlyph(status: ToolStatus | undefined): string {
   }
 }
 
-function MessageRow({ message: m }: { message: ChatMessage }) {
+function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const visibleRows = expanded ? rows : rows.slice(-1);
+
+  return (
+    <div aria-label="Run progress group">
+      <button
+        type="button"
+        aria-label={expanded ? 'Collapse run progress' : 'Expand run progress'}
+        onClick={() => setExpanded((current) => !current)}
+        className={styles.progressRow}
+      >
+        {expanded ? 'Hide run progress' : `Show run progress (${rows.length})`}
+      </button>
+      {visibleRows.map((row) => (
+        <div key={row.id} aria-label="Run progress" className={styles.progressRow}>
+          {row.progressText}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MessageRow({
+  message: m,
+  projectDirectory,
+}: {
+  message: ChatMessage;
+  projectDirectory: string | null;
+}) {
   if (m.role === 'tool') {
     // Compact one-liner: glyph + monospaced tool name + faint args.
     // Per-line progress for long-running tools (e.g. kshana_run_to)
@@ -1144,6 +1219,7 @@ function MessageRow({ message: m }: { message: ChatMessage }) {
             src={resolvedSrc}
             alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
             className={styles.mediaImage}
+            style={{ maxWidth: 240 }}
             onError={(e) => {
               (e.currentTarget as HTMLImageElement).style.display = 'none';
             }}

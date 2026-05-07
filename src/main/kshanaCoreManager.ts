@@ -233,8 +233,8 @@ function clearCloudProxyEnv(): void {
     delete process.env.OPENAI_API_KEY;
     delete process.env.OPENAI_BASE_URL;
     delete process.env.OPENAI_MODEL;
-    delete process.env.COMFY_CLOUD_URL;
     delete process.env.COMFY_CLOUD_API_KEY;
+    delete process.env.COMFYUI_BASE_URL;
   }
 }
 
@@ -267,7 +267,7 @@ export function applyEnvFromSettings(
     process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl, '/openai/api/v1');
     process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash';
     process.env.COMFY_MODE = 'cloud';
-    process.env.COMFY_CLOUD_URL = joinUrl(cloudWebsiteUrl, '/comfy/api');
+    process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl, '/comfy/api');
     process.env.COMFY_CLOUD_API_KEY = cloudToken;
     process.env.COMFYUI_TIMEOUT = '1800';
     return;
@@ -289,9 +289,6 @@ export function applyEnvFromSettings(
     if (settings.comfyCloudApiKey.trim()) {
       process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
     }
-    // Tell the cloud client where to actually post — it reads
-    // COMFY_CLOUD_URL, not COMFYUI_BASE_URL, in cloud mode.
-    setIfPresent('COMFY_CLOUD_URL', comfyUiUrl);
   } else {
     process.env.COMFY_MODE = 'local';
   }
