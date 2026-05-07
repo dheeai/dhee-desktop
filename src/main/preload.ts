@@ -608,7 +608,10 @@ const accountBridge = {
   get(): Promise<AccountInfo | null> {
     return ipcRenderer.invoke('account:get');
   },
-  signIn(): Promise<{ opened: boolean }> {
+  getAuthStatus(): Promise<'idle' | 'waiting' | 'expired' | 'error'> {
+    return ipcRenderer.invoke('account:get-auth-status');
+  },
+  signIn(): Promise<{ opened: boolean; state: string }> {
     return ipcRenderer.invoke('account:sign-in');
   },
   signOut(): Promise<{ success: boolean }> {
@@ -627,6 +630,20 @@ const accountBridge = {
   },
   openBilling(): Promise<{ opened: boolean; url: string }> {
     return ipcRenderer.invoke('account:open-billing');
+  },
+  onAuthStatusChange(
+    callback: (status: 'idle' | 'waiting' | 'expired' | 'error') => void,
+  ) {
+    const subscription = (
+      _event: IpcRendererEvent,
+      status: 'idle' | 'waiting' | 'expired' | 'error',
+    ) => {
+      callback(status);
+    };
+    ipcRenderer.on('account:auth-status', subscription);
+    return () => {
+      ipcRenderer.removeListener('account:auth-status', subscription);
+    };
   },
   onChange(callback: (account: AccountInfo | null) => void) {
     const subscription = () => {

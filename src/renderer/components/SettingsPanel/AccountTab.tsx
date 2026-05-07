@@ -12,6 +12,9 @@ function getAccountBridge() {
 
 export default function AccountTab() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
+  const [authStatus, setAuthStatus] = useState<
+    'idle' | 'waiting' | 'expired' | 'error'
+  >('idle');
   const [loading, setLoading] = useState(true);
   const [signingIn, setSigningIn] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -27,6 +30,10 @@ export default function AccountTab() {
     }
     const info = await accountBridge.get();
     setAccount(info);
+    await accountBridge
+      .getAuthStatus()
+      .then(setAuthStatus)
+      .catch(() => setAuthStatus('idle'));
     setLoading(false);
   }, []);
 
@@ -40,15 +47,21 @@ export default function AccountTab() {
       .getBillingUrl()
       .then(setBillingUrl)
       .catch(() => setBillingUrl(''));
-    return accountBridge.onChange((info) => {
+    const unsubscribeAccount = accountBridge.onChange((info) => {
       setAccount(info);
       setLoading(false);
     });
+    const unsubscribeStatus = accountBridge.onAuthStatusChange(setAuthStatus);
+    return () => {
+      unsubscribeAccount();
+      unsubscribeStatus();
+    };
   }, [loadAccount]);
 
   const handleSignIn = async () => {
     setRefreshError('');
     setSigningIn(true);
+    setAuthStatus('waiting');
     try {
       await getAccountBridge()?.signIn();
     } finally {
@@ -68,6 +81,7 @@ export default function AccountTab() {
       const result = await getAccountBridge()?.refreshBalance();
       await loadAccount();
       if (result?.status === 'expired') {
+        setAuthStatus('expired');
         setRefreshError(
           'Your desktop session expired. Sign in again to refresh credits.',
         );
@@ -94,17 +108,45 @@ export default function AccountTab() {
   }
 
   if (!account) {
+    const isWaiting = authStatus === 'waiting' || signingIn;
+    let emptyTitle = 'Not signed in';
+    let emptyText =
+      'Sign-in opens your browser, then returns here automatically.';
+    let emptyCardStatusClass = '';
+
+    if (authStatus === 'expired') {
+      emptyTitle = 'Desktop session expired';
+      emptyText =
+        'Sign in again to reconnect Kshana Cloud credits. Your local projects are still available.';
+      emptyCardStatusClass = styles.statusCardWarning;
+    } else if (isWaiting) {
+      emptyTitle = 'Waiting for browser';
+      emptyText =
+        'Finish sign-in in your browser. If Chrome asks, choose Open Kshana Desktop.';
+      emptyCardStatusClass = styles.statusCard;
+    }
+
     return (
       <>
         <div className={styles.sectionHeader}>
           <h3>Kshana Account</h3>
           <p>Sign in to use Kshana Cloud credits through the desktop proxy.</p>
         </div>
-        <div className={styles.infoCard}>
-          <div className={styles.infoTitle}>Not signed in</div>
-          <p className={styles.infoText}>
-            Sign-in opens your browser, then returns here automatically.
-          </p>
+        <div className={`${styles.infoCard} ${emptyCardStatusClass}`}>
+          <div className={styles.statusTopRow}>
+            <div>
+              <div className={styles.infoTitle}>{emptyTitle}</div>
+              <p className={styles.infoText}>{emptyText}</p>
+            </div>
+            {isWaiting ? (
+              <div
+                className={`${styles.statusBadge} ${styles.statusBadgeWarning}`}
+              >
+                <span className={styles.statusDot} />
+                Connecting
+              </div>
+            ) : null}
+          </div>
           {refreshError ? <p className={styles.error}>{refreshError}</p> : null}
           <button
             type="button"
@@ -112,7 +154,7 @@ export default function AccountTab() {
             onClick={handleSignIn}
             disabled={signingIn}
           >
-            {signingIn ? 'Opening Browser...' : 'Sign In'}
+            {isWaiting ? 'Open Browser Again' : 'Sign In'}
           </button>
         </div>
       </>
