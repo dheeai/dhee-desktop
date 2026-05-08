@@ -25,7 +25,7 @@ import path from 'path';
 import fs from 'fs';
 import { app } from 'electron';
 import { pathToFileURL } from 'url';
-import { getComfyUiUrl, isComfyCloudUrl, withV1Suffix } from './utils/comfyUrl';
+import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 
 export interface KshanaCloudAuthRuntime {
   websiteUrl: string;
@@ -148,6 +148,22 @@ type ManagerModule = {
   getWorkflow?: (id: string) => Record<string, unknown> | undefined;
   updateWorkflow?: (id: string, patch: Record<string, unknown>) => Record<string, unknown>;
   deleteWorkflow?: (id: string) => void;
+
+  // ── Session persistence ─────────────────────────────────────────
+  /**
+   * Returns a HistoryData snapshot for a sessionId by reading the
+   * on-disk pi-coding-agent transcript. Returns null when the id is
+   * unknown to the index. Optional in old kshana-core versions —
+   * callers must null-check.
+   */
+  getSessionHistorySnapshot?: (sessionId: string) => {
+    messages: Array<Record<string, unknown>>;
+    toolCalls: Array<Record<string, unknown>>;
+    focusedProject?: string;
+    compactionCount: number;
+  } | null;
+  /** Hard-delete the JSONL transcript and forget the index entry. Idempotent. */
+  clearSessionHistory?: (sessionId: string) => void;
 };
 
 /**
@@ -317,42 +333,46 @@ export function applyEnvFromSettings(
   const cloudToken = cloudAuth?.desktopToken.trim();
   const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
 
+  // Kshana Cloud auth provides ComfyUI proxy routing + billing
+  // identity. It MUST NOT touch LLM env vars — the Settings panel
+  // (LLM Provider section) is the canonical source of truth for the
+  // LLM, signed in or not. Pre-fix, signed-in users saw their
+  // openaiBaseUrl silently rewritten to the Kshana proxy regardless
+  // of what they typed into Settings.
   if (cloudToken && cloudWebsiteUrl) {
     process.env.KSHANA_CLOUD = 'true';
     process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl;
-    process.env.LLM_PROVIDER = 'openai';
-    process.env.LLM_CONTEXT_TOKENS = '160000';
-    process.env.OPENAI_API_KEY = cloudToken;
-    process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl, '/openai/api/v1');
-    process.env.OPENAI_MODEL = 'deepseek/deepseek-v4-flash';
     process.env.COMFY_MODE = 'cloud';
     process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl, '/comfy/api');
     process.env.COMFY_CLOUD_API_KEY = cloudToken;
     process.env.COMFYUI_TIMEOUT = '1800';
-    return;
-  }
-
-  const comfyUiUrl = getComfyUiUrl(settings);
-  process.env.COMFYUI_TIMEOUT = String(settings.comfyuiTimeout || 1800);
-  setIfPresent('COMFYUI_BASE_URL', comfyUiUrl);
-
-  // Auto-derive COMFY_MODE from the URL. Without this, the
-  // ComfyUI client in kshana-core falls back to its 'local'
-  // default and uses COMFYUI_BASE_URL even when the URL points
-  // at cloud.comfy.org — meaning the cloud-specific code path
-  // (api-key auth, /api prefix, cloud workflow selection) is
-  // skipped and image generation hits the wrong endpoint
-  // shape. See ComfyUIClient.getComfyConfig + WorkflowModeRegistry.
-  if (isComfyCloudUrl(comfyUiUrl)) {
-    process.env.COMFY_MODE = 'cloud';
-    if (settings.comfyCloudApiKey.trim()) {
-      process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
-    }
   } else {
-    process.env.COMFY_MODE = 'local';
+    const comfyUiUrl = getComfyUiUrl(settings);
+    process.env.COMFYUI_TIMEOUT = String(settings.comfyuiTimeout || 1800);
+    setIfPresent('COMFYUI_BASE_URL', comfyUiUrl);
+
+    // Auto-derive COMFY_MODE from the URL. Without this, the ComfyUI
+    // client in kshana-core falls back to its 'local' default and
+    // uses COMFYUI_BASE_URL even when the URL points at
+    // cloud.comfy.org — meaning the cloud-specific code path
+    // (api-key auth, /api prefix, cloud workflow selection) is
+    // skipped. See ComfyUIClient.getComfyConfig.
+    if (isComfyCloudUrl(comfyUiUrl)) {
+      process.env.COMFY_MODE = 'cloud';
+      if (settings.comfyCloudApiKey.trim()) {
+        process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
+      }
+    } else {
+      process.env.COMFY_MODE = 'local';
+    }
   }
   setIfPresent('KSHANA_PROJECT_DIR', settings.projectDir);
 
+  // LLM: always sourced from Settings, never from cloudAuth. The UI
+  // exposes only Gemini and OpenAI-Compatible — anything else in the
+  // persisted llmProvider field (older settings with 'lmstudio' /
+  // 'openrouter') is normalized to 'openai' at load time by
+  // normalizeConnectionSettings, so this switch can't see it.
   switch (settings.llmProvider) {
     case 'gemini':
       process.env.LLM_PROVIDER = 'gemini';
@@ -360,6 +380,7 @@ export function applyEnvFromSettings(
       setIfPresent('GEMINI_MODEL', settings.geminiModel || 'gemini-2.5-flash');
       break;
     case 'openai':
+    default:
       process.env.LLM_PROVIDER = 'openai';
       setIfPresent('OPENAI_API_KEY', settings.openaiApiKey);
       setIfPresent(
@@ -367,23 +388,6 @@ export function applyEnvFromSettings(
         settings.openaiBaseUrl || 'https://api.openai.com/v1',
       );
       setIfPresent('OPENAI_MODEL', settings.openaiModel || 'gpt-4o');
-      break;
-    case 'openrouter':
-      process.env.LLM_PROVIDER = 'openrouter';
-      setIfPresent('OPENROUTER_API_KEY', settings.openRouterApiKey);
-      setIfPresent(
-        'OPENROUTER_MODEL',
-        settings.openRouterModel || 'z-ai/glm-4.7-flash',
-      );
-      break;
-    case 'lmstudio':
-    default:
-      process.env.LLM_PROVIDER = 'lmstudio';
-      setIfPresent(
-        'LMSTUDIO_BASE_URL',
-        withV1Suffix(settings.lmStudioUrl || 'http://127.0.0.1:1234'),
-      );
-      setIfPresent('LMSTUDIO_MODEL', settings.lmStudioModel || 'qwen3');
       break;
   }
 
@@ -401,21 +405,10 @@ export function applyEnvFromSettings(
  * model so the manager doesn't need to read env vars at construction
  * time for the active provider.
  */
-function buildLLMConfig(
-  settings: AppSettings,
-  cloudAuth?: KshanaCloudAuthRuntime | null,
-): LLMClientConfig {
-  const cloudToken = cloudAuth?.desktopToken.trim();
-  const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
-
-  if (cloudToken && cloudWebsiteUrl) {
-    return {
-      apiKey: cloudToken,
-      baseUrl: joinUrl(cloudWebsiteUrl, '/openai/api/v1'),
-      model: 'deepseek/deepseek-v4-flash',
-    };
-  }
-
+function buildLLMConfig(settings: AppSettings): LLMClientConfig {
+  // Settings panel is the only source of truth. cloudAuth used to
+  // override here too — pulled out so the desktop's UI matches what
+  // kshana-core actually sees.
   switch (settings.llmProvider) {
     case 'gemini':
       return {
@@ -423,23 +416,11 @@ function buildLLMConfig(
         model: settings.geminiModel.trim() || 'gemini-2.5-flash',
       };
     case 'openai':
+    default:
       return {
         apiKey: settings.openaiApiKey.trim(),
         baseUrl: settings.openaiBaseUrl.trim() || 'https://api.openai.com/v1',
         model: settings.openaiModel.trim() || 'gpt-4o',
-      };
-    case 'openrouter':
-      return {
-        apiKey: settings.openRouterApiKey.trim(),
-        model: settings.openRouterModel.trim() || 'z-ai/glm-4.7-flash',
-      };
-    case 'lmstudio':
-    default:
-      return {
-        baseUrl: withV1Suffix(
-          settings.lmStudioUrl.trim() || 'http://127.0.0.1:1234',
-        ),
-        model: settings.lmStudioModel.trim() || 'qwen3',
       };
   }
 }
@@ -627,7 +608,7 @@ export class KshanaCoreManager {
     }
 
     const config: ConversationManagerConfig = {
-      llmConfig: buildLLMConfig(settings, cloudAuth),
+      llmConfig: buildLLMConfig(settings),
     };
     this.cm = new this.managerModule.ConversationManager(config);
     // Seed core's process-wide oversightState from the persisted
@@ -712,27 +693,87 @@ export class KshanaCoreManager {
   }
 
   /**
-   * Create a new session; returns the session id.
+   * Create a new session; returns the session id and (when resuming
+   * from disk) the persisted chat snapshot.
    *
    * `role` controls long-running tool availability — `'interactive'`
    * (default) strips kshana_run_to / render_scene_bundle /
    * audit_fidelity so a chat session can't accidentally block on a
    * 1–4h task. `'background'` opts in to the full toolkit.
+   *
+   * When `resumeSessionId` is set and recognized by kshana-core's
+   * sessionStore, the in-memory ActiveSession is reconstructed under
+   * that id (the on-disk JSONL is reopened on next agent build) and
+   * `resumed` is true. Unknown ids fall through to a fresh-session
+   * create — `id` will differ from the request and `resumed` will
+   * be false.
    */
-  createSession(role?: 'interactive' | 'background'): string {
+  createSession(
+    role?: 'interactive' | 'background',
+    resumeSessionId?: string,
+  ): { id: string; resumed: boolean } {
     const cm = this.requireStarted();
-    // ConversationManager.createSession(mode, remoteFs, role) —
-    // 3rd arg defaults to 'interactive' on the kshana-core side.
+    // ConversationManager.createSession(mode, remoteFs, role, existingSessionId) —
+    // 4th arg added by the persistence work; older builds will ignore it.
     const session = (
       cm as unknown as {
         createSession: (
           mode?: 'local' | 'remote',
           remoteFs?: undefined,
           role?: 'interactive' | 'background',
+          existingSessionId?: string,
         ) => { id: string };
       }
-    ).createSession('local', undefined, role ?? 'interactive');
-    return session.id;
+    ).createSession('local', undefined, role ?? 'interactive', resumeSessionId);
+    const resumed = !!resumeSessionId && session.id === resumeSessionId;
+    return { id: session.id, resumed };
+  }
+
+  /**
+   * Read the persisted chat snapshot for a sessionId. Returns null
+   * when kshana-core doesn't expose the helper (older version) or
+   * the id is unknown.
+   */
+  getSessionHistorySnapshot(sessionId: string): {
+    messages: Array<Record<string, unknown>>;
+    toolCalls: Array<Record<string, unknown>>;
+    focusedProject?: string;
+    compactionCount: number;
+  } | null {
+    const fn = this.managerModule?.getSessionHistorySnapshot;
+    if (typeof fn !== 'function') return null;
+    try {
+      return fn(sessionId);
+    } catch (err) {
+      log.warn('[KshanaCoreManager] getSessionHistorySnapshot failed:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Hard-delete the persisted chat for `oldSessionId` and mint a fresh
+   * session for the renderer to switch to. Returns the new id. Tears
+   * down any in-memory ActiveSession for the old id along the way.
+   */
+  clearChatHistory(
+    oldSessionId: string,
+    role?: 'interactive' | 'background',
+  ): { newSessionId: string } {
+    const cm = this.requireStarted();
+    // Drop the in-memory state (cancels any in-flight task).
+    try {
+      (cm as unknown as { deleteSession?: (id: string) => void }).deleteSession?.(oldSessionId);
+    } catch (err) {
+      log.warn('[KshanaCoreManager] deleteSession during clearChatHistory failed:', err);
+    }
+    // Wipe the JSONL + sessionStore index.
+    try {
+      this.managerModule?.clearSessionHistory?.(oldSessionId);
+    } catch (err) {
+      log.warn('[KshanaCoreManager] clearSessionHistory failed:', err);
+    }
+    const fresh = this.createSession(role);
+    return { newSessionId: fresh.id };
   }
 
   async configureSessionForProject(

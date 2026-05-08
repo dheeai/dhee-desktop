@@ -21,6 +21,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ConfigureProjectRequest,
+  HistorySnapshot,
   KshanaEvent,
   KshanaEventName,
   RunTaskRequest,
@@ -28,6 +29,26 @@ import type {
 } from '../../shared/kshanaIpc';
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'connecting';
+
+const RESUME_SESSION_KEY = 'kshana.sessionId';
+
+function readStoredSessionId(): string | null {
+  try {
+    return window.localStorage.getItem(RESUME_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredSessionId(id: string | null): void {
+  try {
+    if (id) window.localStorage.setItem(RESUME_SESSION_KEY, id);
+    else window.localStorage.removeItem(RESUME_SESSION_KEY);
+  } catch {
+    // localStorage may be disabled — fail silently. Resume won't work
+    // but the chat itself still does.
+  }
+}
 
 type RunTaskOpts = Omit<RunTaskRequest, 'sessionId' | 'task'>;
 type RedoNodeOpts = Omit<RedoNodeRequest, 'sessionId' | 'nodeId'>;
@@ -38,6 +59,26 @@ export interface KshanaSessionApi {
   status: SessionStatus;
   /** Most recent error message from runTask, or null. */
   error: string | null;
+  /**
+   * Persisted chat snapshot returned by the main process when this
+   * session was reconstructed from disk. Null on a fresh session.
+   * Cleared after the consumer reads it (one-shot) by calling
+   * `consumeHistory()`.
+   */
+  history: HistorySnapshot | null;
+  /**
+   * Read-and-clear the history snapshot. Idempotent — the second call
+   * returns null. Use this from a useEffect that depends on
+   * `sessionId` so each new session gets seeded exactly once.
+   */
+  consumeHistory: () => HistorySnapshot | null;
+  /**
+   * Hard-delete the persisted chat for the current session and switch
+   * to a freshly-minted one. Updates `sessionId`, persists the new id
+   * to localStorage, and resolves once the swap completes. Callers
+   * should also wipe their own chat UI state when this resolves.
+   */
+  clearChatHistory: () => Promise<{ ok: boolean; error?: string }>;
 
   runTask: (task: string, opts?: RunTaskOpts) => Promise<{ ok: boolean; error?: string }>;
   cancel: () => Promise<{ cancelled: boolean }>;
@@ -84,6 +125,7 @@ export function useKshanaSession(): KshanaSessionApi {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<SessionStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState<HistorySnapshot | null>(null);
 
   // Track session id in a ref so callbacks captured in dependency lists
   // see the latest value without re-creating themselves.
@@ -95,30 +137,77 @@ export function useKshanaSession(): KshanaSessionApi {
   // / audit_fidelity) are stripped from this session's tool list —
   // they belong to a dedicated background session that ChatPanelEmbedded
   // creates lazily when the user clicks Resume.
+  //
+  // Resume: if localStorage has a remembered sessionId from a prior
+  // app run, ask the main process to reconstruct it. Unknown ids fall
+  // through to a fresh session — the main process tells us which by
+  // returning `resumed`.
   useEffect(() => {
     let cancelled = false;
-    window.kshana.createSession({ role: 'interactive' }).then(
-      (resp) => {
-        if (cancelled) return;
-        setSessionId(resp.sessionId);
-        setStatus('idle');
-      },
-      (err: unknown) => {
-        if (cancelled) return;
-        setError(err instanceof Error ? err.message : String(err));
-        setStatus('error');
-      },
-    );
+    const stored = readStoredSessionId();
+    window.kshana
+      .createSession({
+        role: 'interactive',
+        ...(stored ? { resumeSessionId: stored } : {}),
+      })
+      .then(
+        (resp) => {
+          if (cancelled) return;
+          setSessionId(resp.sessionId);
+          writeStoredSessionId(resp.sessionId);
+          if (resp.resumed && resp.history) {
+            setHistory(resp.history);
+          } else {
+            setHistory(null);
+          }
+          setStatus('idle');
+        },
+        (err: unknown) => {
+          if (cancelled) return;
+          setError(err instanceof Error ? err.message : String(err));
+          setStatus('error');
+        },
+      );
     return () => {
       cancelled = true;
-      const id = sessionIdRef.current;
-      if (id) {
-        // Best-effort cleanup. Failure is non-fatal — main process
-        // will reap stale sessions on its own timeout.
-        window.kshana.deleteSession({ sessionId: id }).catch(() => {});
-      }
+      // NOTE: deliberately not deleting the session on unmount any
+      // more. Pre-persistence we tore down to avoid stale state in
+      // ConversationManager; now the kshana-core session is the
+      // user's chat history, so we leave it alive. ConversationManager
+      // still reaps it after its own idle timeout, and the JSONL on
+      // disk is what matters for the next launch's resume.
     };
   }, []);
+
+  const consumeHistory = useCallback<KshanaSessionApi['consumeHistory']>(() => {
+    const snap = history;
+    if (snap) setHistory(null);
+    return snap;
+  }, [history]);
+
+  const clearChatHistory = useCallback<KshanaSessionApi['clearChatHistory']>(
+    async () => {
+      const id = sessionIdRef.current;
+      if (!id) return { ok: false, error: 'Session not yet created' };
+      try {
+        const resp = await window.kshana.clearChatHistory({
+          sessionId: id,
+          role: 'interactive',
+        });
+        sessionIdRef.current = resp.newSessionId;
+        setSessionId(resp.newSessionId);
+        writeStoredSessionId(resp.newSessionId);
+        setHistory(null);
+        setStatus('idle');
+        setError(null);
+        return { ok: true };
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        return { ok: false, error: msg };
+      }
+    },
+    [],
+  );
 
   const runTask = useCallback<KshanaSessionApi['runTask']>(
     async (task, opts) => {
@@ -226,6 +315,9 @@ export function useKshanaSession(): KshanaSessionApi {
     sessionId,
     status,
     error,
+    history,
+    consumeHistory,
+    clearChatHistory,
     runTask,
     cancel,
     redoNode,

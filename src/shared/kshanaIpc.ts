@@ -62,6 +62,13 @@ export const KSHANA_CHANNELS = {
   UPDATE_WORKFLOW: 'kshana:updateWorkflow',
   DELETE_WORKFLOW: 'kshana:deleteWorkflow',
   VALIDATE_WORKFLOW: 'kshana:validateWorkflow',
+  /**
+   * Hard-delete the persisted chat for a session and mint a fresh
+   * sessionId. Used by the "New chat" button. The renderer must
+   * replace its cached id (in localStorage and React state) with the
+   * value returned in `ClearChatHistoryResponse.newSessionId`.
+   */
+  CLEAR_CHAT_HISTORY: 'kshana:clearChatHistory',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -113,10 +120,74 @@ export type CreateSessionRole = 'interactive' | 'background';
 
 export interface CreateSessionRequest {
   role?: CreateSessionRole;
+  /**
+   * If set, the main process tries to resume the named session from
+   * the on-disk session index. When the id is recognized and its
+   * JSONL still exists, the response carries `resumed: true`,
+   * `sessionId` matches the request, and `history` is populated.
+   * Unknown ids fall through to a fresh-session create — the
+   * caller can detect this by comparing returned `sessionId` to the
+   * requested one (or checking `resumed`).
+   */
+  resumeSessionId?: string;
+}
+
+/**
+ * Snapshot of a previously-persisted chat. Mirrors kshana-core's
+ * `HistoryData` shape — keep in sync. Sent on session resume so the
+ * renderer can hydrate its chat panel without an extra round-trip.
+ */
+export interface HistorySnapshot {
+  messages: Array<{
+    id: string;
+    type: 'agent' | 'user' | 'system' | 'media';
+    content: string;
+    timestamp: number;
+    agentName?: string;
+    media?: {
+      kind: 'image' | 'video';
+      path: string;
+      project: string;
+      source?: string;
+    };
+  }>;
+  toolCalls: Array<{
+    id: string;
+    toolName: string;
+    args?: Record<string, string>;
+    status: 'executing' | 'completed' | 'error';
+    result?: unknown;
+    startTime: number;
+    duration?: number;
+    agentName?: string;
+  }>;
+  focusedProject?: string;
+  compactionCount: number;
 }
 
 export interface CreateSessionResponse {
   sessionId: string;
+  /** True when the session was reconstructed from the on-disk index. */
+  resumed?: boolean;
+  /**
+   * Persisted chat snapshot — only present when `resumed` is true and
+   * the JSONL had something to replay. Renderer should seed its
+   * message list from this.
+   */
+  history?: HistorySnapshot;
+}
+
+export interface ClearChatHistoryRequest {
+  sessionId: string;
+  /** Optional role for the freshly-minted replacement session. */
+  role?: CreateSessionRole;
+}
+
+export interface ClearChatHistoryResponse {
+  /** New sessionId minted by the main process. */
+  newSessionId: string;
+  /** The id whose history was wiped. */
+  oldSessionId: string;
 }
 
 export interface RunnerCancelResponse {
