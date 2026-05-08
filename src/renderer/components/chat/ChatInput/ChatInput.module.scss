@@ -12,6 +12,47 @@
   padding-top: 0;
 }
 
+.attachmentRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-sm;
+}
+
+.attachmentError {
+  color: $color-error;
+  font-size: 12px;
+  margin-bottom: $spacing-sm;
+}
+
+.attachButton {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: $color-text-secondary;
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-md;
+  transition: background-color $transition-fast, color $transition-fast;
+  align-self: flex-end;
+  margin-bottom: 2px;
+
+  &:hover:not(:disabled) {
+    background: $color-panel-background;
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
 .inputWrapper {
   display: flex;
   align-items: flex-end;

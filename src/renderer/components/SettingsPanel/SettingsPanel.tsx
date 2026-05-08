@@ -7,9 +7,15 @@ import type {
 } from '../../../shared/settingsTypes';
 import { DESKTOP_THEMES } from '../../themes';
 import AccountTab from './AccountTab';
+import WorkflowsTab from './WorkflowsTab';
 import styles from './SettingsPanel.module.scss';
 
-type SettingsTab = 'account' | 'appearance' | 'connection' | 'diagnostics';
+type SettingsTab =
+  | 'account'
+  | 'appearance'
+  | 'connection'
+  | 'workflows'
+  | 'diagnostics';
 
 interface LogsBridge {
   getDir(): Promise<string>;
@@ -419,6 +425,16 @@ export default function SettingsPanel({
           </button>
           <button
             type="button"
+            className={`${styles.tabButton} ${activeTab === 'workflows' ? styles.tabButtonActive : ''}`}
+            onClick={() => setActiveTab('workflows')}
+          >
+            <span className={styles.tabLabel}>Workflows</span>
+            <span className={styles.tabDescription}>
+              Custom ComfyUI workflows
+            </span>
+          </button>
+          <button
+            type="button"
             className={`${styles.tabButton} ${activeTab === 'diagnostics' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('diagnostics')}
           >
@@ -484,9 +500,9 @@ export default function SettingsPanel({
                 <div className={styles.sectionHeader} style={{ marginTop: 24 }}>
                   <h3>AI Oversight</h3>
                   <p>
-                    Pi-agent observes runner events and intervenes when
+                    The agent observes runner events and intervenes when
                     something looks off. VLM provides image descriptions
-                    so pi-agent can judge generated assets against the
+                    so the agent can judge generated assets against the
                     prompt.
                   </p>
                 </div>
@@ -510,9 +526,9 @@ export default function SettingsPanel({
                       style={{ marginTop: 4 }}
                     />
                     <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500 }}>Pi-agent oversight</span>
+                      <span style={{ fontWeight: 500 }}>Agent oversight</span>
                       <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Auto-engages pi-agent on runner events (failed,
+                        Auto-engages the agent on runner events (failed,
                         completed, per-asset when VLM is on).
                       </span>
                     </span>
@@ -540,8 +556,8 @@ export default function SettingsPanel({
                     <span style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontWeight: 500 }}>VLM judge</span>
                       <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Vision-LLM describes generated images for
-                        pi-agent. Requires VLM_PROVIDER / VLM_API_KEY /
+                        Vision-LLM describes generated images for the
+                        agent. Requires VLM_PROVIDER / VLM_API_KEY /
                         VLM_MODEL in .env. Disabled when oversight is
                         off (VLM standalone has no consumer).
                       </span>
@@ -549,6 +565,8 @@ export default function SettingsPanel({
                   </label>
                 </div>
               </>
+            ) : activeTab === 'workflows' ? (
+              <WorkflowsTab isCloudMode={settings?.backendMode === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>

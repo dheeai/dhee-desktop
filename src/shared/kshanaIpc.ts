@@ -49,6 +49,19 @@ export const KSHANA_CHANNELS = {
    * — does NOT engage the agent or kick off a run.
    */
   INVALIDATE_NODES: 'kshana:invalidateNodes',
+  /**
+   * Custom ComfyUI workflow management. The renderer (Settings →
+   * Workflows tab) calls these to list/get/update/delete user
+   * workflows directly. The conversational add-a-workflow flow goes
+   * through pi-agent tools, NOT these channels — but a one-off
+   * "validate this JSON" pre-flight from the renderer might use
+   * VALIDATE_WORKFLOW.
+   */
+  LIST_WORKFLOWS: 'kshana:listWorkflows',
+  GET_WORKFLOW: 'kshana:getWorkflow',
+  UPDATE_WORKFLOW: 'kshana:updateWorkflow',
+  DELETE_WORKFLOW: 'kshana:deleteWorkflow',
+  VALIDATE_WORKFLOW: 'kshana:validateWorkflow',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -137,6 +150,17 @@ export interface RunTaskRequest {
   sessionId: string;
   task: string;
   stopAtStage?: string;
+  /**
+   * Files the user attached in the chat input. Currently only
+   * `comfy_workflow` is implemented — text/image/video/audio kinds
+   * are reserved (see src/shared/attachmentTypes.ts).
+   *
+   * The main process transforms these into textual hints that
+   * prepend the task message before kshana-core sees it. This keeps
+   * the kshana-core ConversationManager API unchanged while still
+   * being structurally typed across the IPC boundary.
+   */
+  attachments?: import('./attachmentTypes').Attachment[];
 }
 
 export interface SendResponseRequest {
@@ -203,5 +227,83 @@ export interface InvalidateNodesResponse {
   ok: boolean;
   invalidated?: string[];
   notFound?: string[];
+  error?: string;
+}
+
+// ── Custom ComfyUI workflow management ─────────────────────────────
+
+/**
+ * Summary returned by listWorkflows. The full WorkflowManifest is only
+ * fetched on demand via getWorkflow(id) since manifests can be large
+ * and the list view doesn't need everything.
+ */
+export interface WorkflowSummary {
+  id: string;
+  displayName: string;
+  pipeline: string;
+  builtIn: boolean;
+  isOverride: boolean;
+  active: boolean;
+}
+
+export interface ListWorkflowsRequest {
+  /** If true, return only user-uploaded workflows. Default false. */
+  userOnly?: boolean;
+}
+
+export interface ListWorkflowsResponse {
+  ok: boolean;
+  workflows?: WorkflowSummary[];
+  error?: string;
+}
+
+export interface GetWorkflowRequest {
+  id: string;
+}
+
+export interface GetWorkflowResponse {
+  ok: boolean;
+  /** Full manifest as a JSON-serializable object. Renderer treats as `unknown` and validates fields it cares about. */
+  manifest?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface UpdateWorkflowRequest {
+  id: string;
+  /** Fields to patch. Same shape as kshana-core's WorkflowUpdate type. */
+  patch: Record<string, unknown>;
+}
+
+export interface UpdateWorkflowResponse {
+  ok: boolean;
+  manifest?: Record<string, unknown>;
+  error?: string;
+}
+
+export interface DeleteWorkflowRequest {
+  id: string;
+}
+
+export interface DeleteWorkflowResponse {
+  ok: boolean;
+  error?: string;
+}
+
+export interface ValidateWorkflowRequest {
+  /** Absolute path to the workflow JSON file. */
+  path: string;
+}
+
+export interface ValidateWorkflowResponse {
+  ok: boolean;
+  /** True if the file is a valid ComfyUI workflow. */
+  valid: boolean;
+  /** Reason it's invalid (set when valid=false). */
+  reason?: string;
+  totalNodes?: number;
+  detectedPipeline?: string;
+  inputNodeCount?: number;
+  loraCount?: number;
+  /** Set when ok=false (an error occurred while attempting validation). */
   error?: string;
 }

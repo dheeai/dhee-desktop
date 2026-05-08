@@ -45,6 +45,16 @@ import {
   type DeleteSessionRequest,
   type InvalidateNodesRequest,
   type InvalidateNodesResponse,
+  type ListWorkflowsRequest,
+  type ListWorkflowsResponse,
+  type GetWorkflowRequest,
+  type GetWorkflowResponse,
+  type UpdateWorkflowRequest,
+  type UpdateWorkflowResponse,
+  type DeleteWorkflowRequest,
+  type DeleteWorkflowResponse,
+  type ValidateWorkflowRequest,
+  type ValidateWorkflowResponse,
 } from '../shared/kshanaIpc';
 
 interface WordTimestamp {
@@ -131,6 +141,27 @@ const projectBridge = {
   },
   selectAudioFile(): Promise<string | null> {
     return ipcRenderer.invoke('project:select-audio-file');
+  },
+  /**
+   * Generic chat-attachment file picker. Caller passes the kinds it
+   * accepts (currently only 'comfy_workflow'). Returns the picked
+   * attachment shape, or `{ ok: false }` on cancel/error.
+   */
+  selectAttachment(req: {
+    kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
+    title?: string;
+  }): Promise<{
+    ok: boolean;
+    attachment?: {
+      id: string;
+      kind: 'comfy_workflow' | 'text' | 'image' | 'video' | 'audio';
+      path: string;
+      name: string;
+      size?: number;
+    };
+    error?: string;
+  }> {
+    return ipcRenderer.invoke('project:select-attachment', req);
   },
   getAudioDuration(audioPath: string): Promise<number> {
     return ipcRenderer.invoke('project:get-audio-duration', audioPath);
@@ -707,6 +738,29 @@ const kshanaBridge = {
     req: InvalidateNodesRequest,
   ): Promise<InvalidateNodesResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.INVALIDATE_NODES, req);
+  },
+  /**
+   * Custom ComfyUI workflow management. Talks directly to kshana-core's
+   * WorkflowModeRegistry via IPC handlers — no HTTP server involved.
+   * The conversational add-a-workflow flow goes through pi-agent
+   * tools instead; these are for the Settings → Workflows tab.
+   */
+  workflows: {
+    list(req?: ListWorkflowsRequest): Promise<ListWorkflowsResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.LIST_WORKFLOWS, req);
+    },
+    get(req: GetWorkflowRequest): Promise<GetWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.GET_WORKFLOW, req);
+    },
+    update(req: UpdateWorkflowRequest): Promise<UpdateWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.UPDATE_WORKFLOW, req);
+    },
+    delete(req: DeleteWorkflowRequest): Promise<DeleteWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_WORKFLOW, req);
+    },
+    validate(req: ValidateWorkflowRequest): Promise<ValidateWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.VALIDATE_WORKFLOW, req);
+    },
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.

@@ -1,0 +1,61 @@
+@import '../../../styles/tokens';
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  padding: $spacing-xs $spacing-sm;
+  background: $color-background-dark;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-md;
+  font-size: 12px;
+  color: $color-text-primary;
+  max-width: 240px;
+}
+
+.icon {
+  flex-shrink: 0;
+  color: $color-text-secondary;
+}
+
+.name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  color: $color-text-secondary;
+  background: $color-panel-background;
+  padding: 1px 6px;
+  border-radius: $radius-sm;
+}
+
+.removeButton {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  color: $color-text-secondary;
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-sm;
+  transition: background-color $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $color-panel-background;
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
