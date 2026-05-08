@@ -732,6 +732,27 @@ const kshanaBridge = {
 contextBridge.exposeInMainWorld('kshana', kshanaBridge);
 export type KshanaBridge = typeof kshanaBridge;
 
+// Diagnostics bridge — surfaced as window.electron.logs in the
+// renderer. Reveal opens the platform file browser at the active log
+// dir; exportZip bundles every log file into a zip in Downloads and
+// returns the resulting path so the UI can show "Saved to ...".
+const logsBridge = {
+  getDir(): Promise<string> {
+    return ipcRenderer.invoke('logs:get-dir');
+  },
+  reveal(): Promise<
+    { ok: true; path: string } | { ok: false; error: string }
+  > {
+    return ipcRenderer.invoke('logs:reveal');
+  },
+  exportZip(): Promise<
+    | { ok: true; path: string; bytes: number; fileCount: number }
+    | { ok: false; error: string }
+  > {
+    return ipcRenderer.invoke('logs:export-zip');
+  },
+};
+
 const electronHandler = {
   ipcRenderer: {
     sendMessage(channel: Channels, ...args: unknown[]) {
@@ -754,6 +775,7 @@ const electronHandler = {
   project: projectBridge,
   remotion: remotionBridge,
   logger: loggerBridge,
+  logs: logsBridge,
   updates: updateBridge,
   app: appBridge,
   account: accountBridge,

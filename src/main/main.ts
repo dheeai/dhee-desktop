@@ -64,6 +64,7 @@ import type {
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import * as desktopLogger from './services/DesktopLogger';
+import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
 import { exportChatJsonWithDialog } from './services/chatExportService';
 import {
   generateCapcutProject,
@@ -97,6 +98,17 @@ interface AppUpdateStatus {
 
 if (app.isPackaged) {
   process.env.KSHANA_PACKAGED = '1';
+}
+
+// Point kshana-core's loggers at our app data dir so packaged users
+// get logs in a real writable location (not inside the read-only .app
+// bundle). DesktopLogger already writes its UI/phase/workflow logs
+// here; consolidating means one folder for the user to share with
+// support. getLogsDir() in kshana-core consumes this env var lazily,
+// so it must be set before any logger writes — module top-level is
+// safe because kshana-core isn't imported until later in this file.
+if (!process.env.KSHANA_LOGS_DIR) {
+  process.env.KSHANA_LOGS_DIR = path.join(app.getPath('userData'), 'logs');
 }
 
 // Point kshana-core at the bundled ffmpeg/ffprobe binaries. Packaged
@@ -1530,6 +1542,57 @@ ipcMain.handle(
   'project:reveal-in-finder',
   async (_event, targetPath: string) => {
     return fileSystemManager.revealInFinder(targetPath);
+  },
+);
+
+// ─── Diagnostics: logs reveal + zip export ───────────────────────────
+// Lets a user emailing support open or bundle the kshana-core +
+// DesktopLogger output. Both target the dir set by KSHANA_LOGS_DIR
+// (see top of file).
+ipcMain.handle('logs:get-dir', async (): Promise<string> => {
+  return getLogsDirAbs();
+});
+
+ipcMain.handle(
+  'logs:reveal',
+  async (): Promise<{ ok: true; path: string } | { ok: false; error: string }> => {
+    try {
+      const dir = getLogsDirAbs();
+      // Ensure the dir exists so the shell open call doesn't ENOENT on
+      // a fresh install where nothing has logged yet.
+      await fs.mkdir(dir, { recursive: true });
+      const result = await shell.openPath(dir);
+      if (result) {
+        // openPath returns a non-empty string on failure.
+        return { ok: false, error: result };
+      }
+      return { ok: true, path: dir };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'logs:export-zip',
+  async (): Promise<
+    | { ok: true; path: string; bytes: number; fileCount: number }
+    | { ok: false; error: string }
+  > => {
+    try {
+      const result = await exportLogsZip();
+      // Highlight the freshly-written zip in Finder/Explorer so the
+      // user can drag it into an email immediately.
+      shell.showItemInFolder(result.zipPath);
+      return {
+        ok: true,
+        path: result.zipPath,
+        bytes: result.bytes,
+        fileCount: result.fileCount,
+      };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   },
 );
 
