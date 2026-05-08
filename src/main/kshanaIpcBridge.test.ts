@@ -60,9 +60,17 @@ let runTaskEventCb:
 
 const fakeManager = {
   isStarted: () => true,
-  createSession: () => {
-    managerCalls.push({ method: 'createSession', args: [] });
-    return 's-1';
+  createSession: (role?: string, resumeSessionId?: string) => {
+    managerCalls.push({ method: 'createSession', args: [role, resumeSessionId] });
+    return { id: 's-1', resumed: false };
+  },
+  getSessionHistorySnapshot: (sessionId: string) => {
+    managerCalls.push({ method: 'getSessionHistorySnapshot', args: [sessionId] });
+    return null;
+  },
+  clearChatHistory: (sessionId: string, role?: string) => {
+    managerCalls.push({ method: 'clearChatHistory', args: [sessionId, role] });
+    return { newSessionId: 's-2' };
   },
   configureSessionForProject: async (sessionId: string, opts: unknown) => {
     managerCalls.push({ method: 'configureSessionForProject', args: [sessionId, opts] });
@@ -130,7 +138,7 @@ describe('kshanaIpcBridge', () => {
     );
     const handler = handlerRegistry.get(KSHANA_CHANNELS.CREATE_SESSION)!;
     const result = await handler({} as never);
-    expect(result).toEqual({ sessionId: 's-1' });
+    expect(result).toEqual({ sessionId: 's-1', resumed: false });
   });
 
   it('runTask channel forwards (sessionId, task, opts) to KshanaCoreManager.runTask', async () => {

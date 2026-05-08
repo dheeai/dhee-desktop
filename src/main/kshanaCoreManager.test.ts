@@ -158,7 +158,10 @@ beforeEach(() => {
   delete process.env['COMFY_MODE'];
   delete process.env['COMFY_CLOUD_API_KEY'];
   delete process.env['COMFYUI_BASE_URL'];
+  delete process.env['COMFYUI_TIMEOUT'];
   delete process.env['KSHANA_PROJECT_DIR'];
+  delete process.env['GOOGLE_API_KEY'];
+  delete process.env['GEMINI_MODEL'];
 });
 
 describe('KshanaCoreManager', () => {
@@ -171,22 +174,111 @@ describe('KshanaCoreManager', () => {
     expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
   });
 
-  it('start() maps a signed-in desktop token to the Kshana Cloud route env expected by kshana-core', async () => {
+  // ── Mode-routing tests ──────────────────────────────────────────────
+  // These pin the env shape kshana-core sees for each ComfyUI mode the
+  // user can be in. Three paths matter:
+  //   1. Kshana Cloud signed in → COMFYUI_BASE_URL=<websiteUrl>/comfy/api
+  //      (covered by the test below).
+  //   2. Local ComfyUI, no cloud auth → COMFYUI_BASE_URL=<user's local url>,
+  //      COMFY_MODE='local', no COMFY_CLOUD_API_KEY.
+  //   3. Direct ComfyUI Cloud (cloud.comfy.org) with the user's own key,
+  //      no Kshana auth → COMFY_MODE='cloud', COMFY_CLOUD_API_KEY=user key.
+  //
+  // The "wait, why is it hitting localhost:3000" bug we hit in the wild
+  // happened because path 1 silently overrides paths 2 and 3 — the user
+  // had cloud.comfy.org configured in settings but was also signed in,
+  // so the override won. These tests document the precedence.
+
+  it('local mode: routes COMFYUI_BASE_URL to the user-configured local URL with COMFY_MODE=local', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      comfyuiMode: 'custom',
+      comfyuiUrl: 'http://127.0.0.1:8188',
+      comfyCloudApiKey: '',
+    });
+
+    expect(process.env['COMFY_MODE']).toBe('local');
+    expect(process.env['COMFYUI_BASE_URL']).toBe('http://127.0.0.1:8188');
+    // No cloud key should leak into a local-mode start.
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBeUndefined();
+    // Kshana Cloud env is absent — no signed-in token in this scenario.
+    expect(process.env['KSHANA_CLOUD']).toBeUndefined();
+    expect(process.env['KSHANA_CLOUD_URL']).toBeUndefined();
+  });
+
+  it('local mode: COMFYUI_BASE_URL is in process.env BEFORE ConversationManager constructs (env-set order matters for kshana-core caching)', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      comfyuiMode: 'custom',
+      comfyuiUrl: 'http://127.0.0.1:8188',
+      comfyCloudApiKey: '',
+    });
+
+    expect(mockState.envSnapshots).toHaveLength(1);
+    // The snapshot is captured inside the FakeConversationManager
+    // constructor — proves env was written *before* construction.
+    expect(mockState.envSnapshots[0]?.COMFYUI_BASE_URL).toBe('http://127.0.0.1:8188');
+  });
+
+  it('direct cloud mode (no Kshana auth): routes to user-configured cloud.comfy.org with the user-supplied key', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      comfyuiMode: 'custom',
+      comfyuiUrl: 'https://cloud.comfy.org/api',
+      comfyCloudApiKey: 'user-supplied-comfy-key',
+    });
+
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFYUI_BASE_URL']).toBe('https://cloud.comfy.org/api');
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBe('user-supplied-comfy-key');
+    // Without a cloudAuth runtime, the Kshana Cloud override path
+    // must NOT fire — the user's settings win.
+    expect(process.env['KSHANA_CLOUD']).toBeUndefined();
+    expect(process.env['KSHANA_CLOUD_URL']).toBeUndefined();
+  });
+
+  it('Kshana Cloud auth overrides user comfyuiUrl: signed-in token wins over a local-mode setting', async () => {
+    // The user has a local ComfyUI URL configured AND a valid Kshana
+    // Cloud session. Today the cloud override silently takes
+    // precedence — pin that behavior so a future refactor that
+    // changes precedence (e.g. respecting comfyuiMode='custom' over
+    // cloudAuth) trips this test and prompts a deliberate decision.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        comfyuiMode: 'custom',
+        comfyuiUrl: 'http://127.0.0.1:8188',
+        comfyCloudApiKey: 'ignored-when-cloud-auth-present',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // Cloud override wins — local URL is ignored.
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFYUI_BASE_URL']).toBe(
+      'https://desktop.example.test/comfy/api',
+    );
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
+  });
+
+  it('Kshana Cloud auth sets ComfyUI proxy env (signed-in users get cloud ComfyUI for free)', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings, {
       websiteUrl: 'https://desktop.example.test/',
       desktopToken: 'desktop-jwt',
     });
 
+    // Cloud-only env: identity + ComfyUI proxy. LLM is intentionally
+    // absent — the Settings panel is the canonical LLM source.
     expect(process.env['KSHANA_CLOUD']).toBe('true');
     expect(process.env['KSHANA_CLOUD_URL']).toBe('https://desktop.example.test');
-    expect(process.env['LLM_PROVIDER']).toBe('openai');
-    expect(process.env['LLM_CONTEXT_TOKENS']).toBe('160000');
-    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
-    expect(process.env['OPENAI_BASE_URL']).toBe(
-      'https://desktop.example.test/openai/api/v1',
-    );
-    expect(process.env['OPENAI_MODEL']).toBe('deepseek/deepseek-v4-flash');
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
@@ -198,10 +290,66 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_AUTH_TOKEN']).toBeUndefined();
   });
 
+  it('Kshana Cloud auth does NOT override the user-configured LLM (Settings panel is canonical)', async () => {
+    // Regression: pre-fix, applyEnvFromSettings shorted out as soon as
+    // a cloud token was present — silently rerouting LLM to the
+    // Kshana proxy regardless of what the user had typed into the
+    // OpenAI-Compatible section. Result: a user with LM Studio set
+    // up in the UI got their requests sent to cloud.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmProvider: 'openai',
+        openaiApiKey: 'lm-studio-placeholder',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiModel: 'qwen3',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM env reflects the Settings panel — NOT the cloud proxy.
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
+    expect(process.env['OPENAI_MODEL']).toBe('qwen3');
+    // ComfyUI is still cloud-routed (that's separate from LLM).
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFYUI_BASE_URL']).toBe(
+      'https://desktop.example.test/comfy/api',
+    );
+  });
+
+  it('Kshana Cloud auth + Gemini in Settings: LLM stays Gemini', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmProvider: 'gemini',
+        googleApiKey: 'google-key',
+        geminiModel: 'gemini-2.5-flash',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['LLM_PROVIDER']).toBe('gemini');
+    expect(process.env['GOOGLE_API_KEY']).toBe('google-key');
+    expect(process.env['GEMINI_MODEL']).toBe('gemini-2.5-flash');
+    // OpenAI env not set — Gemini path should not leak it.
+    expect(process.env['OPENAI_API_KEY']).toBeUndefined();
+    expect(process.env['OPENAI_BASE_URL']).toBeUndefined();
+  });
+
   it('runTask forwards onToolCall events to the supplied eventCb with the original payload', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
-    const sessionId = mgr.createSession();
+    const { id: sessionId } = mgr.createSession();
     const events: Array<{ eventName: string; sessionId: string; data: unknown }> = [];
 
     await mgr.runTask(sessionId, 'a task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
@@ -215,7 +363,7 @@ describe('KshanaCoreManager', () => {
   it('runTask forwards onAgentText events as stream chunks', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
-    const sessionId = mgr.createSession();
+    const { id: sessionId } = mgr.createSession();
     const events: Array<{ eventName: string; data: unknown }> = [];
 
     await mgr.runTask(sessionId, 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
@@ -234,7 +382,7 @@ describe('KshanaCoreManager', () => {
   it('redoNode forwards editedPrompt unchanged to the underlying ConversationManager', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
-    const sessionId = mgr.createSession();
+    const { id: sessionId } = mgr.createSession();
     const result = await mgr.redoNode(sessionId, 'shot_image:scene_1_shot_4', {
       editedPrompt: 'a brand new prompt',
     });
@@ -265,7 +413,7 @@ describe('KshanaCoreManager', () => {
   it('stop() calls shutdown() and subsequent runTask returns failed', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
-    const sessionId = mgr.createSession();
+    const { id: sessionId } = mgr.createSession();
     mgr.stop();
     expect(mockState.shutdownCalls).toBe(1);
     const result = await mgr.runTask(sessionId, 'task', {}, () => {});

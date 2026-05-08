@@ -55,6 +55,8 @@ import {
   type DeleteWorkflowResponse,
   type ValidateWorkflowRequest,
   type ValidateWorkflowResponse,
+  type ClearChatHistoryRequest,
+  type ClearChatHistoryResponse,
 } from '../shared/kshanaIpc';
 
 interface WordTimestamp {
@@ -727,6 +729,11 @@ const kshanaBridge = {
   },
   deleteSession(req: DeleteSessionRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_SESSION, req);
+  },
+  clearChatHistory(
+    req: ClearChatHistoryRequest,
+  ): Promise<ClearChatHistoryResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.CLEAR_CHAT_HISTORY, req);
   },
   runnerCancel(): Promise<RunnerCancelResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_CANCEL);

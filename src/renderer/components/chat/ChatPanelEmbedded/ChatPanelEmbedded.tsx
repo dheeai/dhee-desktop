@@ -238,6 +238,79 @@ export default function ChatPanelEmbedded() {
   const menuWrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // ── Resume hydration ──────────────────────────────────────────────
+  // When the session was reconstructed from disk on app launch, the
+  // hook hands us a HistorySnapshot. Translate it into local
+  // ChatMessage rows so the panel renders the prior conversation as if
+  // it had been streamed live. One-shot: consumeHistory() reads-and-
+  // clears, so a later remount won't double-seed.
+  useEffect(() => {
+    if (!session.sessionId) return;
+    if (!session.history) return;
+    const snap = session.consumeHistory();
+    if (!snap) return;
+
+    type Row = { ts: number; msg: ChatMessage };
+    const rows: Row[] = [];
+
+    for (const m of snap.messages) {
+      const ts = m.timestamp || Date.now();
+      if (m.type === 'media' && m.media) {
+        rows.push({
+          ts,
+          msg: {
+            id: m.id,
+            role: 'media',
+            mediaKind: m.media.kind,
+            mediaPath: m.media.path,
+            mediaProject: m.media.project,
+          },
+        });
+        continue;
+      }
+      const role: ChatMessage['role'] =
+        m.type === 'user'
+          ? 'user'
+          : m.type === 'agent'
+            ? 'assistant'
+            : 'system';
+      rows.push({
+        ts,
+        msg: { id: m.id, role, text: m.content },
+      });
+    }
+
+    for (const tc of snap.toolCalls) {
+      const ts = tc.startTime || Date.now();
+      const status: ToolStatus =
+        tc.status === 'executing'
+          ? 'in_progress'
+          : tc.status === 'error'
+            ? 'error'
+            : 'completed';
+      const argsSummary = tc.args
+        ? Object.entries(tc.args)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(' ')
+            .slice(0, 200)
+        : undefined;
+      rows.push({
+        ts,
+        msg: {
+          id: tc.id,
+          role: 'tool',
+          toolName: tc.toolName,
+          toolCallId: tc.id,
+          toolStatus: status,
+          ...(argsSummary ? { toolArgsSummary: argsSummary } : {}),
+        },
+      });
+    }
+
+    rows.sort((a, b) => a.ts - b.ts);
+    setMessages(rows.map(r => r.msg));
+  }, [session.sessionId, session.history, session.consumeHistory]);
+
   // ── New-project wizard state ──────────────────────────────────────
   // Auto-spawns when the user opens an unconfigured project. Collects
   // style → duration → story; on confirm, calls session.configureProject
@@ -894,6 +967,32 @@ export default function ChatPanelEmbedded() {
               >
                 <Download size={14} />
                 Export chat
+              </button>
+              <button
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  const ok = window.confirm(
+                    'Clear chat history?\n\nThis deletes the saved transcript on disk and starts a new session. Project files are not affected.',
+                  );
+                  if (!ok) return;
+                  void session.clearChatHistory().then((res) => {
+                    if (res.ok) {
+                      // Wipe local UI immediately. Server has already
+                      // purged the JSONL and minted a fresh sessionId.
+                      setMessages([]);
+                      setContextUsage(null);
+                    } else {
+                      setConnectionError(res.error ?? 'Failed to clear chat');
+                    }
+                  });
+                }}
+                disabled={!session.sessionId}
+                className={styles.projectMenuItem}
+                title="Wipe persisted chat history and start a fresh session"
+              >
+                New chat
               </button>
             </div>
           )}
