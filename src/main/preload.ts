@@ -45,6 +45,16 @@ import {
   type DeleteSessionRequest,
   type InvalidateNodesRequest,
   type InvalidateNodesResponse,
+  type ListWorkflowsRequest,
+  type ListWorkflowsResponse,
+  type GetWorkflowRequest,
+  type GetWorkflowResponse,
+  type UpdateWorkflowRequest,
+  type UpdateWorkflowResponse,
+  type DeleteWorkflowRequest,
+  type DeleteWorkflowResponse,
+  type ValidateWorkflowRequest,
+  type ValidateWorkflowResponse,
 } from '../shared/kshanaIpc';
 
 interface WordTimestamp {
@@ -707,6 +717,29 @@ const kshanaBridge = {
     req: InvalidateNodesRequest,
   ): Promise<InvalidateNodesResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.INVALIDATE_NODES, req);
+  },
+  /**
+   * Custom ComfyUI workflow management. Talks directly to kshana-core's
+   * WorkflowModeRegistry via IPC handlers — no HTTP server involved.
+   * The conversational add-a-workflow flow goes through pi-agent
+   * tools instead; these are for the Settings → Workflows tab.
+   */
+  workflows: {
+    list(req?: ListWorkflowsRequest): Promise<ListWorkflowsResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.LIST_WORKFLOWS, req);
+    },
+    get(req: GetWorkflowRequest): Promise<GetWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.GET_WORKFLOW, req);
+    },
+    update(req: UpdateWorkflowRequest): Promise<UpdateWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.UPDATE_WORKFLOW, req);
+    },
+    delete(req: DeleteWorkflowRequest): Promise<DeleteWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_WORKFLOW, req);
+    },
+    validate(req: ValidateWorkflowRequest): Promise<ValidateWorkflowResponse> {
+      return ipcRenderer.invoke(KSHANA_CHANNELS.VALIDATE_WORKFLOW, req);
+    },
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.

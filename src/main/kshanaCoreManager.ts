@@ -22,6 +22,8 @@ import type { AppSettings } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/kshanaIpc';
 import log from 'electron-log';
 import path from 'path';
+import fs from 'fs';
+import { app } from 'electron';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl, withV1Suffix } from './utils/comfyUrl';
 
@@ -117,6 +119,28 @@ type ManagerModule = {
     root: string;
     projectsDir: string;
   };
+
+  // ── Custom ComfyUI workflow management ─────────────────────────────
+  /**
+   * Pin the directory where user-uploaded workflows + manifests live.
+   * Must be called before the WorkflowModeRegistry singleton is first
+   * accessed — kshana-core throws if called too late.
+   */
+  setUserWorkflowsDir?: (path: string) => void;
+  validateWorkflowFile?: (path: string) =>
+    | { ok: true; parsed: { totalNodes: number; detectedPipeline: string; inputNodes: unknown[]; loraNodes: unknown[] } }
+    | { ok: false; reason: string };
+  listWorkflows?: (opts?: { userOnly?: boolean }) => Array<{
+    id: string;
+    displayName: string;
+    pipeline: string;
+    builtIn: boolean;
+    isOverride: boolean;
+    active: boolean;
+  }>;
+  getWorkflow?: (id: string) => Record<string, unknown> | undefined;
+  updateWorkflow?: (id: string, patch: Record<string, unknown>) => Record<string, unknown>;
+  deleteWorkflow?: (id: string) => void;
 };
 
 /**
@@ -553,6 +577,32 @@ export class KshanaCoreManager {
     if (devEnv?.projectsDir) {
       process.env.KSHANA_PROJECTS_DIR = devEnv.projectsDir;
     }
+
+    // Pin the user-workflows directory under userData/ so custom
+    // ComfyUI workflows uploaded by the user (via the chat or the
+    // Settings → Workflows tab) live in a writable, per-install
+    // location. Must happen BEFORE ConversationManager is constructed
+    // — once the WorkflowModeRegistry singleton is accessed, kshana-
+    // core refuses further setUserWorkflowsDir calls.
+    if (this.managerModule.setUserWorkflowsDir) {
+      const userWorkflowsDir = path.join(
+        app.getPath('userData'),
+        'workflows',
+        'user',
+      );
+      try {
+        if (!fs.existsSync(userWorkflowsDir)) {
+          fs.mkdirSync(userWorkflowsDir, { recursive: true });
+        }
+        this.managerModule.setUserWorkflowsDir(userWorkflowsDir);
+        log.info(`[KshanaCoreManager] User workflows dir: ${userWorkflowsDir}`);
+      } catch (err) {
+        log.warn(
+          `[KshanaCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
+        );
+      }
+    }
+
     applyEnvFromSettings(settings, cloudAuth);
     const config: ConversationManagerConfig = {
       llmConfig: buildLLMConfig(settings, cloudAuth),
@@ -831,6 +881,60 @@ export class KshanaCoreManager {
     if (!this.cm) return;
     const fn = (this.cm as unknown as { setVLMJudge?: (s: string, e: boolean) => void }).setVLMJudge;
     if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
+  }
+
+  // ── Custom ComfyUI workflow management ─────────────────────────────
+  // Pass-through to kshana-core's workflowIntegration helpers. Same
+  // helpers the pi-agent tools wrap, so a workflow saved via the
+  // Settings UI shows up in chat-driven generations and vice versa.
+
+  validateWorkflow(workflowPath: string):
+    | { ok: true; totalNodes: number; detectedPipeline: string; inputNodeCount: number; loraCount: number }
+    | { ok: false; reason: string }
+    | { ok: false; reason: string; error: true } {
+    if (!this.managerModule?.validateWorkflowFile) {
+      return { ok: false, reason: 'kshana-core not started yet', error: true };
+    }
+    const result = this.managerModule.validateWorkflowFile(workflowPath);
+    if (!result.ok) return { ok: false, reason: result.reason };
+    return {
+      ok: true,
+      totalNodes: result.parsed.totalNodes,
+      detectedPipeline: result.parsed.detectedPipeline,
+      inputNodeCount: result.parsed.inputNodes.length,
+      loraCount: result.parsed.loraNodes.length,
+    };
+  }
+
+  listWorkflows(opts?: { userOnly?: boolean }): Array<{
+    id: string;
+    displayName: string;
+    pipeline: string;
+    builtIn: boolean;
+    isOverride: boolean;
+    active: boolean;
+  }> {
+    if (!this.managerModule?.listWorkflows) return [];
+    return this.managerModule.listWorkflows(opts);
+  }
+
+  getWorkflow(id: string): Record<string, unknown> | undefined {
+    if (!this.managerModule?.getWorkflow) return undefined;
+    return this.managerModule.getWorkflow(id);
+  }
+
+  updateWorkflow(id: string, patch: Record<string, unknown>): Record<string, unknown> {
+    if (!this.managerModule?.updateWorkflow) {
+      throw new Error('kshana-core not started yet');
+    }
+    return this.managerModule.updateWorkflow(id, patch);
+  }
+
+  deleteWorkflow(id: string): void {
+    if (!this.managerModule?.deleteWorkflow) {
+      throw new Error('kshana-core not started yet');
+    }
+    this.managerModule.deleteWorkflow(id);
   }
 
   async focusSessionProject(

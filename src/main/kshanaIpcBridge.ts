@@ -37,6 +37,16 @@ import {
   type DeleteSessionRequest,
   type InvalidateNodesRequest,
   type InvalidateNodesResponse,
+  type ListWorkflowsRequest,
+  type ListWorkflowsResponse,
+  type GetWorkflowRequest,
+  type GetWorkflowResponse,
+  type UpdateWorkflowRequest,
+  type UpdateWorkflowResponse,
+  type DeleteWorkflowRequest,
+  type DeleteWorkflowResponse,
+  type ValidateWorkflowRequest,
+  type ValidateWorkflowResponse,
 } from '../shared/kshanaIpc';
 import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
 
@@ -223,6 +233,83 @@ export function registerKshanaIpcBridge(
       } catch (err) {
         return {
           ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  // ── Custom ComfyUI workflow management ─────────────────────────────
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.LIST_WORKFLOWS,
+    (_event, req?: ListWorkflowsRequest): ListWorkflowsResponse => {
+      try {
+        const workflows = manager.listWorkflows({ userOnly: req?.userOnly });
+        return { ok: true, workflows };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.GET_WORKFLOW,
+    (_event, req: GetWorkflowRequest): GetWorkflowResponse => {
+      try {
+        const manifest = manager.getWorkflow(req.id);
+        if (!manifest) return { ok: false, error: `Workflow '${req.id}' not found` };
+        return { ok: true, manifest };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.UPDATE_WORKFLOW,
+    (_event, req: UpdateWorkflowRequest): UpdateWorkflowResponse => {
+      try {
+        const manifest = manager.updateWorkflow(req.id, req.patch);
+        return { ok: true, manifest };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.DELETE_WORKFLOW,
+    (_event, req: DeleteWorkflowRequest): DeleteWorkflowResponse => {
+      try {
+        manager.deleteWorkflow(req.id);
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.VALIDATE_WORKFLOW,
+    (_event, req: ValidateWorkflowRequest): ValidateWorkflowResponse => {
+      try {
+        const result = manager.validateWorkflow(req.path);
+        if (!result.ok) {
+          return { ok: true, valid: false, reason: result.reason };
+        }
+        return {
+          ok: true,
+          valid: true,
+          totalNodes: result.totalNodes,
+          detectedPipeline: result.detectedPipeline,
+          inputNodeCount: result.inputNodeCount,
+          loraCount: result.loraCount,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          valid: false,
           error: err instanceof Error ? err.message : String(err),
         };
       }
