@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { ExternalLink, RefreshCw } from 'lucide-react';
 import type { AccountInfo } from '../../../shared/settingsTypes';
 import styles from './SettingsPanel.module.scss';
 
@@ -168,9 +169,6 @@ export default function AccountTab() {
     .slice(0, 2)
     .join('')
     .toUpperCase();
-  const billingLabel = billingUrl
-    ? billingUrl.replace(/^https?:\/\//, '').replace(/\/$/, '')
-    : 'billing';
 
   return (
     <>
@@ -213,35 +211,39 @@ export default function AccountTab() {
       </div>
 
       <div className={styles.infoCard}>
-        <div className={styles.accountBalanceRow}>
-          <div>
-            <div className={styles.infoTitle}>Credit Balance</div>
-            <p className={styles.accountCredits}>
-              {account.credits.toLocaleString()}
-              <span> credits</span>
-            </p>
-          </div>
+        <div className={styles.creditsCardHeader}>
+          <div className={styles.infoTitle}>Credit Balance</div>
           <button
             type="button"
             className={styles.cancelButton}
             onClick={handleRefresh}
             disabled={refreshing}
           >
+            <RefreshCw size={16} className={styles.refreshIcon} />
             {refreshing ? 'Refreshing...' : 'Refresh'}
           </button>
         </div>
-        <p className={styles.infoText}>
-          Manage credits at{' '}
+
+        <div className={styles.creditsValueRow}>
+          <span className={styles.creditsNumber}>
+            {account.credits.toLocaleString()}
+          </span>
+          <span className={styles.creditsUnit}>credits remaining</span>
+        </div>
+
+        {refreshError ? <p className={styles.error}>{refreshError}</p> : null}
+
+        <div className={styles.creditsFooterRow}>
+          <div className={styles.creditsFooterLabel}>Manage credits and billing</div>
           <button
             type="button"
-            className={styles.inlineButton}
+            className={styles.creditsFooterAction}
             onClick={() => getAccountBridge()?.openBilling()}
           >
-            {billingLabel}
+            Open
+            <ExternalLink size={14} className={styles.creditsFooterIcon} />
           </button>
-          .
-        </p>
-        {refreshError ? <p className={styles.error}>{refreshError}</p> : null}
+        </div>
       </div>
 
       <div className={styles.actionsInline}>
