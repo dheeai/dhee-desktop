@@ -1,5 +1,25 @@
 @import '../../styles/tokens';
 
+.cloudBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(80, 160, 255, 0.08);
+  border: 1px solid rgba(80, 160, 255, 0.25);
+  border-radius: $radius-md;
+  font-size: 13px;
+  line-height: 1.45;
+  color: $color-text-primary;
+  margin-bottom: 16px;
+}
+
+.cloudBannerIcon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: rgba(120, 180, 255, 0.9);
+}
+
 .toolbar {
   display: flex;
   align-items: center;

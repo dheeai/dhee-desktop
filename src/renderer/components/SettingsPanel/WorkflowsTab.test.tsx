@@ -171,6 +171,28 @@ describe('WorkflowsTab', () => {
     await waitFor(() => expect(screen.getByText('IPC fail')).toBeInTheDocument());
   });
 
+  it('renders a cloud-mode banner when isCloudMode=true', async () => {
+    installBridge({});
+    await act(async () => {
+      render(<WorkflowsTab isCloudMode />);
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByText(/Custom workflows only run on local ComfyUI/i),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('does not render the cloud-mode banner in local mode', async () => {
+    installBridge({});
+    await act(async () => {
+      render(<WorkflowsTab />);
+    });
+    expect(
+      screen.queryByText(/Custom workflows only run on local ComfyUI/i),
+    ).not.toBeInTheDocument();
+  });
+
   it('opens the inline editor with the manifest values when Edit is clicked', async () => {
     const get = jest.fn(async () => ({
       ok: true,

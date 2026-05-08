@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Trash2, Pencil, AlertCircle, RefreshCw } from 'lucide-react';
+import { Trash2, Pencil, AlertCircle, Info, RefreshCw } from 'lucide-react';
 import type {
   WorkflowSummary,
 } from '../../../shared/kshanaIpc';
@@ -14,9 +14,17 @@ interface WorkflowsTabProps {
    * after the user attaches a JSON file).
    */
   onOpenChatToAdd?: () => void;
+  /**
+   * Whether the app is currently set to run on cloud ComfyUI. When
+   * true, the tab shows an informational banner explaining custom
+   * workflows are only used in local mode — and the registry will
+   * have filtered them out, so the list will be empty even if the
+   * user has uploaded some.
+   */
+  isCloudMode?: boolean;
 }
 
-export default function WorkflowsTab({ onOpenChatToAdd }: WorkflowsTabProps) {
+export default function WorkflowsTab({ onOpenChatToAdd, isCloudMode = false }: WorkflowsTabProps) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -109,6 +117,19 @@ export default function WorkflowsTab({ onOpenChatToAdd }: WorkflowsTabProps) {
           variables, and saving it.
         </p>
       </div>
+
+      {isCloudMode && (
+        <div className={workflowStyles.cloudBanner} role="status">
+          <Info size={14} className={workflowStyles.cloudBannerIcon} />
+          <span>
+            Custom workflows only run on local ComfyUI. While Kshana is
+            set to cloud mode, your custom workflows are inactive — the
+            cloud service uses its built-in workflows instead. Switch
+            to local mode (Settings → Connection) to use your custom
+            workflows.
+          </span>
+        </div>
+      )}
 
       <div className={workflowStyles.toolbar}>
         <button

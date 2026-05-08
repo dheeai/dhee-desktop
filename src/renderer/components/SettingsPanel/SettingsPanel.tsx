@@ -573,7 +573,10 @@ export default function SettingsPanel({
                 </div>
               </>
             ) : activeTab === 'workflows' ? (
-              <WorkflowsTab onOpenChatToAdd={onOpenChatToAddWorkflow} />
+              <WorkflowsTab
+                onOpenChatToAdd={onOpenChatToAddWorkflow}
+                isCloudMode={settings?.backendMode === 'cloud'}
+              />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>
