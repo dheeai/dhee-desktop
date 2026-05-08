@@ -1,5 +1,22 @@
 @import '../../styles/tokens';
 
+.addHint {
+  padding: 10px 14px;
+  background: $color-panel-background;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-md;
+  font-size: 13px;
+  line-height: 1.5;
+  color: $color-text-secondary;
+  margin-bottom: 16px;
+}
+
+.kbd {
+  display: inline-block;
+  padding: 0 4px;
+  font-size: 13px;
+}
+
 .cloudBanner {
   display: flex;
   align-items: flex-start;

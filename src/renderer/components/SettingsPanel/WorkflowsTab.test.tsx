@@ -149,16 +149,19 @@ describe('WorkflowsTab', () => {
     confirmSpy.mockRestore();
   });
 
-  it('calls onOpenChatToAdd when the Add Workflow button is clicked', async () => {
+  it('shows the add-workflow hint pointing the user to the chat', async () => {
     installBridge({});
-    const onOpenChatToAdd = jest.fn();
     await act(async () => {
-      render(<WorkflowsTab onOpenChatToAdd={onOpenChatToAdd} />);
+      render(<WorkflowsTab />);
     });
-    // The literal "+ Add Workflow" appears twice — in the toolbar
-    // button and in the empty-state hint. Pick the button.
-    fireEvent.click(screen.getByRole('button', { name: '+ Add Workflow' }));
-    expect(onOpenChatToAdd).toHaveBeenCalled();
+    // No button — the chat is the canonical install path. The tab
+    // tells the user how to start instead.
+    expect(
+      screen.queryByRole('button', { name: /add workflow/i }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/To add a custom workflow, open any project/i),
+    ).toBeInTheDocument();
   });
 
   it('shows an error when the list IPC fails', async () => {

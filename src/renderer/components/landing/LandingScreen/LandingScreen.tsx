@@ -671,12 +671,6 @@ export default function LandingScreen() {
               onSaveConnection={saveConnectionSettings}
               isSavingConnection={isSavingConnection}
               error={settingsError}
-              onOpenChatToAddWorkflow={() => {
-                // Route to the projects view so the user lands on
-                // chat. The pi-agent's comfyui skill engages once
-                // they attach a JSON file.
-                setActiveView('projects');
-              }}
             />
           </section>
         )}

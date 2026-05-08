@@ -917,13 +917,13 @@ export default function ChatPanelEmbedded() {
             type="button"
             aria-label={
               piOversight
-                ? 'Pi-agent oversight: ON (click to turn off)'
-                : 'Pi-agent oversight: OFF (click to turn on)'
+                ? 'Agent oversight: ON (click to turn off)'
+                : 'Agent oversight: OFF (click to turn on)'
             }
             title={
               piOversight
-                ? 'Pi-agent oversight: ON — auto-engages on runner events'
-                : 'Pi-agent oversight: OFF — chat-only, no auto-engagement'
+                ? 'Agent oversight: ON — auto-engages on runner events'
+                : 'Agent oversight: OFF — chat-only, no auto-engagement'
             }
             onClick={() => void handleTogglePiOversight()}
             style={{
@@ -967,8 +967,8 @@ export default function ChatPanelEmbedded() {
               !piOversight
                 ? 'VLM judge — turn supervisor on first'
                 : vlmJudge
-                  ? 'VLM judge: ON — vision-LLM describes generated images for pi-agent'
-                  : 'VLM judge: OFF — pi-agent has no vision feedback on assets'
+                  ? 'VLM judge: ON — vision-LLM describes generated images for the agent'
+                  : 'VLM judge: OFF — agent has no vision feedback on assets'
             }
             onClick={() => void handleToggleVlmJudge()}
             style={{

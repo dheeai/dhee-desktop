@@ -47,12 +47,6 @@ type Props = {
   onSaveConnection: (settings: Partial<AppSettings>) => Promise<boolean> | void;
   isSavingConnection: boolean;
   error?: string | null;
-  /**
-   * Called when the user clicks "Add Workflow" on the Workflows
-   * tab. The host (LandingScreen) routes to chat so the pi-agent
-   * skill can drive the conversational add-a-workflow flow.
-   */
-  onOpenChatToAddWorkflow?: () => void;
 };
 
 const emptySettings: AppSettings = {
@@ -141,7 +135,6 @@ export default function SettingsPanel({
   onSaveConnection,
   isSavingConnection,
   error,
-  onOpenChatToAddWorkflow,
 }: Props) {
   const isEmbedded = variant === 'embedded';
   const isVisible = isEmbedded || isOpen;
@@ -507,9 +500,9 @@ export default function SettingsPanel({
                 <div className={styles.sectionHeader} style={{ marginTop: 24 }}>
                   <h3>AI Oversight</h3>
                   <p>
-                    Pi-agent observes runner events and intervenes when
+                    The agent observes runner events and intervenes when
                     something looks off. VLM provides image descriptions
-                    so pi-agent can judge generated assets against the
+                    so the agent can judge generated assets against the
                     prompt.
                   </p>
                 </div>
@@ -533,9 +526,9 @@ export default function SettingsPanel({
                       style={{ marginTop: 4 }}
                     />
                     <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500 }}>Pi-agent oversight</span>
+                      <span style={{ fontWeight: 500 }}>Agent oversight</span>
                       <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Auto-engages pi-agent on runner events (failed,
+                        Auto-engages the agent on runner events (failed,
                         completed, per-asset when VLM is on).
                       </span>
                     </span>
@@ -563,8 +556,8 @@ export default function SettingsPanel({
                     <span style={{ display: 'flex', flexDirection: 'column' }}>
                       <span style={{ fontWeight: 500 }}>VLM judge</span>
                       <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Vision-LLM describes generated images for
-                        pi-agent. Requires VLM_PROVIDER / VLM_API_KEY /
+                        Vision-LLM describes generated images for the
+                        agent. Requires VLM_PROVIDER / VLM_API_KEY /
                         VLM_MODEL in .env. Disabled when oversight is
                         off (VLM standalone has no consumer).
                       </span>
@@ -573,10 +566,7 @@ export default function SettingsPanel({
                 </div>
               </>
             ) : activeTab === 'workflows' ? (
-              <WorkflowsTab
-                onOpenChatToAdd={onOpenChatToAddWorkflow}
-                isCloudMode={settings?.backendMode === 'cloud'}
-              />
+              <WorkflowsTab isCloudMode={settings?.backendMode === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>

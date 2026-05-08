@@ -8,13 +8,6 @@ import workflowStyles from './WorkflowsTab.module.scss';
 
 interface WorkflowsTabProps {
   /**
-   * Optional callback the panel can use to switch to chat. The
-   * "Add Workflow" button calls this to take the user to the
-   * conversational add-a-workflow flow (pi-agent skill drives it
-   * after the user attaches a JSON file).
-   */
-  onOpenChatToAdd?: () => void;
-  /**
    * Whether the app is currently set to run on cloud ComfyUI. When
    * true, the tab shows an informational banner explaining custom
    * workflows are only used in local mode — and the registry will
@@ -24,7 +17,7 @@ interface WorkflowsTabProps {
   isCloudMode?: boolean;
 }
 
-export default function WorkflowsTab({ onOpenChatToAdd, isCloudMode = false }: WorkflowsTabProps) {
+export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -113,7 +106,7 @@ export default function WorkflowsTab({ onOpenChatToAdd, isCloudMode = false }: W
         <h3>Custom Workflows</h3>
         <p className={styles.sectionDescription}>
           ComfyUI workflows you've added. Use the chat to install a new
-          workflow — the pi-agent walks you through validating, mapping
+          workflow — the agent walks you through validating, mapping
           variables, and saving it.
         </p>
       </div>
@@ -131,14 +124,11 @@ export default function WorkflowsTab({ onOpenChatToAdd, isCloudMode = false }: W
         </div>
       )}
 
+      <div className={workflowStyles.addHint}>
+        To add a custom workflow, open any project, click <span className={workflowStyles.kbd}>📎</span> in the chat, and pick the workflow JSON. The agent walks you through the rest.
+      </div>
+
       <div className={workflowStyles.toolbar}>
-        <button
-          type="button"
-          className={styles.submitButton}
-          onClick={() => onOpenChatToAdd?.()}
-        >
-          + Add Workflow
-        </button>
         <button
           type="button"
           className={workflowStyles.iconButton}
@@ -172,8 +162,8 @@ export default function WorkflowsTab({ onOpenChatToAdd, isCloudMode = false }: W
       <div className={workflowStyles.groupHeader}>Your workflows</div>
       {userWorkflows.length === 0 ? (
         <div className={workflowStyles.emptyState}>
-          No custom workflows yet. Click <strong>+ Add Workflow</strong> to
-          install one via the chat.
+          No custom workflows yet. Open a project and attach a ComfyUI
+          workflow JSON in the chat to install one.
         </div>
       ) : (
         <ul className={workflowStyles.list}>
@@ -475,7 +465,7 @@ function WorkflowEditor({
       </div>
       <p className={workflowStyles.editorHint}>
         For deeper changes (renaming variables, remapping nodes, changing
-        pipeline) re-run the workflow through the chat — the pi-agent will
+        pipeline) re-run the workflow through the chat — the agent will
         re-analyze it.
       </p>
     </div>
