@@ -44,6 +44,13 @@ import {
   setAccount,
 } from './accountManager';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
+import {
+  captureDesktopAuthStarted,
+  identifyDesktopUser,
+  resetDesktopAnalyticsIdentity,
+  startDesktopAnalytics,
+  stopDesktopAnalytics,
+} from './analytics';
 import fileSystemManager from './fileSystemManager';
 import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
@@ -107,6 +114,12 @@ let appUpdateStatus: AppUpdateStatus = {
 interface RuntimeConfig {
   /** Kshana website (Next.js): /auth/desktop, proxy routes, billing APIs. */
   kshanaWebsiteUrl?: string;
+  /** Optional PostHog project key for packaged builds. */
+  posthogApiKey?: string;
+  /** Optional PostHog ingest host. Defaults in kshana-core when omitted. */
+  posthogHost?: string;
+  /** Optional salt used before hashing local project paths in analytics. */
+  analyticsSalt?: string;
 }
 
 async function readRuntimeConfig(): Promise<RuntimeConfig | null> {
@@ -156,6 +169,23 @@ async function resolveKshanaWebsiteUrl(): Promise<string> {
   const fromFile = normalizeServerUrl(parsed?.kshanaWebsiteUrl);
   if (fromFile) return fromFile;
   return 'http://localhost:3000';
+}
+
+async function applyRuntimeAnalyticsConfig(): Promise<void> {
+  const parsed = await readRuntimeConfig();
+  const posthogApiKey = parsed?.posthogApiKey?.trim();
+  const posthogHost = normalizeServerUrl(parsed?.posthogHost);
+  const analyticsSalt = parsed?.analyticsSalt?.trim();
+
+  if (posthogApiKey && !process.env.POSTHOG_API_KEY) {
+    process.env.POSTHOG_API_KEY = posthogApiKey;
+  }
+  if (posthogHost && !process.env.POSTHOG_HOST) {
+    process.env.POSTHOG_HOST = posthogHost;
+  }
+  if (analyticsSalt && !process.env.ANALYTICS_SALT) {
+    process.env.ANALYTICS_SALT = analyticsSalt;
+  }
 }
 
 async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
@@ -3333,6 +3363,7 @@ kshanaCoreManager = new KshanaCoreManager();
 
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
+  stopDesktopAnalytics(kshanaCoreManager);
   try {
     kshanaCoreManager.stop();
   } catch (error) {
@@ -3342,6 +3373,7 @@ app.on('before-quit', () => {
 
 const bootstrapBackend = async () => {
   try {
+    await applyRuntimeAnalyticsConfig();
     const settings = getSettings();
     log.info(
       `[EmbeddedKshana] Bootstrap starting packaged=${app.isPackaged} cwd=${process.cwd()}`,
@@ -3365,6 +3397,10 @@ const bootstrapBackend = async () => {
       await getCloudAuthRuntime(settings),
     );
     log.info('[EmbeddedKshana] Manager started');
+    startDesktopAnalytics({
+      manager: kshanaCoreManager,
+      account: getAccount(),
+    });
     if (mainWindow) {
       registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
       log.info('[EmbeddedKshana] IPC bridge registered');
@@ -3506,6 +3542,7 @@ async function handleDeepLink(url: string): Promise<void> {
       credits: 0,
       token,
     });
+    identifyDesktopUser(kshanaCoreManager, payload.sub);
 
     await refreshBalance(await resolveKshanaWebsiteUrl());
     updateSettings({ backendMode: 'cloud' });
@@ -3592,6 +3629,7 @@ ipcMain.handle('account:sign-in', async () => {
   const state = randomUUID();
   pendingDesktopAuthState = state;
   lastAccountAuthStatus = 'waiting';
+  captureDesktopAuthStarted(kshanaCoreManager);
   const url = await resolveKshanaWebsitePath(
     `/auth/desktop?state=${encodeURIComponent(state)}`,
   );
@@ -3612,6 +3650,7 @@ ipcMain.handle('account:sign-out', async () => {
   updateSettings({ backendMode: 'local' });
   pendingDesktopAuthState = null;
   lastAccountAuthStatus = 'idle';
+  resetDesktopAnalyticsIdentity(kshanaCoreManager);
   await restartEmbeddedAfterAccountChange('sign-out');
   mainWindow?.webContents.send('settings:updated', getSettings());
   broadcastAccountChanged();

@@ -1,3 +1,6 @@
 {
-  "kshanaWebsiteUrl": "https://app.kshana.ai"
+  "kshanaWebsiteUrl": "https://app.kshana.ai",
+  "posthogApiKey": "",
+  "posthogHost": "https://us.i.posthog.com",
+  "analyticsSalt": ""
 }
