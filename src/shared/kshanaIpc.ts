@@ -150,6 +150,17 @@ export interface RunTaskRequest {
   sessionId: string;
   task: string;
   stopAtStage?: string;
+  /**
+   * Files the user attached in the chat input. Currently only
+   * `comfy_workflow` is implemented — text/image/video/audio kinds
+   * are reserved (see src/shared/attachmentTypes.ts).
+   *
+   * The main process transforms these into textual hints that
+   * prepend the task message before kshana-core sees it. This keeps
+   * the kshana-core ConversationManager API unchanged while still
+   * being structurally typed across the IPC boundary.
+   */
+  attachments?: import('./attachmentTypes').Attachment[];
 }
 
 export interface SendResponseRequest {

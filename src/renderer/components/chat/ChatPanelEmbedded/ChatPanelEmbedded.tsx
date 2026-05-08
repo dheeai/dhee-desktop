@@ -28,9 +28,12 @@ import {
   Eye,
   EyeOff,
   Loader2,
+  Paperclip,
   ScanEye,
   X,
 } from 'lucide-react';
+import type { Attachment } from '../../../../shared/attachmentTypes';
+import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
@@ -226,6 +229,8 @@ export default function ChatPanelEmbedded() {
   const agent = useAgent();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
+  const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   // Header dropdown menu (project name → caret → menu) state.
@@ -654,9 +659,36 @@ export default function ChatPanelEmbedded() {
   // template step entirely (template defaults to 'narrative').
   const handleSelectTemplate = useCallback(() => {}, []);
 
+  const handleAttachClick = async () => {
+    setAttachmentError(null);
+    try {
+      const result = await window.electron.project.selectAttachment({
+        kinds: ['comfy_workflow'],
+        title: 'Select a ComfyUI Workflow',
+      });
+      if (!result.ok) {
+        if (result.error) setAttachmentError(result.error);
+        return;
+      }
+      if (result.attachment) {
+        // v1 caps at one attachment per turn — keeps the skill
+        // prompt's parsing simple. Lift this when batched flows
+        // (e.g. multiple images at once) need it.
+        setChatAttachments([result.attachment as Attachment]);
+      }
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setChatAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || !session.sessionId) return;
+    // A turn must have either text or at least one attachment.
+    if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
 
     // If pi-agent is mid-turn (e.g. running a multi-step regen +
     // bash + regen sequence), the user often wants to interject
@@ -669,14 +701,26 @@ export default function ChatPanelEmbedded() {
       await session.cancel().catch(() => undefined);
     }
 
+    // Render the user-visible message — include a small "📎 N
+    // attachment(s)" suffix when files were attached, so the chat
+    // log reflects what was sent.
+    const visibleText = chatAttachments.length > 0
+      ? `${text}${text ? '\n\n' : ''}📎 ${chatAttachments.map(a => a.name).join(', ')}`
+      : text;
+
     setMessages((prev) => [
       ...prev,
-      { id: newMessageId(), role: 'user', text },
+      { id: newMessageId(), role: 'user', text: visibleText },
     ]);
+    const sentAttachments = chatAttachments;
     setInput('');
+    setChatAttachments([]);
+    setAttachmentError(null);
     streamingMsgIdRef.current = null;
 
-    const result = await session.runTask(text);
+    const result = await session.runTask(text, {
+      attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
+    });
     if (!result.ok) {
       // Don't let a failed dispatch leave the chat in a "user
       // typed, nothing happened" state — surface the error so the
@@ -1066,7 +1110,32 @@ export default function ChatPanelEmbedded() {
               onAction={(a) => void handleCTAAction(a)}
             />
           )}
+        {chatAttachments.length > 0 && (
+          <div className={styles.attachmentRow}>
+            {chatAttachments.map((att) => (
+              <AttachmentChip
+                key={att.id}
+                attachment={att}
+                onRemove={handleRemoveAttachment}
+                disabled={isMainBusy}
+              />
+            ))}
+          </div>
+        )}
+        {attachmentError && (
+          <div className={styles.attachmentError}>{attachmentError}</div>
+        )}
         <div className={styles.inputWrapper}>
+          <button
+            type="button"
+            onClick={handleAttachClick}
+            aria-label="Attach file"
+            title="Attach a ComfyUI workflow JSON"
+            disabled={!isReady || isMainBusy}
+            className={styles.attachButton}
+          >
+            <Paperclip size={16} />
+          </button>
           <textarea
             ref={inputRef}
             value={input}
@@ -1083,7 +1152,7 @@ export default function ChatPanelEmbedded() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim().length > 0) handleSend();
+                if (input.trim().length > 0 || chatAttachments.length > 0) handleSend();
               }
             }}
             className={styles.textarea}
@@ -1097,7 +1166,7 @@ export default function ChatPanelEmbedded() {
                 ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
-            disabled={!isReady || input.trim().length === 0}
+            disabled={!isReady || (input.trim().length === 0 && chatAttachments.length === 0)}
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
           >
             {isMainBusy ? (

@@ -216,6 +216,47 @@
   flex-shrink: 0;
 }
 
+.attachmentRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.attachmentError {
+  color: #ff6b6b;
+  font-size: 12px;
+  margin-bottom: 8px;
+}
+
+.attachButton {
+  position: absolute;
+  left: 8px;
+  bottom: 8px;
+  background: transparent;
+  border: none;
+  color: $color-text-secondary;
+  cursor: pointer;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background-color 0.12s, color 0.12s;
+  z-index: 1;
+
+  &:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.06);
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
 .inputWrapper {
   position: relative;
 }
@@ -226,7 +267,8 @@
   color: inherit;
   border: 1px solid $color-border-subtle;
   border-radius: 10px;
-  padding: 12px 56px 44px 14px;
+  // Left padding 44px to clear the absolute-positioned attach button.
+  padding: 12px 56px 44px 44px;
   font-size: $font-size-sm;
   line-height: 1.45;
   resize: none;

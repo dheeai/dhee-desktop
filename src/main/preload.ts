@@ -142,6 +142,27 @@ const projectBridge = {
   selectAudioFile(): Promise<string | null> {
     return ipcRenderer.invoke('project:select-audio-file');
   },
+  /**
+   * Generic chat-attachment file picker. Caller passes the kinds it
+   * accepts (currently only 'comfy_workflow'). Returns the picked
+   * attachment shape, or `{ ok: false }` on cancel/error.
+   */
+  selectAttachment(req: {
+    kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
+    title?: string;
+  }): Promise<{
+    ok: boolean;
+    attachment?: {
+      id: string;
+      kind: 'comfy_workflow' | 'text' | 'image' | 'video' | 'audio';
+      path: string;
+      name: string;
+      size?: number;
+    };
+    error?: string;
+  }> {
+    return ipcRenderer.invoke('project:select-attachment', req);
+  },
   getAudioDuration(audioPath: string): Promise<number> {
     return ipcRenderer.invoke('project:get-audio-duration', audioPath);
   },

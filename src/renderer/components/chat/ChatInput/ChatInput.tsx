@@ -1,5 +1,7 @@
 import { FormEvent, useState, useRef, useEffect, KeyboardEvent } from 'react';
-import { Send, Square } from 'lucide-react';
+import { Send, Square, Paperclip } from 'lucide-react';
+import type { Attachment, AttachmentKind } from '../../../../shared/attachmentTypes';
+import AttachmentChip from './AttachmentChip';
 import styles from './ChatInput.module.scss';
 
 interface ChatInputProps {
@@ -10,8 +12,14 @@ interface ChatInputProps {
   hintText?: string;
   questionMode?: boolean;
   onQuestionInteraction?: () => void;
-  onSend: (message: string) => void;
+  onSend: (message: string, attachments: Attachment[]) => void;
   onStop?: () => void;
+  /**
+   * Which attachment kinds the user can attach. Default is just
+   * ComfyUI workflows. Future surface area: pass `['comfy_workflow',
+   * 'image']` etc. as more kinds become supported.
+   */
+  acceptedAttachmentKinds?: AttachmentKind[];
 }
 
 const MIN_ROWS = 1;
@@ -28,8 +36,11 @@ export default function ChatInput({
   onQuestionInteraction,
   onSend,
   onStop,
+  acceptedAttachmentKinds = ['comfy_workflow'],
 }: ChatInputProps) {
   const [value, setValue] = useState('');
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [rows, setRows] = useState(MIN_ROWS);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -57,11 +68,14 @@ export default function ChatInput({
 
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
-    if (isRunning || !value.trim()) {
+    // A message must have either text or at least one attachment.
+    if (isRunning || (!value.trim() && attachments.length === 0)) {
       return;
     }
-    onSend(value.trim());
+    onSend(value.trim(), attachments);
     setValue('');
+    setAttachments([]);
+    setAttachmentError(null);
     setRows(MIN_ROWS);
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
@@ -94,17 +108,75 @@ export default function ChatInput({
     }
   };
 
-  const canSend = value.trim().length > 0 && !disabled;
+  const handleAttach = async () => {
+    setAttachmentError(null);
+    notifyQuestionInteraction();
+    try {
+      const result = await window.electron.project.selectAttachment({
+        kinds: acceptedAttachmentKinds,
+        title:
+          acceptedAttachmentKinds.length === 1 &&
+          acceptedAttachmentKinds[0] === 'comfy_workflow'
+            ? 'Select a ComfyUI Workflow'
+            : 'Select an attachment',
+      });
+      if (!result.ok) {
+        if (result.error) setAttachmentError(result.error);
+        return;
+      }
+      if (result.attachment) {
+        // Cap at one attachment per turn for v1 — keeps the skill
+        // prompt's parsing simple. Lift the cap when batched flows
+        // need it.
+        setAttachments([result.attachment as Attachment]);
+      }
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRemoveAttachment = (id: string) => {
+    setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
+  const hasContent = value.trim().length > 0 || attachments.length > 0;
+  const canSend = hasContent && !disabled;
   const canStop = !disabled && isRunning && !isStopping;
+  const canAttach = !disabled && !isRunning;
 
   return (
     <form
       className={`${styles.container} ${questionMode ? styles.questionMode : ''}`}
       onSubmit={handleSubmit}
     >
+      {attachments.length > 0 && (
+        <div className={styles.attachmentRow}>
+          {attachments.map(att => (
+            <AttachmentChip
+              key={att.id}
+              attachment={att}
+              onRemove={handleRemoveAttachment}
+              disabled={isRunning}
+            />
+          ))}
+        </div>
+      )}
+      {attachmentError && (
+        <div className={styles.attachmentError}>{attachmentError}</div>
+      )}
       <div
         className={`${styles.inputWrapper} ${questionMode ? styles.inputWrapperQuestionMode : ''}`}
       >
+        <button
+          type="button"
+          onClick={handleAttach}
+          disabled={!canAttach}
+          className={styles.attachButton}
+          aria-label="Attach file"
+          title="Attach a ComfyUI workflow JSON"
+        >
+          <Paperclip size={16} />
+        </button>
         <textarea
           ref={textareaRef}
           value={value}

@@ -48,6 +48,7 @@ import {
   type ValidateWorkflowRequest,
   type ValidateWorkflowResponse,
 } from '../shared/kshanaIpc';
+import { prefixAttachmentsToTask } from '../shared/attachmentTypes';
 import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
 
 /**
@@ -101,9 +102,14 @@ export function registerKshanaIpcBridge(
     KSHANA_CHANNELS.RUN_TASK,
     async (_event, req: RunTaskRequest): Promise<OkResponse> => {
       const eventCb = (e: KshanaCoreEvent) => publishEvent(window, e);
+      // Attachment hints are prepended to the user's task here so
+      // pi-agent's skill prompts (e.g. comfyui-workflow-integration)
+      // see a one-line marker per attachment and call the right tool
+      // without us having to extend kshana-core's runTask signature.
+      const finalTask = prefixAttachmentsToTask(req.task, req.attachments);
       const result = await manager.runTask(
         req.sessionId,
-        req.task,
+        finalTask,
         req.stopAtStage ? { stopAtStage: req.stopAtStage } : {},
         eventCb,
       );
