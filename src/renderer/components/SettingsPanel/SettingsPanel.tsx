@@ -7,9 +7,15 @@ import type {
 } from '../../../shared/settingsTypes';
 import { DESKTOP_THEMES } from '../../themes';
 import AccountTab from './AccountTab';
+import WorkflowsTab from './WorkflowsTab';
 import styles from './SettingsPanel.module.scss';
 
-type SettingsTab = 'account' | 'appearance' | 'connection' | 'diagnostics';
+type SettingsTab =
+  | 'account'
+  | 'appearance'
+  | 'connection'
+  | 'workflows'
+  | 'diagnostics';
 
 interface LogsBridge {
   getDir(): Promise<string>;
@@ -41,6 +47,12 @@ type Props = {
   onSaveConnection: (settings: Partial<AppSettings>) => Promise<boolean> | void;
   isSavingConnection: boolean;
   error?: string | null;
+  /**
+   * Called when the user clicks "Add Workflow" on the Workflows
+   * tab. The host (LandingScreen) routes to chat so the pi-agent
+   * skill can drive the conversational add-a-workflow flow.
+   */
+  onOpenChatToAddWorkflow?: () => void;
 };
 
 const emptySettings: AppSettings = {
@@ -129,6 +141,7 @@ export default function SettingsPanel({
   onSaveConnection,
   isSavingConnection,
   error,
+  onOpenChatToAddWorkflow,
 }: Props) {
   const isEmbedded = variant === 'embedded';
   const isVisible = isEmbedded || isOpen;
@@ -419,6 +432,16 @@ export default function SettingsPanel({
           </button>
           <button
             type="button"
+            className={`${styles.tabButton} ${activeTab === 'workflows' ? styles.tabButtonActive : ''}`}
+            onClick={() => setActiveTab('workflows')}
+          >
+            <span className={styles.tabLabel}>Workflows</span>
+            <span className={styles.tabDescription}>
+              Custom ComfyUI workflows
+            </span>
+          </button>
+          <button
+            type="button"
             className={`${styles.tabButton} ${activeTab === 'diagnostics' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('diagnostics')}
           >
@@ -549,6 +572,8 @@ export default function SettingsPanel({
                   </label>
                 </div>
               </>
+            ) : activeTab === 'workflows' ? (
+              <WorkflowsTab onOpenChatToAdd={onOpenChatToAddWorkflow} />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>

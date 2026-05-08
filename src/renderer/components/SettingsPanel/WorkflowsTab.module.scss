@@ -1,0 +1,254 @@
+@import '../../styles/tokens';
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.iconButton {
+  background: transparent;
+  border: 1px solid $color-panel-border;
+  color: $color-text-secondary;
+  cursor: pointer;
+  width: 30px;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: $radius-md;
+  transition: background-color $transition-fast, color $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $color-panel-background;
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+
+  &.danger:hover:not(:disabled) {
+    background: rgba(255, 80, 80, 0.12);
+    color: #ff7a7a;
+    border-color: rgba(255, 80, 80, 0.4);
+  }
+}
+
+.spinning {
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.groupHeader {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: $color-text-muted;
+  margin: 24px 0 8px;
+  font-weight: 600;
+}
+
+.list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.row {
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-md;
+  padding: 12px 14px;
+  background: $color-panel-background;
+}
+
+.rowHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.builtInRow {
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-md;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.02);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rowMain {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.rowName {
+  font-weight: 500;
+  color: $color-text-primary;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowMeta {
+  font-size: 12px;
+  color: $color-text-muted;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.actionButton {
+  background: transparent;
+  border: 1px solid $color-panel-border;
+  color: $color-text-secondary;
+  cursor: pointer;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: $radius-md;
+  transition: background-color $transition-fast, color $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: $color-panel-background;
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.builtInBadge {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: $color-text-muted;
+  background: $color-panel-background;
+  padding: 2px 8px;
+  border-radius: $radius-sm;
+}
+
+.emptyState {
+  border: 1px dashed $color-panel-border;
+  border-radius: $radius-md;
+  padding: 16px;
+  color: $color-text-muted;
+  font-size: 13px;
+  text-align: center;
+}
+
+.muted {
+  color: $color-text-muted;
+  font-size: 13px;
+}
+
+// ── Editor ──────────────────────────────────────────────────────────
+
+.editor {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid $color-panel-border;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  color: $color-text-secondary;
+  font-weight: 500;
+}
+
+.input {
+  background: $color-background-dark;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-sm;
+  color: $color-text-primary;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  width: 100%;
+  box-sizing: border-box;
+
+  &:focus {
+    outline: none;
+    border-color: $color-accent-primary;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+  }
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-sm;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+
+  th, td {
+    padding: 6px 10px;
+    text-align: left;
+    border-bottom: 1px solid $color-panel-border;
+    vertical-align: top;
+  }
+
+  th {
+    background: $color-background-dark;
+    color: $color-text-secondary;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    font-size: 11px;
+  }
+
+  tr:last-child td {
+    border-bottom: none;
+  }
+}
+
+.cellMono {
+  font-family: $font-family-mono;
+  font-size: 12px;
+}
+
+.editorActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.editorHint {
+  margin: 0;
+  font-size: 12px;
+  color: $color-text-muted;
+}
