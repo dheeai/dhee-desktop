@@ -46,6 +46,12 @@ type ConversationManager = {
   shutdown: () => void;
 };
 
+type AnalyticsIdentity = {
+  distinctId?: string;
+  installId?: string;
+  userId?: string;
+};
+
 const KSHANA_CORE_MANAGER_MODULE = 'kshana-core/manager';
 
 function getPackagedManagerModuleUrl(): string | null {
@@ -70,6 +76,28 @@ type ManagerModule = {
   ConversationManager: new (
     config: ConversationManagerConfig,
   ) => ConversationManager;
+  captureAnalyticsEvent?: (
+    event: string,
+    properties?: Record<string, unknown>,
+    options?: {
+      identity?: AnalyticsIdentity;
+      component?: string;
+      timestamp?: string | Date;
+    },
+  ) => void;
+  configureAnalytics?: (input: {
+    platform?: 'desktop' | 'server' | 'website';
+    appVersion?: string;
+    identity?: AnalyticsIdentity;
+    properties?: Record<string, unknown>;
+  }) => void;
+  identifyAnalyticsUser?: (
+    identity: { userId: string } & AnalyticsIdentity,
+    properties?: Record<string, unknown>,
+  ) => void;
+  isPostHogEnabled?: () => boolean;
+  setAnalyticsIdentity?: (identity: AnalyticsIdentity) => void;
+  shutdownPostHog?: () => Promise<void>;
   /**
    * Optional in tests where the loader injects a stub. In production
    * the real bundle always exports it.
@@ -561,6 +589,54 @@ export class KshanaCoreManager {
   /** Whether `start()` has run and the manager is alive. */
   isStarted(): boolean {
     return this.cm !== null;
+  }
+
+  configureAnalytics(input: {
+    appVersion: string;
+    installId: string;
+    userId?: string;
+    properties?: Record<string, unknown>;
+  }): void {
+    this.managerModule?.configureAnalytics?.({
+      platform: 'desktop',
+      appVersion: input.appVersion,
+      identity: {
+        installId: input.installId,
+        ...(input.userId ? { userId: input.userId } : {}),
+      },
+      properties: input.properties,
+    });
+  }
+
+  setAnalyticsIdentity(identity: { installId: string; userId?: string }): void {
+    this.managerModule?.setAnalyticsIdentity?.({
+      installId: identity.installId,
+      ...(identity.userId ? { userId: identity.userId } : {}),
+    });
+  }
+
+  identifyAnalyticsUser(identity: { installId: string; userId: string }): void {
+    this.managerModule?.identifyAnalyticsUser?.({
+      installId: identity.installId,
+      userId: identity.userId,
+    });
+  }
+
+  captureAnalyticsEvent(
+    event: string,
+    properties: Record<string, unknown> = {},
+  ): void {
+    this.managerModule?.captureAnalyticsEvent?.(event, properties, {
+      component: 'kshana-desktop',
+    });
+  }
+
+  isAnalyticsEnabled(): boolean {
+    return this.managerModule?.isPostHogEnabled?.() === true;
+  }
+
+  async flushAnalytics(): Promise<void> {
+    await this.managerModule?.shutdownPostHog?.();
   }
 
   /**
