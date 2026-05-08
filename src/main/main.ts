@@ -99,6 +99,27 @@ if (app.isPackaged) {
   process.env.KSHANA_PACKAGED = '1';
 }
 
+// Point kshana-core at the bundled ffmpeg/ffprobe binaries. Packaged
+// macOS GUI apps don't inherit the user's shell $PATH, and Windows
+// users may not have ffmpeg installed at all — so kshana-core's
+// `spawn('ffmpeg')` calls would fail with ENOENT in the wild. We set
+// these env vars before kshana-core loads so its FFmpegAssembler,
+// keyframeExtractor, and InputProcessor pick up the bundled binaries.
+{
+  let bundledFfmpeg = ffmpegInstaller.path;
+  let bundledFfprobe = ffprobeInstaller.path;
+  if (app.isPackaged) {
+    bundledFfmpeg = bundledFfmpeg.replace('app.asar', 'app.asar.unpacked');
+    bundledFfprobe = bundledFfprobe.replace('app.asar', 'app.asar.unpacked');
+  }
+  if (!process.env.KSHANA_FFMPEG_PATH) {
+    process.env.KSHANA_FFMPEG_PATH = bundledFfmpeg;
+  }
+  if (!process.env.KSHANA_FFPROBE_PATH) {
+    process.env.KSHANA_FFPROBE_PATH = bundledFfprobe;
+  }
+}
+
 let mainWindow: BrowserWindow | null = null;
 let authWindow: BrowserWindow | null = null;
 let pendingDesktopAuthState: string | null = null;
@@ -1606,6 +1627,8 @@ configureAudioWaveformExtractor(ffmpegPath);
 log.info('[FFmpeg] Paths configured:', {
   ffmpeg: ffmpegPath,
   ffprobe: ffprobePath,
+  kshanaCoreFfmpeg: process.env.KSHANA_FFMPEG_PATH,
+  kshanaCoreFfprobe: process.env.KSHANA_FFPROBE_PATH,
 });
 
 interface TimelineItem {
