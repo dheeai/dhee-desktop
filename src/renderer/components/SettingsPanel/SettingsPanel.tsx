@@ -707,7 +707,7 @@ export default function SettingsPanel({
                       type="url"
                       className={styles.input}
                       value={form.comfyuiUrl}
-                      disabled={isCloudMode}
+                      disabled={false}
                       onChange={(event) =>
                         handleInput('comfyuiUrl', event.target.value)
                       }
@@ -721,7 +721,7 @@ export default function SettingsPanel({
                       type="password"
                       className={styles.input}
                       value={form.comfyCloudApiKey}
-                      disabled={isCloudMode}
+                      disabled={false}
                       onChange={(event) =>
                         handleInput('comfyCloudApiKey', event.target.value)
                       }
