@@ -551,6 +551,89 @@
   gap: $spacing-md;
 }
 
+.creditsCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  margin-bottom: $spacing-sm;
+}
+
+.creditsValueRow {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-sm;
+  margin: 0 0 $spacing-md;
+}
+
+.creditsNumber {
+  color: $color-success;
+  font-size: $font-size-2xl;
+  font-weight: $font-weight-semibold;
+  line-height: 1;
+}
+
+.creditsUnit {
+  color: $color-text-muted;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-normal;
+}
+
+.creditsFooterRow {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: $spacing-sm;
+  padding-top: $spacing-sm;
+  border-top: 1px solid rgba(var(--color-border-strong-rgb), 0.2);
+}
+
+.creditsFooterLabel {
+  color: $color-text-secondary;
+  font-size: $font-size-sm;
+  line-height: 1.4;
+}
+
+.creditsFooterAction {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: $color-accent-primary;
+  font: inherit;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+  cursor: pointer;
+  white-space: nowrap;
+
+  &:hover {
+    text-decoration: underline;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    text-decoration: none;
+  }
+}
+
+.creditsFooterIcon {
+  width: 14px;
+  height: 14px;
+  flex: 0 0 14px;
+  display: block;
+}
+
+.refreshIcon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: block;
+}
+
 .accountCredits {
   margin: $spacing-xs 0 0;
   color: $color-success;
