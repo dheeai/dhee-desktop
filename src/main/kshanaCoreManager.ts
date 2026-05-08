@@ -127,6 +127,13 @@ type ManagerModule = {
    * accessed — kshana-core throws if called too late.
    */
   setUserWorkflowsDir?: (path: string) => void;
+  /**
+   * Force the WorkflowModeRegistry to re-scan + re-apply the
+   * COMFY_MODE filter. Must be called after any process.env change
+   * that affects manifest visibility — flipping local↔cloud is the
+   * common case during settings updates.
+   */
+  refreshWorkflowRegistry?: () => void;
   validateWorkflowFile?: (path: string) =>
     | { ok: true; parsed: { totalNodes: number; detectedPipeline: string; inputNodes: unknown[]; loraNodes: unknown[] } }
     | { ok: false; reason: string };
@@ -604,6 +611,21 @@ export class KshanaCoreManager {
     }
 
     applyEnvFromSettings(settings, cloudAuth);
+
+    // applyEnvFromSettings may have just flipped COMFY_MODE
+    // (local ↔ cloud). The WorkflowModeRegistry's mode-filtered
+    // view is computed at refresh() time, not on every lookup, so
+    // without an explicit refresh the previous mode's filter
+    // state would persist after restart() — making custom
+    // workflows look "missing" until the next process restart.
+    try {
+      this.managerModule.refreshWorkflowRegistry?.();
+    } catch (err) {
+      log.warn(
+        `[KshanaCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
+      );
+    }
+
     const config: ConversationManagerConfig = {
       llmConfig: buildLLMConfig(settings, cloudAuth),
     };

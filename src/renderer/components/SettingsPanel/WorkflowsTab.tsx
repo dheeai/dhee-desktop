@@ -228,17 +228,24 @@ function WorkflowRow({
   onAfterMutation: () => Promise<void>;
 }) {
   return (
-    <li className={workflowStyles.row}>
+    <li className={`${workflowStyles.row} ${!workflow.active ? workflowStyles.rowInactive : ''}`}>
       <div className={workflowStyles.rowHeader}>
         <div className={workflowStyles.rowMain}>
-          <span className={workflowStyles.rowName}>{workflow.displayName}</span>
+          <span className={workflowStyles.rowName}>
+            {workflow.displayName}
+            {!workflow.active && (
+              <span className={workflowStyles.inactiveBadge} title="Not used in the current ComfyUI mode">
+                inactive
+              </span>
+            )}
+          </span>
           <span className={workflowStyles.rowMeta}>
             {workflow.id} · {workflow.pipeline}
             {workflow.isOverride ? ' · active for pipeline' : ''}
           </span>
         </div>
         <div className={workflowStyles.rowActions}>
-          {!workflow.isOverride && (
+          {!workflow.isOverride && workflow.active && (
             <button
               type="button"
               className={workflowStyles.actionButton}

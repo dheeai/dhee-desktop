@@ -174,6 +174,23 @@ describe('WorkflowsTab', () => {
     await waitFor(() => expect(screen.getByText('IPC fail')).toBeInTheDocument());
   });
 
+  it('renders an "inactive" badge when a workflow is filtered out by the current mode', async () => {
+    installBridge({
+      list: jest.fn(async () => ({
+        ok: true,
+        workflows: [{ ...userWorkflow, active: false }],
+      })),
+    });
+    await act(async () => {
+      render(<WorkflowsTab isCloudMode />);
+    });
+    await waitFor(() => expect(screen.getByText('My Anime')).toBeInTheDocument());
+    expect(screen.getByText('inactive')).toBeInTheDocument();
+    // Set-active button is hidden for inactive workflows — switching
+    // mode is the only way to reactivate.
+    expect(screen.queryByText('Set active')).not.toBeInTheDocument();
+  });
+
   it('renders a cloud-mode banner when isCloudMode=true', async () => {
     installBridge({});
     await act(async () => {
