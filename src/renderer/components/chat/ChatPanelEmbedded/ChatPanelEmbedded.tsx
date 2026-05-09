@@ -475,12 +475,18 @@ export default function ChatPanelEmbedded() {
     };
   }, []);
 
-  // Clear the local "Stopping…" flag once the runner reports idle.
+  // Clear the local "Stopping…" flag once BOTH execution lanes report
+  // idle: the BackgroundTaskRunner AND the pi-agent chat session.
+  // If we cleared it on runnerActive alone, a chat-only stop (where
+  // the runner was never active) would flip the button back to Resume
+  // immediately — before pi-agent had finished aborting in-flight
+  // tool calls.
   useEffect(() => {
-    if (!runnerActive && pendingCancel) {
+    const chatBusy = session.status === 'running';
+    if (!runnerActive && !chatBusy && pendingCancel) {
       setPendingCancel(false);
     }
-  }, [runnerActive, pendingCancel]);
+  }, [runnerActive, pendingCancel, session.status]);
 
   // (was: bg-session teardown on project switch — no longer needed
   // since the BackgroundTaskRunner singleton handles task lifecycle
@@ -906,11 +912,6 @@ export default function ChatPanelEmbedded() {
     await session.sendResponse(option);
   }, [session]);
 
-  // Single source of truth: the BackgroundTaskRunner. If it reports
-  // a task active, the header shows Stop. Optimistic `pendingCancel`
-  // also keeps the button in its "Stopping…" state during the brief
-  // window between click and the runner actually winding down.
-  const isRunning = runnerActive || pendingCancel;
   // Main-session readiness gates the textarea / send button. We
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.
@@ -920,6 +921,14 @@ export default function ChatPanelEmbedded() {
   // turn). Used to disable Send during that brief window so we don't
   // pile prompts on top of each other in pi-agent.
   const isMainBusy = session.status === 'running';
+  // Header Stop button surfaces when ANY execution lane is busy:
+  //   - BackgroundTaskRunner (long pipeline tasks)
+  //   - pi-agent chat session looping through tools/edits/etc.
+  // handleCancel already aborts both lanes in parallel, so a single
+  // Stop affordance covers both. Otherwise a chat that started
+  // hammering tool calls (e.g. the agent rabbit-holing on bash/find)
+  // had no visible kill switch.
+  const isRunning = runnerActive || pendingCancel || isMainBusy;
 
   const contextPct = contextUsage
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
