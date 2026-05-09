@@ -72,7 +72,7 @@ describe('SettingsPanel', () => {
     expect(onThemeChange).toHaveBeenCalledWith('deep-forest-gold');
   });
 
-  it('renders an inline Sign In button when user clicks Cloud while signed-out', async () => {
+  it('disables both Cloud toggles when signed-out and surfaces a Sign In CTA banner', async () => {
     const signIn = jest.fn().mockResolvedValue(undefined);
     let onChangeHandler: ((account: unknown) => void) | null = null;
     Object.defineProperty(window, 'electron', {
@@ -109,18 +109,20 @@ describe('SettingsPanel', () => {
     });
 
     fireEvent.click(screen.getByText('Connection'));
-    // Each backend lane has its own checkbox now ("Use Kshana Cloud
-    // for LLM" / "Use Kshana Cloud for ComfyUI"). Click the LLM one.
+
+    // Both cloud toggles are present but disabled (no signed-in account).
     const llmCloudCheckbox = screen.getByLabelText(
       'Use Kshana Cloud for LLM',
     ) as HTMLInputElement;
-    expect(llmCloudCheckbox).toBeInTheDocument();
-    await act(async () => {
-      fireEvent.click(llmCloudCheckbox);
-    });
+    const comfyCloudCheckbox = screen.getByLabelText(
+      'Use Kshana Cloud for ComfyUI',
+    ) as HTMLInputElement;
+    expect(llmCloudCheckbox.disabled).toBe(true);
+    expect(comfyCloudCheckbox.disabled).toBe(true);
 
+    // Sign-in CTA banner is visible.
     expect(
-      screen.getByText('Sign in to Kshana Cloud to switch to Cloud mode.'),
+      screen.getByText(/Sign in to Kshana Cloud to enable Cloud mode/i),
     ).toBeInTheDocument();
     const signInButton = screen.getByRole('button', {
       name: /Sign In to Kshana Cloud/i,
@@ -131,9 +133,9 @@ describe('SettingsPanel', () => {
     });
     expect(signIn).toHaveBeenCalledTimes(1);
 
-    // Simulate the auth bridge reporting a signed-in account; the panel
-    // should clear the warning and auto-apply the pending Cloud switch
-    // to BOTH lanes (matching the deep-link sign-in path's symmetry).
+    // Auth bridge reports signed-in. Banner disappears and toggles
+    // become enabled. Toggles do NOT auto-flip — the user must click
+    // them explicitly (matches the rest of the lane-toggle flow).
     await act(async () => {
       onChangeHandler?.({
         email: 'user@example.com',
@@ -146,13 +148,12 @@ describe('SettingsPanel', () => {
     });
 
     expect(
-      screen.queryByText('Sign in to Kshana Cloud to switch to Cloud mode.'),
+      screen.queryByText(/Sign in to Kshana Cloud to enable Cloud mode/i),
     ).not.toBeInTheDocument();
-    expect(llmCloudCheckbox.checked).toBe(true);
-    const comfyCloudCheckbox = screen.getByLabelText(
-      'Use Kshana Cloud for ComfyUI',
-    ) as HTMLInputElement;
-    expect(comfyCloudCheckbox.checked).toBe(true);
+    expect(llmCloudCheckbox.disabled).toBe(false);
+    expect(comfyCloudCheckbox.disabled).toBe(false);
+    expect(llmCloudCheckbox.checked).toBe(false);
+    expect(comfyCloudCheckbox.checked).toBe(false);
   });
 
   it('shows ComfyUI and provider settings on the Connection tab', async () => {

@@ -158,8 +158,6 @@ export default function SettingsPanel({
   );
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [account, setAccount] = useState<AccountInfo | null>(null);
-  const [cloudModeWarning, setCloudModeWarning] = useState<string | null>(null);
-  const [pendingCloudSwitch, setPendingCloudSwitch] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [logsDir, setLogsDir] = useState<string | null>(null);
@@ -252,23 +250,7 @@ export default function SettingsPanel({
     return accountBridge.onChange((nextAccount) => {
       setAccount(nextAccount);
       if (nextAccount) {
-        setCloudModeWarning(null);
         setSignInError(null);
-        setPendingCloudSwitch((wasPending) => {
-          if (wasPending) {
-            // Sign-in completed mid-Settings-flip — apply the cloud
-            // toggle the user just clicked (both lanes for symmetry
-            // with the deep-link sign-in path; user can flip one lane
-            // back to local before saving if they want a mixed setup).
-            setForm((prev) => ({
-              ...prev,
-              backendMode: 'cloud',
-              llmBackend: 'cloud',
-              comfyBackend: 'cloud',
-            }));
-          }
-          return false;
-        });
       }
     });
   }, [isVisible]);
@@ -287,7 +269,6 @@ export default function SettingsPanel({
       setSignInError(
         err instanceof Error ? err.message : 'Sign-in failed. Please try again.',
       );
-      setPendingCloudSwitch(false);
     } finally {
       setSigningIn(false);
     }
@@ -301,21 +282,12 @@ export default function SettingsPanel({
     key: keyof AppSettings,
     value: string | number | undefined,
   ) => {
-    // Either lane flipping to Cloud requires a Kshana Cloud sign-in.
-    // Block the toggle and surface the inline sign-in CTA if the
-    // user isn't authenticated yet.
+    // Defense-in-depth: the cloud-lane checkboxes are `disabled` when
+    // !account so this branch is normally unreachable from the UI, but
+    // a stray IPC / programmatic update should still be rejected.
     const isLaneToggle = key === 'llmBackend' || key === 'comfyBackend';
     if (isLaneToggle && value === 'cloud' && !account) {
-      setCloudModeWarning('Sign in to Kshana Cloud to switch to Cloud mode.');
-      setPendingCloudSwitch(true);
-      setSignInError(null);
       return;
-    }
-
-    if (isLaneToggle) {
-      setCloudModeWarning(null);
-      setPendingCloudSwitch(false);
-      setSignInError(null);
     }
 
     setForm((prev) => ({
@@ -830,12 +802,43 @@ export default function SettingsPanel({
                   </div>
                 </div>
 
+                {!account ? (
+                  <div className={styles.inlineSignIn}>
+                    <p className={styles.warningText}>
+                      Sign in to Kshana Cloud to enable Cloud mode for either
+                      ComfyUI or the LLM.
+                    </p>
+                    <p className={styles.infoText}>
+                      Sign-in opens your browser, then returns here automatically.
+                    </p>
+                    {signInError ? (
+                      <p className={styles.error}>{signInError}</p>
+                    ) : null}
+                    <button
+                      type="button"
+                      className={styles.submitButton}
+                      onClick={handleInlineSignIn}
+                      disabled={signingIn}
+                    >
+                      {signingIn ? 'Opening Browser…' : 'Sign In to Kshana Cloud'}
+                    </button>
+                  </div>
+                ) : null}
+
                 <fieldset className={styles.fieldset}>
                   <legend>ComfyUI</legend>
-                  <label className={styles.checkboxLabel}>
+                  <label
+                    className={styles.checkboxLabel}
+                    title={
+                      !account
+                        ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                        : undefined
+                    }
+                  >
                     <input
                       type="checkbox"
                       checked={isComfyCloudMode}
+                      disabled={!account}
                       onChange={(event) =>
                         handleInput(
                           'comfyBackend',
@@ -889,10 +892,18 @@ export default function SettingsPanel({
 
                 <fieldset className={styles.fieldset}>
                   <legend>LLM</legend>
-                  <label className={styles.checkboxLabel}>
+                  <label
+                    className={styles.checkboxLabel}
+                    title={
+                      !account
+                        ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                        : undefined
+                    }
+                  >
                     <input
                       type="checkbox"
                       checked={isLlmCloudMode}
+                      disabled={!account}
                       onChange={(event) =>
                         handleInput(
                           'llmBackend',
@@ -907,26 +918,6 @@ export default function SettingsPanel({
                       ? 'Chat / planning calls go through the Kshana Cloud proxy (uses credits).'
                       : 'Chat / planning calls go to the LLM provider configured below.'}
                   </p>
-
-                  {cloudModeWarning ? (
-                    <div className={styles.inlineSignIn}>
-                      <p className={styles.warningText}>{cloudModeWarning}</p>
-                      <p className={styles.infoText}>
-                        Sign-in opens your browser, then returns here automatically.
-                      </p>
-                      {signInError ? (
-                        <p className={styles.error}>{signInError}</p>
-                      ) : null}
-                      <button
-                        type="button"
-                        className={styles.submitButton}
-                        onClick={handleInlineSignIn}
-                        disabled={signingIn}
-                      >
-                        {signingIn ? 'Opening Browser…' : 'Sign In to Kshana Cloud'}
-                      </button>
-                    </div>
-                  ) : null}
 
                   {!isLlmCloudMode && (
                     <>
