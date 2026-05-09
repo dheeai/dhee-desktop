@@ -383,9 +383,14 @@ function clearCloudProxyEnv(): void {
   delete process.env.KSHANA_CLOUD_URL;
   delete process.env.LLM_CONTEXT_TOKENS;
   if (wasUsingDesktopCloudProxy) {
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_BASE_URL;
-    delete process.env.OPENAI_MODEL;
+    // Cloud auth no longer touches OPENAI_* — Settings is the canonical
+    // LLM source (see applyEnvFromSettings comment). Deleting them
+    // here on every restart-while-signed-in nukes the dev fallback
+    // OPENAI_API_KEY loaded from kshana-core/.env, leaving signed-in
+    // users with empty openaiApiKey in Settings → resolvePiSessionModel
+    // returning undefined → "Cannot read properties of undefined
+    // (reading 'api')" on the next chat send. Only ComfyUI proxy env
+    // is genuinely cloud-owned now.
     delete process.env.COMFY_CLOUD_API_KEY;
     delete process.env.COMFYUI_BASE_URL;
   }

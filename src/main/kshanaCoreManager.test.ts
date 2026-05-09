@@ -541,6 +541,37 @@ describe('KshanaCoreManager', () => {
     );
   });
 
+  it('two consecutive starts while signed in to Kshana Cloud preserve OPENAI_API_KEY from the dev .env fallback', async () => {
+    // Regression: clearCloudProxyEnv used to delete OPENAI_API_KEY
+    // whenever the previous start had set KSHANA_CLOUD='true'. That
+    // dated from when cloud auth also rerouted the LLM. After the
+    // "Settings is canonical for LLM" fix, cloud auth no longer owns
+    // OPENAI_*; deleting them on restart wiped the .env fallback that
+    // signed-in dev users with empty Settings.openaiApiKey rely on,
+    // leaving resolvePiSessionModel with no api key on the second run.
+    process.env['OPENAI_API_KEY'] = 'sk-from-dotenv';
+    const settings: AppSettings = {
+      ...baseSettings,
+      llmProvider: 'openai',
+      openaiApiKey: '', // empty — relying on .env fallback
+      openaiBaseUrl: 'https://kshana.share.zrok.io',
+      openaiModel: 'Qwen3.6-35B-A3B',
+    };
+    const cloudAuth = {
+      websiteUrl: 'https://desktop.example.test/',
+      desktopToken: 'desktop-jwt',
+    };
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start(settings, cloudAuth);
+    expect(process.env['OPENAI_API_KEY']).toBe('sk-from-dotenv');
+
+    await mgr.restart(settings, cloudAuth);
+    // Restart with cloud auth still active must NOT delete the
+    // .env-loaded api key the user is implicitly relying on.
+    expect(process.env['OPENAI_API_KEY']).toBe('sk-from-dotenv');
+  });
+
   it('start() does NOT clobber pre-existing process.env values when AppSettings has empty strings', async () => {
     // Pre-populate the env as kshana-ink/.env would. Setting must
     // pass through untouched when the matching AppSettings field is
