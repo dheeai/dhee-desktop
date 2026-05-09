@@ -942,6 +942,22 @@ export default function ChatPanelEmbedded() {
         : isReady
           ? 'ready'
           : 'idle';
+  // Header text label needs to match dotStatus, not session.status.
+  // Otherwise: pi-agent dispatches a long pipeline via kshana_run_to,
+  // pi.session.status flips back to 'idle' once the tool returns
+  // (because the runner now drives the work), but the dot is still
+  // green from runnerActive — so the badge said "Idle" while the
+  // pipeline was clearly running. Surface a unified label.
+  const statusText =
+    dotStatus === 'error'
+      ? 'Error'
+      : dotStatus === 'running'
+        ? 'Running'
+        : dotStatus === 'ready'
+          ? 'Ready'
+          : session.status === 'connecting'
+            ? 'Connecting'
+            : 'Idle';
 
   const sendActive = input.trim().length > 0 && isReady;
 
@@ -1122,7 +1138,7 @@ export default function ChatPanelEmbedded() {
             className={styles.statusIndicator}
           >
             <span className={styles.statusDot} data-status={dotStatus} />
-            <span style={{ textTransform: 'capitalize' }}>{session.status}</span>
+            <span>{statusText}</span>
           </div>
         </div>
       </header>
