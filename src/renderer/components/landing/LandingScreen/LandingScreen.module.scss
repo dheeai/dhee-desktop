@@ -115,6 +115,17 @@
   color: $color-error;
 }
 
+.modeBadgeRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.modeBadgeLane {
+  letter-spacing: 0.3px;
+}
+
 .sectionLabel {
   margin: 0 0 2px;
   color: $color-text-secondary;

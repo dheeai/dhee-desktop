@@ -125,6 +125,9 @@ __setManagerLoader(async () => ({
 
 const baseSettings: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
+  vlmBackend: 'local' as const,
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -142,6 +145,27 @@ const baseSettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai',
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
+  llmUseSameForAllTiers: true,
+  llmTierMedium: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
+  llmTierLight: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
 };
 
 beforeEach(() => {
@@ -162,6 +186,19 @@ beforeEach(() => {
   delete process.env['KSHANA_PROJECT_DIR'];
   delete process.env['GOOGLE_API_KEY'];
   delete process.env['GEMINI_MODEL'];
+  delete process.env['VLM_PROVIDER'];
+  delete process.env['VLM_BASE_URL'];
+  delete process.env['VLM_API_KEY'];
+  delete process.env['VLM_MODEL'];
+  delete process.env['LLM_ROUTING_ENABLED'];
+  for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
+    for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
+      delete process.env[`LLM_TIER_${tier}_${k}`];
+    }
+  }
+  for (const k of Object.keys(process.env)) {
+    if (k.startsWith('LLM_PURPOSE__')) delete process.env[k];
+  }
 });
 
 describe('KshanaCoreManager', () => {
@@ -250,6 +287,9 @@ describe('KshanaCoreManager', () => {
     await mgr.start(
       {
         ...baseSettings,
+        comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
+        backendMode: 'cloud',
         comfyuiMode: 'custom',
         comfyuiUrl: 'http://127.0.0.1:8188',
         comfyCloudApiKey: 'ignored-when-cloud-auth-present',
@@ -260,7 +300,7 @@ describe('KshanaCoreManager', () => {
       },
     );
 
-    // Cloud override wins — local URL is ignored.
+    // Cloud override wins — local URL is ignored when comfyBackend='cloud'.
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
@@ -268,12 +308,16 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
   });
 
-  it('Kshana Cloud auth sets ComfyUI proxy env (signed-in users get cloud ComfyUI for free)', async () => {
+  it('Kshana Cloud auth sets ComfyUI proxy env when comfyBackend=cloud (signed-in users get cloud ComfyUI when they opt in)', async () => {
     const mgr = new KshanaCoreManager();
-    await mgr.start(baseSettings, {
-      websiteUrl: 'https://desktop.example.test/',
-      desktopToken: 'desktop-jwt',
-    });
+    await mgr.start(
+      { ...baseSettings, comfyBackend: 'cloud',
+  vlmBackend: 'local' as const, backendMode: 'cloud' },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
 
     // Cloud-only env: identity + ComfyUI proxy. LLM is intentionally
     // absent — the Settings panel is the canonical LLM source.
@@ -290,16 +334,20 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_AUTH_TOKEN']).toBeUndefined();
   });
 
-  it('Kshana Cloud auth does NOT override the user-configured LLM (Settings panel is canonical)', async () => {
-    // Regression: pre-fix, applyEnvFromSettings shorted out as soon as
-    // a cloud token was present — silently rerouting LLM to the
-    // Kshana proxy regardless of what the user had typed into the
-    // OpenAI-Compatible section. Result: a user with LM Studio set
-    // up in the UI got their requests sent to cloud.
+  it('llmBackend=local + comfyBackend=cloud: LLM stays Settings while ComfyUI routes to the cloud proxy', async () => {
+    // Regression: pre-split, cloud auth shorted out the LLM as soon
+    // as a token was present, regardless of what the user typed into
+    // the LLM section. Result: an LM Studio user got their requests
+    // sent to cloud. With per-lane gating, llmBackend='local' keeps
+    // the user's Settings even while ComfyUI is on cloud.
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
         ...baseSettings,
+        llmBackend: 'local',
+        comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
+        backendMode: 'cloud',
         llmProvider: 'openai',
         openaiApiKey: 'lm-studio-placeholder',
         openaiBaseUrl: 'http://127.0.0.1:1234/v1',
@@ -311,16 +359,140 @@ describe('KshanaCoreManager', () => {
       },
     );
 
-    // LLM env reflects the Settings panel — NOT the cloud proxy.
     expect(process.env['LLM_PROVIDER']).toBe('openai');
     expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
     expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
     expect(process.env['OPENAI_MODEL']).toBe('qwen3');
-    // ComfyUI is still cloud-routed (that's separate from LLM).
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
     );
+  });
+
+  it('llmBackend=cloud + cloud auth: LLM routes through the website proxy with the desktop token', async () => {
+    // When the user explicitly opts into Cloud mode for LLM AND is
+    // signed in, the LLM goes through <websiteUrl>/openai/api/v1
+    // with the desktop token as bearer. Settings.openaiBaseUrl is
+    // intentionally ignored (and the UI disables the LLM fields when
+    // llmBackend='cloud').
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'cloud',
+        comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'https://kshana.share.zrok.io',
+        openaiApiKey: 'should-be-ignored',
+        openaiModel: 'Qwen3.6-35B-A3B',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['OPENAI_MODEL']).toBe('Qwen3.6-35B-A3B');
+  });
+
+  it('llmBackend=local + cloud auth: LLM stays on Settings (signed-in users on Local keep their proxy)', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'local',
+        comfyBackend: 'local',
+  vlmBackend: 'local' as const,
+        backendMode: 'local',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiApiKey: 'lm-studio-placeholder',
+        openaiModel: 'qwen3',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
+    expect(process.env['OPENAI_MODEL']).toBe('qwen3');
+  });
+
+  it('mixed: llmBackend=cloud + comfyBackend=local — LLM goes to cloud proxy, ComfyUI stays on the user-configured local URL', async () => {
+    // The split-lane scenario the user asked for: route paid LLM
+    // through the metered proxy while keeping ComfyUI on a
+    // self-hosted GPU.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+  vlmBackend: 'local' as const,
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiModel: 'Qwen3.6-35B-A3B',
+        comfyuiMode: 'custom',
+        comfyuiUrl: 'http://192.168.1.50:8188',
+        comfyCloudApiKey: '',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['COMFY_MODE']).toBe('local');
+    expect(process.env['COMFYUI_BASE_URL']).toBe('http://192.168.1.50:8188');
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBeUndefined();
+  });
+
+  it('mixed: llmBackend=local + comfyBackend=cloud — ComfyUI goes to cloud proxy, LLM uses Settings (e.g. LM Studio)', async () => {
+    // The reverse split: free LLM on a local model, paid ComfyUI
+    // through the metered proxy.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'local',
+        comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiApiKey: 'lm-studio-placeholder',
+        openaiModel: 'qwen3',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM stays on Settings.
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
+    expect(process.env['OPENAI_MODEL']).toBe('qwen3');
+    // ComfyUI on cloud.
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFYUI_BASE_URL']).toBe(
+      'https://desktop.example.test/comfy/api',
+    );
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
   });
 
   it('Kshana Cloud auth + Gemini in Settings: LLM stays Gemini', async () => {
@@ -430,6 +602,305 @@ describe('KshanaCoreManager', () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
     expect(process.env['KSHANA_PROJECTS_DIR']).toBe(FAKE_PROJECTS_DIR);
+  });
+
+  // ── LLM routing/tier env hygiene ────────────────────────────────────
+  // kshana-core/.env can populate LLM_ROUTING_ENABLED + LLM_TIER_*_*
+  // env vars before the desktop's applyEnvFromSettings runs. Pre-fix,
+  // those vars survived and the LLMRouter / pi-agent silently routed
+  // every call to whatever .env said (e.g. openrouter/deepseek),
+  // ignoring the Settings panel entirely. Settings is the canonical
+  // source — these tests pin that hygiene.
+
+  it('start() clears LLM_ROUTING_ENABLED + LLM_TIER_*_* + LLM_PURPOSE__* leaked from kshana-core/.env when llmUseSameForAllTiers=true', async () => {
+    process.env['LLM_ROUTING_ENABLED'] = 'true';
+    process.env['LLM_TIER_HEAVY_PROVIDER'] = 'openrouter';
+    process.env['LLM_TIER_HEAVY_API_KEY'] = 'sk-or-v1-stale';
+    process.env['LLM_TIER_HEAVY_MODEL'] = 'deepseek/deepseek-v4-flash';
+    process.env['LLM_TIER_MEDIUM_PROVIDER'] = 'openrouter';
+    process.env['LLM_TIER_MEDIUM_MODEL'] = 'deepseek/deepseek-v4-flash';
+    process.env['LLM_TIER_LIGHT_PROVIDER'] = 'openrouter';
+    process.env['LLM_TIER_LIGHT_MODEL'] = 'deepseek/deepseek-v4-flash';
+    process.env['LLM_PURPOSE__CONTENT__STORY_PROVIDER'] = 'openrouter';
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start({ ...baseSettings, llmUseSameForAllTiers: true });
+
+    expect(process.env['LLM_ROUTING_ENABLED']).toBeUndefined();
+    expect(process.env['LLM_TIER_HEAVY_PROVIDER']).toBeUndefined();
+    expect(process.env['LLM_TIER_HEAVY_API_KEY']).toBeUndefined();
+    expect(process.env['LLM_TIER_HEAVY_MODEL']).toBeUndefined();
+    expect(process.env['LLM_TIER_MEDIUM_PROVIDER']).toBeUndefined();
+    expect(process.env['LLM_TIER_MEDIUM_MODEL']).toBeUndefined();
+    expect(process.env['LLM_TIER_LIGHT_PROVIDER']).toBeUndefined();
+    expect(process.env['LLM_TIER_LIGHT_MODEL']).toBeUndefined();
+    expect(process.env['LLM_PURPOSE__CONTENT__STORY_PROVIDER']).toBeUndefined();
+    // OPENAI_* still flows from Settings — verify the regular path wasn't broken.
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe('https://api.openai.com/v1');
+  });
+
+  it('start() with llmUseSameForAllTiers=false writes LLM_ROUTING_ENABLED=true + per-tier env from settings', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      llmUseSameForAllTiers: false,
+      // Heavy = flat fields (carried from baseSettings: openai @ api.openai.com/v1, gpt-4o, sk-test).
+      llmTierMedium: {
+        provider: 'openai',
+        openaiBaseUrl: 'https://medium.example.test/v1',
+        openaiApiKey: 'medium-key',
+        openaiModel: 'medium-model',
+        googleApiKey: '',
+        geminiModel: 'gemini-2.5-flash',
+      },
+      llmTierLight: {
+        provider: 'gemini',
+        openaiBaseUrl: 'https://api.openai.com/v1',
+        openaiApiKey: '',
+        openaiModel: 'gpt-4o',
+        googleApiKey: 'g-light-key',
+        geminiModel: 'gemini-2.5-flash',
+      },
+    });
+
+    expect(process.env['LLM_ROUTING_ENABLED']).toBe('true');
+
+    // Heavy mirrors the flat OPENAI_* settings the user already supplied.
+    expect(process.env['LLM_TIER_HEAVY_PROVIDER']).toBe('openai');
+    expect(process.env['LLM_TIER_HEAVY_BASE_URL']).toBe('https://api.openai.com/v1');
+    expect(process.env['LLM_TIER_HEAVY_API_KEY']).toBe('sk-test');
+    expect(process.env['LLM_TIER_HEAVY_MODEL']).toBe('gpt-4o');
+
+    // Medium = its own openai-compat config.
+    expect(process.env['LLM_TIER_MEDIUM_PROVIDER']).toBe('openai');
+    expect(process.env['LLM_TIER_MEDIUM_BASE_URL']).toBe('https://medium.example.test/v1');
+    expect(process.env['LLM_TIER_MEDIUM_API_KEY']).toBe('medium-key');
+    expect(process.env['LLM_TIER_MEDIUM_MODEL']).toBe('medium-model');
+
+    // Light = gemini — provider gemini, gemini key, gemini model, gemini openai-compat URL.
+    expect(process.env['LLM_TIER_LIGHT_PROVIDER']).toBe('gemini');
+    expect(process.env['LLM_TIER_LIGHT_API_KEY']).toBe('g-light-key');
+    expect(process.env['LLM_TIER_LIGHT_MODEL']).toBe('gemini-2.5-flash');
+    expect(process.env['LLM_TIER_LIGHT_BASE_URL']).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/',
+    );
+  });
+
+  // ── VLM (vision judge) env wiring ───────────────────────────────────
+  // VLM has its own env block (VLM_PROVIDER / VLM_API_KEY / VLM_MODEL /
+  // VLM_BASE_URL) read by getVLMConfig() in kshana-core. Pre-fix the
+  // desktop never set any of these — VLM was effectively dead unless
+  // the user edited kshana-core/.env directly.
+
+  it('vlmJudge=true + vlmBackend=cloud + cloud auth: VLM routes through the website proxy', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        vlmJudge: true,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+        vlmBackend: 'cloud',
+        backendMode: 'cloud',
+        vlmProvider: 'openai',
+        vlmModel: 'gpt-4o-vision',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['VLM_MODEL']).toBe('gpt-4o-vision');
+  });
+
+  it('mixed: llmBackend=cloud + vlmBackend=local — LLM goes to cloud proxy, VLM uses Settings (independent lanes)', async () => {
+    // The third-lane independence: a user can route paid LLM through
+    // the metered cloud proxy while keeping VLM judging on a local
+    // self-hosted vision model (e.g. LM Studio with qwen-vl).
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        vlmJudge: true,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+        vlmBackend: 'local',
+        backendMode: 'cloud',
+        vlmProvider: 'openai',
+        vlmBaseUrl: 'http://127.0.0.1:1234/v1',
+        vlmApiKey: 'lm-studio-vision',
+        vlmModel: 'qwen-vl-72b',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM cloud (metered).
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    // VLM local — does NOT borrow the cloud token, uses Settings.
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['VLM_API_KEY']).toBe('lm-studio-vision');
+    expect(process.env['VLM_MODEL']).toBe('qwen-vl-72b');
+  });
+
+  it('mixed: llmBackend=local + vlmBackend=cloud — LLM uses Settings, VLM goes to cloud proxy', async () => {
+    // The reverse split: free local LLM (LM Studio) but VLM judging
+    // through the cloud (so the user can pick a strong vision model
+    // without paying for every chat call).
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        vlmJudge: true,
+        llmBackend: 'local',
+        comfyBackend: 'local',
+        vlmBackend: 'cloud',
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiApiKey: 'lm-studio',
+        openaiModel: 'qwen3',
+        vlmProvider: 'openai',
+        vlmModel: 'anthropic/claude-opus-4.6-fast',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM Settings.
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio');
+    // VLM cloud — uses desktop token, model id from Settings.
+    expect(process.env['VLM_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['VLM_MODEL']).toBe('anthropic/claude-opus-4.6-fast');
+  });
+
+  it('vlmJudge=true + local LLM: VLM env reflects user Settings (openai-compatible)', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: true,
+      llmBackend: 'local',
+      vlmProvider: 'openai',
+      vlmBaseUrl: 'http://127.0.0.1:1234/v1',
+      vlmApiKey: 'lm-studio-vision-placeholder',
+      vlmModel: 'qwen-vl-72b',
+    });
+
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['VLM_API_KEY']).toBe('lm-studio-vision-placeholder');
+    expect(process.env['VLM_MODEL']).toBe('qwen-vl-72b');
+  });
+
+  it('vlmJudge=true + local LLM + Gemini VLM: VLM_BASE_URL set to gemini openai-compat endpoint', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: true,
+      llmBackend: 'local',
+      vlmProvider: 'gemini',
+      vlmApiKey: 'google-vision-key',
+      vlmModel: 'gemini-2.5-pro',
+    });
+
+    expect(process.env['VLM_PROVIDER']).toBe('gemini');
+    expect(process.env['VLM_BASE_URL']).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/',
+    );
+    expect(process.env['VLM_API_KEY']).toBe('google-vision-key');
+    expect(process.env['VLM_MODEL']).toBe('gemini-2.5-pro');
+  });
+
+  it('vlmJudge=true with empty VLM Settings preserves .env fallback values (dev-mode unchanged)', async () => {
+    process.env['VLM_PROVIDER'] = 'openrouter';
+    process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
+    process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: true,
+      llmBackend: 'local',
+      vlmProvider: 'openai', // settings default, but other VLM fields empty
+      vlmBaseUrl: '',
+      vlmApiKey: '',
+      vlmModel: '',
+    });
+
+    // setIfPresent skips empty values → .env fallback survives.
+    // VLM_PROVIDER gets set to 'openai' explicitly though, since the
+    // user picked that in Settings.
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_API_KEY']).toBe('sk-or-v1-from-dotenv');
+    expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
+  });
+
+  it('vlmJudge=false: VLM env left untouched (no auto-config)', async () => {
+    process.env['VLM_PROVIDER'] = 'openrouter';
+    process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
+    process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: false,
+    });
+
+    // Whatever was in the env stays. VLM calls are gated upstream by
+    // the vlmJudge flag inside core, so no harm in leaving stale env.
+    expect(process.env['VLM_PROVIDER']).toBe('openrouter');
+    expect(process.env['VLM_API_KEY']).toBe('sk-or-v1-from-dotenv');
+    expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
+  });
+
+  it('two consecutive starts while signed in to Kshana Cloud preserve OPENAI_API_KEY from the dev .env fallback', async () => {
+    // Regression: clearCloudProxyEnv used to delete OPENAI_API_KEY
+    // whenever the previous start had set KSHANA_CLOUD='true'. That
+    // dated from when cloud auth also rerouted the LLM. After the
+    // "Settings is canonical for LLM" fix, cloud auth no longer owns
+    // OPENAI_*; deleting them on restart wiped the .env fallback that
+    // signed-in dev users with empty Settings.openaiApiKey rely on,
+    // leaving resolvePiSessionModel with no api key on the second run.
+    process.env['OPENAI_API_KEY'] = 'sk-from-dotenv';
+    const settings: AppSettings = {
+      ...baseSettings,
+      llmProvider: 'openai',
+      openaiApiKey: '', // empty — relying on .env fallback
+      openaiBaseUrl: 'https://kshana.share.zrok.io',
+      openaiModel: 'Qwen3.6-35B-A3B',
+    };
+    const cloudAuth = {
+      websiteUrl: 'https://desktop.example.test/',
+      desktopToken: 'desktop-jwt',
+    };
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start(settings, cloudAuth);
+    expect(process.env['OPENAI_API_KEY']).toBe('sk-from-dotenv');
+
+    await mgr.restart(settings, cloudAuth);
+    // Restart with cloud auth still active must NOT delete the
+    // .env-loaded api key the user is implicitly relying on.
+    expect(process.env['OPENAI_API_KEY']).toBe('sk-from-dotenv');
   });
 
   it('start() does NOT clobber pre-existing process.env values when AppSettings has empty strings', async () => {

@@ -18,7 +18,7 @@
  * `KshanaCoreEvent` stream the IPC bridge can re-publish over
  * `webContents.send`.
  */
-import type { AppSettings } from '../shared/settingsTypes';
+import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/kshanaIpc';
 import log from 'electron-log';
 import path from 'path';
@@ -299,15 +299,98 @@ function joinUrl(base: string, pathname: string): string {
   return `${base.replace(/\/$/, '')}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
+/**
+ * Clear all LLM routing/tier/purpose env vars before applying Settings.
+ *
+ * Why: kshana-core/.env can populate `LLM_ROUTING_ENABLED` and
+ * `LLM_TIER_*_*` (and per-purpose `LLM_PURPOSE__*`). When the desktop
+ * runs from a checkout, `import 'dotenv/config'` in kshana-core fires at
+ * package-import time — *before* `applyEnvFromSettings` runs — so those
+ * .env values land in process.env first. Without this clear, the
+ * LLMRouter and PiSessionAgent silently route every call through whatever
+ * the .env tier vars say, ignoring the Settings panel entirely.
+ *
+ * Settings is the canonical source: this function wipes any pre-existing
+ * tier env so the per-tier writer below sees a clean slate, and so the
+ * "useSameForAllTiers" path does not accidentally leave routing enabled.
+ */
+const GEMINI_OPENAI_COMPAT_BASE_URL =
+  'https://generativelanguage.googleapis.com/v1beta/openai/';
+
+/**
+ * The "primary" LLM section in Settings (flat openai/gemini fields)
+ * doubles as the Heavy tier when per-tier routing is on. Project this
+ * surface into a tier-shaped object so the writer below stays uniform.
+ */
+function tierConfigFromPrimarySettings(settings: AppSettings): LLMTierConfig {
+  return {
+    provider: settings.llmProvider === 'gemini' ? 'gemini' : 'openai',
+    openaiBaseUrl: settings.openaiBaseUrl,
+    openaiApiKey: settings.openaiApiKey,
+    openaiModel: settings.openaiModel,
+    googleApiKey: settings.googleApiKey,
+    geminiModel: settings.geminiModel,
+  };
+}
+
+/**
+ * Write one tier's config into `LLM_TIER_<TIER>_*` env vars.
+ *
+ * The shape is dictated by kshana-core/src/core/llm/router.ts
+ * (`readConfigFromEnv`): PROVIDER / API_KEY / MODEL / BASE_URL. For
+ * gemini we set BASE_URL to its OpenAI-compatible endpoint so the
+ * router can reuse the OpenAI client unchanged.
+ */
+function writeTierEnv(tier: 'HEAVY' | 'MEDIUM' | 'LIGHT', cfg: LLMTierConfig): void {
+  if (cfg.provider === 'gemini') {
+    process.env[`LLM_TIER_${tier}_PROVIDER`] = 'gemini';
+    process.env[`LLM_TIER_${tier}_BASE_URL`] = GEMINI_OPENAI_COMPAT_BASE_URL;
+    if (cfg.googleApiKey.trim()) {
+      process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.googleApiKey.trim();
+    }
+    if (cfg.geminiModel.trim()) {
+      process.env[`LLM_TIER_${tier}_MODEL`] = cfg.geminiModel.trim();
+    }
+    return;
+  }
+  process.env[`LLM_TIER_${tier}_PROVIDER`] = 'openai';
+  if (cfg.openaiBaseUrl.trim()) {
+    process.env[`LLM_TIER_${tier}_BASE_URL`] = cfg.openaiBaseUrl.trim();
+  }
+  if (cfg.openaiApiKey.trim()) {
+    process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.openaiApiKey.trim();
+  }
+  if (cfg.openaiModel.trim()) {
+    process.env[`LLM_TIER_${tier}_MODEL`] = cfg.openaiModel.trim();
+  }
+}
+
+function clearRoutingAndTierEnv(): void {
+  delete process.env.LLM_ROUTING_ENABLED;
+  for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
+    for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
+      delete process.env[`LLM_TIER_${tier}_${k}`];
+    }
+  }
+  for (const k of Object.keys(process.env)) {
+    if (k.startsWith('LLM_PURPOSE__')) delete process.env[k];
+  }
+}
+
 function clearCloudProxyEnv(): void {
   const wasUsingDesktopCloudProxy = process.env.KSHANA_CLOUD === 'true';
   delete process.env.KSHANA_CLOUD;
   delete process.env.KSHANA_CLOUD_URL;
   delete process.env.LLM_CONTEXT_TOKENS;
   if (wasUsingDesktopCloudProxy) {
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.OPENAI_BASE_URL;
-    delete process.env.OPENAI_MODEL;
+    // Cloud auth no longer touches OPENAI_* — Settings is the canonical
+    // LLM source (see applyEnvFromSettings comment). Deleting them
+    // here on every restart-while-signed-in nukes the dev fallback
+    // OPENAI_API_KEY loaded from kshana-core/.env, leaving signed-in
+    // users with empty openaiApiKey in Settings → resolvePiSessionModel
+    // returning undefined → "Cannot read properties of undefined
+    // (reading 'api')" on the next chat send. Only ComfyUI proxy env
+    // is genuinely cloud-owned now.
     delete process.env.COMFY_CLOUD_API_KEY;
     delete process.env.COMFYUI_BASE_URL;
   }
@@ -329,22 +412,35 @@ export function applyEnvFromSettings(
   };
 
   clearCloudProxyEnv();
+  clearRoutingAndTierEnv();
 
   const cloudToken = cloudAuth?.desktopToken.trim();
   const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
+  const haveCloudAuth = !!cloudToken && !!cloudWebsiteUrl;
 
-  // Kshana Cloud auth provides ComfyUI proxy routing + billing
-  // identity. It MUST NOT touch LLM env vars — the Settings panel
-  // (LLM Provider section) is the canonical source of truth for the
-  // LLM, signed in or not. Pre-fix, signed-in users saw their
-  // openaiBaseUrl silently rewritten to the Kshana proxy regardless
-  // of what they typed into Settings.
-  if (cloudToken && cloudWebsiteUrl) {
+  // Three independent backend lanes — LLM, ComfyUI, VLM — each can be
+  // 'cloud' or 'local'. A user can keep ComfyUI on a self-hosted GPU
+  // box while routing paid LLM traffic through the metered Kshana
+  // proxy and VLM judging back through their local LM-Studio vision
+  // model — or any other combo. Cloud routing for any lane requires
+  // a valid Kshana Cloud sign-in (`haveCloudAuth`); without it the
+  // lane falls through to Settings regardless of the toggle.
+  const useCloudComfy = settings.comfyBackend === 'cloud' && haveCloudAuth;
+  const useCloudLLM = settings.llmBackend === 'cloud' && haveCloudAuth;
+  const useCloudVLM = settings.vlmBackend === 'cloud' && haveCloudAuth;
+
+  // Cloud identity env (consumed by analytics, billing, etc.) fires
+  // whenever ANY lane is on cloud — they share the same desktop token
+  // + website URL.
+  if (useCloudLLM || useCloudComfy || useCloudVLM) {
     process.env.KSHANA_CLOUD = 'true';
-    process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl;
+    process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl!;
+  }
+
+  if (useCloudComfy) {
     process.env.COMFY_MODE = 'cloud';
-    process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl, '/comfy/api');
-    process.env.COMFY_CLOUD_API_KEY = cloudToken;
+    process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/comfy/api');
+    process.env.COMFY_CLOUD_API_KEY = cloudToken!;
     process.env.COMFYUI_TIMEOUT = '1800';
   } else {
     const comfyUiUrl = getComfyUiUrl(settings);
@@ -368,33 +464,105 @@ export function applyEnvFromSettings(
   }
   setIfPresent('KSHANA_PROJECT_DIR', settings.projectDir);
 
-  // LLM: always sourced from Settings, never from cloudAuth. The UI
-  // exposes only Gemini and OpenAI-Compatible — anything else in the
-  // persisted llmProvider field (older settings with 'lmstudio' /
-  // 'openrouter') is normalized to 'openai' at load time by
-  // normalizeConnectionSettings, so this switch can't see it.
-  switch (settings.llmProvider) {
-    case 'gemini':
-      process.env.LLM_PROVIDER = 'gemini';
-      setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
-      setIfPresent('GEMINI_MODEL', settings.geminiModel || 'gemini-2.5-flash');
-      break;
-    case 'openai':
-    default:
-      process.env.LLM_PROVIDER = 'openai';
-      setIfPresent('OPENAI_API_KEY', settings.openaiApiKey);
-      setIfPresent(
-        'OPENAI_BASE_URL',
-        settings.openaiBaseUrl || 'https://api.openai.com/v1',
-      );
-      setIfPresent('OPENAI_MODEL', settings.openaiModel || 'gpt-4o');
-      break;
+  // LLM routing — gated by the dedicated `llmBackend` lane (set above
+  // as `useCloudLLM`). This is independent of `comfyBackend`: a user
+  // can run LLM through cloud while keeping ComfyUI local, or vice
+  // versa. When cloud, the Settings LLM provider/baseUrl/apiKey
+  // fields are ignored (and disabled in the UI).
+  if (useCloudLLM) {
+    process.env.LLM_PROVIDER = 'openai';
+    process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
+    process.env.OPENAI_API_KEY = cloudToken!;
+    // Default model when cloud mode is on. The proxy server has
+    // its own model whitelist; passing a non-loaded id surfaces a
+    // clear server-side error rather than a silent local fallback.
+    process.env.OPENAI_MODEL = settings.openaiModel || 'gpt-4o';
+  } else {
+    switch (settings.llmProvider) {
+      case 'gemini':
+        process.env.LLM_PROVIDER = 'gemini';
+        setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
+        setIfPresent('GEMINI_MODEL', settings.geminiModel || 'gemini-2.5-flash');
+        break;
+      case 'openai':
+      default:
+        process.env.LLM_PROVIDER = 'openai';
+        setIfPresent('OPENAI_API_KEY', settings.openaiApiKey);
+        setIfPresent(
+          'OPENAI_BASE_URL',
+          settings.openaiBaseUrl || 'https://api.openai.com/v1',
+        );
+        setIfPresent('OPENAI_MODEL', settings.openaiModel || 'gpt-4o');
+        break;
+    }
+  }
+
+  // VLM (vision judge) env wiring:
+  //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
+  //     (dev users with VLM_* in kshana-core/.env) survives. Production
+  //     users with vlmJudge off won't trigger VLM calls anyway, so the
+  //     stale env doesn't matter.
+  //   - vlmJudge=true + llmBackend='cloud' + cloudAuth → auto-route VLM
+  //     to the same Kshana Cloud proxy as the LLM. The user doesn't
+  //     have to reconfigure.
+  //   - vlmJudge=true + local LLM → set VLM_* from Settings (skip-on-empty
+  //     so the .env fallback still fires for dev users who haven't filled
+  //     the VLM Settings fields).
+  if (settings.vlmJudge) {
+    if (useCloudVLM) {
+      process.env.VLM_PROVIDER = 'openai';
+      process.env.VLM_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
+      process.env.VLM_API_KEY = cloudToken!;
+      // Default to a vision-capable model name; user can override in
+      // Settings if the proxy whitelists a different vision model.
+      process.env.VLM_MODEL = settings.vlmModel.trim() || 'gpt-4o';
+    } else if (settings.vlmProvider === 'gemini') {
+      process.env.VLM_PROVIDER = 'gemini';
+      setIfPresent('VLM_API_KEY', settings.vlmApiKey);
+      setIfPresent('VLM_MODEL', settings.vlmModel);
+      // gemini's openai-compatible endpoint is the default-base-url
+      // table; setting VLM_BASE_URL explicitly here keeps the env
+      // self-describing for log-line readers.
+      process.env.VLM_BASE_URL =
+        'https://generativelanguage.googleapis.com/v1beta/openai/';
+    } else {
+      // openai-compatible (default). User-supplied baseUrl is the only
+      // way to point at a self-hosted vision model (LM Studio with
+      // qwen-vl, llama.cpp with llava, etc.).
+      setIfPresent('VLM_PROVIDER', 'openai');
+      setIfPresent('VLM_BASE_URL', settings.vlmBaseUrl);
+      setIfPresent('VLM_API_KEY', settings.vlmApiKey);
+      setIfPresent('VLM_MODEL', settings.vlmModel);
+    }
+  }
+
+  // Per-tier routing: when the user opted out of the
+  // "use same LLM for everything" toggle, mirror the three tier
+  // configs into LLM_TIER_*_* env vars and flip on
+  // LLM_ROUTING_ENABLED. kshana-core's LLMRouter picks these up at
+  // construction time. Heavy = the flat OPENAI_*/GOOGLE_*/GEMINI_*
+  // fields the user already entered (so the primary section in the UI
+  // doubles as the heavy tier).
+  if (!settings.llmUseSameForAllTiers) {
+    process.env.LLM_ROUTING_ENABLED = 'true';
+    writeTierEnv('HEAVY', tierConfigFromPrimarySettings(settings));
+    writeTierEnv('MEDIUM', settings.llmTierMedium);
+    writeTierEnv('LIGHT', settings.llmTierLight);
   }
 
   // NODE_ENV is set by the Electron build pipeline (webpack
   // DefinePlugin replaces process.env.NODE_ENV at compile time);
   // setting it at runtime is both redundant and triggers a terser
   // "Invalid assignment" because the LHS gets constant-folded.
+
+  log.info(
+    `[applyEnvFromSettings] LLM_PROVIDER=${process.env.LLM_PROVIDER} ` +
+      `OPENAI_BASE_URL=${process.env.OPENAI_BASE_URL ?? '(unset)'} ` +
+      `OPENAI_MODEL=${process.env.OPENAI_MODEL ?? '(unset)'} ` +
+      `GEMINI_MODEL=${process.env.GEMINI_MODEL ?? '(unset)'} ` +
+      `COMFY_MODE=${process.env.COMFY_MODE ?? '(unset)'} ` +
+      `COMFYUI_BASE_URL=${process.env.COMFYUI_BASE_URL ?? '(unset)'}`,
+  );
 }
 
 /**

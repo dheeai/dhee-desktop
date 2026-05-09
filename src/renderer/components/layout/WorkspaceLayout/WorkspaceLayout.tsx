@@ -36,12 +36,57 @@ function getProjectDisplayName(
   return folderName.replace(/\.kshana$/i, '');
 }
 
+/**
+ * Poll the BackgroundTaskRunner status so the Back-to-Projects button
+ * can guard against accidental cancellation of a long pipeline. 1.5s
+ * matches ChatPanelEmbedded's poll cadence — a future cleanup could
+ * lift this into a shared `useRunnerStatus` hook.
+ */
+const RUNNER_STATUS_POLL_MS = 1500;
+
 export default function WorkspaceLayout() {
   const { closeProject, projectName, projectDirectory } = useWorkspace();
   const [chatExpanded, setChatExpanded] = useState(true);
+  const [runnerActive, setRunnerActive] = useState(false);
 
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
   const displayProjectName = getProjectDisplayName(projectName, projectDirectory);
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const status = await window.kshana.runnerStatus();
+        if (!cancelled) setRunnerActive(!!status?.active);
+      } catch {
+        if (!cancelled) setRunnerActive(false);
+      }
+    };
+    tick();
+    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, []);
+
+  const handleBack = useCallback(async () => {
+    if (runnerActive) {
+      // Soft confirm: explicit ack + an immediate cancel-and-exit
+      // path. window.confirm is consistent with the rest of the
+      // app's destructive-action prompts (file delete, etc.).
+      const ok = window.confirm(
+        'A run is in progress on this project. Going back will cancel it. Continue?',
+      );
+      if (!ok) return;
+      try {
+        await window.kshana.runnerCancel();
+      } catch {
+        /* best-effort — we still want to navigate even if the cancel RPC fails */
+      }
+    }
+    closeProject();
+  }, [runnerActive, closeProject]);
 
   const toggleChat = useCallback(() => {
     const panel = chatPanelRef.current;
@@ -77,8 +122,12 @@ export default function WorkspaceLayout() {
           <button
             type="button"
             className={styles.backButton}
-            onClick={closeProject}
-            title="Back to Landing"
+            onClick={handleBack}
+            title={
+              runnerActive
+                ? 'A run is in progress — clicking Back will cancel it'
+                : 'Back to Landing'
+            }
           >
             <ArrowLeft size={15} />
             <span>Back</span>

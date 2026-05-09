@@ -1,9 +1,11 @@
 import Store from 'electron-store';
 import type {
   AppSettings,
+  BackendLane,
   BackendMode,
   ComfyUIMode,
   LLMProvider,
+  LLMTierConfig,
   ThemeId,
 } from '../shared/settingsTypes';
 
@@ -17,8 +19,20 @@ const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o';
 const DEFAULT_OPENROUTER_MODEL = 'z-ai/glm-4.7-flash';
 
+const DEFAULT_TIER_CONFIG: LLMTierConfig = {
+  provider: 'openai',
+  openaiBaseUrl: DEFAULT_OPENAI_BASE_URL,
+  openaiApiKey: '',
+  openaiModel: DEFAULT_OPENAI_MODEL,
+  googleApiKey: '',
+  geminiModel: DEFAULT_GEMINI_MODEL,
+};
+
 const defaults: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
+  vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -36,6 +50,13 @@ const defaults: AppSettings = {
   themeId: DEFAULT_THEME_ID,
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai',
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
+  llmUseSameForAllTiers: true,
+  llmTierMedium: { ...DEFAULT_TIER_CONFIG },
+  llmTierLight: { ...DEFAULT_TIER_CONFIG },
 };
 
 const store = new Store<AppSettings>({
@@ -53,6 +74,11 @@ function normalizeComfyUIMode(value: unknown): ComfyUIMode | null {
 
 function normalizeBackendMode(value: unknown): BackendMode {
   return value === 'cloud' ? 'cloud' : 'local';
+}
+
+function normalizeBackendLane(value: unknown): BackendLane | null {
+  if (value === 'cloud' || value === 'local') return value;
+  return null;
 }
 
 function normalizeComfyUIUrl(value: unknown): string {
@@ -87,6 +113,20 @@ function normalizeLLMProvider(value: unknown): LLMProvider {
   }
 }
 
+function normalizeTierConfig(value: unknown): LLMTierConfig {
+  const v = (value as Partial<LLMTierConfig> | null | undefined) ?? {};
+  const provider: LLMTierConfig['provider'] =
+    v.provider === 'gemini' ? 'gemini' : 'openai';
+  return {
+    provider,
+    openaiBaseUrl: normalizeString(v.openaiBaseUrl, DEFAULT_OPENAI_BASE_URL),
+    openaiApiKey: normalizeString(v.openaiApiKey),
+    openaiModel: normalizeString(v.openaiModel, DEFAULT_OPENAI_MODEL),
+    googleApiKey: normalizeString(v.googleApiKey),
+    geminiModel: normalizeString(v.geminiModel, DEFAULT_GEMINI_MODEL),
+  };
+}
+
 function normalizeString(value: unknown, fallback = ''): string {
   if (typeof value !== 'string') {
     return fallback;
@@ -96,7 +136,29 @@ function normalizeString(value: unknown, fallback = ''): string {
 
 function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings {
   const comfyuiUrl = normalizeComfyUIUrl(value?.comfyuiUrl);
-  const backendMode = normalizeBackendMode(value?.backendMode);
+  // Backend lanes: prefer the new explicit fields. If they're absent
+  // (older persisted settings), migrate from the legacy single
+  // `backendMode` toggle — that switch used to gate both lanes
+  // together, so copy its value to both. New installs default to
+  // 'local' on both.
+  const persistedLlmBackend = normalizeBackendLane(value?.llmBackend);
+  const persistedComfyBackend = normalizeBackendLane(value?.comfyBackend);
+  const persistedVlmBackend = normalizeBackendLane(value?.vlmBackend);
+  const legacyBackendMode = normalizeBackendMode(value?.backendMode);
+  const llmBackend: BackendLane = persistedLlmBackend ?? legacyBackendMode;
+  const comfyBackend: BackendLane = persistedComfyBackend ?? legacyBackendMode;
+  // For VLM, the legacy behavior was "follow llmBackend". Migrate to
+  // the same value as the resolved llmBackend so existing installs
+  // keep their pre-split UX, but going forward the user can flip it
+  // independently.
+  const vlmBackend: BackendLane = persistedVlmBackend ?? llmBackend;
+  // Coarse "is at least one lane on cloud" — derived, kept for
+  // back-compat with sign-in / landing-screen paths that still gate
+  // on `backendMode`.
+  const backendMode: BackendMode =
+    llmBackend === 'cloud' || comfyBackend === 'cloud' || vlmBackend === 'cloud'
+      ? 'cloud'
+      : 'local';
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
@@ -127,6 +189,20 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   // explicitly-off from missing.
   const piOversight = (value as { piOversight?: unknown } | null | undefined)?.piOversight === false ? false : true;
   const vlmJudge = (value as { vlmJudge?: unknown } | null | undefined)?.vlmJudge === false ? false : true;
+  const rawVlmProvider = (value as { vlmProvider?: unknown } | null | undefined)?.vlmProvider;
+  const vlmProvider: 'openai' | 'gemini' =
+    rawVlmProvider === 'gemini' ? 'gemini' : 'openai';
+  const vlmBaseUrl = normalizeString(value?.vlmBaseUrl);
+  const vlmApiKey = normalizeString(value?.vlmApiKey);
+  const vlmModel = normalizeString(value?.vlmModel);
+  // Tier defaults to true ("use same LLM for everything") so existing
+  // installs with a single Settings entry keep their pre-tier behavior.
+  const llmUseSameForAllTiers =
+    (value as { llmUseSameForAllTiers?: unknown } | null | undefined)?.llmUseSameForAllTiers === false
+      ? false
+      : true;
+  const llmTierMedium = normalizeTierConfig(value?.llmTierMedium);
+  const llmTierLight = normalizeTierConfig(value?.llmTierLight);
 
   // Backward compatibility:
   // - Missing mode + empty URL => inherit
@@ -142,6 +218,9 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
 
   const normalized: AppSettings = {
     backendMode,
+    llmBackend,
+    comfyBackend,
+    vlmBackend,
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
     comfyCloudApiKey,
@@ -159,6 +238,13 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     themeId,
     piOversight,
     vlmJudge,
+    vlmProvider,
+    vlmBaseUrl,
+    vlmApiKey,
+    vlmModel,
+    llmUseSameForAllTiers,
+    llmTierMedium,
+    llmTierLight,
   };
 
   if (projectDir) {

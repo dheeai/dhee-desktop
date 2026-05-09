@@ -3,6 +3,7 @@ import type {
   AccountInfo,
   AppSettings,
   LLMProvider,
+  LLMTierConfig,
   ThemeId,
 } from '../../../shared/settingsTypes';
 import { DESKTOP_THEMES } from '../../themes';
@@ -49,8 +50,20 @@ type Props = {
   error?: string | null;
 };
 
+const emptyTierConfig: LLMTierConfig = {
+  provider: 'openai',
+  openaiBaseUrl: 'https://api.openai.com/v1',
+  openaiApiKey: '',
+  openaiModel: 'gpt-4o',
+  googleApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
+};
+
 const emptySettings: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
+  vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -68,6 +81,13 @@ const emptySettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai',
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
+  llmUseSameForAllTiers: true,
+  llmTierMedium: { ...emptyTierConfig },
+  llmTierLight: { ...emptyTierConfig },
 };
 
 function withV1Suffix(url: string): string {
@@ -143,8 +163,6 @@ export default function SettingsPanel({
   );
   const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
   const [account, setAccount] = useState<AccountInfo | null>(null);
-  const [cloudModeWarning, setCloudModeWarning] = useState<string | null>(null);
-  const [pendingCloudSwitch, setPendingCloudSwitch] = useState(false);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
   const [logsDir, setLogsDir] = useState<string | null>(null);
@@ -237,14 +255,7 @@ export default function SettingsPanel({
     return accountBridge.onChange((nextAccount) => {
       setAccount(nextAccount);
       if (nextAccount) {
-        setCloudModeWarning(null);
         setSignInError(null);
-        setPendingCloudSwitch((wasPending) => {
-          if (wasPending) {
-            setForm((prev) => ({ ...prev, backendMode: 'cloud' }));
-          }
-          return false;
-        });
       }
     });
   }, [isVisible]);
@@ -263,7 +274,6 @@ export default function SettingsPanel({
       setSignInError(
         err instanceof Error ? err.message : 'Sign-in failed. Please try again.',
       );
-      setPendingCloudSwitch(false);
     } finally {
       setSigningIn(false);
     }
@@ -277,17 +287,13 @@ export default function SettingsPanel({
     key: keyof AppSettings,
     value: string | number | undefined,
   ) => {
-    if (key === 'backendMode' && value === 'cloud' && !account) {
-      setCloudModeWarning('Sign in to Kshana Cloud to switch to Cloud mode.');
-      setPendingCloudSwitch(true);
-      setSignInError(null);
+    // Defense-in-depth: the cloud-lane checkboxes are `disabled` when
+    // !account so this branch is normally unreachable from the UI, but
+    // a stray IPC / programmatic update should still be rejected.
+    const isLaneToggle =
+      key === 'llmBackend' || key === 'comfyBackend' || key === 'vlmBackend';
+    if (isLaneToggle && value === 'cloud' && !account) {
       return;
-    }
-
-    if (key === 'backendMode') {
-      setCloudModeWarning(null);
-      setPendingCloudSwitch(false);
-      setSignInError(null);
     }
 
     setForm((prev) => ({
@@ -300,6 +306,9 @@ export default function SettingsPanel({
     const normalized = normalizeConnectionSettings(nextForm);
     await onSaveConnection({
       backendMode: normalized.backendMode,
+      llmBackend: normalized.llmBackend,
+      comfyBackend: normalized.comfyBackend,
+      vlmBackend: normalized.vlmBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
@@ -313,7 +322,25 @@ export default function SettingsPanel({
       openaiModel: normalized.openaiModel,
       openRouterApiKey: normalized.openRouterApiKey,
       openRouterModel: normalized.openRouterModel,
+      llmUseSameForAllTiers: normalized.llmUseSameForAllTiers,
+      llmTierMedium: normalized.llmTierMedium,
+      llmTierLight: normalized.llmTierLight,
+      vlmProvider: normalized.vlmProvider,
+      vlmBaseUrl: normalized.vlmBaseUrl,
+      vlmApiKey: normalized.vlmApiKey,
+      vlmModel: normalized.vlmModel,
     });
+  };
+
+  const handleTierInput = (
+    tier: 'llmTierMedium' | 'llmTierLight',
+    field: keyof LLMTierConfig,
+    value: string,
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      [tier]: { ...prev[tier], [field]: value },
+    }));
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -327,8 +354,17 @@ export default function SettingsPanel({
     }
   };
 
+  // `isCloudMode` = "is at least one lane on cloud" — used for the
+  // overall status badge / sign-in CTA.
   const isCloudMode = form.backendMode === 'cloud';
   const isCloudReady = isCloudMode && Boolean(account);
+  // Per-lane disable flags. ComfyUI inputs (URL, key) are inert when
+  // comfyBackend='cloud'; LLM provider/url/model/key inputs are inert
+  // when llmBackend='cloud'. The two are independent — flipping one
+  // doesn't affect the other.
+  const isComfyCloudMode = form.comfyBackend === 'cloud';
+  const isLlmCloudMode = form.llmBackend === 'cloud';
+  const isVlmCloudMode = form.vlmBackend === 'cloud';
   const statusLabel = isCloudReady || !isCloudMode ? 'Ready' : 'Sign in';
   const statusBadgeClass = isCloudReady || !isCloudMode
     ? styles.statusBadgeSuccess
@@ -344,6 +380,121 @@ export default function SettingsPanel({
       : 'Sign in to Kshana Cloud to route paid calls through the authenticated proxy.'
     : 'The bundled core is running locally with the provider settings shown below.';
 
+  const renderTierSection = (
+    tier: 'llmTierMedium' | 'llmTierLight',
+    label: string,
+    description: string,
+  ) => {
+    const cfg = form[tier];
+    return (
+      <fieldset className={styles.fieldset} disabled={isLlmCloudMode}>
+        <legend>{label}</legend>
+        <p className={styles.infoText}>{description}</p>
+        <div className={styles.radios}>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              className={styles.radioInput}
+              name={`${tier}-provider`}
+              value="gemini"
+              checked={cfg.provider === 'gemini'}
+              disabled={isLlmCloudMode}
+              onChange={() => handleTierInput(tier, 'provider', 'gemini')}
+            />
+            Gemini
+          </label>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              className={styles.radioInput}
+              name={`${tier}-provider`}
+              value="openai"
+              checked={cfg.provider === 'openai'}
+              disabled={isLlmCloudMode}
+              onChange={() => handleTierInput(tier, 'provider', 'openai')}
+            />
+            OpenAI-Compatible
+          </label>
+        </div>
+
+        {cfg.provider === 'gemini' && (
+          <>
+            <label className={styles.label}>
+              Google API Key
+              <input
+                type="password"
+                className={styles.input}
+                value={cfg.googleApiKey}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'googleApiKey', event.target.value)
+                }
+                placeholder="AIza..."
+              />
+            </label>
+            <label className={styles.label}>
+              Gemini Model ID
+              <input
+                type="text"
+                className={styles.input}
+                value={cfg.geminiModel}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'geminiModel', event.target.value)
+                }
+                placeholder="gemini-2.5-flash"
+              />
+            </label>
+          </>
+        )}
+
+        {cfg.provider === 'openai' && (
+          <>
+            <label className={styles.label}>
+              Base URL
+              <input
+                type="url"
+                className={styles.input}
+                value={cfg.openaiBaseUrl}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'openaiBaseUrl', event.target.value)
+                }
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <label className={styles.label}>
+              Model ID
+              <input
+                type="text"
+                className={styles.input}
+                value={cfg.openaiModel}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'openaiModel', event.target.value)
+                }
+                placeholder="gpt-4o"
+              />
+            </label>
+            <label className={styles.label}>
+              API Key
+              <input
+                type="password"
+                className={styles.input}
+                value={cfg.openaiApiKey}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'openaiApiKey', event.target.value)
+                }
+                placeholder="sk-..."
+              />
+            </label>
+          </>
+        )}
+      </fieldset>
+    );
+  };
+
   const renderProviderToggle = (provider: LLMProvider, label: string) => (
     <label className={styles.radioLabel}>
       <input
@@ -352,7 +503,7 @@ export default function SettingsPanel({
         name="llm-provider"
         value={provider}
         checked={form.llmProvider === provider}
-        disabled={isCloudMode}
+        disabled={isLlmCloudMode}
         onChange={(event) =>
           handleInput(
             'llmProvider',
@@ -557,16 +708,16 @@ export default function SettingsPanel({
                       <span style={{ fontWeight: 500 }}>VLM judge</span>
                       <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
                         Vision-LLM describes generated images for the
-                        agent. Requires VLM_PROVIDER / VLM_API_KEY /
-                        VLM_MODEL in .env. Disabled when oversight is
-                        off (VLM standalone has no consumer).
+                        agent. Configure the VLM provider in the Connection
+                        tab. Disabled when oversight is off (VLM standalone
+                        has no consumer).
                       </span>
                     </span>
                   </label>
                 </div>
               </>
             ) : activeTab === 'workflows' ? (
-              <WorkflowsTab isCloudMode={settings?.backendMode === 'cloud'} />
+              <WorkflowsTab isCloudMode={settings?.comfyBackend === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>
@@ -663,197 +814,429 @@ export default function SettingsPanel({
                   </div>
                 </div>
 
-                <fieldset className={`${styles.fieldset} ${styles.modeFieldset}`}>
-                  <legend>Backend Mode</legend>
-                  <div
-                    className={styles.modeSwitch}
-                    role="radiogroup"
-                    aria-label="Backend Mode"
-                  >
-                    <label className={styles.radioLabel}>
+                <fieldset className={styles.fieldset}>
+                  <legend>ComfyUI</legend>
+                  <div className={styles.cloudToggleRow}>
+                    <label
+                      className={styles.checkboxLabel}
+                      title={
+                        !account
+                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          : undefined
+                      }
+                    >
                       <input
-                        type="radio"
-                        className={styles.radioInput}
-                        name="backend-mode"
-                        value="local"
-                        checked={form.backendMode === 'local'}
-                        onChange={() => handleInput('backendMode', 'local')}
+                        type="checkbox"
+                        checked={isComfyCloudMode}
+                        disabled={!account}
+                        onChange={(event) =>
+                          handleInput(
+                            'comfyBackend',
+                            event.target.checked ? 'cloud' : 'local',
+                          )
+                        }
                       />
-                      <span className={styles.modeOption}>Local</span>
+                      Use Kshana Cloud for ComfyUI
                     </label>
-                    <label className={styles.radioLabel}>
-                      <input
-                        type="radio"
-                        className={styles.radioInput}
-                        name="backend-mode"
-                        value="cloud"
-                        checked={form.backendMode === 'cloud'}
-                        onChange={() => handleInput('backendMode', 'cloud')}
-                      />
-                      <span className={styles.modeOption}>Cloud</span>
-                    </label>
-                  </div>
-                  {cloudModeWarning ? (
-                    <div className={styles.inlineSignIn}>
-                      <p className={styles.warningText}>{cloudModeWarning}</p>
-                      <p className={styles.infoText}>
-                        Sign-in opens your browser, then returns here automatically.
-                      </p>
-                      {signInError ? (
-                        <p className={styles.error}>{signInError}</p>
-                      ) : null}
+                    {!account ? (
                       <button
                         type="button"
-                        className={styles.submitButton}
+                        className={styles.inlineSignInButton}
                         onClick={handleInlineSignIn}
                         disabled={signingIn}
                       >
-                        {signingIn ? 'Opening Browser…' : 'Sign In to Kshana Cloud'}
+                        {signingIn ? 'Opening…' : 'Sign In'}
                       </button>
-                    </div>
-                  ) : null}
-                </fieldset>
-
-                <div
-                  className={`${styles.localSettings} ${
-                    isCloudMode ? styles.localSettingsDisabled : ''
-                  }`}
-                >
-                  <label className={styles.label}>
-                    ComfyUI URL
-                    <input
-                      type="url"
-                      className={styles.input}
-                      value={form.comfyuiUrl}
-                      disabled={false}
-                      onChange={(event) =>
-                        handleInput('comfyuiUrl', event.target.value)
-                      }
-                      placeholder="http://localhost:8000"
-                    />
-                  </label>
-
-                  <label className={styles.label}>
-                    Comfy Cloud API Key
-                    <input
-                      type="password"
-                      className={styles.input}
-                      value={form.comfyCloudApiKey}
-                      disabled={false}
-                      onChange={(event) =>
-                        handleInput('comfyCloudApiKey', event.target.value)
-                      }
-                      placeholder="Only used for https://cloud.comfy.org"
-                    />
-                  </label>
+                    ) : null}
+                  </div>
                   <p className={styles.infoText}>
-                    This key is only used when the ComfyUI URL points to
-                    `https://cloud.comfy.org`. Local and self-hosted ComfyUI
-                    connections ignore it.
+                    {isComfyCloudMode
+                      ? 'Image / video jobs run on Kshana Cloud (uses credits).'
+                      : 'Image / video jobs run on the ComfyUI server below.'}
                   </p>
 
-                  <fieldset className={styles.fieldset} disabled={isCloudMode}>
-                    <legend>LLM Provider</legend>
-                    <div className={styles.radios}>
-                      {renderProviderToggle('gemini', 'Gemini')}
-                      {renderProviderToggle('openai', 'OpenAI-Compatible')}
-                    </div>
-                  </fieldset>
-
-                  {form.llmProvider === 'gemini' && (
+                  {!isComfyCloudMode && (
                     <>
                       <label className={styles.label}>
-                        Google API Key
-                        <input
-                          type="password"
-                          className={styles.input}
-                          value={form.googleApiKey}
-                          disabled={isCloudMode}
-                          onChange={(event) =>
-                            handleInput('googleApiKey', event.target.value)
-                          }
-                          placeholder="AIza..."
-                        />
-                      </label>
-
-                      <label className={styles.label}>
-                        Gemini Model ID
-                        <input
-                          type="text"
-                          className={styles.input}
-                          value={form.geminiModel}
-                          disabled={isCloudMode}
-                          onChange={(event) =>
-                            handleInput('geminiModel', event.target.value)
-                          }
-                          placeholder="gemini-2.5-flash"
-                        />
-                      </label>
-                    </>
-                  )}
-
-                  {form.llmProvider === 'openai' && (
-                    <>
-                      <div className={styles.label}>
-                        <div className={styles.labelRow}>
-                          <span>Base URL</span>
-                          <button
-                            type="button"
-                            className={styles.inlineButton}
-                            disabled={isCloudMode}
-                            onClick={() =>
-                              handleInput(
-                                'openaiBaseUrl',
-                                emptySettings.openaiBaseUrl,
-                              )
-                            }
-                          >
-                            Use default OpenAI URL
-                          </button>
-                        </div>
+                        ComfyUI URL
                         <input
                           type="url"
                           className={styles.input}
-                          value={form.openaiBaseUrl}
-                          disabled={isCloudMode}
+                          value={form.comfyuiUrl}
                           onChange={(event) =>
-                            handleInput('openaiBaseUrl', event.target.value)
+                            handleInput('comfyuiUrl', event.target.value)
                           }
-                          placeholder="https://api.openai.com/v1"
-                          aria-label="Base URL"
-                        />
-                      </div>
-
-                      <label className={styles.label}>
-                        Model ID
-                        <input
-                          type="text"
-                          className={styles.input}
-                          value={form.openaiModel}
-                          disabled={isCloudMode}
-                          onChange={(event) =>
-                            handleInput('openaiModel', event.target.value)
-                          }
-                          placeholder="gpt-4o"
+                          placeholder="http://localhost:8000"
                         />
                       </label>
 
                       <label className={styles.label}>
-                        API Key
+                        Comfy Cloud API Key
                         <input
                           type="password"
                           className={styles.input}
-                          value={form.openaiApiKey}
-                          disabled={isCloudMode}
+                          value={form.comfyCloudApiKey}
                           onChange={(event) =>
-                            handleInput('openaiApiKey', event.target.value)
+                            handleInput('comfyCloudApiKey', event.target.value)
                           }
-                          placeholder="sk-..."
+                          placeholder="Only used for https://cloud.comfy.org"
+                        />
+                      </label>
+                      <p className={styles.infoText}>
+                        This key is only used when the ComfyUI URL points to
+                        `https://cloud.comfy.org`. Local and self-hosted ComfyUI
+                        connections ignore it.
+                      </p>
+                    </>
+                  )}
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
+                  <legend>LLM</legend>
+                  <div className={styles.cloudToggleRow}>
+                    <label
+                      className={styles.checkboxLabel}
+                      title={
+                        !account
+                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          : undefined
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isLlmCloudMode}
+                        disabled={!account}
+                        onChange={(event) =>
+                          handleInput(
+                            'llmBackend',
+                            event.target.checked ? 'cloud' : 'local',
+                          )
+                        }
+                      />
+                      Use Kshana Cloud for LLM
+                    </label>
+                    {!account ? (
+                      <button
+                        type="button"
+                        className={styles.inlineSignInButton}
+                        onClick={handleInlineSignIn}
+                        disabled={signingIn}
+                      >
+                        {signingIn ? 'Opening…' : 'Sign In'}
+                      </button>
+                    ) : null}
+                  </div>
+                  {signInError && !account ? (
+                    <p className={styles.error}>{signInError}</p>
+                  ) : null}
+                  <p className={styles.infoText}>
+                    {isLlmCloudMode
+                      ? 'Chat / planning calls go through the Kshana Cloud proxy (uses credits).'
+                      : 'Chat / planning calls go to the LLM provider configured below.'}
+                  </p>
+
+                  {!isLlmCloudMode && (
+                    <>
+                      <fieldset className={styles.fieldset}>
+                        <legend>Heavy LLM (primary)</legend>
+                        <p className={styles.infoText}>
+                          Used for long-form creative work: story, scenes, shot
+                          prompts, motion directives — and the pi-agent
+                          orchestrator.
+                        </p>
+                        <div className={styles.radios}>
+                          {renderProviderToggle('gemini', 'Gemini')}
+                          {renderProviderToggle('openai', 'OpenAI-Compatible')}
+                        </div>
+                      </fieldset>
+
+                      {form.llmProvider === 'gemini' && (
+                        <>
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.googleApiKey}
+                              onChange={(event) =>
+                                handleInput('googleApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
+                            />
+                          </label>
+
+                          <label className={styles.label}>
+                            Gemini Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.geminiModel}
+                              onChange={(event) =>
+                                handleInput('geminiModel', event.target.value)
+                              }
+                              placeholder="gemini-2.5-flash"
+                            />
+                          </label>
+                        </>
+                      )}
+
+                      {form.llmProvider === 'openai' && (
+                        <>
+                          <div className={styles.label}>
+                            <div className={styles.labelRow}>
+                              <span>Base URL</span>
+                              <button
+                                type="button"
+                                className={styles.inlineButton}
+                                onClick={() =>
+                                  handleInput(
+                                    'openaiBaseUrl',
+                                    emptySettings.openaiBaseUrl,
+                                  )
+                                }
+                              >
+                                Use default OpenAI URL
+                              </button>
+                            </div>
+                            <input
+                              type="url"
+                              className={styles.input}
+                              value={form.openaiBaseUrl}
+                              onChange={(event) =>
+                                handleInput('openaiBaseUrl', event.target.value)
+                              }
+                              placeholder="https://api.openai.com/v1"
+                              aria-label="Base URL"
+                            />
+                          </div>
+
+                          <label className={styles.label}>
+                            Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.openaiModel}
+                              onChange={(event) =>
+                                handleInput('openaiModel', event.target.value)
+                              }
+                              placeholder="gpt-4o"
+                            />
+                          </label>
+
+                          <label className={styles.label}>
+                            API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.openaiApiKey}
+                              onChange={(event) =>
+                                handleInput('openaiApiKey', event.target.value)
+                              }
+                              placeholder="sk-..."
+                            />
+                          </label>
+                        </>
+                      )}
+
+                      <label className={styles.checkboxLabel}>
+                        <input
+                          type="checkbox"
+                          checked={form.llmUseSameForAllTiers}
+                          onChange={(event) =>
+                            setForm((prev) => ({
+                              ...prev,
+                              llmUseSameForAllTiers: event.target.checked,
+                            }))
+                          }
+                        />
+                        Use this same LLM for medium and light tasks
+                      </label>
+                      <p className={styles.infoText}>
+                        Uncheck to send structured/utility calls to a cheaper or
+                        faster model. The Heavy LLM above is always used for
+                        creative prose and the pi-agent.
+                      </p>
+
+                      {!form.llmUseSameForAllTiers && (
+                        <>
+                          {renderTierSection(
+                            'llmTierMedium',
+                            'Medium LLM',
+                            'Used for structured JSON: scene breakdowns, prompt refinement, workflow analysis, classification.',
+                          )}
+                          {renderTierSection(
+                            'llmTierLight',
+                            'Light LLM',
+                            'Used for cheap utility checks: continuity, image review, JSON repair, prompt evaluation.',
+                          )}
+                        </>
+                      )}
+                    </>
+                  )}
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
+                  <legend>VLM (vision judge)</legend>
+                  <p className={styles.infoText}>
+                    Reads generated images and grades them against the prompt
+                    so the agent can flag misses. Toggle the VLM judge in the
+                    Appearance tab; configure the provider here. Independent
+                    of LLM and ComfyUI — flip any combo.
+                  </p>
+                  <div className={styles.cloudToggleRow}>
+                    <label
+                      className={styles.checkboxLabel}
+                      title={
+                        !account
+                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          : undefined
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isVlmCloudMode}
+                        disabled={!account}
+                        onChange={(event) =>
+                          handleInput(
+                            'vlmBackend',
+                            event.target.checked ? 'cloud' : 'local',
+                          )
+                        }
+                      />
+                      Use Kshana Cloud for VLM
+                    </label>
+                    {!account ? (
+                      <button
+                        type="button"
+                        className={styles.inlineSignInButton}
+                        onClick={handleInlineSignIn}
+                        disabled={signingIn}
+                      >
+                        {signingIn ? 'Opening…' : 'Sign In'}
+                      </button>
+                    ) : null}
+                  </div>
+
+                  {isVlmCloudMode ? (
+                    <>
+                      <p className={styles.infoText}>
+                        VLM routes through the Kshana Cloud proxy (uses the
+                        desktop token). Only the model id is read here.
+                      </p>
+                      <label className={styles.label}>
+                        VLM Model ID
+                        <input
+                          type="text"
+                          className={styles.input}
+                          value={form.vlmModel}
+                          onChange={(event) =>
+                            handleInput('vlmModel', event.target.value)
+                          }
+                          placeholder="anthropic/claude-opus-4.6-fast"
                         />
                       </label>
                     </>
+                  ) : (
+                    <>
+                      <div className={styles.radios}>
+                        <label className={styles.radioLabel}>
+                          <input
+                            type="radio"
+                            className={styles.radioInput}
+                            name="vlm-provider"
+                            value="gemini"
+                            checked={form.vlmProvider === 'gemini'}
+                            onChange={() => handleInput('vlmProvider', 'gemini')}
+                          />
+                          Gemini
+                        </label>
+                        <label className={styles.radioLabel}>
+                          <input
+                            type="radio"
+                            className={styles.radioInput}
+                            name="vlm-provider"
+                            value="openai"
+                            checked={form.vlmProvider === 'openai'}
+                            onChange={() => handleInput('vlmProvider', 'openai')}
+                          />
+                          OpenAI-Compatible
+                        </label>
+                      </div>
+
+                      {form.vlmProvider === 'gemini' ? (
+                        <>
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.vlmApiKey}
+                              onChange={(event) =>
+                                handleInput('vlmApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            Gemini Vision Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.vlmModel}
+                              onChange={(event) =>
+                                handleInput('vlmModel', event.target.value)
+                              }
+                              placeholder="gemini-2.5-pro"
+                            />
+                          </label>
+                        </>
+                      ) : (
+                        <>
+                          <label className={styles.label}>
+                            Base URL
+                            <input
+                              type="url"
+                              className={styles.input}
+                              value={form.vlmBaseUrl}
+                              onChange={(event) =>
+                                handleInput('vlmBaseUrl', event.target.value)
+                              }
+                              placeholder="http://127.0.0.1:1234/v1"
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            Vision Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.vlmModel}
+                              onChange={(event) =>
+                                handleInput('vlmModel', event.target.value)
+                              }
+                              placeholder="qwen-vl-72b"
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.vlmApiKey}
+                              onChange={(event) =>
+                                handleInput('vlmApiKey', event.target.value)
+                              }
+                              placeholder="sk-..."
+                            />
+                          </label>
+                        </>
+                      )}
+                      <p className={styles.infoText}>
+                        Empty fields fall through to <code>VLM_*</code> env
+                        from the kshana-core <code>.env</code> file (dev mode).
+                      </p>
+                    </>
                   )}
-                </div>
+                </fieldset>
 
                 {error && <div className={styles.error}>{error}</div>}
               </>

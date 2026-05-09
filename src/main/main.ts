@@ -227,7 +227,17 @@ async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
 }
 
 async function getCloudAuthRuntime(settings: AppSettings) {
-  if (settings.backendMode !== 'cloud') return null;
+  // Cloud auth surfaces if ANY backend lane wants cloud — the token
+  // + website URL are shared between LLM / ComfyUI / VLM proxy
+  // routing. applyEnvFromSettings then gates per-lane on
+  // settings.llmBackend / .comfyBackend / .vlmBackend.
+  if (
+    settings.llmBackend !== 'cloud' &&
+    settings.comfyBackend !== 'cloud' &&
+    settings.vlmBackend !== 'cloud'
+  ) {
+    return null;
+  }
   const account = getAccount();
   if (!account?.token) return null;
   if (!parseDesktopAuthToken(account.token)) return null;
@@ -3657,17 +3667,20 @@ async function validateStoredDesktopAccountOnStartup(): Promise<void> {
 
   if (!parseDesktopAuthToken(account.token)) {
     clearAccount();
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     mainWindow?.webContents.send('settings:updated', getSettings());
     broadcastAccountChanged();
     return;
   }
 
-  updateSettings({ backendMode: 'cloud' });
+  // Don't force backendMode='cloud' here — that would override the
+  // user's persisted choice on every restart. Sign-in deep-link sets
+  // cloud once on first sign-in; if the user later flips to local in
+  // Settings, that choice should survive subsequent launches.
   const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   if (result.status === 'expired') {
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     mainWindow?.webContents.send('settings:updated', getSettings());
   } else if (result.status === 'error') {
@@ -3688,12 +3701,15 @@ function restoreStoredDesktopAccountBeforeBackend(): void {
 
   if (!parseDesktopAuthToken(account.token)) {
     clearAccount();
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     return;
   }
 
-  updateSettings({ backendMode: 'cloud' });
+  // Don't force backendMode here — see validateStoredDesktopAccountOnStartup.
+  // The persisted setting is the authoritative source; sign-in flips to
+  // cloud on first sign-in (handleDeepLink) and the user can override
+  // it from the Settings panel.
   lastAccountAuthStatus = 'idle';
 }
 
@@ -3728,7 +3744,16 @@ async function handleDeepLink(url: string): Promise<void> {
     identifyDesktopUser(kshanaCoreManager, payload.sub);
 
     await refreshBalance(await resolveKshanaWebsiteUrl());
-    updateSettings({ backendMode: 'cloud' });
+    // First sign-in defaults BOTH lanes to cloud — matches the
+    // pre-split single-toggle behavior. Users can flip ComfyUI back
+    // to local in Settings without affecting LLM (or vice versa);
+    // those choices persist across restarts.
+    updateSettings({
+      backendMode: 'cloud',
+      llmBackend: 'cloud',
+      comfyBackend: 'cloud',
+      vlmBackend: 'cloud',
+    });
     await restartEmbeddedAfterAccountChange('sign-in');
     mainWindow?.webContents.send('settings:updated', getSettings());
     broadcastAccountChanged();
@@ -3830,7 +3855,7 @@ ipcMain.handle('account:sign-in', async () => {
 
 ipcMain.handle('account:sign-out', async () => {
   clearAccount();
-  updateSettings({ backendMode: 'local' });
+  updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
   pendingDesktopAuthState = null;
   lastAccountAuthStatus = 'idle';
   resetDesktopAnalyticsIdentity(kshanaCoreManager);
@@ -3843,7 +3868,7 @@ ipcMain.handle('account:sign-out', async () => {
 ipcMain.handle('account:refresh-balance', async () => {
   const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   if (result.status === 'expired') {
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     mainWindow?.webContents.send('settings:updated', getSettings());
   } else if (result.status === 'ok') {

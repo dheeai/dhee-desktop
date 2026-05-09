@@ -1,5 +1,11 @@
 export type ComfyUIMode = 'inherit' | 'custom';
 export type BackendMode = 'local' | 'cloud';
+/**
+ * One backend lane (LLM or ComfyUI) routing target. The two lanes are
+ * independent: a user can keep ComfyUI local while sending paid LLM
+ * traffic through the metered Kshana proxy, or vice versa.
+ */
+export type BackendLane = 'local' | 'cloud';
 export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
 export type ThemeId =
   | 'studio-neutral'
@@ -7,6 +13,28 @@ export type ThemeId =
   | 'petroleum-clay'
   | 'paper-light'
   | 'void-cut';
+
+/**
+ * One LLM target (provider + the fields that provider needs). Used for the
+ * Medium and Light tiers; the Heavy/primary tier still lives as flat fields
+ * on AppSettings for backward-compat with persisted settings.
+ *
+ * Tiers map to LLMRouter purposes in kshana-core/src/core/llm/purposes.ts:
+ *   - Heavy:  long-form prose (story, scenes, shot prompts, motion directives)
+ *             AND the pi-agent orchestrator
+ *   - Medium: structured JSON (scene breakdowns, prompt refinement, workflow analysis)
+ *   - Light:  utility checks (continuity, image review, json repair)
+ */
+export interface LLMTierConfig {
+  provider: 'gemini' | 'openai';
+  // openai-compat (used when provider === 'openai')
+  openaiBaseUrl: string;
+  openaiApiKey: string;
+  openaiModel: string;
+  // gemini (used when provider === 'gemini')
+  googleApiKey: string;
+  geminiModel: string;
+}
 
 export interface AccountInfo {
   /** User ID from Kshana Cloud. */
@@ -23,8 +51,25 @@ export interface AccountInfo {
 }
 
 export interface AppSettings {
-  /** Whether embedded kshana-core uses BYO settings or Kshana Cloud proxy credits. */
+  /**
+   * Coarse "is at least one lane on cloud" indicator. Derived from
+   * llmBackend / comfyBackend at normalize time (cloud if either is
+   * cloud). Kept as a real field for back-compat with code paths
+   * that gate on "are we using cloud at all" — sign-in flows,
+   * landing screen badges, etc.
+   */
   backendMode: BackendMode;
+  /** LLM routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
+  llmBackend: BackendLane;
+  /** ComfyUI routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
+  comfyBackend: BackendLane;
+  /**
+   * VLM (vision judge) routing target. Independent of llmBackend —
+   * a user can keep LLM on cloud while running a self-hosted vision
+   * model locally, or vice versa. 'cloud' requires a valid Kshana
+   * Cloud sign-in. Only consulted when vlmJudge=true.
+   */
+  vlmBackend: BackendLane;
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */
@@ -53,6 +98,17 @@ export interface AppSettings {
   openRouterApiKey: string;
   /** OpenRouter model id used by the bundled local backend. */
   openRouterModel: string;
+  /**
+   * When true (default), the flat openai/gemini fields above are used for
+   * every LLM call (heavy/medium/light). When false, the user supplies
+   * separate Medium and Light tier configs and kshana-core's LLMRouter
+   * routes per-purpose. The Heavy tier always reads from the flat fields.
+   */
+  llmUseSameForAllTiers: boolean;
+  /** Medium-tier LLM (only consulted when llmUseSameForAllTiers === false). */
+  llmTierMedium: LLMTierConfig;
+  /** Light-tier LLM (only consulted when llmUseSameForAllTiers === false). */
+  llmTierLight: LLMTierConfig;
   /** Global desktop theme selection. */
   themeId: ThemeId;
   projectDir?: string;
@@ -72,4 +128,17 @@ export interface AppSettings {
    * Default: true.
    */
   vlmJudge: boolean;
+  /**
+   * VLM (vision judge) provider — independent of the LLM. When
+   * llmBackend='cloud' AND vlmJudge=true, VLM auto-routes to the
+   * Kshana Cloud proxy (uses the desktop token); only vlmModel is
+   * read in that mode. When llmBackend='local' the user supplies
+   * baseUrl / apiKey / model. Empty values fall through to env so
+   * dev users running from a kshana-core checkout with VLM_* in .env
+   * still work without UI input.
+   */
+  vlmProvider: 'openai' | 'gemini';
+  vlmBaseUrl: string;
+  vlmApiKey: string;
+  vlmModel: string;
 }

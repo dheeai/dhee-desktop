@@ -475,12 +475,18 @@ export default function ChatPanelEmbedded() {
     };
   }, []);
 
-  // Clear the local "Stopping…" flag once the runner reports idle.
+  // Clear the local "Stopping…" flag once BOTH execution lanes report
+  // idle: the BackgroundTaskRunner AND the pi-agent chat session.
+  // If we cleared it on runnerActive alone, a chat-only stop (where
+  // the runner was never active) would flip the button back to Resume
+  // immediately — before pi-agent had finished aborting in-flight
+  // tool calls.
   useEffect(() => {
-    if (!runnerActive && pendingCancel) {
+    const chatBusy = session.status === 'running';
+    if (!runnerActive && !chatBusy && pendingCancel) {
       setPendingCancel(false);
     }
-  }, [runnerActive, pendingCancel]);
+  }, [runnerActive, pendingCancel, session.status]);
 
   // (was: bg-session teardown on project switch — no longer needed
   // since the BackgroundTaskRunner singleton handles task lifecycle
@@ -833,15 +839,22 @@ export default function ChatPanelEmbedded() {
   }, [piOversight, vlmJudge, appSettings]);
 
   const handleCancel = useCallback(async () => {
-    // Cancel goes directly through the BackgroundTaskRunner IPC,
-    // independent of any chat session. The runner aborts whatever
-    // long task it currently has active and emits a 'cancelled'
-    // event back to the originating session — same code path as a
-    // natural completion. The Stop button stays instant even when
-    // the main session's pi-agent is mid-reply.
+    // Stop kills BOTH execution lanes:
+    //   1. BackgroundTaskRunner (long pipeline tasks dispatched via
+    //      kshana_run_to) — runnerCancel aborts the in-flight task and
+    //      emits a 'cancelled' event back to the originating session.
+    //   2. The pi-agent chat session itself — when pi is mid-reply
+    //      (looping bash, edits, etc.) the user expects Stop to halt
+    //      that too. Without session.cancel(), the chat keeps spamming
+    //      tool calls while the spinner says "Stopping…".
+    // Both calls are best-effort — failures here would just leave the
+    // optimistic spinner on; the runnerActive poll will reset it.
     setPendingCancel(true);
-    await window.kshana.runnerCancel().catch(() => undefined);
-  }, []);
+    await Promise.all([
+      window.kshana.runnerCancel().catch(() => undefined),
+      session.cancel().catch(() => undefined),
+    ]);
+  }, [session]);
 
   // Build the "resume the pipeline" task and run it on the MAIN
   // session. kshana-core's pi-agent will receive it, call
@@ -899,11 +912,6 @@ export default function ChatPanelEmbedded() {
     await session.sendResponse(option);
   }, [session]);
 
-  // Single source of truth: the BackgroundTaskRunner. If it reports
-  // a task active, the header shows Stop. Optimistic `pendingCancel`
-  // also keeps the button in its "Stopping…" state during the brief
-  // window between click and the runner actually winding down.
-  const isRunning = runnerActive || pendingCancel;
   // Main-session readiness gates the textarea / send button. We
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.
@@ -913,6 +921,14 @@ export default function ChatPanelEmbedded() {
   // turn). Used to disable Send during that brief window so we don't
   // pile prompts on top of each other in pi-agent.
   const isMainBusy = session.status === 'running';
+  // Header Stop button surfaces when ANY execution lane is busy:
+  //   - BackgroundTaskRunner (long pipeline tasks)
+  //   - pi-agent chat session looping through tools/edits/etc.
+  // handleCancel already aborts both lanes in parallel, so a single
+  // Stop affordance covers both. Otherwise a chat that started
+  // hammering tool calls (e.g. the agent rabbit-holing on bash/find)
+  // had no visible kill switch.
+  const isRunning = runnerActive || pendingCancel || isMainBusy;
 
   const contextPct = contextUsage
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
@@ -926,6 +942,22 @@ export default function ChatPanelEmbedded() {
         : isReady
           ? 'ready'
           : 'idle';
+  // Header text label needs to match dotStatus, not session.status.
+  // Otherwise: pi-agent dispatches a long pipeline via kshana_run_to,
+  // pi.session.status flips back to 'idle' once the tool returns
+  // (because the runner now drives the work), but the dot is still
+  // green from runnerActive — so the badge said "Idle" while the
+  // pipeline was clearly running. Surface a unified label.
+  const statusText =
+    dotStatus === 'error'
+      ? 'Error'
+      : dotStatus === 'running'
+        ? 'Running'
+        : dotStatus === 'ready'
+          ? 'Ready'
+          : session.status === 'connecting'
+            ? 'Connecting'
+            : 'Idle';
 
   const sendActive = input.trim().length > 0 && isReady;
 
@@ -1106,7 +1138,7 @@ export default function ChatPanelEmbedded() {
             className={styles.statusIndicator}
           >
             <span className={styles.statusDot} data-status={dotStatus} />
-            <span style={{ textTransform: 'capitalize' }}>{session.status}</span>
+            <span>{statusText}</span>
           </div>
         </div>
       </header>

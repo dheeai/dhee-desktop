@@ -9,6 +9,9 @@ import type { AppSettings } from '../../shared/settingsTypes';
 
 const baseSettings: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
+  vlmBackend: 'local' as const,
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -26,6 +29,27 @@ const baseSettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai' as const,
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
+  llmUseSameForAllTiers: true,
+  llmTierMedium: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
+  llmTierLight: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
 };
 
 function TestConsumer() {

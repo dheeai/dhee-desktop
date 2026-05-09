@@ -1373,5 +1373,39 @@ describe('ChatPanelEmbedded', () => {
       });
       expect(runnerCancel).toHaveBeenCalledTimes(1);
     });
+
+    it('Stop also cancels the chat session — pi-agent mid-reply (looping bash) must halt, not just the long pipeline', async () => {
+      // Regression: handleCancel only called runnerCancel, leaving a
+      // mid-reply pi-agent free to keep firing tool_calls while the
+      // spinner said "Stopping…". The user sees bash commands continue
+      // after Stop. Cancel both lanes — the runner AND the chat session.
+      mockWorkspaceProjectName = 'BurgerEating';
+      setupProjectFiles();
+      const runnerCancel = jest.fn(async () => ({ cancelled: true }));
+      const cancelTask = jest.fn(async () => ({ cancelled: true }));
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+        jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
+        runnerCancel as never;
+      (window as unknown as { kshana: Record<string, unknown> }).kshana.cancelTask =
+        cancelTask as never;
+
+      render(<ChatPanelEmbedded />);
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByRole('button', { name: /stop run/i }),
+          ).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: /stop run/i }));
+      });
+      expect(runnerCancel).toHaveBeenCalledTimes(1);
+      expect(cancelTask).toHaveBeenCalledTimes(1);
+    });
   });
 });
