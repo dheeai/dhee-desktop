@@ -1,6 +1,7 @@
 import Store from 'electron-store';
 import type {
   AppSettings,
+  BackendLane,
   BackendMode,
   ComfyUIMode,
   LLMProvider,
@@ -29,6 +30,8 @@ const DEFAULT_TIER_CONFIG: LLMTierConfig = {
 
 const defaults: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -66,6 +69,11 @@ function normalizeComfyUIMode(value: unknown): ComfyUIMode | null {
 
 function normalizeBackendMode(value: unknown): BackendMode {
   return value === 'cloud' ? 'cloud' : 'local';
+}
+
+function normalizeBackendLane(value: unknown): BackendLane | null {
+  if (value === 'cloud' || value === 'local') return value;
+  return null;
 }
 
 function normalizeComfyUIUrl(value: unknown): string {
@@ -123,7 +131,21 @@ function normalizeString(value: unknown, fallback = ''): string {
 
 function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings {
   const comfyuiUrl = normalizeComfyUIUrl(value?.comfyuiUrl);
-  const backendMode = normalizeBackendMode(value?.backendMode);
+  // Backend lanes: prefer the new explicit fields. If they're absent
+  // (older persisted settings), migrate from the legacy single
+  // `backendMode` toggle — that switch used to gate both lanes
+  // together, so copy its value to both. New installs default to
+  // 'local' on both.
+  const persistedLlmBackend = normalizeBackendLane(value?.llmBackend);
+  const persistedComfyBackend = normalizeBackendLane(value?.comfyBackend);
+  const legacyBackendMode = normalizeBackendMode(value?.backendMode);
+  const llmBackend: BackendLane = persistedLlmBackend ?? legacyBackendMode;
+  const comfyBackend: BackendLane = persistedComfyBackend ?? legacyBackendMode;
+  // Coarse "is at least one lane on cloud" — derived, kept for
+  // back-compat with sign-in / landing-screen paths that still gate
+  // on `backendMode`.
+  const backendMode: BackendMode =
+    llmBackend === 'cloud' || comfyBackend === 'cloud' ? 'cloud' : 'local';
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
@@ -177,6 +199,8 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
 
   const normalized: AppSettings = {
     backendMode,
+    llmBackend,
+    comfyBackend,
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
     comfyCloudApiKey,

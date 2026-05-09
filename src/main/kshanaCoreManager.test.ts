@@ -125,6 +125,8 @@ __setManagerLoader(async () => ({
 
 const baseSettings: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -276,6 +278,8 @@ describe('KshanaCoreManager', () => {
     await mgr.start(
       {
         ...baseSettings,
+        comfyBackend: 'cloud',
+        backendMode: 'cloud',
         comfyuiMode: 'custom',
         comfyuiUrl: 'http://127.0.0.1:8188',
         comfyCloudApiKey: 'ignored-when-cloud-auth-present',
@@ -286,7 +290,7 @@ describe('KshanaCoreManager', () => {
       },
     );
 
-    // Cloud override wins — local URL is ignored.
+    // Cloud override wins — local URL is ignored when comfyBackend='cloud'.
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
@@ -294,12 +298,15 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
   });
 
-  it('Kshana Cloud auth sets ComfyUI proxy env (signed-in users get cloud ComfyUI for free)', async () => {
+  it('Kshana Cloud auth sets ComfyUI proxy env when comfyBackend=cloud (signed-in users get cloud ComfyUI when they opt in)', async () => {
     const mgr = new KshanaCoreManager();
-    await mgr.start(baseSettings, {
-      websiteUrl: 'https://desktop.example.test/',
-      desktopToken: 'desktop-jwt',
-    });
+    await mgr.start(
+      { ...baseSettings, comfyBackend: 'cloud', backendMode: 'cloud' },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
 
     // Cloud-only env: identity + ComfyUI proxy. LLM is intentionally
     // absent — the Settings panel is the canonical LLM source.
@@ -316,16 +323,19 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_AUTH_TOKEN']).toBeUndefined();
   });
 
-  it('Kshana Cloud auth does NOT override the user-configured LLM (Settings panel is canonical)', async () => {
-    // Regression: pre-fix, applyEnvFromSettings shorted out as soon as
-    // a cloud token was present — silently rerouting LLM to the
-    // Kshana proxy regardless of what the user had typed into the
-    // OpenAI-Compatible section. Result: a user with LM Studio set
-    // up in the UI got their requests sent to cloud.
+  it('llmBackend=local + comfyBackend=cloud: LLM stays Settings while ComfyUI routes to the cloud proxy', async () => {
+    // Regression: pre-split, cloud auth shorted out the LLM as soon
+    // as a token was present, regardless of what the user typed into
+    // the LLM section. Result: an LM Studio user got their requests
+    // sent to cloud. With per-lane gating, llmBackend='local' keeps
+    // the user's Settings even while ComfyUI is on cloud.
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
         ...baseSettings,
+        llmBackend: 'local',
+        comfyBackend: 'cloud',
+        backendMode: 'cloud',
         llmProvider: 'openai',
         openaiApiKey: 'lm-studio-placeholder',
         openaiBaseUrl: 'http://127.0.0.1:1234/v1',
@@ -337,28 +347,28 @@ describe('KshanaCoreManager', () => {
       },
     );
 
-    // LLM env reflects the Settings panel — NOT the cloud proxy.
     expect(process.env['LLM_PROVIDER']).toBe('openai');
     expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
     expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
     expect(process.env['OPENAI_MODEL']).toBe('qwen3');
-    // ComfyUI is still cloud-routed (that's separate from LLM).
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
     );
   });
 
-  it('backendMode=cloud + cloud auth: LLM routes through the website proxy with the desktop token', async () => {
-    // When the user explicitly opts into Cloud mode AND is signed in,
-    // the LLM goes through <websiteUrl>/openai/api/v1 with the desktop
-    // token as bearer — so paid LLM calls flow through the metered
-    // proxy. Settings.openaiBaseUrl is intentionally ignored here
-    // (and the UI disables the LLM fields when backendMode='cloud').
+  it('llmBackend=cloud + cloud auth: LLM routes through the website proxy with the desktop token', async () => {
+    // When the user explicitly opts into Cloud mode for LLM AND is
+    // signed in, the LLM goes through <websiteUrl>/openai/api/v1
+    // with the desktop token as bearer. Settings.openaiBaseUrl is
+    // intentionally ignored (and the UI disables the LLM fields when
+    // llmBackend='cloud').
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
         ...baseSettings,
+        llmBackend: 'cloud',
+        comfyBackend: 'cloud',
         backendMode: 'cloud',
         llmProvider: 'openai',
         openaiBaseUrl: 'https://kshana.share.zrok.io',
@@ -376,22 +386,16 @@ describe('KshanaCoreManager', () => {
       'https://desktop.example.test/openai/api/v1',
     );
     expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
-    // User-supplied model id flows through; the proxy may reject if
-    // the model isn't whitelisted server-side, but that's a clear
-    // failure mode rather than a silent local fallback.
     expect(process.env['OPENAI_MODEL']).toBe('Qwen3.6-35B-A3B');
   });
 
-  it('backendMode=local + cloud auth: LLM stays on Settings (signed-in users on Local keep their proxy)', async () => {
-    // Regression: an earlier PR routed LLM to cloud "as soon as a
-    // cloud token was present", regardless of backendMode. That
-    // surprised LM Studio / self-hosted-proxy users. Now backendMode
-    // gates the routing — Local mode means Local LLM, even when
-    // signed in.
+  it('llmBackend=local + cloud auth: LLM stays on Settings (signed-in users on Local keep their proxy)', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
         ...baseSettings,
+        llmBackend: 'local',
+        comfyBackend: 'local',
         backendMode: 'local',
         llmProvider: 'openai',
         openaiBaseUrl: 'http://127.0.0.1:1234/v1',
@@ -408,6 +412,71 @@ describe('KshanaCoreManager', () => {
     expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
     expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
     expect(process.env['OPENAI_MODEL']).toBe('qwen3');
+  });
+
+  it('mixed: llmBackend=cloud + comfyBackend=local — LLM goes to cloud proxy, ComfyUI stays on the user-configured local URL', async () => {
+    // The split-lane scenario the user asked for: route paid LLM
+    // through the metered proxy while keeping ComfyUI on a
+    // self-hosted GPU.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiModel: 'Qwen3.6-35B-A3B',
+        comfyuiMode: 'custom',
+        comfyuiUrl: 'http://192.168.1.50:8188',
+        comfyCloudApiKey: '',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['COMFY_MODE']).toBe('local');
+    expect(process.env['COMFYUI_BASE_URL']).toBe('http://192.168.1.50:8188');
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBeUndefined();
+  });
+
+  it('mixed: llmBackend=local + comfyBackend=cloud — ComfyUI goes to cloud proxy, LLM uses Settings (e.g. LM Studio)', async () => {
+    // The reverse split: free LLM on a local model, paid ComfyUI
+    // through the metered proxy.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'local',
+        comfyBackend: 'cloud',
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiApiKey: 'lm-studio-placeholder',
+        openaiModel: 'qwen3',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM stays on Settings.
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
+    expect(process.env['OPENAI_MODEL']).toBe('qwen3');
+    // ComfyUI on cloud.
+    expect(process.env['COMFY_MODE']).toBe('cloud');
+    expect(process.env['COMFYUI_BASE_URL']).toBe(
+      'https://desktop.example.test/comfy/api',
+    );
+    expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
   });
 
   it('Kshana Cloud auth + Gemini in Settings: LLM stays Gemini', async () => {

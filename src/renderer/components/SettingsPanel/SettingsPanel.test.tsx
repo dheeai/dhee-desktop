@@ -5,6 +5,8 @@ import SettingsPanel from './SettingsPanel';
 
 const baseSettings = {
   backendMode: 'local' as const,
+  llmBackend: 'local' as const,
+  comfyBackend: 'local' as const,
   comfyuiMode: 'inherit' as const,
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -107,8 +109,14 @@ describe('SettingsPanel', () => {
     });
 
     fireEvent.click(screen.getByText('Connection'));
+    // Two "Cloud" radios now (one per backend lane). Pick the LLM
+    // lane via its name attribute.
+    const llmCloudRadio = document.querySelector(
+      'input[name="llm-backend"][value="cloud"]',
+    ) as HTMLInputElement;
+    expect(llmCloudRadio).toBeInTheDocument();
     await act(async () => {
-      fireEvent.click(screen.getByLabelText('Cloud'));
+      fireEvent.click(llmCloudRadio);
     });
 
     expect(
@@ -124,7 +132,8 @@ describe('SettingsPanel', () => {
     expect(signIn).toHaveBeenCalledTimes(1);
 
     // Simulate the auth bridge reporting a signed-in account; the panel
-    // should clear the warning and auto-apply the pending Cloud switch.
+    // should clear the warning and auto-apply the pending Cloud switch
+    // to BOTH lanes (matching the deep-link sign-in path's symmetry).
     await act(async () => {
       onChangeHandler?.({
         email: 'user@example.com',
@@ -139,9 +148,11 @@ describe('SettingsPanel', () => {
     expect(
       screen.queryByText('Sign in to Kshana Cloud to switch to Cloud mode.'),
     ).not.toBeInTheDocument();
-    expect((screen.getByLabelText('Cloud') as HTMLInputElement).checked).toBe(
-      true,
-    );
+    expect(llmCloudRadio.checked).toBe(true);
+    const comfyCloudRadio = document.querySelector(
+      'input[name="comfy-backend"][value="cloud"]',
+    ) as HTMLInputElement;
+    expect(comfyCloudRadio.checked).toBe(true);
   });
 
   it('shows ComfyUI and provider settings on the Connection tab', async () => {

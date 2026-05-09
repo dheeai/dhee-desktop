@@ -61,6 +61,8 @@ const emptyTierConfig: LLMTierConfig = {
 
 const emptySettings: AppSettings = {
   backendMode: 'local',
+  llmBackend: 'local',
+  comfyBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -254,7 +256,16 @@ export default function SettingsPanel({
         setSignInError(null);
         setPendingCloudSwitch((wasPending) => {
           if (wasPending) {
-            setForm((prev) => ({ ...prev, backendMode: 'cloud' }));
+            // Sign-in completed mid-Settings-flip — apply the cloud
+            // toggle the user just clicked (both lanes for symmetry
+            // with the deep-link sign-in path; user can flip one lane
+            // back to local before saving if they want a mixed setup).
+            setForm((prev) => ({
+              ...prev,
+              backendMode: 'cloud',
+              llmBackend: 'cloud',
+              comfyBackend: 'cloud',
+            }));
           }
           return false;
         });
@@ -290,14 +301,18 @@ export default function SettingsPanel({
     key: keyof AppSettings,
     value: string | number | undefined,
   ) => {
-    if (key === 'backendMode' && value === 'cloud' && !account) {
+    // Either lane flipping to Cloud requires a Kshana Cloud sign-in.
+    // Block the toggle and surface the inline sign-in CTA if the
+    // user isn't authenticated yet.
+    const isLaneToggle = key === 'llmBackend' || key === 'comfyBackend';
+    if (isLaneToggle && value === 'cloud' && !account) {
       setCloudModeWarning('Sign in to Kshana Cloud to switch to Cloud mode.');
       setPendingCloudSwitch(true);
       setSignInError(null);
       return;
     }
 
-    if (key === 'backendMode') {
+    if (isLaneToggle) {
       setCloudModeWarning(null);
       setPendingCloudSwitch(false);
       setSignInError(null);
@@ -313,6 +328,8 @@ export default function SettingsPanel({
     const normalized = normalizeConnectionSettings(nextForm);
     await onSaveConnection({
       backendMode: normalized.backendMode,
+      llmBackend: normalized.llmBackend,
+      comfyBackend: normalized.comfyBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
@@ -354,8 +371,16 @@ export default function SettingsPanel({
     }
   };
 
+  // `isCloudMode` = "is at least one lane on cloud" — used for the
+  // overall status badge / sign-in CTA.
   const isCloudMode = form.backendMode === 'cloud';
   const isCloudReady = isCloudMode && Boolean(account);
+  // Per-lane disable flags. ComfyUI inputs (URL, key) are inert when
+  // comfyBackend='cloud'; LLM provider/url/model/key inputs are inert
+  // when llmBackend='cloud'. The two are independent — flipping one
+  // doesn't affect the other.
+  const isComfyCloudMode = form.comfyBackend === 'cloud';
+  const isLlmCloudMode = form.llmBackend === 'cloud';
   const statusLabel = isCloudReady || !isCloudMode ? 'Ready' : 'Sign in';
   const statusBadgeClass = isCloudReady || !isCloudMode
     ? styles.statusBadgeSuccess
@@ -378,7 +403,7 @@ export default function SettingsPanel({
   ) => {
     const cfg = form[tier];
     return (
-      <fieldset className={styles.fieldset} disabled={isCloudMode}>
+      <fieldset className={styles.fieldset} disabled={isLlmCloudMode}>
         <legend>{label}</legend>
         <p className={styles.infoText}>{description}</p>
         <div className={styles.radios}>
@@ -389,7 +414,7 @@ export default function SettingsPanel({
               name={`${tier}-provider`}
               value="gemini"
               checked={cfg.provider === 'gemini'}
-              disabled={isCloudMode}
+              disabled={isLlmCloudMode}
               onChange={() => handleTierInput(tier, 'provider', 'gemini')}
             />
             Gemini
@@ -401,7 +426,7 @@ export default function SettingsPanel({
               name={`${tier}-provider`}
               value="openai"
               checked={cfg.provider === 'openai'}
-              disabled={isCloudMode}
+              disabled={isLlmCloudMode}
               onChange={() => handleTierInput(tier, 'provider', 'openai')}
             />
             OpenAI-Compatible
@@ -416,7 +441,7 @@ export default function SettingsPanel({
                 type="password"
                 className={styles.input}
                 value={cfg.googleApiKey}
-                disabled={isCloudMode}
+                disabled={isLlmCloudMode}
                 onChange={(event) =>
                   handleTierInput(tier, 'googleApiKey', event.target.value)
                 }
@@ -429,7 +454,7 @@ export default function SettingsPanel({
                 type="text"
                 className={styles.input}
                 value={cfg.geminiModel}
-                disabled={isCloudMode}
+                disabled={isLlmCloudMode}
                 onChange={(event) =>
                   handleTierInput(tier, 'geminiModel', event.target.value)
                 }
@@ -447,7 +472,7 @@ export default function SettingsPanel({
                 type="url"
                 className={styles.input}
                 value={cfg.openaiBaseUrl}
-                disabled={isCloudMode}
+                disabled={isLlmCloudMode}
                 onChange={(event) =>
                   handleTierInput(tier, 'openaiBaseUrl', event.target.value)
                 }
@@ -460,7 +485,7 @@ export default function SettingsPanel({
                 type="text"
                 className={styles.input}
                 value={cfg.openaiModel}
-                disabled={isCloudMode}
+                disabled={isLlmCloudMode}
                 onChange={(event) =>
                   handleTierInput(tier, 'openaiModel', event.target.value)
                 }
@@ -473,7 +498,7 @@ export default function SettingsPanel({
                 type="password"
                 className={styles.input}
                 value={cfg.openaiApiKey}
-                disabled={isCloudMode}
+                disabled={isLlmCloudMode}
                 onChange={(event) =>
                   handleTierInput(tier, 'openaiApiKey', event.target.value)
                 }
@@ -494,7 +519,7 @@ export default function SettingsPanel({
         name="llm-provider"
         value={provider}
         checked={form.llmProvider === provider}
-        disabled={isCloudMode}
+        disabled={isLlmCloudMode}
         onChange={(event) =>
           handleInput(
             'llmProvider',
@@ -708,7 +733,7 @@ export default function SettingsPanel({
                 </div>
               </>
             ) : activeTab === 'workflows' ? (
-              <WorkflowsTab isCloudMode={settings?.backendMode === 'cloud'} />
+              <WorkflowsTab isCloudMode={settings?.comfyBackend === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>
@@ -806,20 +831,23 @@ export default function SettingsPanel({
                 </div>
 
                 <fieldset className={`${styles.fieldset} ${styles.modeFieldset}`}>
-                  <legend>Backend Mode</legend>
+                  <legend>ComfyUI Backend</legend>
+                  <p className={styles.infoText}>
+                    Where image / video jobs run. Cloud uses Kshana credits.
+                  </p>
                   <div
                     className={styles.modeSwitch}
                     role="radiogroup"
-                    aria-label="Backend Mode"
+                    aria-label="ComfyUI Backend"
                   >
                     <label className={styles.radioLabel}>
                       <input
                         type="radio"
                         className={styles.radioInput}
-                        name="backend-mode"
+                        name="comfy-backend"
                         value="local"
-                        checked={form.backendMode === 'local'}
-                        onChange={() => handleInput('backendMode', 'local')}
+                        checked={form.comfyBackend === 'local'}
+                        onChange={() => handleInput('comfyBackend', 'local')}
                       />
                       <span className={styles.modeOption}>Local</span>
                     </label>
@@ -827,10 +855,46 @@ export default function SettingsPanel({
                       <input
                         type="radio"
                         className={styles.radioInput}
-                        name="backend-mode"
+                        name="comfy-backend"
                         value="cloud"
-                        checked={form.backendMode === 'cloud'}
-                        onChange={() => handleInput('backendMode', 'cloud')}
+                        checked={form.comfyBackend === 'cloud'}
+                        onChange={() => handleInput('comfyBackend', 'cloud')}
+                      />
+                      <span className={styles.modeOption}>Cloud</span>
+                    </label>
+                  </div>
+                </fieldset>
+
+                <fieldset className={`${styles.fieldset} ${styles.modeFieldset}`}>
+                  <legend>LLM Backend</legend>
+                  <p className={styles.infoText}>
+                    Where chat / planning calls go. Independent of ComfyUI —
+                    you can mix (e.g. local LLM, cloud ComfyUI).
+                  </p>
+                  <div
+                    className={styles.modeSwitch}
+                    role="radiogroup"
+                    aria-label="LLM Backend"
+                  >
+                    <label className={styles.radioLabel}>
+                      <input
+                        type="radio"
+                        className={styles.radioInput}
+                        name="llm-backend"
+                        value="local"
+                        checked={form.llmBackend === 'local'}
+                        onChange={() => handleInput('llmBackend', 'local')}
+                      />
+                      <span className={styles.modeOption}>Local</span>
+                    </label>
+                    <label className={styles.radioLabel}>
+                      <input
+                        type="radio"
+                        className={styles.radioInput}
+                        name="llm-backend"
+                        value="cloud"
+                        checked={form.llmBackend === 'cloud'}
+                        onChange={() => handleInput('llmBackend', 'cloud')}
                       />
                       <span className={styles.modeOption}>Cloud</span>
                     </label>
@@ -858,7 +922,7 @@ export default function SettingsPanel({
 
                 <div
                   className={`${styles.localSettings} ${
-                    isCloudMode ? styles.localSettingsDisabled : ''
+                    isComfyCloudMode ? styles.localSettingsDisabled : ''
                   }`}
                 >
                   <label className={styles.label}>
@@ -867,7 +931,7 @@ export default function SettingsPanel({
                       type="url"
                       className={styles.input}
                       value={form.comfyuiUrl}
-                      disabled={isCloudMode}
+                      disabled={isComfyCloudMode}
                       onChange={(event) =>
                         handleInput('comfyuiUrl', event.target.value)
                       }
@@ -881,7 +945,7 @@ export default function SettingsPanel({
                       type="password"
                       className={styles.input}
                       value={form.comfyCloudApiKey}
-                      disabled={isCloudMode}
+                      disabled={isComfyCloudMode}
                       onChange={(event) =>
                         handleInput('comfyCloudApiKey', event.target.value)
                       }
@@ -894,7 +958,7 @@ export default function SettingsPanel({
                     connections ignore it.
                   </p>
 
-                  <fieldset className={styles.fieldset} disabled={isCloudMode}>
+                  <fieldset className={styles.fieldset} disabled={isLlmCloudMode}>
                     <legend>Heavy LLM (primary)</legend>
                     <p className={styles.infoText}>
                       Used for long-form creative work: story, scenes, shot
@@ -915,7 +979,7 @@ export default function SettingsPanel({
                           type="password"
                           className={styles.input}
                           value={form.googleApiKey}
-                          disabled={isCloudMode}
+                          disabled={isLlmCloudMode}
                           onChange={(event) =>
                             handleInput('googleApiKey', event.target.value)
                           }
@@ -929,7 +993,7 @@ export default function SettingsPanel({
                           type="text"
                           className={styles.input}
                           value={form.geminiModel}
-                          disabled={isCloudMode}
+                          disabled={isLlmCloudMode}
                           onChange={(event) =>
                             handleInput('geminiModel', event.target.value)
                           }
@@ -947,7 +1011,7 @@ export default function SettingsPanel({
                           <button
                             type="button"
                             className={styles.inlineButton}
-                            disabled={isCloudMode}
+                            disabled={isLlmCloudMode}
                             onClick={() =>
                               handleInput(
                                 'openaiBaseUrl',
@@ -962,7 +1026,7 @@ export default function SettingsPanel({
                           type="url"
                           className={styles.input}
                           value={form.openaiBaseUrl}
-                          disabled={isCloudMode}
+                          disabled={isLlmCloudMode}
                           onChange={(event) =>
                             handleInput('openaiBaseUrl', event.target.value)
                           }
@@ -977,7 +1041,7 @@ export default function SettingsPanel({
                           type="text"
                           className={styles.input}
                           value={form.openaiModel}
-                          disabled={isCloudMode}
+                          disabled={isLlmCloudMode}
                           onChange={(event) =>
                             handleInput('openaiModel', event.target.value)
                           }
@@ -991,7 +1055,7 @@ export default function SettingsPanel({
                           type="password"
                           className={styles.input}
                           value={form.openaiApiKey}
-                          disabled={isCloudMode}
+                          disabled={isLlmCloudMode}
                           onChange={(event) =>
                             handleInput('openaiApiKey', event.target.value)
                           }
@@ -1005,7 +1069,7 @@ export default function SettingsPanel({
                     <input
                       type="checkbox"
                       checked={form.llmUseSameForAllTiers}
-                      disabled={isCloudMode}
+                      disabled={isLlmCloudMode}
                       onChange={(event) =>
                         setForm((prev) => ({
                           ...prev,

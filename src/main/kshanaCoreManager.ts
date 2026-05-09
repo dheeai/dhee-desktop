@@ -416,19 +416,29 @@ export function applyEnvFromSettings(
 
   const cloudToken = cloudAuth?.desktopToken.trim();
   const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
+  const haveCloudAuth = !!cloudToken && !!cloudWebsiteUrl;
 
-  // Kshana Cloud auth provides ComfyUI proxy routing + billing
-  // identity. It MUST NOT touch LLM env vars — the Settings panel
-  // (LLM Provider section) is the canonical source of truth for the
-  // LLM, signed in or not. Pre-fix, signed-in users saw their
-  // openaiBaseUrl silently rewritten to the Kshana proxy regardless
-  // of what they typed into Settings.
-  if (cloudToken && cloudWebsiteUrl) {
+  // Two independent backend lanes — LLM and ComfyUI — each can be
+  // 'cloud' or 'local'. A user can keep ComfyUI on a self-hosted
+  // GPU box while still routing paid LLM traffic through the metered
+  // Kshana proxy (or vice versa). Cloud routing for either lane
+  // requires a valid Kshana Cloud sign-in (`haveCloudAuth`); without
+  // it both lanes fall through to Settings regardless of the toggle.
+  const useCloudComfy = settings.comfyBackend === 'cloud' && haveCloudAuth;
+  const useCloudLLM = settings.llmBackend === 'cloud' && haveCloudAuth;
+
+  // Cloud identity env (consumed by analytics, billing, etc.) fires
+  // whenever EITHER lane is on cloud — both lanes share the same
+  // desktop token + website URL.
+  if (useCloudLLM || useCloudComfy) {
     process.env.KSHANA_CLOUD = 'true';
-    process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl;
+    process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl!;
+  }
+
+  if (useCloudComfy) {
     process.env.COMFY_MODE = 'cloud';
-    process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl, '/comfy/api');
-    process.env.COMFY_CLOUD_API_KEY = cloudToken;
+    process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/comfy/api');
+    process.env.COMFY_CLOUD_API_KEY = cloudToken!;
     process.env.COMFYUI_TIMEOUT = '1800';
   } else {
     const comfyUiUrl = getComfyUiUrl(settings);
@@ -452,21 +462,11 @@ export function applyEnvFromSettings(
   }
   setIfPresent('KSHANA_PROJECT_DIR', settings.projectDir);
 
-  // LLM routing:
-  //   - backendMode='cloud' AND signed in to Kshana Cloud →
-  //     route LLM through the Kshana website's openai-compatible
-  //     proxy with the user's desktop token. The proxy meters usage
-  //     for billing. The Settings LLM fields are ignored in this
-  //     mode (and disabled in the UI).
-  //   - backendMode='local' (or signed-out) →
-  //     LLM env comes from Settings — Gemini or OpenAI-compatible.
-  //
-  // Pre-fix this branch ALWAYS used Settings — even when the user
-  // had explicitly opted into Cloud mode — so flipping the toggle
-  // had no effect on LLM traffic.
-  const useCloudLLM =
-    settings.backendMode === 'cloud' && !!cloudToken && !!cloudWebsiteUrl;
-
+  // LLM routing — gated by the dedicated `llmBackend` lane (set above
+  // as `useCloudLLM`). This is independent of `comfyBackend`: a user
+  // can run LLM through cloud while keeping ComfyUI local, or vice
+  // versa. When cloud, the Settings LLM provider/baseUrl/apiKey
+  // fields are ignored (and disabled in the UI).
   if (useCloudLLM) {
     process.env.LLM_PROVIDER = 'openai';
     process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');

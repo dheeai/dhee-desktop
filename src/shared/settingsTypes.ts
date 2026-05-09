@@ -1,5 +1,11 @@
 export type ComfyUIMode = 'inherit' | 'custom';
 export type BackendMode = 'local' | 'cloud';
+/**
+ * One backend lane (LLM or ComfyUI) routing target. The two lanes are
+ * independent: a user can keep ComfyUI local while sending paid LLM
+ * traffic through the metered Kshana proxy, or vice versa.
+ */
+export type BackendLane = 'local' | 'cloud';
 export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
 export type ThemeId =
   | 'studio-neutral'
@@ -45,8 +51,18 @@ export interface AccountInfo {
 }
 
 export interface AppSettings {
-  /** Whether embedded kshana-core uses BYO settings or Kshana Cloud proxy credits. */
+  /**
+   * Coarse "is at least one lane on cloud" indicator. Derived from
+   * llmBackend / comfyBackend at normalize time (cloud if either is
+   * cloud). Kept as a real field for back-compat with code paths
+   * that gate on "are we using cloud at all" — sign-in flows,
+   * landing screen badges, etc.
+   */
   backendMode: BackendMode;
+  /** LLM routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
+  llmBackend: BackendLane;
+  /** ComfyUI routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
+  comfyBackend: BackendLane;
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */

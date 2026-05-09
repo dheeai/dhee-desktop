@@ -227,7 +227,13 @@ async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
 }
 
 async function getCloudAuthRuntime(settings: AppSettings) {
-  if (settings.backendMode !== 'cloud') return null;
+  // Cloud auth surfaces if EITHER backend lane wants cloud — the
+  // token + website URL are shared between LLM and ComfyUI proxy
+  // routing. applyEnvFromSettings then gates per-lane on
+  // settings.llmBackend / settings.comfyBackend.
+  if (settings.llmBackend !== 'cloud' && settings.comfyBackend !== 'cloud') {
+    return null;
+  }
   const account = getAccount();
   if (!account?.token) return null;
   if (!parseDesktopAuthToken(account.token)) return null;
@@ -3657,7 +3663,7 @@ async function validateStoredDesktopAccountOnStartup(): Promise<void> {
 
   if (!parseDesktopAuthToken(account.token)) {
     clearAccount();
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     mainWindow?.webContents.send('settings:updated', getSettings());
     broadcastAccountChanged();
@@ -3670,7 +3676,7 @@ async function validateStoredDesktopAccountOnStartup(): Promise<void> {
   // Settings, that choice should survive subsequent launches.
   const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   if (result.status === 'expired') {
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     mainWindow?.webContents.send('settings:updated', getSettings());
   } else if (result.status === 'error') {
@@ -3691,7 +3697,7 @@ function restoreStoredDesktopAccountBeforeBackend(): void {
 
   if (!parseDesktopAuthToken(account.token)) {
     clearAccount();
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     return;
   }
@@ -3734,7 +3740,15 @@ async function handleDeepLink(url: string): Promise<void> {
     identifyDesktopUser(kshanaCoreManager, payload.sub);
 
     await refreshBalance(await resolveKshanaWebsiteUrl());
-    updateSettings({ backendMode: 'cloud' });
+    // First sign-in defaults BOTH lanes to cloud — matches the
+    // pre-split single-toggle behavior. Users can flip ComfyUI back
+    // to local in Settings without affecting LLM (or vice versa);
+    // those choices persist across restarts.
+    updateSettings({
+      backendMode: 'cloud',
+      llmBackend: 'cloud',
+      comfyBackend: 'cloud',
+    });
     await restartEmbeddedAfterAccountChange('sign-in');
     mainWindow?.webContents.send('settings:updated', getSettings());
     broadcastAccountChanged();
@@ -3836,7 +3850,7 @@ ipcMain.handle('account:sign-in', async () => {
 
 ipcMain.handle('account:sign-out', async () => {
   clearAccount();
-  updateSettings({ backendMode: 'local' });
+  updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local' });
   pendingDesktopAuthState = null;
   lastAccountAuthStatus = 'idle';
   resetDesktopAnalyticsIdentity(kshanaCoreManager);
@@ -3849,7 +3863,7 @@ ipcMain.handle('account:sign-out', async () => {
 ipcMain.handle('account:refresh-balance', async () => {
   const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   if (result.status === 'expired') {
-    updateSettings({ backendMode: 'local' });
+    updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local' });
     lastAccountAuthStatus = 'expired';
     mainWindow?.webContents.send('settings:updated', getSettings());
   } else if (result.status === 'ok') {
