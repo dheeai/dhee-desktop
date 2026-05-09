@@ -833,15 +833,22 @@ export default function ChatPanelEmbedded() {
   }, [piOversight, vlmJudge, appSettings]);
 
   const handleCancel = useCallback(async () => {
-    // Cancel goes directly through the BackgroundTaskRunner IPC,
-    // independent of any chat session. The runner aborts whatever
-    // long task it currently has active and emits a 'cancelled'
-    // event back to the originating session — same code path as a
-    // natural completion. The Stop button stays instant even when
-    // the main session's pi-agent is mid-reply.
+    // Stop kills BOTH execution lanes:
+    //   1. BackgroundTaskRunner (long pipeline tasks dispatched via
+    //      kshana_run_to) — runnerCancel aborts the in-flight task and
+    //      emits a 'cancelled' event back to the originating session.
+    //   2. The pi-agent chat session itself — when pi is mid-reply
+    //      (looping bash, edits, etc.) the user expects Stop to halt
+    //      that too. Without session.cancel(), the chat keeps spamming
+    //      tool calls while the spinner says "Stopping…".
+    // Both calls are best-effort — failures here would just leave the
+    // optimistic spinner on; the runnerActive poll will reset it.
     setPendingCancel(true);
-    await window.kshana.runnerCancel().catch(() => undefined);
-  }, []);
+    await Promise.all([
+      window.kshana.runnerCancel().catch(() => undefined),
+      session.cancel().catch(() => undefined),
+    ]);
+  }, [session]);
 
   // Build the "resume the pipeline" task and run it on the MAIN
   // session. kshana-core's pi-agent will receive it, call
