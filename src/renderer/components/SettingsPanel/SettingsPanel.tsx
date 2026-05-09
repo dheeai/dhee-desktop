@@ -63,6 +63,7 @@ const emptySettings: AppSettings = {
   backendMode: 'local',
   llmBackend: 'local',
   comfyBackend: 'local',
+  vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -289,7 +290,8 @@ export default function SettingsPanel({
     // Defense-in-depth: the cloud-lane checkboxes are `disabled` when
     // !account so this branch is normally unreachable from the UI, but
     // a stray IPC / programmatic update should still be rejected.
-    const isLaneToggle = key === 'llmBackend' || key === 'comfyBackend';
+    const isLaneToggle =
+      key === 'llmBackend' || key === 'comfyBackend' || key === 'vlmBackend';
     if (isLaneToggle && value === 'cloud' && !account) {
       return;
     }
@@ -306,6 +308,7 @@ export default function SettingsPanel({
       backendMode: normalized.backendMode,
       llmBackend: normalized.llmBackend,
       comfyBackend: normalized.comfyBackend,
+      vlmBackend: normalized.vlmBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
@@ -361,6 +364,7 @@ export default function SettingsPanel({
   // doesn't affect the other.
   const isComfyCloudMode = form.comfyBackend === 'cloud';
   const isLlmCloudMode = form.llmBackend === 'cloud';
+  const isVlmCloudMode = form.vlmBackend === 'cloud';
   const statusLabel = isCloudReady || !isCloudMode ? 'Ready' : 'Sign in';
   const statusBadgeClass = isCloudReady || !isCloudMode
     ? styles.statusBadgeSuccess
@@ -1076,14 +1080,48 @@ export default function SettingsPanel({
                   <p className={styles.infoText}>
                     Reads generated images and grades them against the prompt
                     so the agent can flag misses. Toggle the VLM judge in the
-                    Appearance tab; configure the provider here.
+                    Appearance tab; configure the provider here. Independent
+                    of LLM and ComfyUI — flip any combo.
                   </p>
+                  <div className={styles.cloudToggleRow}>
+                    <label
+                      className={styles.checkboxLabel}
+                      title={
+                        !account
+                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          : undefined
+                      }
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isVlmCloudMode}
+                        disabled={!account}
+                        onChange={(event) =>
+                          handleInput(
+                            'vlmBackend',
+                            event.target.checked ? 'cloud' : 'local',
+                          )
+                        }
+                      />
+                      Use Kshana Cloud for VLM
+                    </label>
+                    {!account ? (
+                      <button
+                        type="button"
+                        className={styles.inlineSignInButton}
+                        onClick={handleInlineSignIn}
+                        disabled={signingIn}
+                      >
+                        {signingIn ? 'Opening…' : 'Sign In'}
+                      </button>
+                    ) : null}
+                  </div>
 
-                  {isLlmCloudMode ? (
+                  {isVlmCloudMode ? (
                     <>
                       <p className={styles.infoText}>
-                        VLM auto-routes to Kshana Cloud (uses the same desktop
-                        token as the LLM). Only the model id is read here.
+                        VLM routes through the Kshana Cloud proxy (uses the
+                        desktop token). Only the model id is read here.
                       </p>
                       <label className={styles.label}>
                         VLM Model ID
@@ -1094,7 +1132,7 @@ export default function SettingsPanel({
                           onChange={(event) =>
                             handleInput('vlmModel', event.target.value)
                           }
-                          placeholder="gpt-4o"
+                          placeholder="anthropic/claude-opus-4.6-fast"
                         />
                       </label>
                     </>

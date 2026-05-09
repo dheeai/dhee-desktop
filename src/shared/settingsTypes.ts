@@ -63,6 +63,13 @@ export interface AppSettings {
   llmBackend: BackendLane;
   /** ComfyUI routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
   comfyBackend: BackendLane;
+  /**
+   * VLM (vision judge) routing target. Independent of llmBackend —
+   * a user can keep LLM on cloud while running a self-hosted vision
+   * model locally, or vice versa. 'cloud' requires a valid Kshana
+   * Cloud sign-in. Only consulted when vlmJudge=true.
+   */
+  vlmBackend: BackendLane;
   /** Whether to inherit backend COMFYUI_BASE_URL or use a desktop override URL. */
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */

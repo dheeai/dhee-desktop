@@ -32,6 +32,7 @@ const defaults: AppSettings = {
   backendMode: 'local',
   llmBackend: 'local',
   comfyBackend: 'local',
+  vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -142,14 +143,22 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   // 'local' on both.
   const persistedLlmBackend = normalizeBackendLane(value?.llmBackend);
   const persistedComfyBackend = normalizeBackendLane(value?.comfyBackend);
+  const persistedVlmBackend = normalizeBackendLane(value?.vlmBackend);
   const legacyBackendMode = normalizeBackendMode(value?.backendMode);
   const llmBackend: BackendLane = persistedLlmBackend ?? legacyBackendMode;
   const comfyBackend: BackendLane = persistedComfyBackend ?? legacyBackendMode;
+  // For VLM, the legacy behavior was "follow llmBackend". Migrate to
+  // the same value as the resolved llmBackend so existing installs
+  // keep their pre-split UX, but going forward the user can flip it
+  // independently.
+  const vlmBackend: BackendLane = persistedVlmBackend ?? llmBackend;
   // Coarse "is at least one lane on cloud" — derived, kept for
   // back-compat with sign-in / landing-screen paths that still gate
   // on `backendMode`.
   const backendMode: BackendMode =
-    llmBackend === 'cloud' || comfyBackend === 'cloud' ? 'cloud' : 'local';
+    llmBackend === 'cloud' || comfyBackend === 'cloud' || vlmBackend === 'cloud'
+      ? 'cloud'
+      : 'local';
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
@@ -211,6 +220,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     backendMode,
     llmBackend,
     comfyBackend,
+    vlmBackend,
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
     comfyCloudApiKey,

@@ -418,19 +418,21 @@ export function applyEnvFromSettings(
   const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
   const haveCloudAuth = !!cloudToken && !!cloudWebsiteUrl;
 
-  // Two independent backend lanes — LLM and ComfyUI — each can be
-  // 'cloud' or 'local'. A user can keep ComfyUI on a self-hosted
-  // GPU box while still routing paid LLM traffic through the metered
-  // Kshana proxy (or vice versa). Cloud routing for either lane
-  // requires a valid Kshana Cloud sign-in (`haveCloudAuth`); without
-  // it both lanes fall through to Settings regardless of the toggle.
+  // Three independent backend lanes — LLM, ComfyUI, VLM — each can be
+  // 'cloud' or 'local'. A user can keep ComfyUI on a self-hosted GPU
+  // box while routing paid LLM traffic through the metered Kshana
+  // proxy and VLM judging back through their local LM-Studio vision
+  // model — or any other combo. Cloud routing for any lane requires
+  // a valid Kshana Cloud sign-in (`haveCloudAuth`); without it the
+  // lane falls through to Settings regardless of the toggle.
   const useCloudComfy = settings.comfyBackend === 'cloud' && haveCloudAuth;
   const useCloudLLM = settings.llmBackend === 'cloud' && haveCloudAuth;
+  const useCloudVLM = settings.vlmBackend === 'cloud' && haveCloudAuth;
 
   // Cloud identity env (consumed by analytics, billing, etc.) fires
-  // whenever EITHER lane is on cloud — both lanes share the same
-  // desktop token + website URL.
-  if (useCloudLLM || useCloudComfy) {
+  // whenever ANY lane is on cloud — they share the same desktop token
+  // + website URL.
+  if (useCloudLLM || useCloudComfy || useCloudVLM) {
     process.env.KSHANA_CLOUD = 'true';
     process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl!;
   }
@@ -507,7 +509,7 @@ export function applyEnvFromSettings(
   //     so the .env fallback still fires for dev users who haven't filled
   //     the VLM Settings fields).
   if (settings.vlmJudge) {
-    if (useCloudLLM) {
+    if (useCloudVLM) {
       process.env.VLM_PROVIDER = 'openai';
       process.env.VLM_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
       process.env.VLM_API_KEY = cloudToken!;

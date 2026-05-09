@@ -127,6 +127,7 @@ const baseSettings: AppSettings = {
   backendMode: 'local',
   llmBackend: 'local',
   comfyBackend: 'local',
+  vlmBackend: 'local' as const,
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',
@@ -287,6 +288,7 @@ describe('KshanaCoreManager', () => {
       {
         ...baseSettings,
         comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
         backendMode: 'cloud',
         comfyuiMode: 'custom',
         comfyuiUrl: 'http://127.0.0.1:8188',
@@ -309,7 +311,8 @@ describe('KshanaCoreManager', () => {
   it('Kshana Cloud auth sets ComfyUI proxy env when comfyBackend=cloud (signed-in users get cloud ComfyUI when they opt in)', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(
-      { ...baseSettings, comfyBackend: 'cloud', backendMode: 'cloud' },
+      { ...baseSettings, comfyBackend: 'cloud',
+  vlmBackend: 'local' as const, backendMode: 'cloud' },
       {
         websiteUrl: 'https://desktop.example.test/',
         desktopToken: 'desktop-jwt',
@@ -343,6 +346,7 @@ describe('KshanaCoreManager', () => {
         ...baseSettings,
         llmBackend: 'local',
         comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
         backendMode: 'cloud',
         llmProvider: 'openai',
         openaiApiKey: 'lm-studio-placeholder',
@@ -377,6 +381,7 @@ describe('KshanaCoreManager', () => {
         ...baseSettings,
         llmBackend: 'cloud',
         comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
         backendMode: 'cloud',
         llmProvider: 'openai',
         openaiBaseUrl: 'https://kshana.share.zrok.io',
@@ -404,6 +409,7 @@ describe('KshanaCoreManager', () => {
         ...baseSettings,
         llmBackend: 'local',
         comfyBackend: 'local',
+  vlmBackend: 'local' as const,
         backendMode: 'local',
         llmProvider: 'openai',
         openaiBaseUrl: 'http://127.0.0.1:1234/v1',
@@ -432,6 +438,7 @@ describe('KshanaCoreManager', () => {
         ...baseSettings,
         llmBackend: 'cloud',
         comfyBackend: 'local',
+  vlmBackend: 'local' as const,
         backendMode: 'cloud',
         llmProvider: 'openai',
         openaiModel: 'Qwen3.6-35B-A3B',
@@ -463,6 +470,7 @@ describe('KshanaCoreManager', () => {
         ...baseSettings,
         llmBackend: 'local',
         comfyBackend: 'cloud',
+  vlmBackend: 'local' as const,
         backendMode: 'cloud',
         llmProvider: 'openai',
         openaiBaseUrl: 'http://127.0.0.1:1234/v1',
@@ -685,7 +693,7 @@ describe('KshanaCoreManager', () => {
   // desktop never set any of these — VLM was effectively dead unless
   // the user edited kshana-core/.env directly.
 
-  it('vlmJudge=true + llmBackend=cloud + cloud auth: VLM auto-routes to the website proxy', async () => {
+  it('vlmJudge=true + vlmBackend=cloud + cloud auth: VLM routes through the website proxy', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
@@ -693,6 +701,7 @@ describe('KshanaCoreManager', () => {
         vlmJudge: true,
         llmBackend: 'cloud',
         comfyBackend: 'local',
+        vlmBackend: 'cloud',
         backendMode: 'cloud',
         vlmProvider: 'openai',
         vlmModel: 'gpt-4o-vision',
@@ -709,6 +718,79 @@ describe('KshanaCoreManager', () => {
     );
     expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
     expect(process.env['VLM_MODEL']).toBe('gpt-4o-vision');
+  });
+
+  it('mixed: llmBackend=cloud + vlmBackend=local — LLM goes to cloud proxy, VLM uses Settings (independent lanes)', async () => {
+    // The third-lane independence: a user can route paid LLM through
+    // the metered cloud proxy while keeping VLM judging on a local
+    // self-hosted vision model (e.g. LM Studio with qwen-vl).
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        vlmJudge: true,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+        vlmBackend: 'local',
+        backendMode: 'cloud',
+        vlmProvider: 'openai',
+        vlmBaseUrl: 'http://127.0.0.1:1234/v1',
+        vlmApiKey: 'lm-studio-vision',
+        vlmModel: 'qwen-vl-72b',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM cloud (metered).
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    // VLM local — does NOT borrow the cloud token, uses Settings.
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['VLM_API_KEY']).toBe('lm-studio-vision');
+    expect(process.env['VLM_MODEL']).toBe('qwen-vl-72b');
+  });
+
+  it('mixed: llmBackend=local + vlmBackend=cloud — LLM uses Settings, VLM goes to cloud proxy', async () => {
+    // The reverse split: free local LLM (LM Studio) but VLM judging
+    // through the cloud (so the user can pick a strong vision model
+    // without paying for every chat call).
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        vlmJudge: true,
+        llmBackend: 'local',
+        comfyBackend: 'local',
+        vlmBackend: 'cloud',
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiApiKey: 'lm-studio',
+        openaiModel: 'qwen3',
+        vlmProvider: 'openai',
+        vlmModel: 'anthropic/claude-opus-4.6-fast',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    // LLM Settings.
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio');
+    // VLM cloud — uses desktop token, model id from Settings.
+    expect(process.env['VLM_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['VLM_MODEL']).toBe('anthropic/claude-opus-4.6-fast');
   });
 
   it('vlmJudge=true + local LLM: VLM env reflects user Settings (openai-compatible)', async () => {

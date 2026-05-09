@@ -11,6 +11,7 @@ const baseSettings: AppSettings = {
   backendMode: 'local',
   llmBackend: 'local',
   comfyBackend: 'local',
+  vlmBackend: 'local' as const,
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
   comfyCloudApiKey: '',

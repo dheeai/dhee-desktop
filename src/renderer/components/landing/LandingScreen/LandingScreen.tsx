@@ -134,13 +134,15 @@ interface LaneBadge {
 function getLaneBadges(
   llmBackend: string | undefined,
   comfyBackend: string | undefined,
+  vlmBackend: string | undefined,
   account: AccountInfo | null,
   styles: Record<string, string>,
-): { llm: LaneBadge; comfy: LaneBadge } {
+): { llm: LaneBadge; comfy: LaneBadge; vlm: LaneBadge } {
   // Cloud only counts as cloud when the user is signed in. A persisted
   // 'cloud' value with no account is effectively local at runtime.
   const llmIsCloud = llmBackend === 'cloud' && !!account;
   const comfyIsCloud = comfyBackend === 'cloud' && !!account;
+  const vlmIsCloud = vlmBackend === 'cloud' && !!account;
   return {
     llm: {
       label: llmIsCloud ? 'LLM ☁' : 'LLM 🖥',
@@ -149,6 +151,10 @@ function getLaneBadges(
     comfy: {
       label: comfyIsCloud ? 'Comfy ☁' : 'Comfy 🖥',
       className: comfyIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+    },
+    vlm: {
+      label: vlmIsCloud ? 'VLM ☁' : 'VLM 🖥',
+      className: vlmIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
     },
   };
 }
@@ -493,6 +499,7 @@ export default function LandingScreen() {
   const laneBadges = getLaneBadges(
     settings?.llmBackend,
     settings?.comfyBackend,
+    settings?.vlmBackend,
     account,
     styles,
   );
@@ -514,7 +521,7 @@ export default function LandingScreen() {
           ) : (
             <div
               className={styles.modeBadgeRow}
-              title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'}`}
+              title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'}`}
             >
               <span
                 className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.llm.className}`}
@@ -527,6 +534,12 @@ export default function LandingScreen() {
               >
                 <span className={styles.modeDot} />
                 {laneBadges.comfy.label}
+              </span>
+              <span
+                className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.vlm.className}`}
+              >
+                <span className={styles.modeDot} />
+                {laneBadges.vlm.label}
               </span>
             </div>
           )}
