@@ -495,6 +495,45 @@ export function applyEnvFromSettings(
     }
   }
 
+  // VLM (vision judge) env wiring:
+  //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
+  //     (dev users with VLM_* in kshana-core/.env) survives. Production
+  //     users with vlmJudge off won't trigger VLM calls anyway, so the
+  //     stale env doesn't matter.
+  //   - vlmJudge=true + llmBackend='cloud' + cloudAuth → auto-route VLM
+  //     to the same Kshana Cloud proxy as the LLM. The user doesn't
+  //     have to reconfigure.
+  //   - vlmJudge=true + local LLM → set VLM_* from Settings (skip-on-empty
+  //     so the .env fallback still fires for dev users who haven't filled
+  //     the VLM Settings fields).
+  if (settings.vlmJudge) {
+    if (useCloudLLM) {
+      process.env.VLM_PROVIDER = 'openai';
+      process.env.VLM_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
+      process.env.VLM_API_KEY = cloudToken!;
+      // Default to a vision-capable model name; user can override in
+      // Settings if the proxy whitelists a different vision model.
+      process.env.VLM_MODEL = settings.vlmModel.trim() || 'gpt-4o';
+    } else if (settings.vlmProvider === 'gemini') {
+      process.env.VLM_PROVIDER = 'gemini';
+      setIfPresent('VLM_API_KEY', settings.vlmApiKey);
+      setIfPresent('VLM_MODEL', settings.vlmModel);
+      // gemini's openai-compatible endpoint is the default-base-url
+      // table; setting VLM_BASE_URL explicitly here keeps the env
+      // self-describing for log-line readers.
+      process.env.VLM_BASE_URL =
+        'https://generativelanguage.googleapis.com/v1beta/openai/';
+    } else {
+      // openai-compatible (default). User-supplied baseUrl is the only
+      // way to point at a self-hosted vision model (LM Studio with
+      // qwen-vl, llama.cpp with llava, etc.).
+      setIfPresent('VLM_PROVIDER', 'openai');
+      setIfPresent('VLM_BASE_URL', settings.vlmBaseUrl);
+      setIfPresent('VLM_API_KEY', settings.vlmApiKey);
+      setIfPresent('VLM_MODEL', settings.vlmModel);
+    }
+  }
+
   // Per-tier routing: when the user opted out of the
   // "use same LLM for everything" toggle, mirror the three tier
   // configs into LLM_TIER_*_* env vars and flip on

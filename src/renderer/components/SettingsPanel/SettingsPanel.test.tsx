@@ -24,6 +24,10 @@ const baseSettings = {
   themeId: 'studio-neutral' as const,
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai' as const,
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
   llmUseSameForAllTiers: true,
   llmTierMedium: {
     provider: 'openai' as const,
@@ -172,7 +176,8 @@ describe('SettingsPanel', () => {
 
     expect(screen.getByLabelText('ComfyUI URL')).toBeInTheDocument();
     expect(screen.getByLabelText('Comfy Cloud API Key')).toBeInTheDocument();
-    expect(screen.getByText('OpenAI-Compatible')).toBeInTheDocument();
+    // "OpenAI-Compatible" appears in both LLM and VLM provider toggles.
+    expect(screen.getAllByText('OpenAI-Compatible').length).toBeGreaterThan(0);
   });
 
   it('hides Medium and Light tier sections when "use same LLM for all tasks" is checked', async () => {

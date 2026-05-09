@@ -49,6 +49,10 @@ const defaults: AppSettings = {
   themeId: DEFAULT_THEME_ID,
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai',
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...DEFAULT_TIER_CONFIG },
   llmTierLight: { ...DEFAULT_TIER_CONFIG },
@@ -176,6 +180,12 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   // explicitly-off from missing.
   const piOversight = (value as { piOversight?: unknown } | null | undefined)?.piOversight === false ? false : true;
   const vlmJudge = (value as { vlmJudge?: unknown } | null | undefined)?.vlmJudge === false ? false : true;
+  const rawVlmProvider = (value as { vlmProvider?: unknown } | null | undefined)?.vlmProvider;
+  const vlmProvider: 'openai' | 'gemini' =
+    rawVlmProvider === 'gemini' ? 'gemini' : 'openai';
+  const vlmBaseUrl = normalizeString(value?.vlmBaseUrl);
+  const vlmApiKey = normalizeString(value?.vlmApiKey);
+  const vlmModel = normalizeString(value?.vlmModel);
   // Tier defaults to true ("use same LLM for everything") so existing
   // installs with a single Settings entry keep their pre-tier behavior.
   const llmUseSameForAllTiers =
@@ -218,6 +228,10 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     themeId,
     piOversight,
     vlmJudge,
+    vlmProvider,
+    vlmBaseUrl,
+    vlmApiKey,
+    vlmModel,
     llmUseSameForAllTiers,
     llmTierMedium,
     llmTierLight,

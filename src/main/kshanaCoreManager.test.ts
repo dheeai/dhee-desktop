@@ -144,6 +144,10 @@ const baseSettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai',
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
   llmUseSameForAllTiers: true,
   llmTierMedium: {
     provider: 'openai',
@@ -181,6 +185,10 @@ beforeEach(() => {
   delete process.env['KSHANA_PROJECT_DIR'];
   delete process.env['GOOGLE_API_KEY'];
   delete process.env['GEMINI_MODEL'];
+  delete process.env['VLM_PROVIDER'];
+  delete process.env['VLM_BASE_URL'];
+  delete process.env['VLM_API_KEY'];
+  delete process.env['VLM_MODEL'];
   delete process.env['LLM_ROUTING_ENABLED'];
   for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
     for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
@@ -669,6 +677,117 @@ describe('KshanaCoreManager', () => {
     expect(process.env['LLM_TIER_LIGHT_BASE_URL']).toBe(
       'https://generativelanguage.googleapis.com/v1beta/openai/',
     );
+  });
+
+  // ── VLM (vision judge) env wiring ───────────────────────────────────
+  // VLM has its own env block (VLM_PROVIDER / VLM_API_KEY / VLM_MODEL /
+  // VLM_BASE_URL) read by getVLMConfig() in kshana-core. Pre-fix the
+  // desktop never set any of these — VLM was effectively dead unless
+  // the user edited kshana-core/.env directly.
+
+  it('vlmJudge=true + llmBackend=cloud + cloud auth: VLM auto-routes to the website proxy', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        vlmJudge: true,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+        backendMode: 'cloud',
+        vlmProvider: 'openai',
+        vlmModel: 'gpt-4o-vision',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['VLM_MODEL']).toBe('gpt-4o-vision');
+  });
+
+  it('vlmJudge=true + local LLM: VLM env reflects user Settings (openai-compatible)', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: true,
+      llmBackend: 'local',
+      vlmProvider: 'openai',
+      vlmBaseUrl: 'http://127.0.0.1:1234/v1',
+      vlmApiKey: 'lm-studio-vision-placeholder',
+      vlmModel: 'qwen-vl-72b',
+    });
+
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['VLM_API_KEY']).toBe('lm-studio-vision-placeholder');
+    expect(process.env['VLM_MODEL']).toBe('qwen-vl-72b');
+  });
+
+  it('vlmJudge=true + local LLM + Gemini VLM: VLM_BASE_URL set to gemini openai-compat endpoint', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: true,
+      llmBackend: 'local',
+      vlmProvider: 'gemini',
+      vlmApiKey: 'google-vision-key',
+      vlmModel: 'gemini-2.5-pro',
+    });
+
+    expect(process.env['VLM_PROVIDER']).toBe('gemini');
+    expect(process.env['VLM_BASE_URL']).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/',
+    );
+    expect(process.env['VLM_API_KEY']).toBe('google-vision-key');
+    expect(process.env['VLM_MODEL']).toBe('gemini-2.5-pro');
+  });
+
+  it('vlmJudge=true with empty VLM Settings preserves .env fallback values (dev-mode unchanged)', async () => {
+    process.env['VLM_PROVIDER'] = 'openrouter';
+    process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
+    process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: true,
+      llmBackend: 'local',
+      vlmProvider: 'openai', // settings default, but other VLM fields empty
+      vlmBaseUrl: '',
+      vlmApiKey: '',
+      vlmModel: '',
+    });
+
+    // setIfPresent skips empty values → .env fallback survives.
+    // VLM_PROVIDER gets set to 'openai' explicitly though, since the
+    // user picked that in Settings.
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
+    expect(process.env['VLM_API_KEY']).toBe('sk-or-v1-from-dotenv');
+    expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
+  });
+
+  it('vlmJudge=false: VLM env left untouched (no auto-config)', async () => {
+    process.env['VLM_PROVIDER'] = 'openrouter';
+    process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
+    process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      vlmJudge: false,
+    });
+
+    // Whatever was in the env stays. VLM calls are gated upstream by
+    // the vlmJudge flag inside core, so no harm in leaving stale env.
+    expect(process.env['VLM_PROVIDER']).toBe('openrouter');
+    expect(process.env['VLM_API_KEY']).toBe('sk-or-v1-from-dotenv');
+    expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
   });
 
   it('two consecutive starts while signed in to Kshana Cloud preserve OPENAI_API_KEY from the dev .env fallback', async () => {

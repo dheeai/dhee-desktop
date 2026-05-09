@@ -80,6 +80,10 @@ const emptySettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai',
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...emptyTierConfig },
   llmTierLight: { ...emptyTierConfig },
@@ -318,6 +322,10 @@ export default function SettingsPanel({
       llmUseSameForAllTiers: normalized.llmUseSameForAllTiers,
       llmTierMedium: normalized.llmTierMedium,
       llmTierLight: normalized.llmTierLight,
+      vlmProvider: normalized.vlmProvider,
+      vlmBaseUrl: normalized.vlmBaseUrl,
+      vlmApiKey: normalized.vlmApiKey,
+      vlmModel: normalized.vlmModel,
     });
   };
 
@@ -696,9 +704,9 @@ export default function SettingsPanel({
                       <span style={{ fontWeight: 500 }}>VLM judge</span>
                       <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
                         Vision-LLM describes generated images for the
-                        agent. Requires VLM_PROVIDER / VLM_API_KEY /
-                        VLM_MODEL in .env. Disabled when oversight is
-                        off (VLM standalone has no consumer).
+                        agent. Configure the VLM provider in the Connection
+                        tab. Disabled when oversight is off (VLM standalone
+                        has no consumer).
                       </span>
                     </span>
                   </label>
@@ -1059,6 +1067,135 @@ export default function SettingsPanel({
                           )}
                         </>
                       )}
+                    </>
+                  )}
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
+                  <legend>VLM (vision judge)</legend>
+                  <p className={styles.infoText}>
+                    Reads generated images and grades them against the prompt
+                    so the agent can flag misses. Toggle the VLM judge in the
+                    Appearance tab; configure the provider here.
+                  </p>
+
+                  {isLlmCloudMode ? (
+                    <>
+                      <p className={styles.infoText}>
+                        VLM auto-routes to Kshana Cloud (uses the same desktop
+                        token as the LLM). Only the model id is read here.
+                      </p>
+                      <label className={styles.label}>
+                        VLM Model ID
+                        <input
+                          type="text"
+                          className={styles.input}
+                          value={form.vlmModel}
+                          onChange={(event) =>
+                            handleInput('vlmModel', event.target.value)
+                          }
+                          placeholder="gpt-4o"
+                        />
+                      </label>
+                    </>
+                  ) : (
+                    <>
+                      <div className={styles.radios}>
+                        <label className={styles.radioLabel}>
+                          <input
+                            type="radio"
+                            className={styles.radioInput}
+                            name="vlm-provider"
+                            value="gemini"
+                            checked={form.vlmProvider === 'gemini'}
+                            onChange={() => handleInput('vlmProvider', 'gemini')}
+                          />
+                          Gemini
+                        </label>
+                        <label className={styles.radioLabel}>
+                          <input
+                            type="radio"
+                            className={styles.radioInput}
+                            name="vlm-provider"
+                            value="openai"
+                            checked={form.vlmProvider === 'openai'}
+                            onChange={() => handleInput('vlmProvider', 'openai')}
+                          />
+                          OpenAI-Compatible
+                        </label>
+                      </div>
+
+                      {form.vlmProvider === 'gemini' ? (
+                        <>
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.vlmApiKey}
+                              onChange={(event) =>
+                                handleInput('vlmApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            Gemini Vision Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.vlmModel}
+                              onChange={(event) =>
+                                handleInput('vlmModel', event.target.value)
+                              }
+                              placeholder="gemini-2.5-pro"
+                            />
+                          </label>
+                        </>
+                      ) : (
+                        <>
+                          <label className={styles.label}>
+                            Base URL
+                            <input
+                              type="url"
+                              className={styles.input}
+                              value={form.vlmBaseUrl}
+                              onChange={(event) =>
+                                handleInput('vlmBaseUrl', event.target.value)
+                              }
+                              placeholder="http://127.0.0.1:1234/v1"
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            Vision Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.vlmModel}
+                              onChange={(event) =>
+                                handleInput('vlmModel', event.target.value)
+                              }
+                              placeholder="qwen-vl-72b"
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.vlmApiKey}
+                              onChange={(event) =>
+                                handleInput('vlmApiKey', event.target.value)
+                              }
+                              placeholder="sk-..."
+                            />
+                          </label>
+                        </>
+                      )}
+                      <p className={styles.infoText}>
+                        Empty fields fall through to <code>VLM_*</code> env
+                        from the kshana-core <code>.env</code> file (dev mode).
+                      </p>
                     </>
                   )}
                 </fieldset>

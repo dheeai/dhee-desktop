@@ -28,6 +28,10 @@ const baseSettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  vlmProvider: 'openai' as const,
+  vlmBaseUrl: '',
+  vlmApiKey: '',
+  vlmModel: '',
   llmUseSameForAllTiers: true,
   llmTierMedium: {
     provider: 'openai',

@@ -121,4 +121,17 @@ export interface AppSettings {
    * Default: true.
    */
   vlmJudge: boolean;
+  /**
+   * VLM (vision judge) provider — independent of the LLM. When
+   * llmBackend='cloud' AND vlmJudge=true, VLM auto-routes to the
+   * Kshana Cloud proxy (uses the desktop token); only vlmModel is
+   * read in that mode. When llmBackend='local' the user supplies
+   * baseUrl / apiKey / model. Empty values fall through to env so
+   * dev users running from a kshana-core checkout with VLM_* in .env
+   * still work without UI input.
+   */
+  vlmProvider: 'openai' | 'gemini';
+  vlmBaseUrl: string;
+  vlmApiKey: string;
+  vlmModel: string;
 }
