@@ -108,7 +108,9 @@
       "release/app/dist",
       ".erb/dll",
       "tests/e2e",
-      "kshana-core/"
+      "kshana-core/",
+      "assets/whisper-runtime/",
+      "release/build/"
     ],
     "transform": {
       "\\.(ts|tsx|js|jsx)$": "ts-jest"
