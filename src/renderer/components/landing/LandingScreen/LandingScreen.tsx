@@ -99,15 +99,58 @@ function getProjectPaginationItems(
   return items;
 }
 
-function getConnectionLabel(
+interface AmbientStatus {
+  /** Single-pill status that overrides the per-lane breakdown. */
+  label: string;
+  /** Class name for the single pill. */
+  className: string;
+}
+
+/**
+ * Auth-flow / connection-error states render as one banner-style pill
+ * (Connecting / Session expired). When neither, we drop into the
+ * per-lane breakdown.
+ */
+function getAmbientStatus(
   authStatus: AccountAuthStatus,
-  backendMode: string | undefined,
+  styles: Record<string, string>,
+): AmbientStatus | null {
+  if (authStatus === 'waiting') {
+    return { label: 'Connecting', className: styles.modeBadgeConnecting };
+  }
+  if (authStatus === 'expired') {
+    return { label: 'Session expired', className: styles.modeBadgeWarning };
+  }
+  return null;
+}
+
+interface LaneBadge {
+  /** Short label rendered in the pill — keep ≤6 chars to fit the sidebar. */
+  label: string;
+  /** Class name for the pill. */
+  className: string;
+}
+
+function getLaneBadges(
+  llmBackend: string | undefined,
+  comfyBackend: string | undefined,
   account: AccountInfo | null,
-): string {
-  if (authStatus === 'waiting') return 'Connecting';
-  if (authStatus === 'expired') return 'Session expired';
-  if (backendMode === 'cloud' && account) return 'Cloud';
-  return 'Local';
+  styles: Record<string, string>,
+): { llm: LaneBadge; comfy: LaneBadge } {
+  // Cloud only counts as cloud when the user is signed in. A persisted
+  // 'cloud' value with no account is effectively local at runtime.
+  const llmIsCloud = llmBackend === 'cloud' && !!account;
+  const comfyIsCloud = comfyBackend === 'cloud' && !!account;
+  return {
+    llm: {
+      label: llmIsCloud ? 'LLM ☁' : 'LLM 🖥',
+      className: llmIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+    },
+    comfy: {
+      label: comfyIsCloud ? 'Comfy ☁' : 'Comfy 🖥',
+      className: comfyIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+    },
+  };
 }
 
 function getHeroSubtitle(
@@ -126,16 +169,6 @@ function getHeroSubtitle(
   return 'Create locally, or sign in to use Kshana Cloud credits.';
 }
 
-function getConnectionClass(
-  authStatus: AccountAuthStatus,
-  backendMode: string | undefined,
-  account: AccountInfo | null,
-) {
-  if (authStatus === 'expired') return styles.modeBadgeWarning;
-  if (authStatus === 'waiting') return styles.modeBadgeConnecting;
-  if (backendMode === 'cloud' && account) return styles.modeBadgeCloud;
-  return styles.modeBadgeLocal;
-}
 
 function joinPath(basePath: string, segment: string): string {
   const normalizedBase = basePath.replace(/\/+$/, '');
@@ -456,15 +489,12 @@ export default function LandingScreen() {
     }
   }, [deleteTarget, refreshRecentProjects]);
 
-  const connectionLabel = getConnectionLabel(
-    authStatus,
-    settings?.backendMode,
+  const ambientStatus = getAmbientStatus(authStatus, styles);
+  const laneBadges = getLaneBadges(
+    settings?.llmBackend,
+    settings?.comfyBackend,
     account,
-  );
-  const connectionClass = getConnectionClass(
-    authStatus,
-    settings?.backendMode,
-    account,
+    styles,
   );
   const heroSubtitle = getHeroSubtitle(account, authStatus);
 
@@ -476,10 +506,30 @@ export default function LandingScreen() {
             <Play size={20} className={styles.playIcon} />
           </div>
           <h1 className={styles.brandTitle}>Kshana Desktop</h1>
-          <div className={`${styles.modeBadge} ${connectionClass}`}>
-            <span className={styles.modeDot} />
-            {connectionLabel}
-          </div>
+          {ambientStatus ? (
+            <div className={`${styles.modeBadge} ${ambientStatus.className}`}>
+              <span className={styles.modeDot} />
+              {ambientStatus.label}
+            </div>
+          ) : (
+            <div
+              className={styles.modeBadgeRow}
+              title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'}`}
+            >
+              <span
+                className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.llm.className}`}
+              >
+                <span className={styles.modeDot} />
+                {laneBadges.llm.label}
+              </span>
+              <span
+                className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.comfy.className}`}
+              >
+                <span className={styles.modeDot} />
+                {laneBadges.comfy.label}
+              </span>
+            </div>
+          )}
         </div>
 
         <div className={styles.sidebarSection}>
