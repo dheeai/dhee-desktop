@@ -120,22 +120,19 @@ describe('SettingsPanel', () => {
     expect(llmCloudCheckbox.disabled).toBe(true);
     expect(comfyCloudCheckbox.disabled).toBe(true);
 
-    // Sign-in CTA banner is visible.
-    expect(
-      screen.getByText(/Sign in to Kshana Cloud to enable Cloud mode/i),
-    ).toBeInTheDocument();
-    const signInButton = screen.getByRole('button', {
-      name: /Sign In to Kshana Cloud/i,
-    });
+    // Each lane has a "Sign In" button right next to its disabled
+    // cloud checkbox — the user can sign in directly from where they
+    // see the gate, no separate banner to scan for.
+    const signInButtons = screen.getAllByRole('button', { name: /^Sign In$/ });
+    expect(signInButtons).toHaveLength(2);
 
     await act(async () => {
-      fireEvent.click(signInButton);
+      fireEvent.click(signInButtons[0]);
     });
     expect(signIn).toHaveBeenCalledTimes(1);
 
-    // Auth bridge reports signed-in. Banner disappears and toggles
-    // become enabled. Toggles do NOT auto-flip — the user must click
-    // them explicitly (matches the rest of the lane-toggle flow).
+    // Auth bridge reports signed-in. Inline Sign In buttons disappear,
+    // toggles become enabled, and stay un-checked (no auto-flip).
     await act(async () => {
       onChangeHandler?.({
         email: 'user@example.com',
@@ -148,8 +145,8 @@ describe('SettingsPanel', () => {
     });
 
     expect(
-      screen.queryByText(/Sign in to Kshana Cloud to enable Cloud mode/i),
-    ).not.toBeInTheDocument();
+      screen.queryAllByRole('button', { name: /^Sign In$/ }),
+    ).toHaveLength(0);
     expect(llmCloudCheckbox.disabled).toBe(false);
     expect(comfyCloudCheckbox.disabled).toBe(false);
     expect(llmCloudCheckbox.checked).toBe(false);

@@ -802,52 +802,41 @@ export default function SettingsPanel({
                   </div>
                 </div>
 
-                {!account ? (
-                  <div className={styles.inlineSignIn}>
-                    <p className={styles.warningText}>
-                      Sign in to Kshana Cloud to enable Cloud mode for either
-                      ComfyUI or the LLM.
-                    </p>
-                    <p className={styles.infoText}>
-                      Sign-in opens your browser, then returns here automatically.
-                    </p>
-                    {signInError ? (
-                      <p className={styles.error}>{signInError}</p>
-                    ) : null}
-                    <button
-                      type="button"
-                      className={styles.submitButton}
-                      onClick={handleInlineSignIn}
-                      disabled={signingIn}
-                    >
-                      {signingIn ? 'Opening Browser…' : 'Sign In to Kshana Cloud'}
-                    </button>
-                  </div>
-                ) : null}
-
                 <fieldset className={styles.fieldset}>
                   <legend>ComfyUI</legend>
-                  <label
-                    className={styles.checkboxLabel}
-                    title={
-                      !account
-                        ? 'Sign in to Kshana Cloud to enable Cloud mode'
-                        : undefined
-                    }
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isComfyCloudMode}
-                      disabled={!account}
-                      onChange={(event) =>
-                        handleInput(
-                          'comfyBackend',
-                          event.target.checked ? 'cloud' : 'local',
-                        )
+                  <div className={styles.cloudToggleRow}>
+                    <label
+                      className={styles.checkboxLabel}
+                      title={
+                        !account
+                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          : undefined
                       }
-                    />
-                    Use Kshana Cloud for ComfyUI
-                  </label>
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isComfyCloudMode}
+                        disabled={!account}
+                        onChange={(event) =>
+                          handleInput(
+                            'comfyBackend',
+                            event.target.checked ? 'cloud' : 'local',
+                          )
+                        }
+                      />
+                      Use Kshana Cloud for ComfyUI
+                    </label>
+                    {!account ? (
+                      <button
+                        type="button"
+                        className={styles.inlineSignInButton}
+                        onClick={handleInlineSignIn}
+                        disabled={signingIn}
+                      >
+                        {signingIn ? 'Opening…' : 'Sign In'}
+                      </button>
+                    ) : null}
+                  </div>
                   <p className={styles.infoText}>
                     {isComfyCloudMode
                       ? 'Image / video jobs run on Kshana Cloud (uses credits).'
@@ -892,27 +881,42 @@ export default function SettingsPanel({
 
                 <fieldset className={styles.fieldset}>
                   <legend>LLM</legend>
-                  <label
-                    className={styles.checkboxLabel}
-                    title={
-                      !account
-                        ? 'Sign in to Kshana Cloud to enable Cloud mode'
-                        : undefined
-                    }
-                  >
-                    <input
-                      type="checkbox"
-                      checked={isLlmCloudMode}
-                      disabled={!account}
-                      onChange={(event) =>
-                        handleInput(
-                          'llmBackend',
-                          event.target.checked ? 'cloud' : 'local',
-                        )
+                  <div className={styles.cloudToggleRow}>
+                    <label
+                      className={styles.checkboxLabel}
+                      title={
+                        !account
+                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          : undefined
                       }
-                    />
-                    Use Kshana Cloud for LLM
-                  </label>
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isLlmCloudMode}
+                        disabled={!account}
+                        onChange={(event) =>
+                          handleInput(
+                            'llmBackend',
+                            event.target.checked ? 'cloud' : 'local',
+                          )
+                        }
+                      />
+                      Use Kshana Cloud for LLM
+                    </label>
+                    {!account ? (
+                      <button
+                        type="button"
+                        className={styles.inlineSignInButton}
+                        onClick={handleInlineSignIn}
+                        disabled={signingIn}
+                      >
+                        {signingIn ? 'Opening…' : 'Sign In'}
+                      </button>
+                    ) : null}
+                  </div>
+                  {signInError && !account ? (
+                    <p className={styles.error}>{signInError}</p>
+                  ) : null}
                   <p className={styles.infoText}>
                     {isLlmCloudMode
                       ? 'Chat / planning calls go through the Kshana Cloud proxy (uses credits).'
