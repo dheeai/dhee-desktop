@@ -452,27 +452,47 @@ export function applyEnvFromSettings(
   }
   setIfPresent('KSHANA_PROJECT_DIR', settings.projectDir);
 
-  // LLM: always sourced from Settings, never from cloudAuth. The UI
-  // exposes only Gemini and OpenAI-Compatible — anything else in the
-  // persisted llmProvider field (older settings with 'lmstudio' /
-  // 'openrouter') is normalized to 'openai' at load time by
-  // normalizeConnectionSettings, so this switch can't see it.
-  switch (settings.llmProvider) {
-    case 'gemini':
-      process.env.LLM_PROVIDER = 'gemini';
-      setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
-      setIfPresent('GEMINI_MODEL', settings.geminiModel || 'gemini-2.5-flash');
-      break;
-    case 'openai':
-    default:
-      process.env.LLM_PROVIDER = 'openai';
-      setIfPresent('OPENAI_API_KEY', settings.openaiApiKey);
-      setIfPresent(
-        'OPENAI_BASE_URL',
-        settings.openaiBaseUrl || 'https://api.openai.com/v1',
-      );
-      setIfPresent('OPENAI_MODEL', settings.openaiModel || 'gpt-4o');
-      break;
+  // LLM routing:
+  //   - backendMode='cloud' AND signed in to Kshana Cloud →
+  //     route LLM through the Kshana website's openai-compatible
+  //     proxy with the user's desktop token. The proxy meters usage
+  //     for billing. The Settings LLM fields are ignored in this
+  //     mode (and disabled in the UI).
+  //   - backendMode='local' (or signed-out) →
+  //     LLM env comes from Settings — Gemini or OpenAI-compatible.
+  //
+  // Pre-fix this branch ALWAYS used Settings — even when the user
+  // had explicitly opted into Cloud mode — so flipping the toggle
+  // had no effect on LLM traffic.
+  const useCloudLLM =
+    settings.backendMode === 'cloud' && !!cloudToken && !!cloudWebsiteUrl;
+
+  if (useCloudLLM) {
+    process.env.LLM_PROVIDER = 'openai';
+    process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
+    process.env.OPENAI_API_KEY = cloudToken!;
+    // Default model when cloud mode is on. The proxy server has
+    // its own model whitelist; passing a non-loaded id surfaces a
+    // clear server-side error rather than a silent local fallback.
+    process.env.OPENAI_MODEL = settings.openaiModel || 'gpt-4o';
+  } else {
+    switch (settings.llmProvider) {
+      case 'gemini':
+        process.env.LLM_PROVIDER = 'gemini';
+        setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
+        setIfPresent('GEMINI_MODEL', settings.geminiModel || 'gemini-2.5-flash');
+        break;
+      case 'openai':
+      default:
+        process.env.LLM_PROVIDER = 'openai';
+        setIfPresent('OPENAI_API_KEY', settings.openaiApiKey);
+        setIfPresent(
+          'OPENAI_BASE_URL',
+          settings.openaiBaseUrl || 'https://api.openai.com/v1',
+        );
+        setIfPresent('OPENAI_MODEL', settings.openaiModel || 'gpt-4o');
+        break;
+    }
   }
 
   // Per-tier routing: when the user opted out of the

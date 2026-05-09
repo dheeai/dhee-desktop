@@ -349,6 +349,67 @@ describe('KshanaCoreManager', () => {
     );
   });
 
+  it('backendMode=cloud + cloud auth: LLM routes through the website proxy with the desktop token', async () => {
+    // When the user explicitly opts into Cloud mode AND is signed in,
+    // the LLM goes through <websiteUrl>/openai/api/v1 with the desktop
+    // token as bearer — so paid LLM calls flow through the metered
+    // proxy. Settings.openaiBaseUrl is intentionally ignored here
+    // (and the UI disables the LLM fields when backendMode='cloud').
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        backendMode: 'cloud',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'https://kshana.share.zrok.io',
+        openaiApiKey: 'should-be-ignored',
+        openaiModel: 'Qwen3.6-35B-A3B',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe(
+      'https://desktop.example.test/openai/api/v1',
+    );
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    // User-supplied model id flows through; the proxy may reject if
+    // the model isn't whitelisted server-side, but that's a clear
+    // failure mode rather than a silent local fallback.
+    expect(process.env['OPENAI_MODEL']).toBe('Qwen3.6-35B-A3B');
+  });
+
+  it('backendMode=local + cloud auth: LLM stays on Settings (signed-in users on Local keep their proxy)', async () => {
+    // Regression: an earlier PR routed LLM to cloud "as soon as a
+    // cloud token was present", regardless of backendMode. That
+    // surprised LM Studio / self-hosted-proxy users. Now backendMode
+    // gates the routing — Local mode means Local LLM, even when
+    // signed in.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        backendMode: 'local',
+        llmProvider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiApiKey: 'lm-studio-placeholder',
+        openaiModel: 'qwen3',
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
+    expect(process.env['OPENAI_API_KEY']).toBe('lm-studio-placeholder');
+    expect(process.env['OPENAI_MODEL']).toBe('qwen3');
+  });
+
   it('Kshana Cloud auth + Gemini in Settings: LLM stays Gemini', async () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(
