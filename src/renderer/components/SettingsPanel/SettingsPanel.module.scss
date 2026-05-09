@@ -287,6 +287,23 @@
   cursor: pointer;
 }
 
+.checkboxLabel {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  color: $color-text-primary;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  margin-top: $spacing-sm;
+
+  input[type='checkbox'] {
+    width: 16px;
+    height: 16px;
+    accent-color: $color-accent-primary;
+    cursor: pointer;
+  }
+}
+
 .modeFieldset {
   padding: $spacing-sm;
 }

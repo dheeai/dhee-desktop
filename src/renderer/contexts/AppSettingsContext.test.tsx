@@ -26,6 +26,23 @@ const baseSettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  llmUseSameForAllTiers: true,
+  llmTierMedium: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
+  llmTierLight: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
 };
 
 function TestConsumer() {

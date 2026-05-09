@@ -3,6 +3,7 @@ import type {
   AccountInfo,
   AppSettings,
   LLMProvider,
+  LLMTierConfig,
   ThemeId,
 } from '../../../shared/settingsTypes';
 import { DESKTOP_THEMES } from '../../themes';
@@ -49,6 +50,15 @@ type Props = {
   error?: string | null;
 };
 
+const emptyTierConfig: LLMTierConfig = {
+  provider: 'openai',
+  openaiBaseUrl: 'https://api.openai.com/v1',
+  openaiApiKey: '',
+  openaiModel: 'gpt-4o',
+  googleApiKey: '',
+  geminiModel: 'gemini-2.5-flash',
+};
+
 const emptySettings: AppSettings = {
   backendMode: 'local',
   comfyuiMode: 'inherit',
@@ -68,6 +78,9 @@ const emptySettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  llmUseSameForAllTiers: true,
+  llmTierMedium: { ...emptyTierConfig },
+  llmTierLight: { ...emptyTierConfig },
 };
 
 function withV1Suffix(url: string): string {
@@ -313,7 +326,21 @@ export default function SettingsPanel({
       openaiModel: normalized.openaiModel,
       openRouterApiKey: normalized.openRouterApiKey,
       openRouterModel: normalized.openRouterModel,
+      llmUseSameForAllTiers: normalized.llmUseSameForAllTiers,
+      llmTierMedium: normalized.llmTierMedium,
+      llmTierLight: normalized.llmTierLight,
     });
+  };
+
+  const handleTierInput = (
+    tier: 'llmTierMedium' | 'llmTierLight',
+    field: keyof LLMTierConfig,
+    value: string,
+  ) => {
+    setForm((prev) => ({
+      ...prev,
+      [tier]: { ...prev[tier], [field]: value },
+    }));
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
@@ -343,6 +370,121 @@ export default function SettingsPanel({
       ? 'The bundled core is running locally while paid calls use Kshana Cloud credits through the proxy.'
       : 'Sign in to Kshana Cloud to route paid calls through the authenticated proxy.'
     : 'The bundled core is running locally with the provider settings shown below.';
+
+  const renderTierSection = (
+    tier: 'llmTierMedium' | 'llmTierLight',
+    label: string,
+    description: string,
+  ) => {
+    const cfg = form[tier];
+    return (
+      <fieldset className={styles.fieldset} disabled={isCloudMode}>
+        <legend>{label}</legend>
+        <p className={styles.infoText}>{description}</p>
+        <div className={styles.radios}>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              className={styles.radioInput}
+              name={`${tier}-provider`}
+              value="gemini"
+              checked={cfg.provider === 'gemini'}
+              disabled={isCloudMode}
+              onChange={() => handleTierInput(tier, 'provider', 'gemini')}
+            />
+            Gemini
+          </label>
+          <label className={styles.radioLabel}>
+            <input
+              type="radio"
+              className={styles.radioInput}
+              name={`${tier}-provider`}
+              value="openai"
+              checked={cfg.provider === 'openai'}
+              disabled={isCloudMode}
+              onChange={() => handleTierInput(tier, 'provider', 'openai')}
+            />
+            OpenAI-Compatible
+          </label>
+        </div>
+
+        {cfg.provider === 'gemini' && (
+          <>
+            <label className={styles.label}>
+              Google API Key
+              <input
+                type="password"
+                className={styles.input}
+                value={cfg.googleApiKey}
+                disabled={isCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'googleApiKey', event.target.value)
+                }
+                placeholder="AIza..."
+              />
+            </label>
+            <label className={styles.label}>
+              Gemini Model ID
+              <input
+                type="text"
+                className={styles.input}
+                value={cfg.geminiModel}
+                disabled={isCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'geminiModel', event.target.value)
+                }
+                placeholder="gemini-2.5-flash"
+              />
+            </label>
+          </>
+        )}
+
+        {cfg.provider === 'openai' && (
+          <>
+            <label className={styles.label}>
+              Base URL
+              <input
+                type="url"
+                className={styles.input}
+                value={cfg.openaiBaseUrl}
+                disabled={isCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'openaiBaseUrl', event.target.value)
+                }
+                placeholder="https://api.openai.com/v1"
+              />
+            </label>
+            <label className={styles.label}>
+              Model ID
+              <input
+                type="text"
+                className={styles.input}
+                value={cfg.openaiModel}
+                disabled={isCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'openaiModel', event.target.value)
+                }
+                placeholder="gpt-4o"
+              />
+            </label>
+            <label className={styles.label}>
+              API Key
+              <input
+                type="password"
+                className={styles.input}
+                value={cfg.openaiApiKey}
+                disabled={isCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'openaiApiKey', event.target.value)
+                }
+                placeholder="sk-..."
+              />
+            </label>
+          </>
+        )}
+      </fieldset>
+    );
+  };
 
   const renderProviderToggle = (provider: LLMProvider, label: string) => (
     <label className={styles.radioLabel}>
@@ -753,7 +895,12 @@ export default function SettingsPanel({
                   </p>
 
                   <fieldset className={styles.fieldset} disabled={isCloudMode}>
-                    <legend>LLM Provider</legend>
+                    <legend>Heavy LLM (primary)</legend>
+                    <p className={styles.infoText}>
+                      Used for long-form creative work: story, scenes, shot
+                      prompts, motion directives — and the pi-agent
+                      orchestrator.
+                    </p>
                     <div className={styles.radios}>
                       {renderProviderToggle('gemini', 'Gemini')}
                       {renderProviderToggle('openai', 'OpenAI-Compatible')}
@@ -851,6 +998,41 @@ export default function SettingsPanel({
                           placeholder="sk-..."
                         />
                       </label>
+                    </>
+                  )}
+
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={form.llmUseSameForAllTiers}
+                      disabled={isCloudMode}
+                      onChange={(event) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          llmUseSameForAllTiers: event.target.checked,
+                        }))
+                      }
+                    />
+                    Use this same LLM for medium and light tasks
+                  </label>
+                  <p className={styles.infoText}>
+                    Uncheck to send structured/utility calls to a cheaper or
+                    faster model. The Heavy LLM above is always used for
+                    creative prose and the pi-agent.
+                  </p>
+
+                  {!form.llmUseSameForAllTiers && (
+                    <>
+                      {renderTierSection(
+                        'llmTierMedium',
+                        'Medium LLM',
+                        'Used for structured JSON: scene breakdowns, prompt refinement, workflow analysis, classification.',
+                      )}
+                      {renderTierSection(
+                        'llmTierLight',
+                        'Light LLM',
+                        'Used for cheap utility checks: continuity, image review, JSON repair, prompt evaluation.',
+                      )}
                     </>
                   )}
                 </div>

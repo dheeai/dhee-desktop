@@ -8,6 +8,28 @@ export type ThemeId =
   | 'paper-light'
   | 'void-cut';
 
+/**
+ * One LLM target (provider + the fields that provider needs). Used for the
+ * Medium and Light tiers; the Heavy/primary tier still lives as flat fields
+ * on AppSettings for backward-compat with persisted settings.
+ *
+ * Tiers map to LLMRouter purposes in kshana-core/src/core/llm/purposes.ts:
+ *   - Heavy:  long-form prose (story, scenes, shot prompts, motion directives)
+ *             AND the pi-agent orchestrator
+ *   - Medium: structured JSON (scene breakdowns, prompt refinement, workflow analysis)
+ *   - Light:  utility checks (continuity, image review, json repair)
+ */
+export interface LLMTierConfig {
+  provider: 'gemini' | 'openai';
+  // openai-compat (used when provider === 'openai')
+  openaiBaseUrl: string;
+  openaiApiKey: string;
+  openaiModel: string;
+  // gemini (used when provider === 'gemini')
+  googleApiKey: string;
+  geminiModel: string;
+}
+
 export interface AccountInfo {
   /** User ID from Kshana Cloud. */
   userId: string;
@@ -53,6 +75,17 @@ export interface AppSettings {
   openRouterApiKey: string;
   /** OpenRouter model id used by the bundled local backend. */
   openRouterModel: string;
+  /**
+   * When true (default), the flat openai/gemini fields above are used for
+   * every LLM call (heavy/medium/light). When false, the user supplies
+   * separate Medium and Light tier configs and kshana-core's LLMRouter
+   * routes per-purpose. The Heavy tier always reads from the flat fields.
+   */
+  llmUseSameForAllTiers: boolean;
+  /** Medium-tier LLM (only consulted when llmUseSameForAllTiers === false). */
+  llmTierMedium: LLMTierConfig;
+  /** Light-tier LLM (only consulted when llmUseSameForAllTiers === false). */
+  llmTierLight: LLMTierConfig;
   /** Global desktop theme selection. */
   themeId: ThemeId;
   projectDir?: string;

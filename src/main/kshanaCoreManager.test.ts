@@ -142,6 +142,23 @@ const baseSettings: AppSettings = {
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
+  llmUseSameForAllTiers: true,
+  llmTierMedium: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
+  llmTierLight: {
+    provider: 'openai',
+    openaiBaseUrl: 'https://api.openai.com/v1',
+    openaiApiKey: '',
+    openaiModel: 'gpt-4o',
+    googleApiKey: '',
+    geminiModel: 'gemini-2.5-flash',
+  },
 };
 
 beforeEach(() => {
@@ -162,6 +179,15 @@ beforeEach(() => {
   delete process.env['KSHANA_PROJECT_DIR'];
   delete process.env['GOOGLE_API_KEY'];
   delete process.env['GEMINI_MODEL'];
+  delete process.env['LLM_ROUTING_ENABLED'];
+  for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
+    for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
+      delete process.env[`LLM_TIER_${tier}_${k}`];
+    }
+  }
+  for (const k of Object.keys(process.env)) {
+    if (k.startsWith('LLM_PURPOSE__')) delete process.env[k];
+  }
 });
 
 describe('KshanaCoreManager', () => {
@@ -430,6 +456,89 @@ describe('KshanaCoreManager', () => {
     const mgr = new KshanaCoreManager();
     await mgr.start(baseSettings);
     expect(process.env['KSHANA_PROJECTS_DIR']).toBe(FAKE_PROJECTS_DIR);
+  });
+
+  // ── LLM routing/tier env hygiene ────────────────────────────────────
+  // kshana-core/.env can populate LLM_ROUTING_ENABLED + LLM_TIER_*_*
+  // env vars before the desktop's applyEnvFromSettings runs. Pre-fix,
+  // those vars survived and the LLMRouter / pi-agent silently routed
+  // every call to whatever .env said (e.g. openrouter/deepseek),
+  // ignoring the Settings panel entirely. Settings is the canonical
+  // source — these tests pin that hygiene.
+
+  it('start() clears LLM_ROUTING_ENABLED + LLM_TIER_*_* + LLM_PURPOSE__* leaked from kshana-core/.env when llmUseSameForAllTiers=true', async () => {
+    process.env['LLM_ROUTING_ENABLED'] = 'true';
+    process.env['LLM_TIER_HEAVY_PROVIDER'] = 'openrouter';
+    process.env['LLM_TIER_HEAVY_API_KEY'] = 'sk-or-v1-stale';
+    process.env['LLM_TIER_HEAVY_MODEL'] = 'deepseek/deepseek-v4-flash';
+    process.env['LLM_TIER_MEDIUM_PROVIDER'] = 'openrouter';
+    process.env['LLM_TIER_MEDIUM_MODEL'] = 'deepseek/deepseek-v4-flash';
+    process.env['LLM_TIER_LIGHT_PROVIDER'] = 'openrouter';
+    process.env['LLM_TIER_LIGHT_MODEL'] = 'deepseek/deepseek-v4-flash';
+    process.env['LLM_PURPOSE__CONTENT__STORY_PROVIDER'] = 'openrouter';
+
+    const mgr = new KshanaCoreManager();
+    await mgr.start({ ...baseSettings, llmUseSameForAllTiers: true });
+
+    expect(process.env['LLM_ROUTING_ENABLED']).toBeUndefined();
+    expect(process.env['LLM_TIER_HEAVY_PROVIDER']).toBeUndefined();
+    expect(process.env['LLM_TIER_HEAVY_API_KEY']).toBeUndefined();
+    expect(process.env['LLM_TIER_HEAVY_MODEL']).toBeUndefined();
+    expect(process.env['LLM_TIER_MEDIUM_PROVIDER']).toBeUndefined();
+    expect(process.env['LLM_TIER_MEDIUM_MODEL']).toBeUndefined();
+    expect(process.env['LLM_TIER_LIGHT_PROVIDER']).toBeUndefined();
+    expect(process.env['LLM_TIER_LIGHT_MODEL']).toBeUndefined();
+    expect(process.env['LLM_PURPOSE__CONTENT__STORY_PROVIDER']).toBeUndefined();
+    // OPENAI_* still flows from Settings — verify the regular path wasn't broken.
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_BASE_URL']).toBe('https://api.openai.com/v1');
+  });
+
+  it('start() with llmUseSameForAllTiers=false writes LLM_ROUTING_ENABLED=true + per-tier env from settings', async () => {
+    const mgr = new KshanaCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      llmUseSameForAllTiers: false,
+      // Heavy = flat fields (carried from baseSettings: openai @ api.openai.com/v1, gpt-4o, sk-test).
+      llmTierMedium: {
+        provider: 'openai',
+        openaiBaseUrl: 'https://medium.example.test/v1',
+        openaiApiKey: 'medium-key',
+        openaiModel: 'medium-model',
+        googleApiKey: '',
+        geminiModel: 'gemini-2.5-flash',
+      },
+      llmTierLight: {
+        provider: 'gemini',
+        openaiBaseUrl: 'https://api.openai.com/v1',
+        openaiApiKey: '',
+        openaiModel: 'gpt-4o',
+        googleApiKey: 'g-light-key',
+        geminiModel: 'gemini-2.5-flash',
+      },
+    });
+
+    expect(process.env['LLM_ROUTING_ENABLED']).toBe('true');
+
+    // Heavy mirrors the flat OPENAI_* settings the user already supplied.
+    expect(process.env['LLM_TIER_HEAVY_PROVIDER']).toBe('openai');
+    expect(process.env['LLM_TIER_HEAVY_BASE_URL']).toBe('https://api.openai.com/v1');
+    expect(process.env['LLM_TIER_HEAVY_API_KEY']).toBe('sk-test');
+    expect(process.env['LLM_TIER_HEAVY_MODEL']).toBe('gpt-4o');
+
+    // Medium = its own openai-compat config.
+    expect(process.env['LLM_TIER_MEDIUM_PROVIDER']).toBe('openai');
+    expect(process.env['LLM_TIER_MEDIUM_BASE_URL']).toBe('https://medium.example.test/v1');
+    expect(process.env['LLM_TIER_MEDIUM_API_KEY']).toBe('medium-key');
+    expect(process.env['LLM_TIER_MEDIUM_MODEL']).toBe('medium-model');
+
+    // Light = gemini — provider gemini, gemini key, gemini model, gemini openai-compat URL.
+    expect(process.env['LLM_TIER_LIGHT_PROVIDER']).toBe('gemini');
+    expect(process.env['LLM_TIER_LIGHT_API_KEY']).toBe('g-light-key');
+    expect(process.env['LLM_TIER_LIGHT_MODEL']).toBe('gemini-2.5-flash');
+    expect(process.env['LLM_TIER_LIGHT_BASE_URL']).toBe(
+      'https://generativelanguage.googleapis.com/v1beta/openai/',
+    );
   });
 
   it('start() does NOT clobber pre-existing process.env values when AppSettings has empty strings', async () => {

@@ -4,6 +4,7 @@ import type {
   BackendMode,
   ComfyUIMode,
   LLMProvider,
+  LLMTierConfig,
   ThemeId,
 } from '../shared/settingsTypes';
 
@@ -16,6 +17,15 @@ const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o';
 const DEFAULT_OPENROUTER_MODEL = 'z-ai/glm-4.7-flash';
+
+const DEFAULT_TIER_CONFIG: LLMTierConfig = {
+  provider: 'openai',
+  openaiBaseUrl: DEFAULT_OPENAI_BASE_URL,
+  openaiApiKey: '',
+  openaiModel: DEFAULT_OPENAI_MODEL,
+  googleApiKey: '',
+  geminiModel: DEFAULT_GEMINI_MODEL,
+};
 
 const defaults: AppSettings = {
   backendMode: 'local',
@@ -36,6 +46,9 @@ const defaults: AppSettings = {
   themeId: DEFAULT_THEME_ID,
   piOversight: true,
   vlmJudge: true,
+  llmUseSameForAllTiers: true,
+  llmTierMedium: { ...DEFAULT_TIER_CONFIG },
+  llmTierLight: { ...DEFAULT_TIER_CONFIG },
 };
 
 const store = new Store<AppSettings>({
@@ -87,6 +100,20 @@ function normalizeLLMProvider(value: unknown): LLMProvider {
   }
 }
 
+function normalizeTierConfig(value: unknown): LLMTierConfig {
+  const v = (value as Partial<LLMTierConfig> | null | undefined) ?? {};
+  const provider: LLMTierConfig['provider'] =
+    v.provider === 'gemini' ? 'gemini' : 'openai';
+  return {
+    provider,
+    openaiBaseUrl: normalizeString(v.openaiBaseUrl, DEFAULT_OPENAI_BASE_URL),
+    openaiApiKey: normalizeString(v.openaiApiKey),
+    openaiModel: normalizeString(v.openaiModel, DEFAULT_OPENAI_MODEL),
+    googleApiKey: normalizeString(v.googleApiKey),
+    geminiModel: normalizeString(v.geminiModel, DEFAULT_GEMINI_MODEL),
+  };
+}
+
 function normalizeString(value: unknown, fallback = ''): string {
   if (typeof value !== 'string') {
     return fallback;
@@ -127,6 +154,14 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   // explicitly-off from missing.
   const piOversight = (value as { piOversight?: unknown } | null | undefined)?.piOversight === false ? false : true;
   const vlmJudge = (value as { vlmJudge?: unknown } | null | undefined)?.vlmJudge === false ? false : true;
+  // Tier defaults to true ("use same LLM for everything") so existing
+  // installs with a single Settings entry keep their pre-tier behavior.
+  const llmUseSameForAllTiers =
+    (value as { llmUseSameForAllTiers?: unknown } | null | undefined)?.llmUseSameForAllTiers === false
+      ? false
+      : true;
+  const llmTierMedium = normalizeTierConfig(value?.llmTierMedium);
+  const llmTierLight = normalizeTierConfig(value?.llmTierLight);
 
   // Backward compatibility:
   // - Missing mode + empty URL => inherit
@@ -159,6 +194,9 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     themeId,
     piOversight,
     vlmJudge,
+    llmUseSameForAllTiers,
+    llmTierMedium,
+    llmTierLight,
   };
 
   if (projectDir) {

@@ -18,7 +18,7 @@
  * `KshanaCoreEvent` stream the IPC bridge can re-publish over
  * `webContents.send`.
  */
-import type { AppSettings } from '../shared/settingsTypes';
+import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/kshanaIpc';
 import log from 'electron-log';
 import path from 'path';
@@ -299,6 +299,84 @@ function joinUrl(base: string, pathname: string): string {
   return `${base.replace(/\/$/, '')}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
+/**
+ * Clear all LLM routing/tier/purpose env vars before applying Settings.
+ *
+ * Why: kshana-core/.env can populate `LLM_ROUTING_ENABLED` and
+ * `LLM_TIER_*_*` (and per-purpose `LLM_PURPOSE__*`). When the desktop
+ * runs from a checkout, `import 'dotenv/config'` in kshana-core fires at
+ * package-import time — *before* `applyEnvFromSettings` runs — so those
+ * .env values land in process.env first. Without this clear, the
+ * LLMRouter and PiSessionAgent silently route every call through whatever
+ * the .env tier vars say, ignoring the Settings panel entirely.
+ *
+ * Settings is the canonical source: this function wipes any pre-existing
+ * tier env so the per-tier writer below sees a clean slate, and so the
+ * "useSameForAllTiers" path does not accidentally leave routing enabled.
+ */
+const GEMINI_OPENAI_COMPAT_BASE_URL =
+  'https://generativelanguage.googleapis.com/v1beta/openai/';
+
+/**
+ * The "primary" LLM section in Settings (flat openai/gemini fields)
+ * doubles as the Heavy tier when per-tier routing is on. Project this
+ * surface into a tier-shaped object so the writer below stays uniform.
+ */
+function tierConfigFromPrimarySettings(settings: AppSettings): LLMTierConfig {
+  return {
+    provider: settings.llmProvider === 'gemini' ? 'gemini' : 'openai',
+    openaiBaseUrl: settings.openaiBaseUrl,
+    openaiApiKey: settings.openaiApiKey,
+    openaiModel: settings.openaiModel,
+    googleApiKey: settings.googleApiKey,
+    geminiModel: settings.geminiModel,
+  };
+}
+
+/**
+ * Write one tier's config into `LLM_TIER_<TIER>_*` env vars.
+ *
+ * The shape is dictated by kshana-core/src/core/llm/router.ts
+ * (`readConfigFromEnv`): PROVIDER / API_KEY / MODEL / BASE_URL. For
+ * gemini we set BASE_URL to its OpenAI-compatible endpoint so the
+ * router can reuse the OpenAI client unchanged.
+ */
+function writeTierEnv(tier: 'HEAVY' | 'MEDIUM' | 'LIGHT', cfg: LLMTierConfig): void {
+  if (cfg.provider === 'gemini') {
+    process.env[`LLM_TIER_${tier}_PROVIDER`] = 'gemini';
+    process.env[`LLM_TIER_${tier}_BASE_URL`] = GEMINI_OPENAI_COMPAT_BASE_URL;
+    if (cfg.googleApiKey.trim()) {
+      process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.googleApiKey.trim();
+    }
+    if (cfg.geminiModel.trim()) {
+      process.env[`LLM_TIER_${tier}_MODEL`] = cfg.geminiModel.trim();
+    }
+    return;
+  }
+  process.env[`LLM_TIER_${tier}_PROVIDER`] = 'openai';
+  if (cfg.openaiBaseUrl.trim()) {
+    process.env[`LLM_TIER_${tier}_BASE_URL`] = cfg.openaiBaseUrl.trim();
+  }
+  if (cfg.openaiApiKey.trim()) {
+    process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.openaiApiKey.trim();
+  }
+  if (cfg.openaiModel.trim()) {
+    process.env[`LLM_TIER_${tier}_MODEL`] = cfg.openaiModel.trim();
+  }
+}
+
+function clearRoutingAndTierEnv(): void {
+  delete process.env.LLM_ROUTING_ENABLED;
+  for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
+    for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
+      delete process.env[`LLM_TIER_${tier}_${k}`];
+    }
+  }
+  for (const k of Object.keys(process.env)) {
+    if (k.startsWith('LLM_PURPOSE__')) delete process.env[k];
+  }
+}
+
 function clearCloudProxyEnv(): void {
   const wasUsingDesktopCloudProxy = process.env.KSHANA_CLOUD === 'true';
   delete process.env.KSHANA_CLOUD;
@@ -329,6 +407,7 @@ export function applyEnvFromSettings(
   };
 
   clearCloudProxyEnv();
+  clearRoutingAndTierEnv();
 
   const cloudToken = cloudAuth?.desktopToken.trim();
   const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
@@ -391,10 +470,33 @@ export function applyEnvFromSettings(
       break;
   }
 
+  // Per-tier routing: when the user opted out of the
+  // "use same LLM for everything" toggle, mirror the three tier
+  // configs into LLM_TIER_*_* env vars and flip on
+  // LLM_ROUTING_ENABLED. kshana-core's LLMRouter picks these up at
+  // construction time. Heavy = the flat OPENAI_*/GOOGLE_*/GEMINI_*
+  // fields the user already entered (so the primary section in the UI
+  // doubles as the heavy tier).
+  if (!settings.llmUseSameForAllTiers) {
+    process.env.LLM_ROUTING_ENABLED = 'true';
+    writeTierEnv('HEAVY', tierConfigFromPrimarySettings(settings));
+    writeTierEnv('MEDIUM', settings.llmTierMedium);
+    writeTierEnv('LIGHT', settings.llmTierLight);
+  }
+
   // NODE_ENV is set by the Electron build pipeline (webpack
   // DefinePlugin replaces process.env.NODE_ENV at compile time);
   // setting it at runtime is both redundant and triggers a terser
   // "Invalid assignment" because the LHS gets constant-folded.
+
+  log.info(
+    `[applyEnvFromSettings] LLM_PROVIDER=${process.env.LLM_PROVIDER} ` +
+      `OPENAI_BASE_URL=${process.env.OPENAI_BASE_URL ?? '(unset)'} ` +
+      `OPENAI_MODEL=${process.env.OPENAI_MODEL ?? '(unset)'} ` +
+      `GEMINI_MODEL=${process.env.GEMINI_MODEL ?? '(unset)'} ` +
+      `COMFY_MODE=${process.env.COMFY_MODE ?? '(unset)'} ` +
+      `COMFYUI_BASE_URL=${process.env.COMFYUI_BASE_URL ?? '(unset)'}`,
+  );
 }
 
 /**
