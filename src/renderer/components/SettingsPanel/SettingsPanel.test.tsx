@@ -109,14 +109,14 @@ describe('SettingsPanel', () => {
     });
 
     fireEvent.click(screen.getByText('Connection'));
-    // Two "Cloud" radios now (one per backend lane). Pick the LLM
-    // lane via its name attribute.
-    const llmCloudRadio = document.querySelector(
-      'input[name="llm-backend"][value="cloud"]',
+    // Each backend lane has its own checkbox now ("Use Kshana Cloud
+    // for LLM" / "Use Kshana Cloud for ComfyUI"). Click the LLM one.
+    const llmCloudCheckbox = screen.getByLabelText(
+      'Use Kshana Cloud for LLM',
     ) as HTMLInputElement;
-    expect(llmCloudRadio).toBeInTheDocument();
+    expect(llmCloudCheckbox).toBeInTheDocument();
     await act(async () => {
-      fireEvent.click(llmCloudRadio);
+      fireEvent.click(llmCloudCheckbox);
     });
 
     expect(
@@ -148,11 +148,11 @@ describe('SettingsPanel', () => {
     expect(
       screen.queryByText('Sign in to Kshana Cloud to switch to Cloud mode.'),
     ).not.toBeInTheDocument();
-    expect(llmCloudRadio.checked).toBe(true);
-    const comfyCloudRadio = document.querySelector(
-      'input[name="comfy-backend"][value="cloud"]',
+    expect(llmCloudCheckbox.checked).toBe(true);
+    const comfyCloudCheckbox = screen.getByLabelText(
+      'Use Kshana Cloud for ComfyUI',
     ) as HTMLInputElement;
-    expect(comfyCloudRadio.checked).toBe(true);
+    expect(comfyCloudCheckbox.checked).toBe(true);
   });
 
   it('shows ComfyUI and provider settings on the Connection tab', async () => {
@@ -217,6 +217,67 @@ describe('SettingsPanel', () => {
 
     expect(screen.getByText('Medium LLM')).toBeInTheDocument();
     expect(screen.getByText('Light LLM')).toBeInTheDocument();
+  });
+
+  it('hides ComfyUI URL inputs when "Use Kshana Cloud for ComfyUI" is on, reveals them when off', async () => {
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          settings={{ ...baseSettings, comfyBackend: 'cloud', backendMode: 'cloud' }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    fireEvent.click(screen.getByText('Connection'));
+
+    // Cloud on → ComfyUI URL / Comfy Cloud API Key are not in the DOM.
+    expect(screen.queryByLabelText('ComfyUI URL')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Comfy Cloud API Key')).not.toBeInTheDocument();
+    // The toggle itself is still there and checked.
+    const toggle = screen.getByLabelText(
+      'Use Kshana Cloud for ComfyUI',
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('hides ALL LLM provider inputs when "Use Kshana Cloud for LLM" is on', async () => {
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          settings={{ ...baseSettings, llmBackend: 'cloud', backendMode: 'cloud' }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    fireEvent.click(screen.getByText('Connection'));
+
+    // None of the LLM provider inputs should be in the DOM —
+    // not the Heavy fieldset, not Medium/Light tiers, not the
+    // "use same LLM" checkbox.
+    expect(screen.queryByText('Heavy LLM (primary)')).not.toBeInTheDocument();
+    expect(screen.queryByText('OpenAI-Compatible')).not.toBeInTheDocument();
+    expect(
+      screen.queryByText('Use this same LLM for medium and light tasks'),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Medium LLM')).not.toBeInTheDocument();
+    expect(screen.queryByText('Light LLM')).not.toBeInTheDocument();
+    // The toggle itself is still there and checked.
+    const toggle = screen.getByLabelText(
+      'Use Kshana Cloud for LLM',
+    ) as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
   });
 
   it('saves Medium tier edits through onSaveConnection when the toggle is off', async () => {

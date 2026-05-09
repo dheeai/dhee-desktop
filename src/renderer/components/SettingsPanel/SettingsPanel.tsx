@@ -830,75 +830,84 @@ export default function SettingsPanel({
                   </div>
                 </div>
 
-                <fieldset className={`${styles.fieldset} ${styles.modeFieldset}`}>
-                  <legend>ComfyUI Backend</legend>
+                <fieldset className={styles.fieldset}>
+                  <legend>ComfyUI</legend>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={isComfyCloudMode}
+                      onChange={(event) =>
+                        handleInput(
+                          'comfyBackend',
+                          event.target.checked ? 'cloud' : 'local',
+                        )
+                      }
+                    />
+                    Use Kshana Cloud for ComfyUI
+                  </label>
                   <p className={styles.infoText}>
-                    Where image / video jobs run. Cloud uses Kshana credits.
+                    {isComfyCloudMode
+                      ? 'Image / video jobs run on Kshana Cloud (uses credits).'
+                      : 'Image / video jobs run on the ComfyUI server below.'}
                   </p>
-                  <div
-                    className={styles.modeSwitch}
-                    role="radiogroup"
-                    aria-label="ComfyUI Backend"
-                  >
-                    <label className={styles.radioLabel}>
-                      <input
-                        type="radio"
-                        className={styles.radioInput}
-                        name="comfy-backend"
-                        value="local"
-                        checked={form.comfyBackend === 'local'}
-                        onChange={() => handleInput('comfyBackend', 'local')}
-                      />
-                      <span className={styles.modeOption}>Local</span>
-                    </label>
-                    <label className={styles.radioLabel}>
-                      <input
-                        type="radio"
-                        className={styles.radioInput}
-                        name="comfy-backend"
-                        value="cloud"
-                        checked={form.comfyBackend === 'cloud'}
-                        onChange={() => handleInput('comfyBackend', 'cloud')}
-                      />
-                      <span className={styles.modeOption}>Cloud</span>
-                    </label>
-                  </div>
+
+                  {!isComfyCloudMode && (
+                    <>
+                      <label className={styles.label}>
+                        ComfyUI URL
+                        <input
+                          type="url"
+                          className={styles.input}
+                          value={form.comfyuiUrl}
+                          onChange={(event) =>
+                            handleInput('comfyuiUrl', event.target.value)
+                          }
+                          placeholder="http://localhost:8000"
+                        />
+                      </label>
+
+                      <label className={styles.label}>
+                        Comfy Cloud API Key
+                        <input
+                          type="password"
+                          className={styles.input}
+                          value={form.comfyCloudApiKey}
+                          onChange={(event) =>
+                            handleInput('comfyCloudApiKey', event.target.value)
+                          }
+                          placeholder="Only used for https://cloud.comfy.org"
+                        />
+                      </label>
+                      <p className={styles.infoText}>
+                        This key is only used when the ComfyUI URL points to
+                        `https://cloud.comfy.org`. Local and self-hosted ComfyUI
+                        connections ignore it.
+                      </p>
+                    </>
+                  )}
                 </fieldset>
 
-                <fieldset className={`${styles.fieldset} ${styles.modeFieldset}`}>
-                  <legend>LLM Backend</legend>
+                <fieldset className={styles.fieldset}>
+                  <legend>LLM</legend>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={isLlmCloudMode}
+                      onChange={(event) =>
+                        handleInput(
+                          'llmBackend',
+                          event.target.checked ? 'cloud' : 'local',
+                        )
+                      }
+                    />
+                    Use Kshana Cloud for LLM
+                  </label>
                   <p className={styles.infoText}>
-                    Where chat / planning calls go. Independent of ComfyUI —
-                    you can mix (e.g. local LLM, cloud ComfyUI).
+                    {isLlmCloudMode
+                      ? 'Chat / planning calls go through the Kshana Cloud proxy (uses credits).'
+                      : 'Chat / planning calls go to the LLM provider configured below.'}
                   </p>
-                  <div
-                    className={styles.modeSwitch}
-                    role="radiogroup"
-                    aria-label="LLM Backend"
-                  >
-                    <label className={styles.radioLabel}>
-                      <input
-                        type="radio"
-                        className={styles.radioInput}
-                        name="llm-backend"
-                        value="local"
-                        checked={form.llmBackend === 'local'}
-                        onChange={() => handleInput('llmBackend', 'local')}
-                      />
-                      <span className={styles.modeOption}>Local</span>
-                    </label>
-                    <label className={styles.radioLabel}>
-                      <input
-                        type="radio"
-                        className={styles.radioInput}
-                        name="llm-backend"
-                        value="cloud"
-                        checked={form.llmBackend === 'cloud'}
-                        onChange={() => handleInput('llmBackend', 'cloud')}
-                      />
-                      <span className={styles.modeOption}>Cloud</span>
-                    </label>
-                  </div>
+
                   {cloudModeWarning ? (
                     <div className={styles.inlineSignIn}>
                       <p className={styles.warningText}>{cloudModeWarning}</p>
@@ -918,188 +927,146 @@ export default function SettingsPanel({
                       </button>
                     </div>
                   ) : null}
-                </fieldset>
 
-                <div
-                  className={`${styles.localSettings} ${
-                    isComfyCloudMode ? styles.localSettingsDisabled : ''
-                  }`}
-                >
-                  <label className={styles.label}>
-                    ComfyUI URL
-                    <input
-                      type="url"
-                      className={styles.input}
-                      value={form.comfyuiUrl}
-                      disabled={isComfyCloudMode}
-                      onChange={(event) =>
-                        handleInput('comfyuiUrl', event.target.value)
-                      }
-                      placeholder="http://localhost:8000"
-                    />
-                  </label>
-
-                  <label className={styles.label}>
-                    Comfy Cloud API Key
-                    <input
-                      type="password"
-                      className={styles.input}
-                      value={form.comfyCloudApiKey}
-                      disabled={isComfyCloudMode}
-                      onChange={(event) =>
-                        handleInput('comfyCloudApiKey', event.target.value)
-                      }
-                      placeholder="Only used for https://cloud.comfy.org"
-                    />
-                  </label>
-                  <p className={styles.infoText}>
-                    This key is only used when the ComfyUI URL points to
-                    `https://cloud.comfy.org`. Local and self-hosted ComfyUI
-                    connections ignore it.
-                  </p>
-
-                  <fieldset className={styles.fieldset} disabled={isLlmCloudMode}>
-                    <legend>Heavy LLM (primary)</legend>
-                    <p className={styles.infoText}>
-                      Used for long-form creative work: story, scenes, shot
-                      prompts, motion directives — and the pi-agent
-                      orchestrator.
-                    </p>
-                    <div className={styles.radios}>
-                      {renderProviderToggle('gemini', 'Gemini')}
-                      {renderProviderToggle('openai', 'OpenAI-Compatible')}
-                    </div>
-                  </fieldset>
-
-                  {form.llmProvider === 'gemini' && (
+                  {!isLlmCloudMode && (
                     <>
-                      <label className={styles.label}>
-                        Google API Key
-                        <input
-                          type="password"
-                          className={styles.input}
-                          value={form.googleApiKey}
-                          disabled={isLlmCloudMode}
-                          onChange={(event) =>
-                            handleInput('googleApiKey', event.target.value)
-                          }
-                          placeholder="AIza..."
-                        />
-                      </label>
-
-                      <label className={styles.label}>
-                        Gemini Model ID
-                        <input
-                          type="text"
-                          className={styles.input}
-                          value={form.geminiModel}
-                          disabled={isLlmCloudMode}
-                          onChange={(event) =>
-                            handleInput('geminiModel', event.target.value)
-                          }
-                          placeholder="gemini-2.5-flash"
-                        />
-                      </label>
-                    </>
-                  )}
-
-                  {form.llmProvider === 'openai' && (
-                    <>
-                      <div className={styles.label}>
-                        <div className={styles.labelRow}>
-                          <span>Base URL</span>
-                          <button
-                            type="button"
-                            className={styles.inlineButton}
-                            disabled={isLlmCloudMode}
-                            onClick={() =>
-                              handleInput(
-                                'openaiBaseUrl',
-                                emptySettings.openaiBaseUrl,
-                              )
-                            }
-                          >
-                            Use default OpenAI URL
-                          </button>
+                      <fieldset className={styles.fieldset}>
+                        <legend>Heavy LLM (primary)</legend>
+                        <p className={styles.infoText}>
+                          Used for long-form creative work: story, scenes, shot
+                          prompts, motion directives — and the pi-agent
+                          orchestrator.
+                        </p>
+                        <div className={styles.radios}>
+                          {renderProviderToggle('gemini', 'Gemini')}
+                          {renderProviderToggle('openai', 'OpenAI-Compatible')}
                         </div>
-                        <input
-                          type="url"
-                          className={styles.input}
-                          value={form.openaiBaseUrl}
-                          disabled={isLlmCloudMode}
-                          onChange={(event) =>
-                            handleInput('openaiBaseUrl', event.target.value)
-                          }
-                          placeholder="https://api.openai.com/v1"
-                          aria-label="Base URL"
-                        />
-                      </div>
+                      </fieldset>
 
-                      <label className={styles.label}>
-                        Model ID
-                        <input
-                          type="text"
-                          className={styles.input}
-                          value={form.openaiModel}
-                          disabled={isLlmCloudMode}
-                          onChange={(event) =>
-                            handleInput('openaiModel', event.target.value)
-                          }
-                          placeholder="gpt-4o"
-                        />
-                      </label>
+                      {form.llmProvider === 'gemini' && (
+                        <>
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.googleApiKey}
+                              onChange={(event) =>
+                                handleInput('googleApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
+                            />
+                          </label>
 
-                      <label className={styles.label}>
-                        API Key
+                          <label className={styles.label}>
+                            Gemini Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.geminiModel}
+                              onChange={(event) =>
+                                handleInput('geminiModel', event.target.value)
+                              }
+                              placeholder="gemini-2.5-flash"
+                            />
+                          </label>
+                        </>
+                      )}
+
+                      {form.llmProvider === 'openai' && (
+                        <>
+                          <div className={styles.label}>
+                            <div className={styles.labelRow}>
+                              <span>Base URL</span>
+                              <button
+                                type="button"
+                                className={styles.inlineButton}
+                                onClick={() =>
+                                  handleInput(
+                                    'openaiBaseUrl',
+                                    emptySettings.openaiBaseUrl,
+                                  )
+                                }
+                              >
+                                Use default OpenAI URL
+                              </button>
+                            </div>
+                            <input
+                              type="url"
+                              className={styles.input}
+                              value={form.openaiBaseUrl}
+                              onChange={(event) =>
+                                handleInput('openaiBaseUrl', event.target.value)
+                              }
+                              placeholder="https://api.openai.com/v1"
+                              aria-label="Base URL"
+                            />
+                          </div>
+
+                          <label className={styles.label}>
+                            Model ID
+                            <input
+                              type="text"
+                              className={styles.input}
+                              value={form.openaiModel}
+                              onChange={(event) =>
+                                handleInput('openaiModel', event.target.value)
+                              }
+                              placeholder="gpt-4o"
+                            />
+                          </label>
+
+                          <label className={styles.label}>
+                            API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.openaiApiKey}
+                              onChange={(event) =>
+                                handleInput('openaiApiKey', event.target.value)
+                              }
+                              placeholder="sk-..."
+                            />
+                          </label>
+                        </>
+                      )}
+
+                      <label className={styles.checkboxLabel}>
                         <input
-                          type="password"
-                          className={styles.input}
-                          value={form.openaiApiKey}
-                          disabled={isLlmCloudMode}
+                          type="checkbox"
+                          checked={form.llmUseSameForAllTiers}
                           onChange={(event) =>
-                            handleInput('openaiApiKey', event.target.value)
+                            setForm((prev) => ({
+                              ...prev,
+                              llmUseSameForAllTiers: event.target.checked,
+                            }))
                           }
-                          placeholder="sk-..."
                         />
+                        Use this same LLM for medium and light tasks
                       </label>
+                      <p className={styles.infoText}>
+                        Uncheck to send structured/utility calls to a cheaper or
+                        faster model. The Heavy LLM above is always used for
+                        creative prose and the pi-agent.
+                      </p>
+
+                      {!form.llmUseSameForAllTiers && (
+                        <>
+                          {renderTierSection(
+                            'llmTierMedium',
+                            'Medium LLM',
+                            'Used for structured JSON: scene breakdowns, prompt refinement, workflow analysis, classification.',
+                          )}
+                          {renderTierSection(
+                            'llmTierLight',
+                            'Light LLM',
+                            'Used for cheap utility checks: continuity, image review, JSON repair, prompt evaluation.',
+                          )}
+                        </>
+                      )}
                     </>
                   )}
-
-                  <label className={styles.checkboxLabel}>
-                    <input
-                      type="checkbox"
-                      checked={form.llmUseSameForAllTiers}
-                      disabled={isLlmCloudMode}
-                      onChange={(event) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          llmUseSameForAllTiers: event.target.checked,
-                        }))
-                      }
-                    />
-                    Use this same LLM for medium and light tasks
-                  </label>
-                  <p className={styles.infoText}>
-                    Uncheck to send structured/utility calls to a cheaper or
-                    faster model. The Heavy LLM above is always used for
-                    creative prose and the pi-agent.
-                  </p>
-
-                  {!form.llmUseSameForAllTiers && (
-                    <>
-                      {renderTierSection(
-                        'llmTierMedium',
-                        'Medium LLM',
-                        'Used for structured JSON: scene breakdowns, prompt refinement, workflow analysis, classification.',
-                      )}
-                      {renderTierSection(
-                        'llmTierLight',
-                        'Light LLM',
-                        'Used for cheap utility checks: continuity, image review, JSON repair, prompt evaluation.',
-                      )}
-                    </>
-                  )}
-                </div>
+                </fieldset>
 
                 {error && <div className={styles.error}>{error}</div>}
               </>
