@@ -3664,7 +3664,10 @@ async function validateStoredDesktopAccountOnStartup(): Promise<void> {
     return;
   }
 
-  updateSettings({ backendMode: 'cloud' });
+  // Don't force backendMode='cloud' here — that would override the
+  // user's persisted choice on every restart. Sign-in deep-link sets
+  // cloud once on first sign-in; if the user later flips to local in
+  // Settings, that choice should survive subsequent launches.
   const result = await refreshBalance(await resolveKshanaWebsiteUrl());
   if (result.status === 'expired') {
     updateSettings({ backendMode: 'local' });
@@ -3693,7 +3696,10 @@ function restoreStoredDesktopAccountBeforeBackend(): void {
     return;
   }
 
-  updateSettings({ backendMode: 'cloud' });
+  // Don't force backendMode here — see validateStoredDesktopAccountOnStartup.
+  // The persisted setting is the authoritative source; sign-in flips to
+  // cloud on first sign-in (handleDeepLink) and the user can override
+  // it from the Settings panel.
   lastAccountAuthStatus = 'idle';
 }
 
