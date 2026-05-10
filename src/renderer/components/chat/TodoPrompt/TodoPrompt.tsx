@@ -3,7 +3,7 @@ import { ChevronDown, ChevronUp, ListTodo, LoaderCircle } from 'lucide-react';
 import type { TodoItem, TodoStatus } from '../TodoDisplay';
 import styles from './TodoPrompt.module.scss';
 
-interface TodoPromptProps {
+export interface TodoPromptProps {
   todos: TodoItem[];
   isRunning?: boolean;
 }

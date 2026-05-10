@@ -1,3 +1,4 @@
+/* eslint-disable compat/compat, no-restricted-syntax, no-await-in-loop, no-promise-executor-return, promise/param-names */
 /**
  * Kill any prior `pnpm start` / `npm start` instances of THIS project
  * before launching a fresh dev session. Stacking instances was making
@@ -139,8 +140,7 @@ async function main() {
 
   const procs = listProcesses();
   const stale = procs.filter(
-    (p) =>
-      !protectedPids.has(p.pid) && isStaleCommand(p.command, projectRoot),
+    (p) => !protectedPids.has(p.pid) && isStaleCommand(p.command, projectRoot),
   );
 
   if (stale.length === 0) return;

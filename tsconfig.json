@@ -16,5 +16,12 @@
     "outDir": ".erb/dll",
     "types": ["node"]
   },
-  "exclude": ["test", "tests", "release/build", "release/app/dist", ".erb/dll"]
+  "exclude": [
+    "test",
+    "tests",
+    "release/build",
+    "release/app/dist",
+    ".erb/dll",
+    "assets/remotion-infographics-template"
+  ]
 }

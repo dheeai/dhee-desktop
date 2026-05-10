@@ -10,7 +10,7 @@ import type {
   RemotionJob,
   RemotionProgress,
   RemotionTimelineItem,
-} from '../shared/remotionTypes';
+} from '../../shared/remotionTypes.js';
 
 export function useRemotionRender() {
   const { projectDirectory } = useWorkspace();
@@ -65,7 +65,9 @@ export function useRemotionRender() {
     const unsubscribe = window.electron.remotion.onProgress((p) => {
       setProgress(p);
     });
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
@@ -108,7 +110,9 @@ export function useRemotionRender() {
         }
       },
     );
-    return unsubscribe;
+    return () => {
+      unsubscribe();
+    };
   }, [
     projectDirectory,
     addAsset,

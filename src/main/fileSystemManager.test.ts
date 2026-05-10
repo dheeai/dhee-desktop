@@ -21,9 +21,14 @@ jest.mock('electron-store', () => {
   };
 });
 
-const loadManager = async () => {
-  const module = await import('./fileSystemManager');
-  return module.default;
+const loadManager = async (): Promise<
+  import('./fileSystemManager.js').FileSystemManager
+> => {
+  const mod = await import('./fileSystemManager.js');
+  // NodeNext + a CJS `export default new X()` re-exports the whole
+  // module namespace as `default` — cast through unknown so the test
+  // can use the real instance interface without a sea of `any`s.
+  return mod.default as unknown as import('./fileSystemManager.js').FileSystemManager;
 };
 
 describe('fileSystemManager project mutations', () => {

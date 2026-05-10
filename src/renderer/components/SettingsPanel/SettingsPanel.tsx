@@ -1118,24 +1118,11 @@ export default function SettingsPanel({
                   </div>
 
                   {isVlmCloudMode ? (
-                    <>
-                      <p className={styles.infoText}>
-                        VLM routes through the Kshana Cloud proxy (uses the
-                        desktop token). Only the model id is read here.
-                      </p>
-                      <label className={styles.label}>
-                        VLM Model ID
-                        <input
-                          type="text"
-                          className={styles.input}
-                          value={form.vlmModel}
-                          onChange={(event) =>
-                            handleInput('vlmModel', event.target.value)
-                          }
-                          placeholder="anthropic/claude-opus-4.6-fast"
-                        />
-                      </label>
-                    </>
+                    <p className={styles.infoText}>
+                      VLM routes through the Kshana Cloud proxy (uses the
+                      desktop token). Model selection is managed by the
+                      cloud — no configuration needed.
+                    </p>
                   ) : (
                     <>
                       <div className={styles.radios}>

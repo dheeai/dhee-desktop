@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax, no-await-in-loop */
 const fs = require('fs');
 const path = require('path');
 
@@ -71,7 +72,9 @@ function isBrokenWhisperRuntimeError(error) {
 
 function isMissingContentLengthError(error) {
   if (!(error instanceof Error)) return false;
-  return error.message.toLowerCase().includes('content-length header not found');
+  return error.message
+    .toLowerCase()
+    .includes('content-length header not found');
 }
 
 async function validateOrDownloadModel(whisper) {

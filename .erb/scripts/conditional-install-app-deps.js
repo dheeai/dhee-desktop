@@ -5,11 +5,10 @@ const { execSync } = require('child_process');
 function syncAppPackageJson(mainPackageJson, existingAppPackageJson = {}) {
   const appPackageJson = {
     ...existingAppPackageJson,
-    name: existingAppPackageJson.name || mainPackageJson.name || 'kshana-desktop',
+    name:
+      existingAppPackageJson.name || mainPackageJson.name || 'kshana-desktop',
     version:
-      mainPackageJson.version ||
-      existingAppPackageJson.version ||
-      '1.0.0',
+      mainPackageJson.version || existingAppPackageJson.version || '1.0.0',
     description:
       existingAppPackageJson.description || mainPackageJson.description || '',
     main: existingAppPackageJson.main || './dist/main/main.js',

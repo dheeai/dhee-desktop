@@ -1,7 +1,5 @@
 const { describe, expect, it } = require('@jest/globals');
-const {
-  syncAppPackageJson,
-} = require('./conditional-install-app-deps');
+const { syncAppPackageJson } = require('./conditional-install-app-deps');
 
 describe('conditional-install-app-deps syncAppPackageJson', () => {
   it('always mirrors root package version into release/app package', () => {

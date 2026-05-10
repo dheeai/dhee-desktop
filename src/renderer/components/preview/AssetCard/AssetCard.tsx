@@ -1,5 +1,11 @@
 /* eslint-disable react/require-default-props */
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  type ReactNode,
+} from 'react';
 import {
   User,
   MapPin,
@@ -185,19 +191,19 @@ export default function AssetCard({
               ) : (
                 <ReactMarkdown
                   components={{
-                    p: ({ children }) => (
+                    p: ({ children }: { children?: ReactNode }) => (
                       <span className={styles.markdownText}>{children}</span>
                     ),
-                    strong: ({ children }) => (
+                    strong: ({ children }: { children?: ReactNode }) => (
                       <span className={styles.boldText}>{children}</span>
                     ),
-                    em: ({ children }) => (
+                    em: ({ children }: { children?: ReactNode }) => (
                       <span className={styles.italicText}>{children}</span>
                     ),
-                    li: ({ children }) => (
+                    li: ({ children }: { children?: ReactNode }) => (
                       <div className={styles.listItem}>{children}</div>
                     ),
-                    ul: ({ children }) => (
+                    ul: ({ children }: { children?: ReactNode }) => (
                       <div className={styles.listContainer}>{children}</div>
                     ),
                   }}

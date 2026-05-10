@@ -513,9 +513,11 @@ export function applyEnvFromSettings(
       process.env.VLM_PROVIDER = 'openai';
       process.env.VLM_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
       process.env.VLM_API_KEY = cloudToken!;
-      // Default to a vision-capable model name; user can override in
-      // Settings if the proxy whitelists a different vision model.
-      process.env.VLM_MODEL = settings.vlmModel.trim() || 'gpt-4o';
+      // Cloud mode: model selection is owned by the cloud proxy. The
+      // Settings UI no longer exposes a VLM Model ID field in cloud
+      // mode, so we send a vision-capable default and let the proxy
+      // map / override it.
+      process.env.VLM_MODEL = 'gpt-4o';
     } else if (settings.vlmProvider === 'gemini') {
       process.env.VLM_PROVIDER = 'gemini';
       setIfPresent('VLM_API_KEY', settings.vlmApiKey);
