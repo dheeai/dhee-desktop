@@ -45,6 +45,11 @@ interface Focus {
   lurking?: string | null;
 }
 
+interface FirstFrameAnchor {
+  reason: 'fresh' | 'continuity' | 'view_reuse';
+  sourceShotNumber?: number;
+}
+
 interface Shot {
   shotNumber?: number;
   purpose?: string;
@@ -60,6 +65,10 @@ interface Shot {
   characters?: string[];
   setting?: string | null;
   shotType?: string;
+  // First-frame visual-continuity anchor (kshana-core feat/hierarchical-
+  // shot-breakdown). Tells the image-edit pipeline whether this shot
+  // chains on a prior frame or starts fresh.
+  firstFrameAnchor?: FirstFrameAnchor | null;
 }
 
 interface ScenePlan {
@@ -201,7 +210,32 @@ function renderShotSection(shot: Shot, opts: { headingLevel: '##' | '###' }): st
     lines.push('', `_Transition: ${shot.transition}_`);
   }
 
+  const anchorLine = formatFirstFrameAnchor(shot.firstFrameAnchor);
+  if (anchorLine) {
+    lines.push('', anchorLine);
+  }
+
   return lines.join('\n');
+}
+
+/**
+ * Render the firstFrameAnchor as a short italic line: tells the
+ * reader (or the writer eyeballing the breakdown) which prior frame
+ * this shot's first frame chains on. Returns null when no anchor is
+ * present (legacy projects predating the visual-continuity work).
+ */
+function formatFirstFrameAnchor(anchor: FirstFrameAnchor | null | undefined): string | null {
+  if (!anchor) return null;
+  if (anchor.reason === 'fresh') {
+    return '_First frame: fresh (no prior chain)_';
+  }
+  if (anchor.reason === 'continuity' && typeof anchor.sourceShotNumber === 'number') {
+    return `_First frame: chains on Shot ${anchor.sourceShotNumber}'s last frame (continuity)_`;
+  }
+  if (anchor.reason === 'view_reuse' && typeof anchor.sourceShotNumber === 'number') {
+    return `_First frame: returns to Shot ${anchor.sourceShotNumber}'s view (reused)_`;
+  }
+  return null;
 }
 
 // ─── shape renderers ─────────────────────────────────────────────────────

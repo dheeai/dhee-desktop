@@ -227,6 +227,99 @@ describe('renderBreakdownAsMarkdown — assembled scene shape', () => {
   });
 });
 
+describe('renderBreakdownAsMarkdown — firstFrameAnchor surfacing', () => {
+  // The visual-continuity anchor is written by kshana-core's
+  // sceneVideoPromptAssembler. It tells the user (and the image-edit
+  // pipeline) whether this shot's first frame chains on a prior
+  // shot's last frame. Surface it on every shot's markdown card so
+  // the writer can see the chain at a glance.
+
+  it("renders 'chains on Shot N (continuity)' for continuity anchors", () => {
+    const shot = {
+      shotNumber: 2,
+      purpose: 'show_action',
+      duration: 3,
+      description: 'Parvati pushes open the door.',
+      cameraWork: 'medium, side angle',
+      perspective: 'main_subject',
+      transition: 'cut',
+      firstFrameAnchor: { reason: 'continuity', sourceShotNumber: 1 },
+    };
+    const md = renderBreakdownAsMarkdown(JSON.stringify(shot));
+    expect(md).toContain("_First frame: chains on Shot 1's last frame (continuity)_");
+  });
+
+  it("renders 'returns to Shot N (reused)' for view_reuse anchors", () => {
+    const shot = {
+      shotNumber: 5,
+      purpose: 'show_action',
+      duration: 3,
+      description: 'Cut back to the wide.',
+      cameraWork: 'wide establishing',
+      perspective: 'main_subject',
+      transition: 'cut',
+      firstFrameAnchor: { reason: 'view_reuse', sourceShotNumber: 2 },
+    };
+    const md = renderBreakdownAsMarkdown(JSON.stringify(shot));
+    expect(md).toContain("_First frame: returns to Shot 2's view (reused)_");
+  });
+
+  it("renders 'fresh (no prior chain)' for fresh anchors", () => {
+    const shot = {
+      shotNumber: 1,
+      purpose: 'meet_character',
+      duration: 4,
+      description: 'Open on Parvati at the gate.',
+      cameraWork: 'medium, low angle',
+      perspective: 'main_subject',
+      transition: 'fade',
+      firstFrameAnchor: { reason: 'fresh' },
+    };
+    const md = renderBreakdownAsMarkdown(JSON.stringify(shot));
+    expect(md).toContain('_First frame: fresh (no prior chain)_');
+  });
+
+  it('legacy shots (no firstFrameAnchor field) get no anchor line', () => {
+    const shot = {
+      shotNumber: 1,
+      purpose: 'show_action',
+      duration: 4,
+      description: 'Some action.',
+      cameraWork: 'medium',
+      perspective: 'main_subject',
+      transition: 'cut',
+    };
+    const md = renderBreakdownAsMarkdown(JSON.stringify(shot));
+    expect(md).not.toContain('First frame:');
+  });
+
+  it('assembled scene shows per-shot anchors inline', () => {
+    const scene = {
+      sceneNumber: 1,
+      sceneTitle: 'Test',
+      totalDuration: 7,
+      mainSubject: 'parvati',
+      shots: [
+        {
+          shotNumber: 1, purpose: 'meet_character', duration: 4,
+          description: 'Open.', cameraWork: 'wide', perspective: 'main_subject',
+          transition: 'fade',
+          firstFrameAnchor: { reason: 'fresh' },
+        },
+        {
+          shotNumber: 2, purpose: 'show_action', duration: 3,
+          description: 'Continuation.', cameraWork: 'medium',
+          perspective: 'main_subject', transition: 'cut',
+          firstFrameAnchor: { reason: 'continuity', sourceShotNumber: 1 },
+        },
+      ],
+    };
+    const md = renderBreakdownAsMarkdown(JSON.stringify(scene));
+    expect(md).toContain('_First frame: fresh (no prior chain)_');
+    expect(md).toContain("_First frame: chains on Shot 1's last frame (continuity)_");
+  });
+});
+
 describe('renderBreakdownAsMarkdown — error paths', () => {
   it('wraps unparseable JSON in a fenced block with a warning', () => {
     const md = renderBreakdownAsMarkdown('{not valid json');
