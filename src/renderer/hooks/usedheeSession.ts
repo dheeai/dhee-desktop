@@ -1,7 +1,7 @@
 /**
- * `useKshanaSession` — React hook giving components a clean interface
- * to the embedded kshana-ink ConversationManager via the
- * `window.kshana.*` IPC bridge.
+ * `usedheeSession` — React hook giving components a clean interface
+ * to the embedded dhee-ink ConversationManager via the
+ * `window.dhee.*` IPC bridge.
  *
  * Replaces the old WebSocket-based plumbing that ChatPanel and
  * ProjectContext currently use. The renderer's message-handling logic
@@ -12,9 +12,9 @@
  *   - Creates a session on mount; cleans up on unmount.
  *   - Tracks `status` ('idle' | 'running' | 'error') so consumers can
  *     show busy state without driving their own state.
- *   - Returns typed helpers that delegate to `window.kshana.*` —
+ *   - Returns typed helpers that delegate to `window.dhee.*` —
  *     no boilerplate per call site.
- *   - `subscribe(eventName, cb)` is a passthrough to `window.kshana.on`
+ *   - `subscribe(eventName, cb)` is a passthrough to `window.dhee.on`
  *     (returns the unsubscribe function). Components that want their
  *     own subscription lifetimes can use it directly.
  */
@@ -22,15 +22,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
   ConfigureProjectRequest,
   HistorySnapshot,
-  KshanaEvent,
-  KshanaEventName,
+  dheeEvent,
+  dheeEventName,
   RunTaskRequest,
   RedoNodeRequest,
-} from '../../shared/kshanaIpc';
+} from '../../shared/dheeIpc';
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'connecting';
 
-const RESUME_SESSION_KEY = 'kshana.sessionId';
+const RESUME_SESSION_KEY = 'dhee.sessionId';
 
 function readStoredSessionId(): string | null {
   try {
@@ -54,7 +54,7 @@ type RunTaskOpts = Omit<RunTaskRequest, 'sessionId' | 'task'>;
 type RedoNodeOpts = Omit<RedoNodeRequest, 'sessionId' | 'nodeId'>;
 type ConfigureProjectOpts = Omit<ConfigureProjectRequest, 'sessionId'>;
 
-export interface KshanaSessionApi {
+export interface dheeSessionApi {
   sessionId: string | null;
   status: SessionStatus;
   /** Most recent error message from runTask, or null. */
@@ -109,19 +109,19 @@ export interface KshanaSessionApi {
   }>;
 
   /**
-   * Subscribe to streaming events from kshana-ink. `eventName` is
-   * either a specific KshanaEventName or '*' for all events.
+   * Subscribe to streaming events from dhee-ink. `eventName` is
+   * either a specific dheeEventName or '*' for all events.
    * Returns an unsubscribe function — call it on component unmount
    * (or rely on the hook's own cleanup, which doesn't track external
    * subscriptions).
    */
   subscribe: (
-    eventName: KshanaEventName | '*',
-    cb: (event: KshanaEvent) => void,
+    eventName: dheeEventName | '*',
+    cb: (event: dheeEvent) => void,
   ) => () => void;
 }
 
-export function useKshanaSession(): KshanaSessionApi {
+export function usedheeSession(): dheeSessionApi {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<SessionStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
@@ -133,7 +133,7 @@ export function useKshanaSession(): KshanaSessionApi {
   sessionIdRef.current = sessionId;
 
   // Create a session on mount. Hard-coded to the 'interactive' role
-  // so long-running pipeline tools (kshana_run_to / render_scene_bundle
+  // so long-running pipeline tools (dhee_run_to / render_scene_bundle
   // / audit_fidelity) are stripped from this session's tool list —
   // they belong to a dedicated background session that ChatPanelEmbedded
   // creates lazily when the user clicks Resume.
@@ -145,7 +145,7 @@ export function useKshanaSession(): KshanaSessionApi {
   useEffect(() => {
     let cancelled = false;
     const stored = readStoredSessionId();
-    window.kshana
+    window.dhee
       .createSession({
         role: 'interactive',
         ...(stored ? { resumeSessionId: stored } : {}),
@@ -172,25 +172,25 @@ export function useKshanaSession(): KshanaSessionApi {
       cancelled = true;
       // NOTE: deliberately not deleting the session on unmount any
       // more. Pre-persistence we tore down to avoid stale state in
-      // ConversationManager; now the kshana-core session is the
+      // ConversationManager; now the dhee-core session is the
       // user's chat history, so we leave it alive. ConversationManager
       // still reaps it after its own idle timeout, and the JSONL on
       // disk is what matters for the next launch's resume.
     };
   }, []);
 
-  const consumeHistory = useCallback<KshanaSessionApi['consumeHistory']>(() => {
+  const consumeHistory = useCallback<dheeSessionApi['consumeHistory']>(() => {
     const snap = history;
     if (snap) setHistory(null);
     return snap;
   }, [history]);
 
-  const clearChatHistory = useCallback<KshanaSessionApi['clearChatHistory']>(
+  const clearChatHistory = useCallback<dheeSessionApi['clearChatHistory']>(
     async () => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
       try {
-        const resp = await window.kshana.clearChatHistory({
+        const resp = await window.dhee.clearChatHistory({
           sessionId: id,
           role: 'interactive',
         });
@@ -209,7 +209,7 @@ export function useKshanaSession(): KshanaSessionApi {
     [],
   );
 
-  const runTask = useCallback<KshanaSessionApi['runTask']>(
+  const runTask = useCallback<dheeSessionApi['runTask']>(
     async (task, opts) => {
       const id = sessionIdRef.current;
       if (!id) {
@@ -219,7 +219,7 @@ export function useKshanaSession(): KshanaSessionApi {
       setError(null);
       const req: RunTaskRequest = { sessionId: id, task, ...(opts ?? {}) };
       try {
-        const result = await window.kshana.runTask(req);
+        const result = await window.dhee.runTask(req);
         if (result.ok) {
           setStatus('idle');
         } else {
@@ -240,32 +240,32 @@ export function useKshanaSession(): KshanaSessionApi {
   const cancel = useCallback(async () => {
     const id = sessionIdRef.current;
     if (!id) return { cancelled: false };
-    return window.kshana.cancelTask({ sessionId: id });
+    return window.dhee.cancelTask({ sessionId: id });
   }, []);
 
-  const redoNode = useCallback<KshanaSessionApi['redoNode']>(
+  const redoNode = useCallback<dheeSessionApi['redoNode']>(
     async (nodeId, opts) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.redoNode({ sessionId: id, nodeId, ...(opts ?? {}) });
+      return window.dhee.redoNode({ sessionId: id, nodeId, ...(opts ?? {}) });
     },
     [],
   );
 
-  const configureProject = useCallback<KshanaSessionApi['configureProject']>(
+  const configureProject = useCallback<dheeSessionApi['configureProject']>(
     async (opts) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.configureProject({ sessionId: id, ...opts });
+      return window.dhee.configureProject({ sessionId: id, ...opts });
     },
     [],
   );
 
-  const focusProject = useCallback<KshanaSessionApi['focusProject']>(
+  const focusProject = useCallback<dheeSessionApi['focusProject']>(
     async (projectName, projectDir) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.focusProject({
+      return window.dhee.focusProject({
         sessionId: id,
         projectName,
         ...(projectDir ? { projectDir } : {}),
@@ -274,21 +274,21 @@ export function useKshanaSession(): KshanaSessionApi {
     [],
   );
 
-  const setAutonomous = useCallback<KshanaSessionApi['setAutonomous']>(
+  const setAutonomous = useCallback<dheeSessionApi['setAutonomous']>(
     async (enabled) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.setAutonomous({ sessionId: id, enabled });
+      return window.dhee.setAutonomous({ sessionId: id, enabled });
     },
     [],
   );
 
 
-  const sendResponse = useCallback<KshanaSessionApi['sendResponse']>(
+  const sendResponse = useCallback<dheeSessionApi['sendResponse']>(
     async (response, toolCallId) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.sendResponse({
+      return window.dhee.sendResponse({
         sessionId: id,
         response,
         ...(toolCallId ? { toolCallId } : {}),
@@ -297,17 +297,17 @@ export function useKshanaSession(): KshanaSessionApi {
     [],
   );
 
-  const invalidateNodes = useCallback<KshanaSessionApi['invalidateNodes']>(
+  const invalidateNodes = useCallback<dheeSessionApi['invalidateNodes']>(
     async (nodeIds) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'Session not yet created' };
-      return window.kshana.invalidateNodes({ sessionId: id, nodeIds });
+      return window.dhee.invalidateNodes({ sessionId: id, nodeIds });
     },
     [],
   );
 
-  const subscribe = useCallback<KshanaSessionApi['subscribe']>(
-    (eventName, cb) => window.kshana.on(eventName, cb),
+  const subscribe = useCallback<dheeSessionApi['subscribe']>(
+    (eventName, cb) => window.dhee.on(eventName, cb),
     [],
   );
 

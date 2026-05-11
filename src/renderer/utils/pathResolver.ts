@@ -231,17 +231,17 @@ export async function resolveAssetPathForDisplay(
       cleanedPath = cleanedPath.slice('agent/'.length);
     }
     // Strip directory-traversal segments sometimes emitted by backend
-    // e.g., agent/../../other/.kshana/agent/image-placements/img.png -> agent/image-placements/img.png
+    // e.g., agent/../../other/.dhee/agent/image-placements/img.png -> agent/image-placements/img.png
     if (cleanedPath.includes('../')) {
-      const marker = '.kshana/agent/';
+      const marker = '.dhee/agent/';
       const lastIdx = cleanedPath.lastIndexOf(marker);
       if (lastIdx !== -1) {
         cleanedPath = 'agent/' + cleanedPath.slice(lastIdx + marker.length);
       }
     }
 
-    // Handle paths that already start with .kshana
-    if (cleanedPath.startsWith('.kshana/')) {
+    // Handle paths that already start with .dhee
+    if (cleanedPath.startsWith('.dhee/')) {
       const result = toFileUrl(`${normalizedProjectDir}/${cleanedPath}`);
       pathCache.set(cacheKey, { resolved: result, timestamp: Date.now() });
       return result;
@@ -260,7 +260,7 @@ export async function resolveAssetPathForDisplay(
 
     // Legacy agent-prefixed paths are still resolved for compatibility.
     if (cleanedPath.startsWith('agent/')) {
-      const result = toFileUrl(`${normalizedProjectDir}/.kshana/${cleanedPath}`);
+      const result = toFileUrl(`${normalizedProjectDir}/.dhee/${cleanedPath}`);
       pathCache.set(cacheKey, { resolved: result, timestamp: Date.now() });
       return result;
     }

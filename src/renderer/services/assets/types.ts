@@ -1,4 +1,4 @@
-import type { AssetInfo } from '../../types/kshana/assetManifest';
+import type { AssetInfo } from '../../types/dhee/assetManifest';
 
 export type ImageSyncTriggerSource =
   | 'ws_asset'

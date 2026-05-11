@@ -1,5 +1,5 @@
 name: Release
-# Injects assets/runtime-config.json with the public Kshana website URL.
+# Injects assets/runtime-config.json with the public dhee website URL.
 
 on:
   push:
@@ -13,14 +13,14 @@ jobs:
       contents: write
 
     steps:
-      - name: Checkout kshana-desktop
+      - name: Checkout dhee-desktop
         uses: actions/checkout@v4
 
-      - name: Checkout kshana-core
+      - name: Checkout dhee-core
         uses: actions/checkout@v4
         with:
-          repository: anveshane/kshana-core
-          path: kshana-core
+          repository: dheeai/dhee-core
+          path: dhee-core
           token: ${{ secrets.BACKEND_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
@@ -35,8 +35,8 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Build kshana-core
-        working-directory: kshana-core
+      - name: Build dhee-core
+        working-directory: dhee-core
         run: |
           pnpm install --frozen-lockfile
           pnpm build
@@ -49,14 +49,14 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          # Public Next.js site (Cloud Run). Repo variable wins if both are set; else secret KSHANA_WEBSITE_URL.
-          KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
+          # Public Next.js site (Cloud Run). Repo variable wins if both are set; else secret dhee_WEBSITE_URL.
+          dhee_WEBSITE_URL: ${{ vars.dhee_WEBSITE_URL || secrets.dhee_WEBSITE_URL }}
         run: |
           node << 'EOF'
           const fs = require('fs');
-          const website = process.env.KSHANA_WEBSITE_URL;
-          if (!website || !website.trim()) throw new Error('KSHANA_WEBSITE_URL is missing');
-          const cfg = { kshanaWebsiteUrl: website.trim().replace(/\/$/, '') };
+          const website = process.env.dhee_WEBSITE_URL;
+          if (!website || !website.trim()) throw new Error('dhee_WEBSITE_URL is missing');
+          const cfg = { dheeWebsiteUrl: website.trim().replace(/\/$/, '') };
           fs.writeFileSync(
             'assets/runtime-config.json',
             JSON.stringify(cfg, null, 2),
@@ -67,7 +67,7 @@ jobs:
       - name: Build and publish Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KSHANA_INK_PATH: ${{ github.workspace }}/kshana-core
+          dhee_INK_PATH: ${{ github.workspace }}/dhee-core
         run: npm run release
 
   release-windows:
@@ -78,14 +78,14 @@ jobs:
       NODE_OPTIONS: --max-old-space-size=4096
 
     steps:
-      - name: Checkout kshana-desktop
+      - name: Checkout dhee-desktop
         uses: actions/checkout@v4
 
-      - name: Checkout kshana-core
+      - name: Checkout dhee-core
         uses: actions/checkout@v4
         with:
-          repository: anveshane/kshana-core
-          path: kshana-core
+          repository: dheeai/dhee-core
+          path: dhee-core
           token: ${{ secrets.BACKEND_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
@@ -100,8 +100,8 @@ jobs:
           node-version: 20
           cache: 'npm'
 
-      - name: Build kshana-core
-        working-directory: kshana-core
+      - name: Build dhee-core
+        working-directory: dhee-core
         run: |
           pnpm install --frozen-lockfile
           pnpm build
@@ -114,12 +114,12 @@ jobs:
 
       - name: Inject cloud runtime config
         env:
-          KSHANA_WEBSITE_URL: ${{ vars.KSHANA_WEBSITE_URL || secrets.KSHANA_WEBSITE_URL }}
+          dhee_WEBSITE_URL: ${{ vars.dhee_WEBSITE_URL || secrets.dhee_WEBSITE_URL }}
         run: |
-          $website = $env:KSHANA_WEBSITE_URL
-          if (-not ($website -and $website.Trim())) { throw "KSHANA_WEBSITE_URL is missing" }
+          $website = $env:dhee_WEBSITE_URL
+          if (-not ($website -and $website.Trim())) { throw "dhee_WEBSITE_URL is missing" }
           $w = $website.Trim().TrimEnd('/')
-          $obj = @{ kshanaWebsiteUrl = $w }
+          $obj = @{ dheeWebsiteUrl = $w }
           $json = $obj | ConvertTo-Json
           Set-Content -Path "assets/runtime-config.json" -Value $json -Encoding UTF8
           Write-Host "Wrote assets/runtime-config.json"
@@ -127,5 +127,5 @@ jobs:
       - name: Build and publish Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          KSHANA_INK_PATH: ${{ github.workspace }}\kshana-core
+          dhee_INK_PATH: ${{ github.workspace }}\dhee-core
         run: npm run release

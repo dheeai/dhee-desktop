@@ -1,4 +1,4 @@
-import { ElectronHandler, KshanaBridge } from '../main/preload';
+import { ElectronHandler, dheeBridge } from '../main/preload';
 
 type DesktopElectronHandler = ElectronHandler & {
   app: {
@@ -11,11 +11,11 @@ declare global {
   interface Window {
     electron: DesktopElectronHandler;
     /**
-     * Typed bridge to the embedded kshana-ink (replaces the old
+     * Typed bridge to the embedded dhee-ink (replaces the old
      * WebSocket transport). Methods invoke ipcMain handlers in the
      * Electron main process; `on()` subscribes to streaming events.
      */
-    kshana: KshanaBridge;
+    dhee: dheeBridge;
   }
 }
 

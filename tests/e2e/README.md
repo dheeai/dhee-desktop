@@ -1,8 +1,8 @@
 # Layer-2 e2e tests (renderer + fake bridge)
 
 Fast Playwright tests that run the renderer in plain Chromium with
-in-memory fakes for `window.kshana` and `window.electron`. No Electron,
-no preload, no kshana-ink, no ComfyUI. Each test is a scripted IPC
+in-memory fakes for `window.dhee` and `window.electron`. No Electron,
+no preload, no dhee-ink, no ComfyUI. Each test is a scripted IPC
 sequence: "given these scripted bridge events, the chat UI should
 render this DOM."
 
@@ -15,7 +15,7 @@ npm run test:e2e:ui       # interactive picker / time-travel debugger
 ```
 
 Playwright spawns the dev server (`npm run start:test-renderer`) on
-port 1212 with `KSHANA_TEST_BRIDGE=1`, which:
+port 1212 with `dhee_TEST_BRIDGE=1`, which:
 
 - skips the preload + Electron-main spawn in the renderer dev config
 - bundles `src/renderer/testing/installFakeBridge.ts` into the page
@@ -34,10 +34,10 @@ is loaded. All `window.electron.project.*` calls are stubbed to succeed.
 3. The bundle runs `installFakeBridge`, sees `__pendingScenario`, and
    calls `loadScenario(...)` on the test API. That sets the project +
    the rule table.
-4. `TestApp` reads the project via `__kshanaTest.getProject()` and
+4. `TestApp` reads the project via `__dheeTest.getProject()` and
    opens it through the real workspace flow.
 5. The test drives the chat UI (fill input, click send). Each call to
-   `window.kshana.runTask(...)` is matched against the scenario's
+   `window.dhee.runTask(...)` is matched against the scenario's
    rules — if a rule matches, its scripted events are scheduled with
    `setTimeout` so the timing mirrors a real streaming response.
 6. The chat UI's `handleEvent` is the same code that runs in
@@ -85,7 +85,7 @@ npm run test:e2e:headed -- edit-instruction.spec.ts
   spec (`*.live.spec.ts`, currently deferred). Layer 2 should be
   deterministic and millisecond-fast.
 - Tests that want to assert "ComfyUI workflow X was actually
-  submitted" — that's a kshana-ink-side concern.
+  submitted" — that's a dhee-ink-side concern.
 
 ## Available bridge channels in scenarios
 
@@ -95,7 +95,7 @@ match against the inbound payload's main text/id field with
 
 ## Available scripted events
 
-Anything in `KshanaEventName` from `src/shared/kshanaIpc.ts`:
+Anything in `dheeEventName` from `src/shared/dheeIpc.ts`:
 `progress`, `tool_call`, `tool_result`, `todo_updated`,
 `agent_response`, `agent_question`, `status`, `stream_chunk`,
 `context_usage`, `phase_transition`, `timeline_update`,
@@ -104,9 +104,9 @@ Anything in `KshanaEventName` from `src/shared/kshanaIpc.ts`:
 ## Test API surface (inside the page)
 
 ```ts
-window.__kshanaTest.loadScenario(scenario)
-window.__kshanaTest.emit(eventName, data)         // manual one-off event
-window.__kshanaTest.getCalls(channel?)            // recorded bridge calls
-window.__kshanaTest.getProject()                  // { name, directory }
-window.__kshanaTest.reset()
+window.__dheeTest.loadScenario(scenario)
+window.__dheeTest.emit(eventName, data)         // manual one-off event
+window.__dheeTest.getCalls(channel?)            // recorded bridge calls
+window.__dheeTest.getProject()                  // { name, directory }
+window.__dheeTest.reset()
 ```

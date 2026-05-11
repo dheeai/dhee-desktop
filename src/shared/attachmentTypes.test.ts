@@ -2,7 +2,7 @@
  * Tests for the attachment-text transform that bridges the structured
  * IPC `Attachment[]` to a plain-text hint pi-agent's skill prompts
  * read. The format is load-bearing: the comfyui-workflow-integration
- * skill in kshana-core looks for `[attachment kind=... path="..."`]`
+ * skill in dhee-core looks for `[attachment kind=... path="..."`]`
  * lines, so any change here must be matched by the skill.
  */
 

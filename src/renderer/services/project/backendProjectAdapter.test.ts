@@ -72,7 +72,7 @@ describe('backendProjectAdapter', () => {
   });
 
   test('handles v3.0 project.json with no phases / characters / settings / scenes / content / assets fields', () => {
-    // kshana-ink v3.0 dropped these legacy parallel state fields.
+    // dhee-ink v3.0 dropped these legacy parallel state fields.
     // The asset manifest is the single source of truth for media,
     // and the dependency-graph executor replaces the phases map.
     // The adapter must NOT throw "Cannot convert undefined or null

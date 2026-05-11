@@ -18,7 +18,7 @@ test.describe('Feature: Export chat JSON', () => {
       // Given — inline scenario so messages accumulate quickly
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [
           {
             on: { channel: 'runTask', match: 'hi' },
@@ -46,7 +46,7 @@ test.describe('Feature: Export chat JSON', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('project.exportChatJson').length,
+              () => window.__dheeTest!.getCalls('project.exportChatJson').length,
             ),
           { timeout: 5_000 },
         )

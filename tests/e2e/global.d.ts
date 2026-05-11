@@ -2,23 +2,23 @@
  * Ambient types for the test bridge surface exposed inside the page.
  * Mirrors the runtime shape installed by `src/renderer/testing/installFakeBridge.ts`.
  */
-interface KshanaTestRecordedCall {
+interface dheeTestRecordedCall {
   channel: string;
   args: unknown;
   at: number;
 }
 
-type KshanaTestSurface = 'chat' | 'landing' | 'workspace';
+type dheeTestSurface = 'chat' | 'landing' | 'workspace';
 
-interface KshanaTestApi {
+interface dheeTestApi {
   loadScenario(scenario: unknown): void;
   loadScenarioByName(name: string): boolean;
   listScenarios(): string[];
   emit(eventName: string, data: unknown): void;
   emitElectron(channel: string, payload: unknown): void;
-  getCalls(channel?: string): KshanaTestRecordedCall[];
+  getCalls(channel?: string): dheeTestRecordedCall[];
   getProject(): { name: string | null; directory: string | null };
-  getSurface(): KshanaTestSurface;
+  getSurface(): dheeTestSurface;
   setBridgeReturn(path: string, value: unknown): void;
   reset(): void;
 }
@@ -64,6 +64,6 @@ interface FakeElectronBridge {
 }
 
 interface Window {
-  __kshanaTest?: KshanaTestApi;
+  __dheeTest?: dheeTestApi;
   electron: FakeElectronBridge;
 }

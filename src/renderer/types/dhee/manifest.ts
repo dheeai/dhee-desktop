@@ -1,6 +1,6 @@
 /**
- * Kshana Project Manifest (kshana.json)
- * Location: <ProjectName>/kshana.json
+ * dhee Project Manifest (dhee.json)
+ * Location: <ProjectName>/dhee.json
  * Owner: Frontend (UI)
  * Purpose: Defines top-level project metadata and default rendering configuration
  */
@@ -26,7 +26,7 @@ export interface ProjectSettings {
  * Root project manifest interface
  * This is the human-readable project file at the root of the project directory
  */
-export interface KshanaManifest {
+export interface dheeManifest {
   /** Unique project identifier */
   id: string;
 
@@ -48,8 +48,8 @@ export interface KshanaManifest {
   /** Schema version for migration support */
   schema_version: '1';
 
-  /** Kshana application version that created this project */
-  kshana_version: string;
+  /** dhee application version that created this project */
+  dhee_version: string;
 }
 
 /**
@@ -62,13 +62,13 @@ export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
 };
 
 /**
- * Creates a new KshanaManifest with default values
+ * Creates a new dheeManifest with default values
  */
 export function createDefaultManifest(
   id: string,
   name: string,
-  kshanaVersion: string,
-): KshanaManifest {
+  dheeVersion: string,
+): dheeManifest {
   const now = new Date().toISOString();
   return {
     id,
@@ -77,6 +77,6 @@ export function createDefaultManifest(
     updated_at: now,
     settings: DEFAULT_PROJECT_SETTINGS,
     schema_version: '1',
-    kshana_version: kshanaVersion,
+    dhee_version: dheeVersion,
   };
 }

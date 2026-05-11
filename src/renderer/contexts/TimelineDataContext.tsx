@@ -3,7 +3,7 @@ import {
   useTimelineData,
   type TimelineDataWithRefresh,
 } from '../hooks/useTimelineData';
-import type { SceneVersions } from '../types/kshana/timeline';
+import type { SceneVersions } from '../types/dhee/timeline';
 
 export type TimelineDataContextType = TimelineDataWithRefresh;
 

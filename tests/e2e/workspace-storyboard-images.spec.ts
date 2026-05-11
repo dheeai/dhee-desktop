@@ -70,7 +70,7 @@ const timelineWithImages = JSON.stringify({
       layers: [
         {
           type: 'visual',
-          filePath: '/tmp/noir.kshana/assets/scene-001.png',
+          filePath: '/tmp/noir.dhee/assets/scene-001.png',
           artifactId: 'scene-001-image',
         },
       ],
@@ -85,7 +85,7 @@ const timelineWithImages = JSON.stringify({
       layers: [
         {
           type: 'visual',
-          filePath: '/tmp/noir.kshana/assets/scene-002.mp4',
+          filePath: '/tmp/noir.dhee/assets/scene-002.mp4',
           artifactId: 'scene-002-video',
         },
       ],
@@ -103,7 +103,7 @@ test.describe('Feature: Storyboard image thumbnails', () => {
       // + readFileBase64 returning a tiny PNG for the image path
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
         fileReturns: {
           'project.json': minimalProject,
@@ -149,7 +149,7 @@ test.describe('Feature: Storyboard image thumbnails', () => {
             layers: [
               {
                 type: 'visual',
-                filePath: '/tmp/noir.kshana/assets/scene-001.mp4',
+                filePath: '/tmp/noir.dhee/assets/scene-001.mp4',
                 artifactId: 'scene-001-video',
               },
             ],
@@ -159,7 +159,7 @@ test.describe('Feature: Storyboard image thumbnails', () => {
 
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
         fileReturns: {
           'project.json': minimalProject,

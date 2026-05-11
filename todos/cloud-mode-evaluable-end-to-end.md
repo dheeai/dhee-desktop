@@ -6,7 +6,7 @@ The desktop has full plumbing for cloud mode — auth-token parsing
 (`desktopAuthToken.ts`), account/balance manager (`accountManager.ts`),
 runtime-config loading from `assets/runtime-config.json`,
 `serverConnectionManager` for cloud URLs — but the cloud backend the
-desktop talks to is not in this repo and not in `kshana-ink` either.
+desktop talks to is not in this repo and not in `dhee-ink` either.
 A new evaluator (or a teammate) cannot exercise cloud mode end-to-end
 without a release-configured URL, an account that has been provisioned
 out of band, and a cloud GPU pool wired up somewhere we don't see.
@@ -23,7 +23,7 @@ product." Today: client only.
 - `src/renderer/components/SettingsPanel/AccountTab.tsx` — UI for
   signed-in account + balance + sign-out.
 - `src/main/main.ts` reads `assets/runtime-config.json` for
-  `kshanaWebsiteUrl` / `websiteUrl`. The website is referenced
+  `dheeWebsiteUrl` / `websiteUrl`. The website is referenced
   but is not in this repo.
 - README: *"Cloud connects to the configured cloud URL"* —
   i.e. trust the release config, hope the GPU is up.

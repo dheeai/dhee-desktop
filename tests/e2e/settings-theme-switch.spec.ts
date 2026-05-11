@@ -35,14 +35,14 @@ test.describe('Feature: Theme switching', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('settings.update').length,
+              () => window.__dheeTest!.getCalls('settings.update').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('settings.update'),
+        window.__dheeTest!.getCalls('settings.update'),
       );
       const lastPatch = calls[calls.length - 1].args as { themeId?: string };
       expect(lastPatch.themeId).toBe('deep-forest-gold');
@@ -65,14 +65,14 @@ test.describe('Feature: Theme switching', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('settings.update').length,
+              () => window.__dheeTest!.getCalls('settings.update').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(2);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('settings.update'),
+        window.__dheeTest!.getCalls('settings.update'),
       );
       const themeIds = calls.map(
         (c) => (c.args as { themeId?: string }).themeId,

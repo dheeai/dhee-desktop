@@ -48,10 +48,10 @@ describe('ProjectCTA — in_progress', () => {
     const arg = onAction.mock.calls[0]?.[0] as { id: string; task: string };
     expect(arg.id).toBe('continue_pipeline');
     // The dispatched task must contain the absolute project dir so
-    // pi-agent's kshana_run_to skips its convention probe.
+    // pi-agent's dhee_run_to skips its convention probe.
     expect(arg.task).toContain(PROJECT_DIR);
     expect(arg.task).toContain(PROJECT_NAME);
-    expect(arg.task).toMatch(/kshana_run_to/);
+    expect(arg.task).toMatch(/dhee_run_to/);
   });
 });
 
@@ -93,7 +93,7 @@ describe('ProjectCTA — completed', () => {
     );
     const arg = onAction.mock.calls[0]?.[0] as { id: string; task: string };
     expect(arg.id).toBe('show_final_video');
-    expect(arg.task).toMatch(/kshana_show_final_video/);
+    expect(arg.task).toMatch(/dhee_show_final_video/);
     expect(arg.task).toContain(PROJECT_DIR);
   });
 });

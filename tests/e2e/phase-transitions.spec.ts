@@ -16,19 +16,19 @@ test.describe('Feature: Phase indicator', () => {
       // Given
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
       // When — emit two phase transitions directly
       await page.evaluate(() => {
-        window.__kshanaTest!.emit('phase_transition', {
+        window.__dheeTest!.emit('phase_transition', {
           phase: 'Planning',
           status: 'started',
         });
       });
       await page.evaluate(() => {
-        window.__kshanaTest!.emit('phase_transition', {
+        window.__dheeTest!.emit('phase_transition', {
           phase: 'Generation',
           status: 'started',
         });
@@ -50,13 +50,13 @@ test.describe('Feature: Phase indicator', () => {
       // Given
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
       // When
       await page.evaluate(() => {
-        window.__kshanaTest!.emit('phase_transition', {
+        window.__dheeTest!.emit('phase_transition', {
           phase: 'Generation',
           status: 'completed',
         });

@@ -1,4 +1,4 @@
-import { PROJECT_PATHS } from '../../../types/kshana';
+import { PROJECT_PATHS } from '../../../types/dhee';
 
 export interface AudioImportProjectBridge {
   selectAudioFile: () => Promise<string | null>;

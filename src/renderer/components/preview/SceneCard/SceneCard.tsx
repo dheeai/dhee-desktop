@@ -116,7 +116,7 @@ export default function SceneCard({
     setIsLoadingMarkdown(true);
 
     const basePath = effectiveProjectDir || '/mock';
-    const markdownPath = `${basePath}/.kshana/agent/scenes/${folder}/scene.md`;
+    const markdownPath = `${basePath}/.dhee/agent/scenes/${folder}/scene.md`;
 
     try {
       const content = await window.electron.project.readFile(markdownPath);

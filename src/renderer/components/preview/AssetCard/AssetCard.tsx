@@ -105,7 +105,7 @@ export default function AssetCard({
   // Determine markdown file path based on asset type
   const getMarkdownPath = useCallback((): string => {
     const basePath = effectiveProjectDir || '/mock';
-    const agentPath = `${basePath}/.kshana/agent`;
+    const agentPath = `${basePath}/.dhee/agent`;
 
     switch (type) {
       case 'character':

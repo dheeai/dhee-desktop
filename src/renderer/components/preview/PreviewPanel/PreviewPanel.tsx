@@ -13,7 +13,7 @@ import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers } fr
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
-import type { SceneVersions } from '../../../types/kshana/timeline';
+import type { SceneVersions } from '../../../types/dhee/timeline';
 import AssetsView from '../AssetsView/AssetsView';
 import StoryboardView from '../StoryboardView/StoryboardView';
 import PromptsView from '../PromptsView/PromptsView';

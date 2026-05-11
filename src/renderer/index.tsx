@@ -1,11 +1,11 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
 
-const IS_TEST_BRIDGE = process.env.KSHANA_TEST_BRIDGE === '1';
+const IS_TEST_BRIDGE = process.env.dhee_TEST_BRIDGE === '1';
 
-// In Layer-2 e2e mode: install in-memory fakes for window.kshana /
+// In Layer-2 e2e mode: install in-memory fakes for window.dhee /
 // window.electron BEFORE App renders. The side-effect import wires up
-// the bridge + exposes window.__kshanaTest for Playwright tests.
+// the bridge + exposes window.__dheeTest for Playwright tests.
 if (IS_TEST_BRIDGE) {
   // eslint-disable-next-line global-require, @typescript-eslint/no-require-imports
   require('./testing/installFakeBridge');

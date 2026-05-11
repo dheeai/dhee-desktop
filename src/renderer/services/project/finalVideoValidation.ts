@@ -1,4 +1,4 @@
-import type { AgentProjectFile, AssetManifest, AssetInfo } from '../../types/kshana';
+import type { AgentProjectFile, AssetManifest, AssetInfo } from '../../types/dhee';
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');

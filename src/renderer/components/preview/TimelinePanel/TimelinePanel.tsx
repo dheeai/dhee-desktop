@@ -39,12 +39,12 @@ import {
 import { getThumbnailPreviewTime } from '../../../utils/videoPreview';
 import type { TimelineMarker } from '../../../types/projectState';
 import type {
-  KshanaTimelineMarker,
-  KshanaTimelineState,
+  dheeTimelineMarker,
+  dheeTimelineState,
   ImportedClip,
-} from '../../../types/kshana';
-import type { SceneVersions } from '../../../types/kshana/timeline';
-import { PROJECT_PATHS, createAssetInfo } from '../../../types/kshana';
+} from '../../../types/dhee';
+import type { SceneVersions } from '../../../types/dhee/timeline';
+import { PROJECT_PATHS, createAssetInfo } from '../../../types/dhee';
 import {
   TrackAudioIcon,
   TrackOverlayIcon,
@@ -797,10 +797,10 @@ interface TimelineContextMenuState {
 
 interface TimelineEditSnapshot {
   markers: TimelineMarker[];
-  image_timing_overrides: KshanaTimelineState['image_timing_overrides'];
-  infographic_timing_overrides: KshanaTimelineState['infographic_timing_overrides'];
-  video_split_overrides: KshanaTimelineState['video_split_overrides'];
-  segment_timing_overrides: KshanaTimelineState['segment_timing_overrides'];
+  image_timing_overrides: dheeTimelineState['image_timing_overrides'];
+  infographic_timing_overrides: dheeTimelineState['infographic_timing_overrides'];
+  video_split_overrides: dheeTimelineState['video_split_overrides'];
+  segment_timing_overrides: dheeTimelineState['segment_timing_overrides'];
 }
 
 const MemoTimelineItemComponent = React.memo(
@@ -821,9 +821,9 @@ function cloneMarkers(markers: TimelineMarker[]): TimelineMarker[] {
 }
 
 function cloneImageTimingOverrides(
-  overrides: KshanaTimelineState['image_timing_overrides'],
-): KshanaTimelineState['image_timing_overrides'] {
-  const next: KshanaTimelineState['image_timing_overrides'] = {};
+  overrides: dheeTimelineState['image_timing_overrides'],
+): dheeTimelineState['image_timing_overrides'] {
+  const next: dheeTimelineState['image_timing_overrides'] = {};
   Object.entries(overrides).forEach(([key, value]) => {
     next[key] = {
       start_time_seconds: value.start_time_seconds,
@@ -834,9 +834,9 @@ function cloneImageTimingOverrides(
 }
 
 function cloneInfographicTimingOverrides(
-  overrides: KshanaTimelineState['infographic_timing_overrides'],
-): KshanaTimelineState['infographic_timing_overrides'] {
-  const next: KshanaTimelineState['infographic_timing_overrides'] = {};
+  overrides: dheeTimelineState['infographic_timing_overrides'],
+): dheeTimelineState['infographic_timing_overrides'] {
+  const next: dheeTimelineState['infographic_timing_overrides'] = {};
   Object.entries(overrides).forEach(([key, value]) => {
     next[key] = {
       start_time_seconds: value.start_time_seconds,
@@ -847,9 +847,9 @@ function cloneInfographicTimingOverrides(
 }
 
 function cloneVideoSplitOverrides(
-  overrides: KshanaTimelineState['video_split_overrides'],
-): KshanaTimelineState['video_split_overrides'] {
-  const next: KshanaTimelineState['video_split_overrides'] = {};
+  overrides: dheeTimelineState['video_split_overrides'],
+): dheeTimelineState['video_split_overrides'] {
+  const next: dheeTimelineState['video_split_overrides'] = {};
   Object.entries(overrides).forEach(([key, value]) => {
     next[key] = {
       split_offsets_seconds: [...value.split_offsets_seconds],
@@ -859,9 +859,9 @@ function cloneVideoSplitOverrides(
 }
 
 function cloneSegmentTimingOverrides(
-  overrides: KshanaTimelineState['segment_timing_overrides'],
-): KshanaTimelineState['segment_timing_overrides'] {
-  const next: KshanaTimelineState['segment_timing_overrides'] = {};
+  overrides: dheeTimelineState['segment_timing_overrides'],
+): dheeTimelineState['segment_timing_overrides'] {
+  const next: dheeTimelineState['segment_timing_overrides'] = {};
   Object.entries(overrides).forEach(([key, value]) => {
     next[key] = {
       start_time_seconds: value.start_time_seconds,
@@ -1016,8 +1016,8 @@ export default function TimelinePanel({
     [onPlayPause, isPlaying],
   );
   // Helper functions to convert between marker formats
-  const convertKshanaMarkerToLocal = useCallback(
-    (marker: KshanaTimelineMarker): TimelineMarker => ({
+  const convertdheeMarkerToLocal = useCallback(
+    (marker: dheeTimelineMarker): TimelineMarker => ({
       id: marker.id,
       position: marker.position_seconds,
       prompt: marker.prompt,
@@ -1028,8 +1028,8 @@ export default function TimelinePanel({
     [],
   );
 
-  const convertLocalMarkerToKshana = useCallback(
-    (marker: TimelineMarker): KshanaTimelineMarker => ({
+  const convertLocalMarkerTodhee = useCallback(
+    (marker: TimelineMarker): dheeTimelineMarker => ({
       id: marker.id,
       position_seconds: marker.position,
       prompt: marker.prompt,
@@ -1042,14 +1042,14 @@ export default function TimelinePanel({
 
   // Load markers and imported clips from timeline state on mount
   const [markers, setMarkers] = useState<TimelineMarker[]>(() => {
-    return timelineState.markers.map(convertKshanaMarkerToLocal);
+    return timelineState.markers.map(convertdheeMarkerToLocal);
   });
 
   // Sync markers to timeline state when they change
   useEffect(() => {
-    const kshanaMarkers = markers.map(convertLocalMarkerToKshana);
-    updateMarkers(kshanaMarkers);
-  }, [markers, convertLocalMarkerToKshana, updateMarkers]);
+    const dheeMarkers = markers.map(convertLocalMarkerTodhee);
+    updateMarkers(dheeMarkers);
+  }, [markers, convertLocalMarkerTodhee, updateMarkers]);
 
   // Imported videos state - kept for local video import functionality
   const [importedVideos, setImportedVideos] = useState<
@@ -1097,7 +1097,7 @@ export default function TimelinePanel({
       return;
     }
 
-    const kshanaClips: ImportedClip[] = importedVideos.map((video, index) => ({
+    const dheeClips: ImportedClip[] = importedVideos.map((video, index) => ({
       id: video.path || `imported-${index}`,
       path: video.path,
       duration_seconds: video.duration,
@@ -1113,7 +1113,7 @@ export default function TimelinePanel({
       })),
     );
     const newClipsStr = JSON.stringify(
-      kshanaClips.map((c) => ({
+      dheeClips.map((c) => ({
         path: c.path,
         duration: c.duration_seconds,
         startTime: c.start_time_seconds,
@@ -1121,7 +1121,7 @@ export default function TimelinePanel({
     );
 
     if (currentClipsStr !== newClipsStr) {
-      updateImportedClips(kshanaClips);
+      updateImportedClips(dheeClips);
     }
   }, [importedVideos, updateImportedClips, timelineState.imported_clips]);
 

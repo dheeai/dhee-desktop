@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
-import type { KshanaCoreManager } from './kshanaCoreManager';
+import type { dheeCoreManager } from './dheeCoreManager';
 import type { AccountInfo } from '../shared/settingsTypes';
 
 const mockStoreData: Record<string, unknown> = {};
@@ -72,14 +72,14 @@ describe('desktop analytics', () => {
     const manager = createManager();
 
     analytics.startDesktopAnalytics({
-      manager: manager as unknown as KshanaCoreManager,
+      manager: manager as unknown as dheeCoreManager,
     });
     const installId = mockStoreData.installId;
 
     analytics.startDesktopAnalytics({
-      manager: manager as unknown as KshanaCoreManager,
+      manager: manager as unknown as dheeCoreManager,
     });
-    analytics.stopDesktopAnalytics(manager as unknown as KshanaCoreManager);
+    analytics.stopDesktopAnalytics(manager as unknown as dheeCoreManager);
 
     expect(installId).toEqual(expect.any(String));
     expect(mockStoreData.firstDesktopStartCaptured).toBe(true);
@@ -112,20 +112,20 @@ describe('desktop analytics', () => {
     const manager = createManager();
 
     analytics.startDesktopAnalytics({
-      manager: manager as unknown as KshanaCoreManager,
+      manager: manager as unknown as dheeCoreManager,
       account: createAccount('user-1'),
     });
     analytics.identifyDesktopUser(
-      manager as unknown as KshanaCoreManager,
+      manager as unknown as dheeCoreManager,
       'user-2',
     );
     analytics.resetDesktopAnalyticsIdentity(
-      manager as unknown as KshanaCoreManager,
+      manager as unknown as dheeCoreManager,
     );
     analytics.captureDesktopAuthStarted(
-      manager as unknown as KshanaCoreManager,
+      manager as unknown as dheeCoreManager,
     );
-    analytics.stopDesktopAnalytics(manager as unknown as KshanaCoreManager);
+    analytics.stopDesktopAnalytics(manager as unknown as dheeCoreManager);
 
     expect(manager.configureAnalytics).toHaveBeenCalledWith(
       expect.objectContaining({

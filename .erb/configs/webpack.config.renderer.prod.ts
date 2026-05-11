@@ -144,8 +144,8 @@ const configuration: webpack.Configuration = {
 
     new webpack.DefinePlugin({
       'process.type': '"renderer"',
-      'process.env.KSHANA_TEST_BRIDGE': JSON.stringify(
-        process.env.KSHANA_TEST_BRIDGE ?? '',
+      'process.env.dhee_TEST_BRIDGE': JSON.stringify(
+        process.env.dhee_TEST_BRIDGE ?? '',
       ),
     }),
   ],

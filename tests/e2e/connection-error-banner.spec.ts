@@ -12,8 +12,8 @@ async function pushBackendState(
   state: { status: string; message?: string; serverUrl?: string },
 ) {
   await page.evaluate((s) => {
-    window.__kshanaTest!.setBridgeReturn('backend.getState', s);
-    window.__kshanaTest!.emitElectron('backend:state', s);
+    window.__dheeTest!.setBridgeReturn('backend.getState', s);
+    window.__dheeTest!.emitElectron('backend:state', s);
   }, state);
 }
 
@@ -26,7 +26,7 @@ test.describe('Feature: Connection error surfacing', () => {
       // Given
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
@@ -48,7 +48,7 @@ test.describe('Feature: Connection error surfacing', () => {
       // Given — put it in error state first
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
       await pushBackendState(page, { status: 'error', message: 'ENGINE_DOWN' });

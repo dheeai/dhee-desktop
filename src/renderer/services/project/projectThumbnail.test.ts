@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import type { AssetInfo, AssetManifest } from '../../types/kshana';
+import type { AssetInfo, AssetManifest } from '../../types/dhee';
 import {
   ensureProjectThumbnailFromManifest,
   selectProjectThumbnailSourceAsset,
@@ -102,19 +102,19 @@ describe('projectThumbnail', () => {
       projectRoot: '/projects/demo',
     };
     expect(mockMkdir).toHaveBeenCalledWith(
-      '/projects/demo/.kshana/ui',
+      '/projects/demo/.dhee/ui',
       fileOpMeta,
     );
     expect(mockCopyFileExact).toHaveBeenCalledWith(
       '/projects/demo/assets/images/scene1-shot1.png',
-      '/projects/demo/.kshana/ui/thumbnail.png',
+      '/projects/demo/.dhee/ui/thumbnail.png',
       fileOpMeta,
     );
     expect(result.changed).toBe(true);
     expect(result.manifest.assets).toContainEqual(
       expect.objectContaining({
         type: 'scene_thumbnail',
-        path: '.kshana/ui/thumbnail.png',
+        path: '.dhee/ui/thumbnail.png',
       }),
     );
   });
@@ -132,7 +132,7 @@ describe('projectThumbnail', () => {
     };
 
     mockCheckFileExists.mockImplementation(async (filePath: string) => {
-      return filePath === '/projects/demo/.kshana/ui/thumbnail.png';
+      return filePath === '/projects/demo/.dhee/ui/thumbnail.png';
     });
 
     const result = await ensureProjectThumbnailFromManifest(
@@ -144,7 +144,7 @@ describe('projectThumbnail', () => {
     expect(result.manifest.assets).toContainEqual(
       expect.objectContaining({
         type: 'scene_thumbnail',
-        path: '.kshana/ui/thumbnail.png',
+        path: '.dhee/ui/thumbnail.png',
       }),
     );
   });

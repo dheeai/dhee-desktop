@@ -1,37 +1,37 @@
 /**
- * Tests for `useKshanaSession` — the renderer hook that wraps
- * `window.kshana.*` to give React components a clean session API.
+ * Tests for `usedheeSession` — the renderer hook that wraps
+ * `window.dhee.*` to give React components a clean session API.
  *
  * Goal: verify the hook
  *   1. creates a session on mount
  *   2. exposes runTask / cancelTask / redoNode / configureProject
- *      that delegate to window.kshana
+ *      that delegate to window.dhee
  *   3. subscribes to streaming events via .on() and unsubscribes on unmount
  *   4. tracks `status` ('idle' | 'running' | 'error') based on runTask result
  *
- * Strategy: stub `window.kshana` with a recording mock; render the hook
+ * Strategy: stub `window.dhee` with a recording mock; render the hook
  * via a TestComponent; assert side effects.
  */
 import '@testing-library/jest-dom';
 import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { useKshanaSession } from './useKshanaSession';
-import type { KshanaEvent, KshanaEventName } from '../../shared/kshanaIpc';
+import { usedheeSession } from './usedheeSession';
+import type { dheeEvent, dheeEventName } from '../../shared/dheeIpc';
 
-type EventListener = (e: KshanaEvent) => void;
+type EventListener = (e: dheeEvent) => void;
 
-interface KshanaMockState {
+interface dheeMockState {
   createSessionCount: number;
   runTaskArgs: Array<{ sessionId: string; task: string; stopAtStage?: string }>;
   cancelTaskArgs: Array<{ sessionId: string }>;
   redoNodeArgs: Array<{ sessionId: string; nodeId: string; editedPrompt?: string }>;
   configureProjectArgs: Array<{ sessionId: string; projectDir: string }>;
-  listeners: Array<{ eventName: KshanaEventName | '*'; cb: EventListener; active: boolean }>;
+  listeners: Array<{ eventName: dheeEventName | '*'; cb: EventListener; active: boolean }>;
   nextSessionId: string;
   runTaskResult: { ok: boolean; error?: string };
 }
 
-let mockState: KshanaMockState;
+let mockState: dheeMockState;
 
 function resetMockState(): void {
   mockState = {
@@ -48,7 +48,7 @@ function resetMockState(): void {
 
 beforeEach(() => {
   resetMockState();
-  (window as unknown as { kshana: unknown }).kshana = {
+  (window as unknown as { dhee: unknown }).dhee = {
     createSession: jest.fn(async () => {
       mockState.createSessionCount += 1;
       return { sessionId: mockState.nextSessionId };
@@ -69,7 +69,7 @@ beforeEach(() => {
       mockState.redoNodeArgs.push(req);
       return { ok: true };
     }),
-    on: jest.fn((eventName: KshanaEventName | '*', cb: EventListener) => {
+    on: jest.fn((eventName: dheeEventName | '*', cb: EventListener) => {
       const entry = { eventName, cb, active: true };
       mockState.listeners.push(entry);
       return () => {
@@ -88,15 +88,15 @@ function TestHarness({
   onApi,
 }: {
   onSession?: (sessionId: string | null) => void;
-  onApi?: (api: ReturnType<typeof useKshanaSession>) => void;
+  onApi?: (api: ReturnType<typeof usedheeSession>) => void;
 }) {
-  const session = useKshanaSession();
+  const session = usedheeSession();
   useEffect(() => onSession?.(session.sessionId), [session.sessionId, onSession]);
   useEffect(() => onApi?.(session), [session, onApi]);
   return null;
 }
 
-describe('useKshanaSession', () => {
+describe('usedheeSession', () => {
   it('creates a session on mount', async () => {
     render(<TestHarness />);
     await waitFor(() => {
@@ -112,8 +112,8 @@ describe('useKshanaSession', () => {
     });
   });
 
-  it('runTask delegates to window.kshana.runTask with the current sessionId', async () => {
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+  it('runTask delegates to window.dhee.runTask with the current sessionId', async () => {
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
@@ -127,8 +127,8 @@ describe('useKshanaSession', () => {
     });
   });
 
-  it('cancelTask delegates to window.kshana.cancelTask', async () => {
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+  it('cancelTask delegates to window.dhee.cancelTask', async () => {
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => { await api!.cancel(); });
@@ -137,7 +137,7 @@ describe('useKshanaSession', () => {
   });
 
   it('redoNode delegates with sessionId and editedPrompt', async () => {
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
@@ -151,7 +151,7 @@ describe('useKshanaSession', () => {
   });
 
   it('configureProject delegates with sessionId + opts', async () => {
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
@@ -164,7 +164,7 @@ describe('useKshanaSession', () => {
   });
 
   it('status flips to "running" while runTask is awaiting and back to "idle" after success', async () => {
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     expect(api!.status).toBe('idle');
@@ -180,7 +180,7 @@ describe('useKshanaSession', () => {
 
   it('status flips to "error" when runTask returns ok:false', async () => {
     mockState.runTaskResult = { ok: false, error: 'something broke' };
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => { await api!.runTask('hi'); });
@@ -188,7 +188,7 @@ describe('useKshanaSession', () => {
   });
 
   it('subscribe(event, cb) registers a listener; returned unsubscribe deactivates it', async () => {
-    let api: ReturnType<typeof useKshanaSession> | null = null;
+    let api: ReturnType<typeof usedheeSession> | null = null;
     render(<TestHarness onApi={(a) => { api = a; }} />);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
 

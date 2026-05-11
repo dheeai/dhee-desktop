@@ -16,13 +16,13 @@ test.describe('Feature: Context-usage indicator', () => {
       // Given
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
       // When — emit context usage at 50%
       await page.evaluate(() => {
-        window.__kshanaTest!.emit('context_usage', { used: 50_000, limit: 100_000 });
+        window.__dheeTest!.emit('context_usage', { used: 50_000, limit: 100_000 });
       });
 
       // Then — indicator visible with ratio and percent
@@ -39,13 +39,13 @@ test.describe('Feature: Context-usage indicator', () => {
       // Given
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
       // When — emit context usage at 85%
       await page.evaluate(() => {
-        window.__kshanaTest!.emit('context_usage', { used: 85_000, limit: 100_000 });
+        window.__dheeTest!.emit('context_usage', { used: 85_000, limit: 100_000 });
       });
 
       // Then — indicator shows the percentage

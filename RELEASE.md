@@ -1,12 +1,12 @@
 # GitHub Releases Guide
 
-This document explains how to create releases for Kshana Desktop using GitHub Actions.
+This document explains how to create releases for Dhee Desktop using GitHub Actions.
 
 ## Overview
 
 When you push a version tag, GitHub Actions automatically:
 1. Checks out the code
-2. Installs dependencies (including kshana-core)
+2. Installs dependencies (including dhee-core)
 3. Builds the Electron app
 4. Creates DMG installers for Mac (arm64 + x64)
 5. Publishes to GitHub Releases
@@ -25,7 +25,7 @@ git tag v1.0.0
 git push origin v1.0.0
 
 # 3. Wait 5-10 minutes for the build to complete
-# Check progress: https://github.com/anveshane/kshana-desktop/actions
+# Check progress: https://github.com/dheeai/dhee-desktop/actions
 ```
 
 ## Tag Format
@@ -75,24 +75,24 @@ git push origin v1.0.0
 
 ### Step 4: Monitor Build
 
-1. Go to [Actions](https://github.com/anveshane/kshana-desktop/actions)
+1. Go to [Actions](https://github.com/dheeai/dhee-desktop/actions)
 2. Find the "Release" workflow run
 3. Wait for it to complete (~5-10 minutes)
 
 ### Step 5: Download Release
 
 Once complete, the release will be available at:
-- https://github.com/anveshane/kshana-desktop/releases
+- https://github.com/dheeai/dhee-desktop/releases
 
 Download the DMG files:
-- `Kshana-<version>-arm64.dmg` (Apple Silicon)
-- `Kshana-<version>.dmg` (Intel Mac)
+- `Dhee-<version>-arm64.dmg` (Apple Silicon)
+- `Dhee-<version>.dmg` (Intel Mac)
 
 ## What Gets Built
 
 The workflow builds:
 
-1. **kshana-core** (TypeScript backend)
+1. **dhee-core** (TypeScript backend)
    - Built with tsup
    - Bundled into the Electron app
 
@@ -117,7 +117,7 @@ The workflow builds:
 
 Common issues:
 - **Missing dependencies**: Check if `npm ci` fails
-- **kshana-core build errors**: Check tsup logs
+- **dhee-core build errors**: Check tsup logs
 - **Electron build errors**: Check electron-builder logs
 
 View detailed logs in the Actions tab.
@@ -159,7 +159,7 @@ Before creating a release:
 - [ ] Version updated in `package.json` (if needed)
 - [ ] Changes committed and pushed
 - [ ] Correct branch checked out
-- [ ] kshana-core is building successfully
+- [ ] dhee-core is building successfully
 - [ ] Tag name follows versioning scheme
 
 ## Workflow Configuration
@@ -175,8 +175,8 @@ Key settings:
 ## Support
 
 For issues or questions:
-- Check [Actions logs](https://github.com/anveshane/kshana-desktop/actions)
-- Review [GitHub Releases](https://github.com/anveshane/kshana-desktop/releases)
+- Check [Actions logs](https://github.com/dheeai/dhee-desktop/actions)
+- Review [GitHub Releases](https://github.com/dheeai/dhee-desktop/releases)
 - Open an issue on GitHub
 
 ## Examples

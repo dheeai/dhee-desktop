@@ -12,13 +12,13 @@ interface VersionMetadata {
   commitDate?: string;
 }
 
-function resolveKshanaCorePath(): string {
-  const configured = process.env['KSHANA_CORE_PATH'] ?? process.env['KSHANA_INK_PATH'];
+function resolvedheeCorePath(): string {
+  const configured = process.env['dhee_CORE_PATH'] ?? process.env['dhee_INK_PATH'];
   if (configured && configured.trim()) {
     return path.resolve(configured);
   }
 
-  return path.resolve(webpackPaths.rootPath, '../kshana-core');
+  return path.resolve(webpackPaths.rootPath, '../dhee-core');
 }
 
 function runGit(repoPath: string, command: string): string | undefined {
@@ -36,24 +36,24 @@ function runGit(repoPath: string, command: string): string | undefined {
   }
 }
 
-function verifyKshanaCore(): void {
-  const kshanaCorePath = resolveKshanaCorePath();
-  const packageJsonPath = path.join(kshanaCorePath, 'package.json');
-  const serverCliPath = path.join(kshanaCorePath, 'dist', 'server', 'cli.cjs');
+function verifydheeCore(): void {
+  const dheeCorePath = resolvedheeCorePath();
+  const packageJsonPath = path.join(dheeCorePath, 'package.json');
+  const serverCliPath = path.join(dheeCorePath, 'dist', 'server', 'cli.cjs');
   const releaseAppPath = webpackPaths.appPath;
-  const metadataPath = path.join(releaseAppPath, '.kshana-core-version.json');
+  const metadataPath = path.join(releaseAppPath, '.dhee-core-version.json');
 
-  if (!fs.existsSync(kshanaCorePath)) {
-    throw new Error(`kshana-core repo not found at ${kshanaCorePath}`);
+  if (!fs.existsSync(dheeCorePath)) {
+    throw new Error(`dhee-core repo not found at ${dheeCorePath}`);
   }
 
   if (!fs.existsSync(packageJsonPath)) {
-    throw new Error(`kshana-core package.json not found at ${packageJsonPath}`);
+    throw new Error(`dhee-core package.json not found at ${packageJsonPath}`);
   }
 
   if (!fs.existsSync(serverCliPath)) {
     throw new Error(
-      `kshana-core build output missing at ${serverCliPath}. Run a build in ../kshana-core first.`,
+      `dhee-core build output missing at ${serverCliPath}. Run a build in ../dhee-core first.`,
     );
   }
 
@@ -63,22 +63,22 @@ function verifyKshanaCore(): void {
 
   const metadata: VersionMetadata = {
     packageVersion: packageJson.version,
-    gitBranch: runGit(kshanaCorePath, 'git rev-parse --abbrev-ref HEAD'),
-    gitCommit: runGit(kshanaCorePath, 'git rev-parse HEAD'),
-    commitDate: runGit(kshanaCorePath, 'git log -1 --format=%cI'),
+    gitBranch: runGit(dheeCorePath, 'git rev-parse --abbrev-ref HEAD'),
+    gitCommit: runGit(dheeCorePath, 'git rev-parse HEAD'),
+    commitDate: runGit(dheeCorePath, 'git log -1 --format=%cI'),
   };
 
   fs.mkdirSync(releaseAppPath, { recursive: true });
   fs.writeFileSync(`${metadataPath}`, `${JSON.stringify(metadata, null, 2)}\n`);
-  console.log(`✓ Verified kshana-core at ${kshanaCorePath}`);
+  console.log(`✓ Verified dhee-core at ${dheeCorePath}`);
   console.log(`✓ Wrote bundled version metadata to ${metadataPath}`);
 }
 
 try {
-  verifyKshanaCore();
+  verifydheeCore();
 } catch (error) {
   console.error(
-    error instanceof Error ? error.message : 'Failed to verify kshana-core',
+    error instanceof Error ? error.message : 'Failed to verify dhee-core',
   );
   process.exit(1);
 }

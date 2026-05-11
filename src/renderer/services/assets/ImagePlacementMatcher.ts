@@ -1,4 +1,4 @@
-import type { AssetInfo, AssetType } from '../../types/kshana/assetManifest';
+import type { AssetInfo, AssetType } from '../../types/dhee/assetManifest';
 
 function parsePlacementNumber(value: unknown): number | null {
   if (typeof value === 'number' && Number.isFinite(value)) {

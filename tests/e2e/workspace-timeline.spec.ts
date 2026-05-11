@@ -25,7 +25,7 @@ test.describe('Feature: Timeline panel', () => {
       // Given
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 

@@ -90,7 +90,7 @@ test('two distinct agent_response events DO produce two bubbles (counter-test)',
   // one creates a brand-new bubble — which is the EXPECTED behavior
   // for two distinct turns of agent text.
   await page.evaluate(() => {
-    window.__kshanaTest!.emit('agent_response', {
+    window.__dheeTest!.emit('agent_response', {
       output: 'Follow-up note: also try a longer focal length.',
       status: 'completed',
     });

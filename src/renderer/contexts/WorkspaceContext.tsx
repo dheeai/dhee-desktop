@@ -198,18 +198,18 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           );
         const hasLegacyAgentProjectFile =
           await window.electron.project.checkFileExists(
-            `${normalizedPath}/.kshana/agent/project.json`,
+            `${normalizedPath}/.dhee/agent/project.json`,
           );
         if (!hasRootProjectFile && !hasLegacyAgentProjectFile) {
           throw new Error(
-            'Selected folder is not a Kshana project. Expected project.json or .kshana/agent/project.json.',
+            'Selected folder is not a Dhee project. Expected project.json or .dhee/agent/project.json.',
           );
         }
 
         // Read only first level to prevent freeze
         const tree = await window.electron.project.readTree(path, 1);
         const projectName = (normalizedPath.split('/').pop() || path).replace(
-          /\.kshana$/i,
+          /\.dhee$/i,
           '',
         );
 

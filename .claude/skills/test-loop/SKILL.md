@@ -2,12 +2,12 @@
 name: test-loop
 version: 1.0.0
 description: |
-  Add tests for the kshana-desktop chat panel UI. Use when the user wants
+  Add tests for the dhee-desktop chat panel UI. Use when the user wants
   to "test X" or "pin Y" in the chat surface — tool-call rendering,
   streaming text, media display, edit/regen flows, error states. Walks
   through the Layer-2 e2e harness we built: Playwright + an in-memory
-  fake `window.kshana` / `window.electron` bridge driven by JSON
-  scenarios. No Electron, no preload, no kshana-ink, no ComfyUI.
+  fake `window.dhee` / `window.electron` bridge driven by JSON
+  scenarios. No Electron, no preload, no dhee-ink, no ComfyUI.
 allowed-tools:
   - Bash
   - Read
@@ -17,7 +17,7 @@ allowed-tools:
   - Glob
 ---
 
-# kshana-desktop test loop
+# dhee-desktop test loop
 
 This skill exists so future Claude doesn't reinvent the chat-panel
 test pattern we already established. Read these notes BEFORE writing
@@ -33,24 +33,24 @@ The user said something like:
 - "Add coverage for video media."
 - "Verify the duplicate-bubble bug stays fixed."
 
-If the request is about kshana-ink agent behavior — runners, pi-agent
+If the request is about dhee-ink agent behavior — runners, pi-agent
 tools, in-process ports — that's a different loop (see
-`../kshana-ink/.claude/skills/test-loop/`). This skill is for the UI
+`../dhee-ink/.claude/skills/test-loop/`). This skill is for the UI
 surface that consumes the bridge events.
 
 ## What this harness IS, and what it ISN'T
 
 **IS:** a UI rendering contract test. Given a scripted sequence of
-`KshanaEvent` payloads (the real wire shape from
-`src/shared/kshanaIpc.ts`), does `ChatPanelEmbedded` produce the
+`dheeEvent` payloads (the real wire shape from
+`src/shared/dheeIpc.ts`), does `ChatPanelEmbedded` produce the
 right DOM? Tool cards, streaming bubbles, media, notifications,
 button states.
 
 **ISN'T:** an agent behavior test. The fake bridge does NOT make
 the LLM choose tools, doesn't run ComfyUI, doesn't write to disk.
 If you need to verify "given user input X, does the agent actually
-call the right tool?" — that's a kshana-ink test, not a
-kshana-desktop test.
+call the right tool?" — that's a dhee-ink test, not a
+dhee-desktop test.
 
 The fake bridge isn't a lie about the agent's behavior; it's a
 **fixture** of what the agent emits. The UI's job is to render
@@ -69,7 +69,7 @@ those events correctly — and that's what these tests pin.
 
    ```json
    {
-     "project": { "name": "noir", "directory": "/tmp/noir.kshana" },
+     "project": { "name": "noir", "directory": "/tmp/noir.dhee" },
      "rules": [
        {
          "on": { "channel": "runTask", "match": "show me s1 shot 1" },
@@ -134,30 +134,30 @@ those events correctly — and that's what these tests pin.
 
 | File | Purpose |
 |---|---|
-| `playwright.config.ts` | Playwright project config; spawns the dev server with `KSHANA_TEST_BRIDGE=1` |
-| `src/renderer/testing/installFakeBridge.ts` | Runtime fakes for `window.kshana` + `window.electron`; exposes `window.__kshanaTest` API |
+| `playwright.config.ts` | Playwright project config; spawns the dev server with `dhee_TEST_BRIDGE=1` |
+| `src/renderer/testing/installFakeBridge.ts` | Runtime fakes for `window.dhee` + `window.electron`; exposes `window.__dheeTest` API |
 | `src/renderer/testing/TestApp.tsx` | Mounts `<ChatPanelEmbedded />` inside the real `WorkspaceProvider`; opens the scenario's project |
 | `src/renderer/testing/ScenarioPicker.tsx` | Manual-testing UI when no `?scenario=` param is set |
 | `src/renderer/testing/scenarioCatalog.ts` | Bundled list of scenarios — add yours here for picker visibility |
-| `src/renderer/index.tsx` | Branches to `<TestApp />` when `KSHANA_TEST_BRIDGE=1` |
+| `src/renderer/index.tsx` | Branches to `<TestApp />` when `dhee_TEST_BRIDGE=1` |
 | `tests/e2e/fixtures.ts` | `bootWithScenario` Playwright fixture |
 | `tests/e2e/scenarios/*.json` | Scripted IPC sequences |
 | `tests/e2e/*.spec.ts` | Test files themselves |
 | `tests/e2e/README.md` | Manual-testing + add-a-scenario walkthrough |
-| `.erb/configs/webpack.config.renderer.dev.ts` | Dev-server config; `KSHANA_TEST_BRIDGE=1` skips the preload+Electron spawn |
+| `.erb/configs/webpack.config.renderer.dev.ts` | Dev-server config; `dhee_TEST_BRIDGE=1` skips the preload+Electron spawn |
 
-## The window.__kshanaTest API (inside the page)
+## The window.__dheeTest API (inside the page)
 
 Useful inside `page.evaluate(...)` blocks for advanced tests:
 
 ```ts
-window.__kshanaTest.loadScenario({...})        // replace the rule table at runtime
-window.__kshanaTest.loadScenarioByName('foo')  // pick from scenarioCatalog
-window.__kshanaTest.listScenarios()
-window.__kshanaTest.emit('notification', {...}) // fire an event manually
-window.__kshanaTest.getCalls('runTask')        // every recorded bridge call
-window.__kshanaTest.getProject()               // active scenario's project info
-window.__kshanaTest.reset()                    // clear scenario + listeners + timers
+window.__dheeTest.loadScenario({...})        // replace the rule table at runtime
+window.__dheeTest.loadScenarioByName('foo')  // pick from scenarioCatalog
+window.__dheeTest.listScenarios()
+window.__dheeTest.emit('notification', {...}) // fire an event manually
+window.__dheeTest.getCalls('runTask')        // every recorded bridge call
+window.__dheeTest.getProject()               // active scenario's project info
+window.__dheeTest.reset()                    // clear scenario + listeners + timers
 ```
 
 `getCalls(channel?)` is gold for asserting "the chat panel actually
@@ -177,7 +177,7 @@ sent runTask with the right text" without depending on DOM.
 - **Test agent decision-making.** "Given user types X, does the
   panel call runTask with Y?" — yes, that's UI. "Given user types
   X, does the agent decide to call tool Y with arg Z?" — that's
-  agent behavior, kshana-ink-side, NOT this harness.
+  agent behavior, dhee-ink-side, NOT this harness.
 - **Mount more than `<ChatPanelEmbedded />`.** The harness mounts
   exactly the chat panel inside a `WorkspaceProvider`. Don't pull
   in `<App />`, the timeline panel, the explorer — those have
@@ -234,15 +234,15 @@ selectors first.
 
 - `tests/e2e/README.md` — manual testing + extending the loop, full
   user-facing walkthrough.
-- `src/shared/kshanaIpc.ts` (over in kshana-ink) — the canonical
-  list of `KshanaEventName` values + payload shapes.
-- The companion skill in kshana-ink's `.claude/skills/test-loop/`
+- `src/shared/dheeIpc.ts` (over in dhee-ink) — the canonical
+  list of `dheeEventName` values + payload shapes.
+- The companion skill in dhee-ink's `.claude/skills/test-loop/`
   for the agent-side bridge tests.
 
 ## When NOT to use this skill
 
-- Tests for kshana-ink runners or pi-agent tools — wrong repo, use
-  kshana-ink's `test-loop` skill instead.
+- Tests for dhee-ink runners or pi-agent tools — wrong repo, use
+  dhee-ink's `test-loop` skill instead.
 - Tests that need a real Electron process (file:// asset rendering,
   IPC behavior, packaged-app paths) — those are Layer 3, currently
   not built.

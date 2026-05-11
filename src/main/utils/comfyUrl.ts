@@ -1,10 +1,10 @@
 /**
  * Resolve the ComfyUI URL from AppSettings. Used by the embedded
- * kshana-ink integration (KshanaCoreManager) and — until the legacy
+ * dhee-ink integration (dheeCoreManager) and — until the legacy
  * cleanup lands — by localBackendManager.
  *
  * The settings model has two shapes:
- *   - `inherit`: use the kshana-ink default (env var or built-in)
+ *   - `inherit`: use the dhee-ink default (env var or built-in)
  *   - `custom`: use the URL the user typed in the desktop's settings UI
  *
  * Extracted out of localBackendManager so the embedded code path
@@ -19,7 +19,7 @@ export function getComfyUiUrl(settings: AppSettings): string {
     const trimmed = settings.comfyuiUrl?.trim() ?? '';
     return trimmed || DEFAULT_COMFYUI_URL;
   }
-  // 'inherit' — let kshana-ink's tools fall back to env var / built-in
+  // 'inherit' — let dhee-ink's tools fall back to env var / built-in
   return settings.comfyuiUrl?.trim() || DEFAULT_COMFYUI_URL;
 }
 

@@ -4,21 +4,21 @@
  */
 
 import type {
-  KshanaProject,
-  KshanaManifest,
+  dheeProject,
+  dheeManifest,
   AgentProjectFile,
   AssetManifest,
-  KshanaTimelineState,
+  dheeTimelineState,
   ContextIndex,
   WorkflowPhase,
   ItemApprovalStatus,
   AssetInfo,
-} from '../../types/kshana';
+} from '../../types/dhee';
 import {
   PROJECT_PATHS,
   DEFAULT_TIMELINE_STATE,
   createDefaultContextIndex,
-} from '../../types/kshana';
+} from '../../types/dhee';
 import { safeJsonParse } from '../../utils/safeJsonParse';
 import {
   backendAssetManifestToDesktop,
@@ -77,7 +77,7 @@ interface ProjectFileOpMeta {
 export class ProjectService {
   private projectDirectory: string | null = null;
 
-  private currentProject: KshanaProject | null = null;
+  private currentProject: dheeProject | null = null;
 
   private currentBackendProject: BackendProjectFile | null = null;
 
@@ -85,9 +85,9 @@ export class ProjectService {
 
   private lastOpenDirectory: string | null = null;
 
-  private lastOpenResult: ProjectResult<KshanaProject> | null = null;
+  private lastOpenResult: ProjectResult<dheeProject> | null = null;
 
-  private pendingOpen: Promise<ProjectResult<KshanaProject>> | null = null;
+  private pendingOpen: Promise<ProjectResult<dheeProject>> | null = null;
 
   private static readonly MIN_OPEN_INTERVAL_MS = 2000;
 
@@ -122,14 +122,14 @@ export class ProjectService {
   /**
    * Gets the current project
    */
-  getCurrentProject(): KshanaProject | null {
+  getCurrentProject(): dheeProject | null {
     return this.currentProject;
   }
 
   /**
-   * Validates if a directory is a valid Kshana project
-   * CLI projects use .kshana/agent/project.json as the primary source
-   * Desktop projects may also have kshana.json at root (optional)
+   * Validates if a directory is a valid dhee project
+   * CLI projects use .dhee/agent/project.json as the primary source
+   * Desktop projects may also have dhee.json at root (optional)
    */
   async validateProject(directory: string): Promise<ProjectValidation> {
     const errors: string[] = [];
@@ -174,7 +174,7 @@ export class ProjectService {
    * Rate-limited: subsequent calls for the same directory within MIN_OPEN_INTERVAL_MS
    * return the cached result to avoid redundant disk reads from multiple trigger sources.
    */
-  async openProject(directory: string): Promise<ProjectResult<KshanaProject>> {
+  async openProject(directory: string): Promise<ProjectResult<dheeProject>> {
     const now = Date.now();
     const sameDir = directory === this.lastOpenDirectory;
 
@@ -191,7 +191,7 @@ export class ProjectService {
       return this.pendingOpen;
     }
 
-    const doOpen = async (): Promise<ProjectResult<KshanaProject>> => {
+    const doOpen = async (): Promise<ProjectResult<dheeProject>> => {
       try {
         const validation = await this.validateProject(directory);
         if (!validation.isValid) {
@@ -312,7 +312,7 @@ export class ProjectService {
     directory: string,
     name: string,
     description?: string,
-  ): Promise<ProjectResult<KshanaProject>> {
+  ): Promise<ProjectResult<dheeProject>> {
     try {
       // Create directory structure
       await this.createProjectStructure(directory);
@@ -425,7 +425,7 @@ export class ProjectService {
    * Saves timeline state
    */
   async saveTimelineState(
-    state: KshanaTimelineState,
+    state: dheeTimelineState,
   ): Promise<ProjectResult<void>> {
     if (!this.currentProject || !this.projectDirectory) {
       return { success: false, error: 'No project open' };
@@ -590,14 +590,14 @@ export class ProjectService {
 
   private async readManifest(
     directory: string,
-  ): Promise<KshanaManifest | null> {
+  ): Promise<dheeManifest | null> {
     const project = await this.readBackendProject(directory);
     return project ? backendProjectToDesktopManifest(project) : null;
   }
 
   private async writeManifest(
     directory: string,
-    manifest: KshanaManifest,
+    manifest: dheeManifest,
   ): Promise<void> {
     if (!this.currentBackendProject) {
       return;
@@ -697,8 +697,8 @@ export class ProjectService {
 
   private async readTimelineState(
     directory: string,
-  ): Promise<KshanaTimelineState | null> {
-    const state = await this.readJSON<KshanaTimelineState>(
+  ): Promise<dheeTimelineState | null> {
+    const state = await this.readJSON<dheeTimelineState>(
       ProjectService.buildPath(directory, PROJECT_PATHS.UI_TIMELINE),
     );
     if (!state) return null;
@@ -707,7 +707,7 @@ export class ProjectService {
 
   private async writeTimelineState(
     directory: string,
-    state: KshanaTimelineState,
+    state: dheeTimelineState,
   ): Promise<void> {
     await this.writeJSON(
       ProjectService.buildPath(directory, PROJECT_PATHS.UI_TIMELINE),
@@ -717,8 +717,8 @@ export class ProjectService {
   }
 
   private normalizeTimelineState(
-    state: KshanaTimelineState,
-  ): KshanaTimelineState {
+    state: dheeTimelineState,
+  ): dheeTimelineState {
     return {
       ...DEFAULT_TIMELINE_STATE,
       ...state,

@@ -11,7 +11,7 @@ mask real regressions.
 ## Evidence (verbatim from recent diagnostics)
 
 **Missing test globals:**
-- `tests/e2e/fixtures.ts` lines 44, 52 — `Property '__kshanaTest' does
+- `tests/e2e/fixtures.ts` lines 44, 52 — `Property '__dheeTest' does
   not exist on type 'Window & typeof globalThis'`.
 - `tests/e2e/chat.spec.ts` line 37 — same.
 - `tests/e2e/edit-instruction.spec.ts` line 52 — same.
@@ -21,14 +21,14 @@ mask real regressions.
 - `tests/e2e/streaming-no-duplicate.spec.ts` line 93 — same.
 - `tests/e2e/unhandled-events.spec.ts` lines 41, 67, 79 — same.
 
-These all use `window.__kshanaTest` but the global is never declared
+These all use `window.__dheeTest` but the global is never declared
 in a `.d.ts`.
 
 **Missing module declarations:**
-- `src/main/kshanaCoreManager.test.ts` line 98 — `Cannot find module
-  './kshanaCoreManager'`.
-- `src/renderer/hooks/useKshanaSession.test.tsx` line 18 — `Cannot find
-  module './useKshanaSession'`.
+- `src/main/dheeCoreManager.test.ts` line 98 — `Cannot find module
+  './dheeCoreManager'`.
+- `src/renderer/hooks/usedheeSession.test.tsx` line 18 — `Cannot find
+  module './usedheeSession'`.
 - `src/renderer/components/chat/ChatPanelEmbedded/ChatPanelEmbedded.test.tsx`
   line 39 — `Cannot find module './ChatPanelEmbedded'`.
 
@@ -50,8 +50,8 @@ typically a `tsconfig` `paths` / `include` / `rootDir` mismatch.
 
 ## Done means
 
-- A `tests/e2e/global.d.ts` (or equivalent) declares `Window.__kshanaTest`
-  with the right shape. All eight `__kshanaTest` errors clear.
+- A `tests/e2e/global.d.ts` (or equivalent) declares `Window.__dheeTest`
+  with the right shape. All eight `__dheeTest` errors clear.
 - `tsconfig` for the test surface includes the paths the three
   `Cannot find module './...'` tests need; those errors clear.
 - The two webpack-config errors clear (typically `import webpack from
@@ -65,7 +65,7 @@ typically a `tsconfig` `paths` / `include` / `rootDir` mismatch.
 ## Out of scope
 
 - Cleaning up unused-vars / unused-imports across the rest of the
-  codebase (`ProjectManager.ts` etc. — those are kshana-ink, not
+  codebase (`ProjectManager.ts` etc. — those are dhee-ink, not
   desktop, and have their own todo).
 - Migrating away from electron-react-boilerplate.
 

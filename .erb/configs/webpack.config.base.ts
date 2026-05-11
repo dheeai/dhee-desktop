@@ -9,8 +9,8 @@ import webpackPaths from './webpack.paths';
 import { dependencies as externals } from '../../release/app/package.json';
 
 const configuration: Configuration = {
-  // `kshana-ink` is required by the embedded main-process integration.
-  // Externalize ALL kshana-ink subpaths (`./manager`, `./core/llm`,
+  // `dhee-ink` is required by the embedded main-process integration.
+  // Externalize ALL dhee-ink subpaths (`./manager`, `./core/llm`,
   // `./runners`, `./agent/pi`) so webpack doesn't try to bundle the
   // CJS artifacts (which have peer-dep imports that fail at bundle
   // time). At runtime, Node resolves them via require() the same as
@@ -18,7 +18,7 @@ const configuration: Configuration = {
   externals: [
     ...Object.keys(externals || {}),
     ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
-      if (request && /^kshana-core(\/|$)/.test(request)) {
+      if (request && /^dhee-core(\/|$)/.test(request)) {
         return callback(null, `commonjs ${request}`);
       }
       callback();

@@ -1,9 +1,9 @@
 /**
  * Bundle the logs directory into a zip the user can email to support.
  *
- * The directory we zip is whatever main.ts pointed `KSHANA_LOGS_DIR` at
+ * The directory we zip is whatever main.ts pointed `dhee_LOGS_DIR` at
  * — `app.getPath('userData')/logs` for the packaged app, the
- * kshana-core checkout's `logs/` for dev. DesktopLogger, kshana-core's
+ * dhee-core checkout's `logs/` for dev. DesktopLogger, dhee-core's
  * loggers, and ComfyUIClient.debugLog all converge there.
  *
  * Output goes to Downloads with a timestamped name so multiple exports
@@ -32,12 +32,12 @@ function timestampSuffix(): string {
 
 export function getLogsDirAbs(): string {
   return (
-    process.env['KSHANA_LOGS_DIR'] || path.join(app.getPath('userData'), 'logs')
+    process.env['dhee_LOGS_DIR'] || path.join(app.getPath('userData'), 'logs')
   );
 }
 
 /**
- * Zip the entire logs dir into `<Downloads>/kshana-logs-<ts>.zip` and
+ * Zip the entire logs dir into `<Downloads>/dhee-logs-<ts>.zip` and
  * return metadata about the result. Throws if the logs dir is missing
  * or empty so the UI can surface a meaningful message.
  */
@@ -48,7 +48,7 @@ export async function exportLogsZip(): Promise<ExportLogsResult> {
   }
 
   const downloads = app.getPath('downloads');
-  const zipPath = path.join(downloads, `kshana-logs-${timestampSuffix()}.zip`);
+  const zipPath = path.join(downloads, `dhee-logs-${timestampSuffix()}.zip`);
 
   const output = fs.createWriteStream(zipPath);
   const archive = archiver('zip', { zlib: { level: 9 } });

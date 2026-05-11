@@ -25,7 +25,7 @@ export default function ScenarioPicker() {
         boxSizing: 'border-box',
       }}
     >
-      <h1 style={{ fontSize: 20, marginBottom: 4 }}>kshana-desktop test bridge</h1>
+      <h1 style={{ fontSize: 20, marginBottom: 4 }}>dhee-desktop test bridge</h1>
       <p style={{ fontSize: 13, opacity: 0.7, marginTop: 0 }}>
         No scenario loaded. Pick one — the page reloads with{' '}
         <code>?scenario=NAME</code> and the chat panel opens with that
@@ -85,11 +85,11 @@ export default function ScenarioPicker() {
       <details style={{ marginTop: 32, opacity: 0.6, fontSize: 12 }}>
         <summary>Bridge API (devtools)</summary>
         <pre style={{ fontSize: 11 }}>
-          {`window.__kshanaTest.listScenarios()
-window.__kshanaTest.loadScenarioByName('edit-shot-1')
-window.__kshanaTest.loadScenario({...})
-window.__kshanaTest.emit('tool_call', {...})
-window.__kshanaTest.getCalls()`}
+          {`window.__dheeTest.listScenarios()
+window.__dheeTest.loadScenarioByName('edit-shot-1')
+window.__dheeTest.loadScenario({...})
+window.__dheeTest.emit('tool_call', {...})
+window.__dheeTest.getCalls()`}
         </pre>
       </details>
     </div>

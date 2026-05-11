@@ -9,12 +9,12 @@ describe('remotionErrorDiagnostics', () => {
       stage: 'bundling',
       packaged: true,
       remotionDir: '/tmp/remotion',
-      esbuildBinaryPath: '/Applications/Kshana.app/.../esbuild',
+      esbuildBinaryPath: '/Applications/dhee.app/.../esbuild',
       resolvedModulePaths: {
-        bundler: '/Applications/Kshana.app/Contents/Resources/app.asar.unpacked/node_modules/@remotion/bundler/index.js',
-        renderer: '/Applications/Kshana.app/Contents/Resources/app.asar.unpacked/node_modules/@remotion/renderer/index.js',
-        react: '/Applications/Kshana.app/Contents/Resources/app.asar.unpacked/node_modules/react/package.json',
-        esbuild: '/Applications/Kshana.app/Contents/Resources/app.asar.unpacked/node_modules/esbuild/package.json',
+        bundler: '/Applications/dhee.app/Contents/Resources/app.asar.unpacked/node_modules/@remotion/bundler/index.js',
+        renderer: '/Applications/dhee.app/Contents/Resources/app.asar.unpacked/node_modules/@remotion/renderer/index.js',
+        react: '/Applications/dhee.app/Contents/Resources/app.asar.unpacked/node_modules/react/package.json',
+        esbuild: '/Applications/dhee.app/Contents/Resources/app.asar.unpacked/node_modules/esbuild/package.json',
       },
     });
 
@@ -43,7 +43,7 @@ describe('remotionErrorDiagnostics', () => {
   it('classifies app.asar module resolution failures', () => {
     const details = classifyRemotionFailure({
       errorMessage:
-        'Module not found: Error: /Users/test/Library/Application Support/kshana-desktop/remotion-infographics/Applications/Kshana.app/Contents/Resources/app.asar/node_modules/react/package.json (directory description file): Error: Invalid package /Applications/Kshana.app/Contents/Resources/app.asar',
+        'Module not found: Error: /Users/test/Library/Application Support/dhee-desktop/remotion-infographics/Applications/dhee.app/Contents/Resources/app.asar/node_modules/react/package.json (directory description file): Error: Invalid package /Applications/dhee.app/Contents/Resources/app.asar',
       stage: 'bundling',
       packaged: true,
       remotionDir: '/tmp/remotion',
@@ -63,10 +63,10 @@ describe('remotionErrorDiagnostics', () => {
       packaged: true,
       remotionDir: '/tmp/remotion',
       resolvedModulePaths: {
-        bundler: '/Applications/Kshana.app/Contents/Resources/app.asar/node_modules/@remotion/bundler/index.js',
-        renderer: '/Applications/Kshana.app/Contents/Resources/app.asar/node_modules/@remotion/renderer/index.js',
-        react: '/Applications/Kshana.app/Contents/Resources/app.asar/node_modules/react/package.json',
-        esbuild: '/Applications/Kshana.app/Contents/Resources/app.asar/node_modules/esbuild/package.json',
+        bundler: '/Applications/dhee.app/Contents/Resources/app.asar/node_modules/@remotion/bundler/index.js',
+        renderer: '/Applications/dhee.app/Contents/Resources/app.asar/node_modules/@remotion/renderer/index.js',
+        react: '/Applications/dhee.app/Contents/Resources/app.asar/node_modules/react/package.json',
+        esbuild: '/Applications/dhee.app/Contents/Resources/app.asar/node_modules/esbuild/package.json',
       },
     });
 

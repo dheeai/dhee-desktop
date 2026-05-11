@@ -1,6 +1,6 @@
 /**
- * Context Index (.kshana/context/index.json)
- * Location: <ProjectName>/.kshana/context/index.json
+ * Context Index (.dhee/context/index.json)
+ * Location: <ProjectName>/.dhee/context/index.json
  * Owner: Agent (ContextStore)
  * Purpose: Index of context variables stored in .md documents
  */

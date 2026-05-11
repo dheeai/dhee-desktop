@@ -6,7 +6,7 @@ function syncAppPackageJson(mainPackageJson, existingAppPackageJson = {}) {
   const appPackageJson = {
     ...existingAppPackageJson,
     name:
-      existingAppPackageJson.name || mainPackageJson.name || 'kshana-desktop',
+      existingAppPackageJson.name || mainPackageJson.name || 'dhee-desktop',
     version:
       mainPackageJson.version || existingAppPackageJson.version || '1.0.0',
     description:
