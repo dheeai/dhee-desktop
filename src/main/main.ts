@@ -34,7 +34,7 @@ import {
 } from './utils/projectFileOpGuard';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import { dheeCoreManager } from './dheeCoreManager';
+import { dheeCoreManager as DheeCoreManager } from './dheeCoreManager';
 import { registerdheeIpcBridge } from './dheeIpcBridge';
 import { parseDesktopAuthToken } from './desktopAuthToken';
 import {
@@ -135,7 +135,7 @@ if (!process.env.dhee_LOGS_DIR) {
 let mainWindow: BrowserWindow | null = null;
 let authWindow: BrowserWindow | null = null;
 let pendingDesktopAuthState: string | null = null;
-let dheeCoreManager: dheeCoreManager;
+let dheeCoreManager: DheeCoreManager;
 let lastAccountAuthStatus: 'idle' | 'waiting' | 'expired' | 'error' = 'idle';
 let appUpdateStatus: AppUpdateStatus = {
   phase: 'idle',
@@ -146,8 +146,6 @@ let appUpdateStatus: AppUpdateStatus = {
 
 interface RuntimeConfig {
   /** Dhee website (Next.js): /auth/desktop, proxy routes, billing APIs. */
-  dheeWebsiteUrl?: string;
-  /** Legacy packaged builds */
   dheeWebsiteUrl?: string;
   /** Optional PostHog project key for packaged builds. */
   posthogApiKey?: string;
@@ -201,9 +199,7 @@ async function resolvedheeWebsiteUrl(): Promise<string> {
   const fromEnv = normalizeServerUrl(process.env.dhee_CLOUD_URL);
   if (fromEnv) return fromEnv;
   const parsed = await readRuntimeConfig();
-  const fromFile = normalizeServerUrl(
-    parsed?.dheeWebsiteUrl ?? parsed?.dheeWebsiteUrl,
-  );
+  const fromFile = normalizeServerUrl(parsed?.dheeWebsiteUrl);
   if (fromFile) return fromFile;
   return 'http://localhost:3000';
 }
@@ -3556,7 +3552,7 @@ app.on('window-all-closed', () => {
 // Embedded dhee-ink runtime — replaces the spawn+WS local backend.
 // Renderer talks to this via window.dhee (registerdheeIpcBridge
 // below registers the ipcMain handlers + sets up event forwarding).
-dheeCoreManager = new dheeCoreManager();
+dheeCoreManager = new DheeCoreManager();
 
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
