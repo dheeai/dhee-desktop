@@ -369,24 +369,28 @@ describe('KshanaCoreManager', () => {
     );
   });
 
-  it('llmBackend=cloud + cloud auth: LLM routes through the website proxy with the desktop token', async () => {
-    // When the user explicitly opts into Cloud mode for LLM AND is
-    // signed in, the LLM goes through <websiteUrl>/openai/api/v1
-    // with the desktop token as bearer. Settings.openaiBaseUrl is
-    // intentionally ignored (and the UI disables the LLM fields when
-    // llmBackend='cloud').
+  it('GIVEN llmBackend=cloud + cloud auth + stale openai* settings WHEN start runs THEN cloud proxy URL/token win and settings.openai{BaseUrl,Model,ApiKey} are ignored', async () => {
+    // Cloud mode owns the LLM routing end-to-end: the proxy URL,
+    // bearer token, and model id all come from the cloud-auth
+    // payload, not from Settings. The model field in particular
+    // matters — a leftover local-mode model name (e.g.
+    // "Qwen3.5-9B-HighIQ-Heretic" carried over from when the user
+    // had LM Studio configured) must NOT ride along on the cloud
+    // request, because the proxy maps model ids to credit pools
+    // and an unknown id produces a billing-side 402 instead of
+    // the intended cloud-default model.
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
         ...baseSettings,
         llmBackend: 'cloud',
         comfyBackend: 'cloud',
-  vlmBackend: 'local' as const,
+        vlmBackend: 'local' as const,
         backendMode: 'cloud',
         llmProvider: 'openai',
         openaiBaseUrl: 'https://kshana.share.zrok.io',
         openaiApiKey: 'should-be-ignored',
-        openaiModel: 'Qwen3.6-35B-A3B',
+        openaiModel: 'Qwen3.5-9B-HighIQ-Heretic',
       },
       {
         websiteUrl: 'https://desktop.example.test/',
@@ -399,7 +403,8 @@ describe('KshanaCoreManager', () => {
       'https://desktop.example.test/openai/api/v1',
     );
     expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
-    expect(process.env['OPENAI_MODEL']).toBe('Qwen3.6-35B-A3B');
+    // Model is the cloud-default sentinel — NOT settings.openaiModel.
+    expect(process.env['OPENAI_MODEL']).toBe('gpt-4o');
   });
 
   it('llmBackend=local + cloud auth: LLM stays on Settings (signed-in users on Local keep their proxy)', async () => {
@@ -687,13 +692,82 @@ describe('KshanaCoreManager', () => {
     );
   });
 
+  it('GIVEN llmBackend=cloud + llmUseSameForAllTiers=false + custom tier configs WHEN start runs THEN every tier uses the cloud proxy and per-tier settings are ignored', async () => {
+    // Cloud-mode contract extends to the per-tier env vars: when
+    // the user has opted out of "same for all tiers" but is on
+    // cloud LLM, none of the LLM_TIER_*_BASE_URL / _MODEL / _API_KEY
+    // entries should carry their custom-tier baseUrl/model/key
+    // through to the cloud proxy. The proxy owns routing.
+    //
+    // Pre-fix this surfaces as the same bug shape as cloud-LLM
+    // primary: a stray model id (e.g. a leftover gpt-3.5-turbo
+    // from a tier the user once configured against api.openai.com)
+    // hits the cloud proxy, lands in a credit pool the user
+    // doesn't have, and returns 402.
+    const mgr = new KshanaCoreManager();
+    await mgr.start(
+      {
+        ...baseSettings,
+        llmBackend: 'cloud',
+        comfyBackend: 'local',
+        vlmBackend: 'local',
+        backendMode: 'cloud',
+        llmUseSameForAllTiers: false,
+        llmProvider: 'openai',
+        openaiBaseUrl: 'https://stale.example.test/v1',
+        openaiApiKey: 'stale-heavy-key',
+        openaiModel: 'stale-heavy-model',
+        llmTierMedium: {
+          provider: 'openai',
+          openaiBaseUrl: 'https://stale-medium.example.test/v1',
+          openaiApiKey: 'stale-medium-key',
+          openaiModel: 'stale-medium-model',
+          googleApiKey: '',
+          geminiModel: 'gemini-2.5-flash',
+        },
+        llmTierLight: {
+          provider: 'gemini',
+          openaiBaseUrl: 'https://api.openai.com/v1',
+          openaiApiKey: '',
+          openaiModel: 'gpt-4o',
+          googleApiKey: 'stale-gemini-key',
+          geminiModel: 'stale-gemini-model',
+        },
+      },
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+
+    const cloudUrl = 'https://desktop.example.test/openai/api/v1';
+
+    // Every tier points at the cloud proxy with the desktop token
+    // and the cloud-default model — settings tier configs ignored.
+    for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
+      expect(process.env[`LLM_TIER_${tier}_PROVIDER`]).toBe('openai');
+      expect(process.env[`LLM_TIER_${tier}_BASE_URL`]).toBe(cloudUrl);
+      expect(process.env[`LLM_TIER_${tier}_API_KEY`]).toBe('desktop-jwt');
+      expect(process.env[`LLM_TIER_${tier}_MODEL`]).toBe('gpt-4o');
+    }
+
+    // The flat OPENAI_* env still has the cloud-mode values too
+    // (so a code path that reads OPENAI_BASE_URL — i.e. the no-routing
+    // fallback — also lands on cloud, not on the stale Settings URL).
+    expect(process.env['OPENAI_BASE_URL']).toBe(cloudUrl);
+    expect(process.env['OPENAI_API_KEY']).toBe('desktop-jwt');
+    expect(process.env['OPENAI_MODEL']).toBe('gpt-4o');
+  });
+
   // ── VLM (vision judge) env wiring ───────────────────────────────────
   // VLM has its own env block (VLM_PROVIDER / VLM_API_KEY / VLM_MODEL /
   // VLM_BASE_URL) read by getVLMConfig() in kshana-core. Pre-fix the
   // desktop never set any of these — VLM was effectively dead unless
   // the user edited kshana-core/.env directly.
 
-  it('vlmJudge=true + vlmBackend=cloud + cloud auth: VLM routes through the website proxy', async () => {
+  it('GIVEN vlmBackend=cloud + cloud auth + stale vlmModel WHEN start runs THEN cloud proxy URL/token win and settings.vlmModel is ignored', async () => {
+    // Same contract as cloud-LLM: in cloud mode the proxy owns
+    // model selection, so settings.vlmModel must NOT ride through.
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
@@ -717,7 +791,7 @@ describe('KshanaCoreManager', () => {
       'https://desktop.example.test/openai/api/v1',
     );
     expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
-    expect(process.env['VLM_MODEL']).toBe('gpt-4o-vision');
+    expect(process.env['VLM_MODEL']).toBe('gpt-4o');
   });
 
   it('mixed: llmBackend=cloud + vlmBackend=local — LLM goes to cloud proxy, VLM uses Settings (independent lanes)', async () => {
@@ -756,10 +830,10 @@ describe('KshanaCoreManager', () => {
     expect(process.env['VLM_MODEL']).toBe('qwen-vl-72b');
   });
 
-  it('mixed: llmBackend=local + vlmBackend=cloud — LLM uses Settings, VLM goes to cloud proxy', async () => {
-    // The reverse split: free local LLM (LM Studio) but VLM judging
-    // through the cloud (so the user can pick a strong vision model
-    // without paying for every chat call).
+  it('GIVEN llmBackend=local + vlmBackend=cloud WHEN start runs THEN LLM uses settings while VLM uses cloud (model is cloud default, not vlmModel)', async () => {
+    // Independent-lane split: free local LLM (LM Studio) + VLM
+    // judging via cloud. The local lane reads settings; the cloud
+    // lane ignores vlmModel and uses the cloud-default sentinel.
     const mgr = new KshanaCoreManager();
     await mgr.start(
       {
@@ -782,15 +856,15 @@ describe('KshanaCoreManager', () => {
       },
     );
 
-    // LLM Settings.
+    // LLM local — settings ride through.
     expect(process.env['OPENAI_BASE_URL']).toBe('http://127.0.0.1:1234/v1');
     expect(process.env['OPENAI_API_KEY']).toBe('lm-studio');
-    // VLM cloud — uses desktop token, model id from Settings.
+    // VLM cloud — proxy owns model; settings.vlmModel ignored.
     expect(process.env['VLM_BASE_URL']).toBe(
       'https://desktop.example.test/openai/api/v1',
     );
     expect(process.env['VLM_API_KEY']).toBe('desktop-jwt');
-    expect(process.env['VLM_MODEL']).toBe('anthropic/claude-opus-4.6-fast');
+    expect(process.env['VLM_MODEL']).toBe('gpt-4o');
   });
 
   it('vlmJudge=true + local LLM: VLM env reflects user Settings (openai-compatible)', async () => {

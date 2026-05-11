@@ -473,10 +473,12 @@ export function applyEnvFromSettings(
     process.env.LLM_PROVIDER = 'openai';
     process.env.OPENAI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
     process.env.OPENAI_API_KEY = cloudToken!;
-    // Default model when cloud mode is on. The proxy server has
-    // its own model whitelist; passing a non-loaded id surfaces a
-    // clear server-side error rather than a silent local fallback.
-    process.env.OPENAI_MODEL = settings.openaiModel || 'gpt-4o';
+    // Cloud mode owns model selection. Settings.openaiModel is
+    // ignored — a leftover local-mode model id (e.g. an LM Studio
+    // model name) carried into the cloud request would land in a
+    // credit pool the user doesn't have, returning 402. Hardcoding
+    // a known cloud-default sentinel avoids that failure mode.
+    process.env.OPENAI_MODEL = 'gpt-4o';
   } else {
     switch (settings.llmProvider) {
       case 'gemini':
@@ -545,11 +547,33 @@ export function applyEnvFromSettings(
   // construction time. Heavy = the flat OPENAI_*/GOOGLE_*/GEMINI_*
   // fields the user already entered (so the primary section in the UI
   // doubles as the heavy tier).
+  //
+  // Cloud-LLM mode overrides this: when llmBackend='cloud', every tier
+  // must point at the cloud proxy with the cloud token and the
+  // cloud-default model — settings.llmTier* configs are ignored, same
+  // contract as the flat OPENAI_* block above. Without this override,
+  // a user who once configured a per-tier model against a different
+  // baseUrl would have that stale value ride through to the cloud
+  // proxy and produce a 402 from the credit pool.
   if (!settings.llmUseSameForAllTiers) {
     process.env.LLM_ROUTING_ENABLED = 'true';
-    writeTierEnv('HEAVY', tierConfigFromPrimarySettings(settings));
-    writeTierEnv('MEDIUM', settings.llmTierMedium);
-    writeTierEnv('LIGHT', settings.llmTierLight);
+    if (useCloudLLM) {
+      const cloudCfg: LLMTierConfig = {
+        provider: 'openai',
+        openaiBaseUrl: joinUrl(cloudWebsiteUrl!, '/openai/api/v1'),
+        openaiApiKey: cloudToken!,
+        openaiModel: 'gpt-4o',
+        googleApiKey: '',
+        geminiModel: '',
+      };
+      writeTierEnv('HEAVY', cloudCfg);
+      writeTierEnv('MEDIUM', cloudCfg);
+      writeTierEnv('LIGHT', cloudCfg);
+    } else {
+      writeTierEnv('HEAVY', tierConfigFromPrimarySettings(settings));
+      writeTierEnv('MEDIUM', settings.llmTierMedium);
+      writeTierEnv('LIGHT', settings.llmTierLight);
+    }
   }
 
   // NODE_ENV is set by the Electron build pipeline (webpack
