@@ -47,6 +47,11 @@ jest.mock('../VideoLibraryView/VideoLibraryView', () => () => null);
 jest.mock('../PlansView/PlansView', () => () => null);
 jest.mock('../TimelinePanel/TimelinePanel', () => () => null);
 jest.mock('../EditorIcons', () => ({ TimelineDockIcon: () => null }));
+// RedoFromMenu uses useKshanaSession which needs the full
+// window.kshana IPC surface. Stubbed for the tab-bar tests; the menu
+// has its own test file (RedoFromMenu/redoFromStages.test.ts) for
+// the data layer.
+jest.mock('../RedoFromMenu/RedoFromMenu', () => () => null);
 
 describe('PreviewPanel — tab visibility and default selection', () => {
   describe('GIVEN a project is open', () => {

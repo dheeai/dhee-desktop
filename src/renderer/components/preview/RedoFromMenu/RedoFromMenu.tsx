@@ -1,0 +1,231 @@
+/**
+ * "Redo from..." dropdown + confirmation modal.
+ *
+ * The dropdown lives in the PreviewPanel header. Each item is a
+ * user-friendly stage label (NO internal typeIds surface to the
+ * user). On selection a confirmation modal explains what will be
+ * regenerated, warns that the action is non-recoverable, and hints
+ * that single-shot edits should go through the chat agent.
+ *
+ * Actual invalidation goes through the existing
+ * `useKshanaSession().invalidateNodes(ids)` IPC — same mechanism the
+ * chat-driven `/reset` slash command uses. The cascade walks
+ * `dependents` server-side via `applyInvalidation`, so we just need
+ * to enumerate the top-level node ids matching the chosen stage's
+ * typeIds.
+ */
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+import { ChevronDown, RefreshCw, AlertTriangle, MessageSquare } from 'lucide-react';
+import {
+  REDO_FROM_STAGES,
+  downstreamStages,
+  resolveNodeIdsForTypeIds,
+  type RedoFromStage,
+} from './redoFromStages';
+import { useKshanaSession } from '../../../hooks/useKshanaSession';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import styles from './RedoFromMenu.module.scss';
+
+type MenuState =
+  | { kind: 'closed' }
+  | { kind: 'open' }
+  | { kind: 'confirming'; stage: RedoFromStage }
+  | { kind: 'running'; stage: RedoFromStage }
+  | { kind: 'error'; stage: RedoFromStage; message: string };
+
+export default function RedoFromMenu() {
+  const { projectDirectory } = useWorkspace();
+  const session = useKshanaSession();
+  const [state, setState] = useState<MenuState>({ kind: 'closed' });
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Close on outside-click — only when the dropdown is open (not the
+  // modal, which has its own backdrop).
+  useEffect(() => {
+    if (state.kind !== 'open') return;
+    const onDocClick = (e: MouseEvent) => {
+      if (!wrapperRef.current) return;
+      if (!wrapperRef.current.contains(e.target as Node)) {
+        setState({ kind: 'closed' });
+      }
+    };
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [state.kind]);
+
+  const onPickStage = useCallback((stage: RedoFromStage) => {
+    setState({ kind: 'confirming', stage });
+  }, []);
+
+  const onConfirm = useCallback(async () => {
+    if (state.kind !== 'confirming' || !projectDirectory) return;
+    const stage = state.stage;
+    setState({ kind: 'running', stage });
+
+    // Read project.json to enumerate the node ids matching the
+    // chosen stage's typeIds. The desktop already loads files via
+    // window.electron.project.readFile.
+    const projectJsonPath = `${projectDirectory}/project.json`;
+    const projectJson = await window.electron.project.readFile(projectJsonPath);
+    if (!projectJson) {
+      setState({
+        kind: 'error',
+        stage,
+        message: 'Could not read project.json — is the project still selected?',
+      });
+      return;
+    }
+    const ids = resolveNodeIdsForTypeIds(projectJson, stage.typeIds);
+    if (ids.length === 0) {
+      setState({
+        kind: 'error',
+        stage,
+        message:
+          'Nothing to redo at this stage yet — it hasn\'t produced any output. ' +
+          'Pick a later stage, or dispatch the pipeline first.',
+      });
+      return;
+    }
+
+    const result = await session.invalidateNodes(ids);
+    if (!result.ok) {
+      setState({
+        kind: 'error',
+        stage,
+        message: result.error ?? 'Invalidation failed (no details from server).',
+      });
+      return;
+    }
+    setState({ kind: 'closed' });
+  }, [state, projectDirectory, session]);
+
+  const onCancel = useCallback(() => setState({ kind: 'closed' }), []);
+
+  return (
+    <div className={styles.menuWrapper} ref={wrapperRef}>
+      <button
+        type="button"
+        className={styles.trigger}
+        onClick={() => setState(state.kind === 'open' ? { kind: 'closed' } : { kind: 'open' })}
+        aria-haspopup="menu"
+        aria-expanded={state.kind === 'open'}
+        disabled={!projectDirectory}
+      >
+        <RefreshCw size={14} />
+        <span>Redo from…</span>
+        <ChevronDown size={14} />
+      </button>
+
+      {state.kind === 'open' && (
+        <div className={styles.menu} role="menu">
+          {REDO_FROM_STAGES.map((stage) => (
+            <button
+              key={stage.key}
+              type="button"
+              className={styles.menuItem}
+              onClick={() => onPickStage(stage)}
+              role="menuitem"
+            >
+              <div>{stage.label}</div>
+              <div className={styles.menuItemSecondary}>{stage.description}</div>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(state.kind === 'confirming' ||
+        state.kind === 'running' ||
+        state.kind === 'error') && (
+        <RedoConfirmModal
+          stage={state.stage}
+          phase={state.kind}
+          error={state.kind === 'error' ? state.message : null}
+          onConfirm={onConfirm}
+          onCancel={onCancel}
+        />
+      )}
+    </div>
+  );
+}
+
+interface RedoConfirmModalProps {
+  stage: RedoFromStage;
+  phase: 'confirming' | 'running' | 'error';
+  error: string | null;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function RedoConfirmModal({
+  stage,
+  phase,
+  error,
+  onConfirm,
+  onCancel,
+}: RedoConfirmModalProps) {
+  const downstream = downstreamStages(stage);
+  return (
+    <div className={styles.modalBackdrop} role="dialog" aria-modal="true">
+      <div className={styles.modalCard}>
+        <h2 className={styles.modalTitle}>Redo from: {stage.label}</h2>
+        <p className={styles.modalSubtitle}>{stage.description}</p>
+
+        <div className={styles.modalSection}>
+          <div className={styles.modalSectionLabel}>The following will be regenerated</div>
+          <ul className={styles.modalList}>
+            {downstream.map((s) => (
+              <li key={s.key}>{s.label}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className={styles.modalWarning}>
+          <AlertTriangle size={16} aria-hidden="true" />
+          <span>
+            This cannot be undone. Any generated text, images, or videos for the
+            stages above will be replaced by fresh outputs on the next run.
+          </span>
+        </div>
+
+        <div className={styles.modalHint}>
+          <MessageSquare size={16} aria-hidden="true" />
+          <span>
+            Need to redo just one shot? Ask the agent in chat —{' '}
+            <code>redo shot 3 image</code> or <code>redo scene 2</code> work too.
+          </span>
+        </div>
+
+        {error && (
+          <div className={styles.modalWarning} role="alert">
+            <AlertTriangle size={16} aria-hidden="true" />
+            <span>{error}</span>
+          </div>
+        )}
+
+        <div className={styles.modalActions}>
+          <button
+            type="button"
+            className={`${styles.modalButton} ${styles.modalButtonSecondary}`}
+            onClick={onCancel}
+            disabled={phase === 'running'}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`${styles.modalButton} ${styles.modalButtonDanger}`}
+            onClick={onConfirm}
+            disabled={phase === 'running'}
+          >
+            {phase === 'running' ? 'Working…' : 'Redo'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
