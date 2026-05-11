@@ -199,6 +199,66 @@ describe('groupPlanFiles', () => {
     });
   });
 
+  describe('GIVEN .failed sidecars from kshana-core validation rejections', () => {
+    it('categorises a shot-image-prompt failure as "failures" with a scene/shot-aware label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/images/shots/scene-1-shot-3.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Composition — Scene 1 Shot 3 (failed)',
+      ]);
+    });
+
+    it('categorises an assembled-scene failure as "failures" with a Scene Breakdown label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_2.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Scene Breakdown — Scene 2 (failed)',
+      ]);
+    });
+
+    it('categorises a stage-A plan failure with a "Shot Plan" label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_1.plan.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Plan — Scene 1 (failed)',
+      ]);
+    });
+
+    it('categorises a stage-B per-shot breakdown failure with a Scene/Shot label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_1.shots/4.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Breakdown — Scene 1 Shot 4 (failed)',
+      ]);
+    });
+
+    it('does NOT surface the `.failed.error` companion as its own entry (folded into the .failed view)', () => {
+      const grouped = groupPlanFiles([
+        'prompts/images/shots/scene-1-shot-3.json.failed',
+        'prompts/images/shots/scene-1-shot-3.json.failed.error',
+      ]);
+      // One failures entry only — the .error is co-read at view time.
+      expect(grouped.failures).toHaveLength(1);
+    });
+
+    it('sorts failures with scene-major ordering', () => {
+      const grouped = groupPlanFiles([
+        'prompts/images/shots/scene-2-shot-1.json.failed',
+        'prompts/images/shots/scene-1-shot-5.json.failed',
+        'prompts/images/shots/scene-1-shot-1.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Composition — Scene 1 Shot 1 (failed)',
+        'Shot Composition — Scene 1 Shot 5 (failed)',
+        'Shot Composition — Scene 2 Shot 1 (failed)',
+      ]);
+    });
+  });
+
   describe('GIVEN a project with the three scene-breakdown layers on disk', () => {
     it('groups assembled + plan + per-shot under "breakdowns", sorted by scene then layer', () => {
       const grouped = groupPlanFiles([

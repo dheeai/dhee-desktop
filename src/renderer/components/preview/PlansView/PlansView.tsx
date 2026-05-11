@@ -9,6 +9,7 @@ import {
   type PlanFile as CategorizedPlanFile,
 } from './planFileCategorization';
 import { renderBreakdownAsMarkdown } from './breakdownJsonToMarkdown';
+import { renderFailedAttemptAsMarkdown } from './failedAttemptToMarkdown';
 import styles from './PlansView.module.scss';
 
 interface PlanFile {
@@ -99,6 +100,28 @@ export default function PlansView({
         return renderBreakdownAsMarkdown(content);
       }
 
+      // Failure sidecars: co-read the `.failed.error` companion (if
+      // present) and render both into a single annotated markdown
+      // block with a loud error banner.
+      if (plan.category === 'failures') {
+        const errPath = `${projectDirectory}/${plan.path}.error`;
+        let errorMessage: string | null = null;
+        try {
+          const errContent = await window.electron.project.readFile(errPath);
+          if (errContent !== null) errorMessage = errContent;
+        } catch {
+          // Companion missing or unreadable — render with a generic
+          // "no error recorded" banner. The .failed content is what
+          // the user actually needs to inspect.
+        }
+        return renderFailedAttemptAsMarkdown({
+          failedPath: plan.path,
+          title: plan.displayName,
+          brokenContent: content,
+          errorMessage,
+        });
+      }
+
       return content;
     },
     [projectDirectory],
@@ -162,7 +185,9 @@ export default function PlansView({
       // Order in which sections appear in the sidebar. Breakdowns sit
       // between Scenes and Settings — they're per-scene artifacts the
       // executor produces, so they read naturally after the user's
-      // scene prose.
+      // scene prose. Failures (`.failed` sidecars from validation
+      // rejects) sit at the bottom — they're inspection-only and
+      // surfaced last so they don't crowd the productive sections.
       const SECTION_ORDER: PlanCategory[] = [
         'content',
         'scenes',
@@ -170,6 +195,7 @@ export default function PlansView({
         'settings',
         'characters',
         'other',
+        'failures',
       ];
       const plans: PlanFile[] = SECTION_ORDER.flatMap((cat) =>
         grouped[cat].map(toPlanFile),
@@ -357,6 +383,7 @@ export default function PlansView({
       settings: [],
       characters: [],
       breakdowns: [],
+      failures: [],
       other: [],
     };
     for (const plan of availablePlans) {
@@ -424,6 +451,7 @@ export default function PlansView({
             {renderPlanSection('Settings', sectionsByCategory.settings)}
             {renderPlanSection('Characters', sectionsByCategory.characters)}
             {renderPlanSection('Other', sectionsByCategory.other)}
+            {renderPlanSection('Failures', sectionsByCategory.failures)}
           </div>
         ) : (
           <div className={styles.emptyList}>
@@ -447,7 +475,15 @@ export default function PlansView({
             // is a derived view. Locking to read-only prevents the
             // edit toggle from offering a save that would clobber
             // the source JSON with the rendered markdown.
-            readOnly={selectedPlan.category === 'breakdowns'}
+            //
+            // Failure sidecars (`.failed`) are also inspection-only —
+            // editing the rendered markdown would write it back to
+            // `.failed` and overwrite the broken model output that's
+            // the whole reason the file is on disk.
+            readOnly={
+              selectedPlan.category === 'breakdowns' ||
+              selectedPlan.category === 'failures'
+            }
           />
         ) : (
           <div className={styles.placeholder}>

@@ -14,6 +14,10 @@
  *                  scene breakdown JSONs (the three layers of the
  *                  hierarchical scene-breakdown flow added in
  *                  kshana-core's feat/hierarchical-shot-breakdown).
+ *   - failures   — `.failed` sidecars produced by kshana-core when
+ *                  an LLM output failed validation + repair + retry.
+ *                  Contains the raw broken content so the user can
+ *                  inspect what the model actually produced.
  *   - other      — anything else (rare; surfaced for visibility)
  *
  * Pure: no fs, no React. Path string in, structured record out.
@@ -25,6 +29,7 @@ export type PlanCategory =
   | 'settings'
   | 'characters'
   | 'breakdowns'
+  | 'failures'
   | 'other';
 
 export interface PlanFile {
@@ -57,6 +62,14 @@ const PLAN_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.plan\.json$/;
 const SHOT_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.shots\/(\d+)\.json$/;
 const ASSEMBLED_SCENE_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.json$/;
 
+// `.failed` sidecars: kshana-core writes these next to any artifact
+// whose LLM output failed validation + repair + retry. The companion
+// `.failed.error` carries the validation message; we surface the
+// .failed file as the entry and co-read .failed.error at view time
+// for the header banner.
+const FAILED_SIDECAR_RE = /\.failed$/;
+const FAILED_ERROR_SIDECAR_RE = /\.failed\.error$/;
+
 /**
  * True for any file that belongs in the Content tab.
  * The grouping pass uses this to filter the snapshot.
@@ -66,6 +79,11 @@ export function isPlanFilePath(relativePath: string): boolean {
   if (PLAN_JSON_RE.test(relativePath)) return true;
   if (SHOT_JSON_RE.test(relativePath)) return true;
   if (ASSEMBLED_SCENE_JSON_RE.test(relativePath)) return true;
+  // Only surface .failed (the broken content); .failed.error is folded
+  // into the .failed view as a header banner, not its own entry.
+  if (FAILED_SIDECAR_RE.test(relativePath) && !FAILED_ERROR_SIDECAR_RE.test(relativePath)) {
+    return true;
+  }
   return false;
 }
 
@@ -93,7 +111,96 @@ function slugFromMd(path: string): string {
  * `prompts/videos/scenes/`. Unrecognized paths return `other` with
  * a best-effort name.
  */
+/**
+ * Map a `.failed` sidecar back to a readable label by stripping the
+ * `.failed` suffix and matching the original artifact path against the
+ * known breakdown / shot / scene patterns. Falls back to a generic
+ * "Failed: <path>" label when the underlying path isn't recognized.
+ */
+function categorizeFailedSidecar(relativePath: string): PlanFile {
+  const basePath = relativePath.replace(FAILED_SIDECAR_RE, '');
+
+  // Image-shot prompt: prompts/images/shots/scene-N-shot-M.json
+  const shotImageMatch = basePath.match(/^prompts\/images\/shots\/scene-(\d+)-shot-(\d+)\.json$/);
+  if (shotImageMatch) {
+    const sceneNum = parseInt(shotImageMatch[1] ?? '0', 10);
+    const shotNum = parseInt(shotImageMatch[2] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Shot Composition — Scene ${sceneNum} Shot ${shotNum} (failed)`,
+      category: 'failures',
+      sortKey: sceneNum * 1000 + shotNum,
+    };
+  }
+
+  // Stage A plan: prompts/videos/scenes/scene_N.plan.json
+  const planMatch = basePath.match(/^prompts\/videos\/scenes\/scene_(\d+)\.plan\.json$/);
+  if (planMatch) {
+    const sceneNum = parseInt(planMatch[1] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Shot Plan — Scene ${sceneNum} (failed)`,
+      category: 'failures',
+      sortKey: sceneNum * 1000,
+    };
+  }
+
+  // Stage B per-shot breakdown: prompts/videos/scenes/scene_N.shots/M.json
+  const shotBreakdownMatch = basePath.match(/^prompts\/videos\/scenes\/scene_(\d+)\.shots\/(\d+)\.json$/);
+  if (shotBreakdownMatch) {
+    const sceneNum = parseInt(shotBreakdownMatch[1] ?? '0', 10);
+    const shotNum = parseInt(shotBreakdownMatch[2] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Shot Breakdown — Scene ${sceneNum} Shot ${shotNum} (failed)`,
+      category: 'failures',
+      sortKey: sceneNum * 1000 + shotNum,
+    };
+  }
+
+  // Stage C assembled: prompts/videos/scenes/scene_N.json
+  const assembledMatch = basePath.match(/^prompts\/videos\/scenes\/scene_(\d+)\.json$/);
+  if (assembledMatch) {
+    const sceneNum = parseInt(assembledMatch[1] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Scene Breakdown — Scene ${sceneNum} (failed)`,
+      category: 'failures',
+      sortKey: sceneNum * 1000,
+    };
+  }
+
+  // Character / setting / object image prompt (also JSON outputs that
+  // can fail validation): prompts/images/{characters,settings,objects}/X.json
+  const refImageMatch = basePath.match(/^prompts\/images\/(characters|settings|objects)\/(.+)\.json$/);
+  if (refImageMatch) {
+    const kind = refImageMatch[1]!;
+    const name = toTitleCase(refImageMatch[2] ?? '');
+    return {
+      path: relativePath,
+      displayName: `${toTitleCase(kind.slice(0, -1))} — ${name} (failed)`,
+      category: 'failures',
+      sortKey: `${kind}/${name}`,
+    };
+  }
+
+  // Generic fallback: surface the path so the user can at least find
+  // it on disk.
+  return {
+    path: relativePath,
+    displayName: `Failed: ${basePath}`,
+    category: 'failures',
+    sortKey: basePath,
+  };
+}
+
 export function categorizePlanFile(relativePath: string): PlanFile {
+  // `.failed` sidecars get their own category + naming pass first
+  // so the suffix doesn't poison the other matchers below.
+  if (FAILED_SIDECAR_RE.test(relativePath)) {
+    return categorizeFailedSidecar(relativePath);
+  }
+
   // Stage C — the assembled scene breakdown (the canonical scene_N.json).
   // Listed first under Breakdowns so users see the rolled-up output
   // before the per-stage intermediates.
@@ -214,6 +321,7 @@ export function groupPlanFiles(paths: string[]): GroupedPlanFiles {
     settings: [],
     characters: [],
     breakdowns: [],
+    failures: [],
     other: [],
   };
 
