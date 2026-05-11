@@ -117,10 +117,10 @@ describe('SettingsPanel', () => {
 
     // Both cloud toggles are present but disabled (no signed-in account).
     const llmCloudCheckbox = screen.getByLabelText(
-      'Use Kshana Cloud for LLM',
+      'Use Dhee Cloud for LLM',
     ) as HTMLInputElement;
     const comfyCloudCheckbox = screen.getByLabelText(
-      'Use Kshana Cloud for ComfyUI',
+      'Use Dhee Cloud for ComfyUI',
     ) as HTMLInputElement;
     expect(llmCloudCheckbox.disabled).toBe(true);
     expect(comfyCloudCheckbox.disabled).toBe(true);
@@ -224,7 +224,7 @@ describe('SettingsPanel', () => {
     expect(screen.getByText('Light LLM')).toBeInTheDocument();
   });
 
-  it('hides ComfyUI URL inputs when "Use Kshana Cloud for ComfyUI" is on, reveals them when off', async () => {
+  it('hides ComfyUI URL inputs when "Use Dhee Cloud for ComfyUI" is on, reveals them when off', async () => {
     await act(async () => {
       render(
         <SettingsPanel
@@ -247,12 +247,12 @@ describe('SettingsPanel', () => {
     expect(screen.queryByLabelText('Comfy Cloud API Key')).not.toBeInTheDocument();
     // The toggle itself is still there and checked.
     const toggle = screen.getByLabelText(
-      'Use Kshana Cloud for ComfyUI',
+      'Use Dhee Cloud for ComfyUI',
     ) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
   });
 
-  it('hides ALL LLM provider inputs when "Use Kshana Cloud for LLM" is on', async () => {
+  it('hides ALL LLM provider inputs when "Use Dhee Cloud for LLM" is on', async () => {
     await act(async () => {
       render(
         <SettingsPanel
@@ -282,7 +282,7 @@ describe('SettingsPanel', () => {
     expect(screen.queryByText('Light LLM')).not.toBeInTheDocument();
     // The toggle itself is still there and checked.
     const toggle = screen.getByLabelText(
-      'Use Kshana Cloud for LLM',
+      'Use Dhee Cloud for LLM',
     ) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
   });
@@ -311,12 +311,12 @@ describe('SettingsPanel', () => {
 
     // VLM toggle checked.
     const vlmToggle = screen.getByLabelText(
-      'Use Kshana Cloud for VLM',
+      'Use Dhee Cloud for VLM',
     ) as HTMLInputElement;
     expect(vlmToggle.checked).toBe(true);
     // Cloud-mode helper text visible.
     expect(
-      screen.getByText(/VLM routes through the Kshana Cloud proxy/i),
+      screen.getByText(/VLM routes through the Dhee Cloud proxy/i),
     ).toBeInTheDocument();
     // Model ID input MUST NOT be present — cloud owns model selection.
     expect(screen.queryByLabelText('VLM Model ID')).not.toBeInTheDocument();

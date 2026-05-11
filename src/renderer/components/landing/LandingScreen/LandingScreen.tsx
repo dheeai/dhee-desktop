@@ -43,9 +43,9 @@ const Settings = _Settings as unknown as LucideFC;
 const Sparkles = _Sparkles as unknown as LucideFC;
 
 const THUMBNAIL_CANDIDATES = [
-  '.kshana/ui/thumbnail.jpg',
-  '.kshana/ui/thumbnail.png',
-  '.kshana/ui/thumbnail.webp',
+  '.dhee/ui/thumbnail.jpg',
+  '.dhee/ui/thumbnail.png',
+  '.dhee/ui/thumbnail.webp',
   'thumbnail.jpg',
   'thumbnail.png',
   'thumbnail.webp',
@@ -167,12 +167,12 @@ function getHeroSubtitle(
     return `Signed in as ${account.email}. Create and manage projects from this desktop.`;
   }
   if (authStatus === 'waiting') {
-    return 'Finish sign-in in your browser, then choose Open Kshana Desktop when prompted.';
+    return 'Finish sign-in in your browser, then choose Open Dhee Desktop when prompted.';
   }
   if (authStatus === 'expired') {
     return 'Your cloud session expired. Local projects are still available.';
   }
-  return 'Create locally, or sign in to use Kshana Cloud credits.';
+  return 'Create locally, or sign in to use Dhee Cloud credits.';
 }
 
 
@@ -512,7 +512,7 @@ export default function LandingScreen() {
           <div className={styles.brandIcon}>
             <Play size={20} className={styles.playIcon} />
           </div>
-          <h1 className={styles.brandTitle}>Kshana Desktop</h1>
+          <h1 className={styles.brandTitle}>Dhee Desktop</h1>
           {ambientStatus ? (
             <div className={`${styles.modeBadge} ${ambientStatus.className}`}>
               <span className={styles.modeDot} />
@@ -521,7 +521,7 @@ export default function LandingScreen() {
           ) : (
             <div
               className={styles.modeBadgeRow}
-              title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Kshana Cloud' : 'Local'}`}
+              title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'}`}
             >
               <span
                 className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.llm.className}`}

@@ -35,7 +35,7 @@ export interface BridgeFixtures {
   bootWithScenario(scenarioFile: string): Promise<void>;
   /**
    * Boots the renderer with an inline scenario (no JSON file). Useful for
-   * tests that only need a surface + project, no scripted kshana events.
+   * tests that only need a surface + project, no scripted dhee events.
    */
   bootInline(scenario: Scenario): Promise<void>;
 }
@@ -49,7 +49,7 @@ async function seedAndNavigate(page: Page, scenario: Scenario): Promise<void> {
   await page.goto('/');
 
   await page.waitForFunction(
-    () => typeof window.__kshanaTest !== 'undefined',
+    () => typeof window.__dheeTest !== 'undefined',
     { timeout: 10_000 },
   );
   await page.evaluate(() => {
@@ -58,7 +58,7 @@ async function seedAndNavigate(page: Page, scenario: Scenario): Promise<void> {
     ).__pendingScenario;
     if (pending) {
       (
-        window.__kshanaTest as unknown as {
+        window.__dheeTest as unknown as {
           loadScenario(s: unknown): void;
         }
       ).loadScenario(pending);
@@ -78,9 +78,9 @@ async function waitForSurfaceReady(
         .waitFor({ state: 'visible', timeout: TIMEOUT });
       return;
     case 'landing':
-      // Landing renders a "Kshana Desktop" brand heading in the sidebar.
+      // Landing renders a "dhee Desktop" brand heading in the sidebar.
       await page
-        .getByRole('heading', { name: /Kshana Desktop/i })
+        .getByRole('heading', { name: /dhee Desktop/i })
         .waitFor({ state: 'visible', timeout: TIMEOUT });
       return;
     case 'workspace':

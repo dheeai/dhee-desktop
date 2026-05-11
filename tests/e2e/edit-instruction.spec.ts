@@ -19,7 +19,7 @@ test('edit instruction renders second tool card + new image alongside the origin
   await expect(v1).toHaveCount(1);
   await expect(v1).toHaveAttribute(
     'src',
-    'file:///tmp/noir.kshana/.kshana/cache/s1_shot_1_v1.png',
+    'file:///tmp/noir.dhee/.dhee/cache/s1_shot_1_v1.png',
   );
   await expect(page.getByText(/Here is/)).toBeVisible();
 
@@ -49,7 +49,7 @@ test('edit instruction renders second tool card + new image alongside the origin
 
   // ── Bridge call shape ───────────────────────────────────────────
   const calls = await page.evaluate(() =>
-    window.__kshanaTest!.getCalls('runTask'),
+    window.__dheeTest!.getCalls('runTask'),
   );
   expect(calls).toHaveLength(2);
   expect((calls[0].args as { task: string }).task).toBe('show me s1 shot 1');

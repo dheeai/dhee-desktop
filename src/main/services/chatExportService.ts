@@ -22,7 +22,7 @@ export interface ChatExportDependencies {
 
 function buildDefaultFileName(now: Date): string {
   const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, -5);
-  return `kshana-chat-${timestamp}.json`;
+  return `dhee-chat-${timestamp}.json`;
 }
 
 export async function exportChatJsonWithDialog(

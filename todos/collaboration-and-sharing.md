@@ -6,7 +6,7 @@ The desktop has no surface for sharing, review, or collaboration. A user
 who finishes a draft has no built-in way to send it to someone, get
 comments, or co-edit. The 2026 default for any creative tool is
 "share a link" — Frame.io, Canva, Descript all assume collaborative
-review. Kshana cannot.
+review. dhee cannot.
 
 This is a gap that hurts for the agency / power-user audience the rest
 of the product is positioned for. Indie creators care less, but agencies
@@ -20,7 +20,7 @@ will not adopt without a review path.
   CapCut; nothing for review.
 - `src/main/services/chatExportService.ts` — exports the chat as JSON.
   No equivalent for "export the project as a viewable bundle."
-- The project on disk is a `<name>.kshana/` directory of JSON +
+- The project on disk is a `<name>.dhee/` directory of JSON +
   manifests + media. Portable in principle, but no zip / share / load
   flow exists.
 
@@ -29,11 +29,11 @@ will not adopt without a review path.
 Three layers, can be shipped independently:
 
 **Layer 1 — Shareable project export (no backend needed):**
-- "Export project bundle" in the project menu produces a `.kshana.zip`
+- "Export project bundle" in the project menu produces a `.dhee.zip`
   containing the project directory + final video + a small static HTML
   viewer.
 - Recipient unzips, opens `index.html`, sees the assembled video plus
-  the storyboard. No editing on this side, no Kshana install required.
+  the storyboard. No editing on this side, no dhee install required.
 
 **Layer 2 — Read-only cloud share link** (depends on
 `cloud-mode-evaluable-end-to-end.md`):

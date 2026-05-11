@@ -1,6 +1,6 @@
 /**
  * Video Workspace Utility
- * Manages video folder structure in Kshana projects
+ * Manages video folder structure in dhee projects
  * Handles video versioning, current.txt tracking, and metadata
  */
 
@@ -45,13 +45,13 @@ export async function copyVideoToScene(
   version: number,
   metadata?: VideoMetadata,
 ): Promise<string> {
-  // Construct target directory: .kshana/agent/scenes/scene-XXX/video/
-  const videoDir = `${projectDirectory}/.kshana/agent/scenes/${sceneFolder}/video`;
+  // Construct target directory: .dhee/agent/scenes/scene-XXX/video/
+  const videoDir = `${projectDirectory}/.dhee/agent/scenes/${sceneFolder}/video`;
 
   // Ensure video directory exists
   // Ensure video directory exists
   // We use the relative path from project directory to avoid absolute path splitting issues
-  const relativeVideoDir = `.kshana/agent/scenes/${sceneFolder}/video`;
+  const relativeVideoDir = `.dhee/agent/scenes/${sceneFolder}/video`;
   await window.electron.project.createFolder(
     projectDirectory,
     relativeVideoDir,
@@ -60,7 +60,7 @@ export async function copyVideoToScene(
   // Construct target filename: vN.mp4
   const targetFileName = `v${version}.mp4`;
   const targetPath = `${videoDir}/${targetFileName}`;
-  const relativePath = `.kshana/agent/scenes/${sceneFolder}/video/${targetFileName}`;
+  const relativePath = `.dhee/agent/scenes/${sceneFolder}/video/${targetFileName}`;
 
   // Read video as base64 and write as binary (similar to images)
   try {
@@ -134,14 +134,14 @@ export async function setActiveVideoVersion(
   sceneFolder: string,
   version: number,
 ): Promise<void> {
-  const videoDir = `${projectDirectory}/.kshana/agent/scenes/${sceneFolder}/video`;
+  const videoDir = `${projectDirectory}/.dhee/agent/scenes/${sceneFolder}/video`;
   const currentTxtPath = `${videoDir}/current.txt`;
   const fileName = `v${version}.mp4`;
 
   // Ensure video directory exists
   // Ensure video directory exists
   // We use the relative path from project directory to avoid absolute path splitting issues
-  const relativeVideoDir = `.kshana/agent/scenes/${sceneFolder}/video`;
+  const relativeVideoDir = `.dhee/agent/scenes/${sceneFolder}/video`;
   await window.electron.project.createFolder(
     projectDirectory,
     relativeVideoDir,
@@ -161,7 +161,7 @@ export async function getActiveVideoPath(
   projectDirectory: string,
   sceneFolder: string,
 ): Promise<string | null> {
-  const videoDir = `${projectDirectory}/.kshana/agent/scenes/${sceneFolder}/video`;
+  const videoDir = `${projectDirectory}/.dhee/agent/scenes/${sceneFolder}/video`;
   const currentTxtPath = `${videoDir}/current.txt`;
 
   try {
@@ -170,7 +170,7 @@ export async function getActiveVideoPath(
       await window.electron.project.readFile(currentTxtPath);
     if (currentContent) {
       const fileName = currentContent.trim();
-      return `.kshana/agent/scenes/${sceneFolder}/video/${fileName}`;
+      return `.dhee/agent/scenes/${sceneFolder}/video/${fileName}`;
     }
   } catch {
     // current.txt doesn't exist or can't be read
@@ -180,7 +180,7 @@ export async function getActiveVideoPath(
   try {
     const v1Path = `${videoDir}/v1.mp4`;
     await window.electron.project.readFile(v1Path); // Just check if exists
-    return `.kshana/agent/scenes/${sceneFolder}/video/v1.mp4`;
+    return `.dhee/agent/scenes/${sceneFolder}/video/v1.mp4`;
   } catch {
     // No video found
     return null;
@@ -199,7 +199,7 @@ export async function getVideoMetadata(
   sceneFolder: string,
   version: number,
 ): Promise<VideoMetadata | null> {
-  const videoDir = `${projectDirectory}/.kshana/agent/scenes/${sceneFolder}/video`;
+  const videoDir = `${projectDirectory}/.dhee/agent/scenes/${sceneFolder}/video`;
   const metadataPath = `${videoDir}/v${version}_info.json`;
 
   try {
@@ -224,7 +224,7 @@ export async function listVideoVersions(
   projectDirectory: string,
   sceneFolder: string,
 ): Promise<number[]> {
-  const videoDir = `${projectDirectory}/.kshana/agent/scenes/${sceneFolder}/video`;
+  const videoDir = `${projectDirectory}/.dhee/agent/scenes/${sceneFolder}/video`;
 
   try {
     // Check versions sequentially - readFile returns null for missing files, doesn't throw

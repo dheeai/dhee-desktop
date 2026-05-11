@@ -1,5 +1,5 @@
 /**
- * Classify a kshana project's lifecycle state so the chat panel can
+ * Classify a dhee project's lifecycle state so the chat panel can
  * pick the right contextual call-to-action when the user opens it.
  *
  *   'fresh'        — project.json missing required setup fields.

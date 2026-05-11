@@ -9,9 +9,9 @@
  *
  * Each action carries a pre-formatted natural-language task that the
  * caller dispatches via session.runTask. The task strings include the
- * absolute `projectDir` so pi-agent's tools (kshana_run_to,
- * kshana_status, kshana_show_final_video, …) skip their default
- * `<basePath>/<name>.kshana` probe and operate on the host's path.
+ * absolute `projectDir` so pi-agent's tools (dhee_run_to,
+ * dhee_status, dhee_show_final_video, …) skip their default
+ * `<basePath>/<name>.dhee` probe and operate on the host's path.
  */
 import type { CSSProperties } from 'react';
 import { ArrowRight, Edit3, FileText, Play, RotateCcw, Wand2 } from 'lucide-react';
@@ -61,8 +61,8 @@ function buildActions(
         {
           id: 'continue_pipeline',
           label: 'Continue the pipeline',
-          helper: 'Run kshana_run_to until the final video is rendered.',
-          task: `Continue running the kshana pipeline for ${params} all the way to completion. Use kshana_run_to with no stage so it runs to the end. Stream progress as nodes finish.`,
+          helper: 'Run dhee_run_to until the final video is rendered.',
+          task: `Continue running the dhee pipeline for ${params} all the way to completion. Use dhee_run_to with no stage so it runs to the end. Stream progress as nodes finish.`,
           variant: 'primary',
           icon: Play,
         },
@@ -70,7 +70,7 @@ function buildActions(
           id: 'check_status',
           label: 'Show me the current status',
           helper: 'List which stages are done, in progress, or failed.',
-          task: `Use kshana_status with ${params} and summarise where the project stands — which stages are complete, which are pending, and any failures.`,
+          task: `Use dhee_status with ${params} and summarise where the project stands — which stages are complete, which are pending, and any failures.`,
           variant: 'secondary',
           icon: FileText,
         },
@@ -79,7 +79,7 @@ function buildActions(
           label: 'I want to edit a scene or shot',
           helper:
             'Pick a specific scene/shot and either edit its prompt or regenerate it.',
-          task: `For ${params}, list the scenes and shots that exist so I can choose one to edit. Use kshana_list_items.`,
+          task: `For ${params}, list the scenes and shots that exist so I can choose one to edit. Use dhee_list_items.`,
           variant: 'secondary',
           icon: Edit3,
         },
@@ -96,7 +96,7 @@ function buildActions(
         id: 'show_final_video',
         label: 'Show me the final video',
         helper: 'Render the assembled cut inline.',
-        task: `Use kshana_show_final_video with ${params}.`,
+        task: `Use dhee_show_final_video with ${params}.`,
         variant: 'primary',
         icon: Play,
       },
@@ -104,7 +104,7 @@ function buildActions(
         id: 'polish_shot',
         label: 'Polish a specific shot',
         helper: 'Pick a shot to refine its prompt and regenerate.',
-        task: `For ${params}, list the shots so I can choose one to polish. Use kshana_list_items filtered to shots.`,
+        task: `For ${params}, list the shots so I can choose one to polish. Use dhee_list_items filtered to shots.`,
         variant: 'secondary',
         icon: Wand2,
       },
@@ -112,7 +112,7 @@ function buildActions(
         id: 'rerun_stage',
         label: 'Re-run a stage with edits',
         helper: 'Reset to a stage and re-run from there.',
-        task: `For ${params}, walk me through which stage I want to reset (kshana_reset) and then re-run from there with kshana_run_to.`,
+        task: `For ${params}, walk me through which stage I want to reset (dhee_reset) and then re-run from there with dhee_run_to.`,
         variant: 'secondary',
         icon: RotateCcw,
       },

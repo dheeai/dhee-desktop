@@ -63,7 +63,7 @@ describe('chatPersistence', () => {
       ],
       uiState: {
         agentStatus: 'completed',
-        agentName: 'Kshana',
+        agentName: 'dhee',
         statusMessage: 'Done',
         hasUserSentMessage: true,
         isTaskRunning: false,
@@ -100,7 +100,7 @@ describe('chatPersistence', () => {
       messages: oversizeMessages,
       uiState: {
         agentStatus: 'idle',
-        agentName: 'Kshana',
+        agentName: 'dhee',
         statusMessage: 'Ready',
         hasUserSentMessage: false,
         isTaskRunning: false,
@@ -136,7 +136,7 @@ describe('chatPersistence', () => {
       ],
       uiState: {
         agentStatus: 'idle',
-        agentName: 'Kshana',
+        agentName: 'dhee',
         statusMessage: 'Ready',
         hasUserSentMessage: true,
         isTaskRunning: false,
@@ -158,7 +158,7 @@ describe('chatPersistence', () => {
       ],
       uiState: {
         agentStatus: 'idle',
-        agentName: 'Kshana',
+        agentName: 'dhee',
         statusMessage: 'Ready',
         hasUserSentMessage: true,
         isTaskRunning: false,
@@ -202,7 +202,7 @@ describe('chatPersistence', () => {
         messages: [],
         uiState: {
           agentStatus: 'idle',
-          agentName: 'Kshana',
+          agentName: 'dhee',
           statusMessage: 'Ready',
           hasUserSentMessage: false,
           isTaskRunning: false,
@@ -229,9 +229,9 @@ describe('chatPersistence', () => {
             timestamp: 1,
             meta: {
               result: {
-                project_directory: '/Users/other/Documents/Kshana/project-a',
+                project_directory: '/Users/other/Documents/dhee/project-a',
                 nested: {
-                  projectDirectory: '/Users/other/Documents/Kshana/project-a',
+                  projectDirectory: '/Users/other/Documents/dhee/project-a',
                 },
               },
             },

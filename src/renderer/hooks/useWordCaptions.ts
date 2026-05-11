@@ -14,7 +14,7 @@ interface PersistedWordCaptionsFile {
   words?: WordTimestamp[];
 }
 
-const WORD_CAPTIONS_RELATIVE_PATH = '.kshana/agent/content/word-captions.json';
+const WORD_CAPTIONS_RELATIVE_PATH = '.dhee/agent/content/word-captions.json';
 
 function parseWordCaptions(content: string): WordTimestamp[] {
   const parsed = JSON.parse(content) as PersistedWordCaptionsFile | WordTimestamp[];

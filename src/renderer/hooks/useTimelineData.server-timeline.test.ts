@@ -4,7 +4,7 @@ import {
   buildServerTimelineItems,
   getTimelineFileState,
 } from './useTimelineData';
-import { DEFAULT_TIMELINE_STATE } from '../types/kshana';
+import { DEFAULT_TIMELINE_STATE } from '../types/dhee';
 
 describe('useTimelineData server timeline helpers', () => {
   it('returns none state when timeline.json is missing', () => {

@@ -3,15 +3,15 @@ import type {
   AssetManifest,
   CharacterData,
   ItemApprovalStatus,
-  KshanaManifest,
+  dheeManifest,
   SceneRef,
   SettingData,
-} from '../../types/kshana';
+} from '../../types/dhee';
 import {
   createDefaultContentRegistry,
   createDefaultManifest,
   createDefaultWorkflowPhases,
-} from '../../types/kshana';
+} from '../../types/dhee';
 
 export interface BackendPhaseInfo {
   status: 'pending' | 'in_progress' | 'completed' | 'skipped';
@@ -416,7 +416,7 @@ function mapPhaseRecordToDesktop(
     AgentProjectFile['phases'][keyof AgentProjectFile['phases']]
   >;
 
-  // v3.0 projects (kshana-ink dependency-graph executor) drop the
+  // v3.0 projects (dhee-ink dependency-graph executor) drop the
   // `phases` map entirely — workflow state lives in executorState
   // now. Fall back to the defaults map without throwing.
   Object.entries(phases ?? {}).forEach(([phase, info]) => {
@@ -502,7 +502,7 @@ export function createDefaultBackendProject(params: {
 
 export function backendProjectToDesktopManifest(
   project: BackendProjectFile,
-): KshanaManifest {
+): dheeManifest {
   const manifest = createDefaultManifest(project.id, project.title, '1.0.0');
   manifest.description = project.description?.trim() || undefined;
   manifest.created_at = new Date(project.createdAt).toISOString();
@@ -514,7 +514,7 @@ export function backendProjectToDesktopAgentState(
   project: BackendProjectFile,
   assets?: AssetManifest | null,
 ): AgentProjectFile {
-  // kshana-ink v3.0 dropped the legacy parallel-state fields
+  // dhee-ink v3.0 dropped the legacy parallel-state fields
   // (phases, content, characters[], settings[], scenes[], assets[]) —
   // see `unify-project-state.md`. The asset manifest + executor
   // graph carry that information now. This adapter must default

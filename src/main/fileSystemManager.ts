@@ -378,7 +378,7 @@ export class FileSystemManager extends EventEmitter {
       ignored: IGNORED_PATTERNS,
       persistent: true,
       ignoreInitial: true,
-      depth: 5, // Ensure .kshana/agent/content and .kshana/agent/{image,video}-placements are watched
+      depth: 5, // Ensure .dhee/agent/content and .dhee/agent/{image,video}-placements are watched
       awaitWriteFinish: {
         stabilityThreshold: 200,
         pollInterval: 100,

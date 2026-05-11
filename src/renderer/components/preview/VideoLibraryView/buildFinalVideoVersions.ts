@@ -9,11 +9,11 @@
  * "Initial cut" — the UI doesn't synthesize fake change lists.
  *
  * Pure module: no I/O, no React. The desktop's manifest type calls
- * the timestamp field `created_at` but kshana-core writes
+ * the timestamp field `created_at` but dhee-core writes
  * `createdAt`; this helper accepts whichever shape the asset has on
  * disk so the Watch UI doesn't lose timestamps to that mismatch.
  */
-import type { AssetInfo } from '../../../types/kshana/assetManifest';
+import type { AssetInfo } from '../../../types/dhee/assetManifest';
 
 export type ChangeSummary =
   | { kind: 'initial' }

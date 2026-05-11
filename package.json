@@ -1,27 +1,27 @@
 {
-  "name": "kshana-desktop",
+  "name": "dhee-desktop",
   "version": "1.1.3",
-  "description": "Desktop application for Kshana video generation platform",
+  "description": "Desktop application for Dhee Studios video generation",
   "keywords": [
-    "kshana",
+    "dhee",
     "electron",
     "react",
     "video-generation",
     "ai"
   ],
-  "homepage": "https://github.com/anveshane/kshana-desktop#readme",
+  "homepage": "https://github.com/dheeai/dhee-desktop#readme",
   "bugs": {
-    "url": "https://github.com/anveshane/kshana-desktop/issues"
+    "url": "https://github.com/dheeai/dhee-desktop/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/anveshane/kshana-desktop.git"
+    "url": "git+https://github.com/dheeai/dhee-desktop.git"
   },
   "license": "MIT",
   "author": {
-    "name": "Kshana Team",
-    "email": "contact@kshana.ai",
-    "url": "https://kshana.ai"
+    "name": "Dhee Studios",
+    "email": "contact@dhee.ai",
+    "url": "https://dhee.ai"
   },
   "contributors": [],
   "main": "./.erb/dll/main.bundle.dev.js",
@@ -33,16 +33,16 @@
     "prepare:whisper-model": "node ./.erb/scripts/prepare-whisper-model.js",
     "prepare:remotion-browser": "node ./.erb/scripts/prepare-remotion-browser.js",
     "prepare:desktop-runtime": "npm run prepare:whisper-model && npm run prepare:remotion-browser",
-    "verify:kshana-core": "ts-node ./.erb/scripts/verify-kshana-core.ts",
+    "verify:dhee-core": "ts-node ./.erb/scripts/verify-dhee-core.ts",
     "prepare:app-deps": "ts-node ./.erb/scripts/install-app-deps.ts",
     "postinstall": "ts-node .erb/scripts/check-native-dep.js && node .erb/scripts/conditional-install-app-deps.js && npm run build:dll",
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "package": "npm run verify:kshana-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
-    "package:mac": "npm run verify:kshana-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --arm64 --publish never && npm run build:dll",
-    "package:win": "npm run verify:kshana-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --win --publish never && npm run build:dll",
-    "package:all": "npm run verify:kshana-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
-    "release": "npm run verify:kshana-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --publish always",
+    "package": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
+    "package:mac": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --arm64 --publish never && npm run build:dll",
+    "package:win": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --win --publish never && npm run build:dll",
+    "package:all": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
+    "release": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --publish always",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "dev": "npm start",
@@ -50,7 +50,7 @@
     "start:main": "concurrently -k -P \"cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true webpack --watch --config ./.erb/configs/webpack.config.main.dev.ts\" \"electronmon . -- {@}\" --",
     "start:preload": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.preload.dev.ts",
     "start:renderer": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack serve --config ./.erb/configs/webpack.config.renderer.dev.ts",
-    "start:test-renderer": "cross-env NODE_ENV=development KSHANA_TEST_BRIDGE=1 TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack serve --config ./.erb/configs/webpack.config.renderer.dev.ts",
+    "start:test-renderer": "cross-env NODE_ENV=development dhee_TEST_BRIDGE=1 TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack serve --config ./.erb/configs/webpack.config.renderer.dev.ts",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
@@ -109,7 +109,7 @@
       "release/app/dist",
       ".erb/dll",
       "tests/e2e",
-      "kshana-core/",
+      "dhee-core/",
       "assets/whisper-runtime/",
       "release/build/"
     ],
@@ -151,7 +151,7 @@
     "electron-log": "^5.3.2",
     "electron-store": "^8.2.0",
     "electron-updater": "^6.3.9",
-    "kshana-core": "file:../kshana-core",
+    "dhee-core": "file:../dhee-core",
     "lucide-react": "^0.555.0",
     "mapbox-gl": "^3.0.0",
     "react": "^19.0.0",
@@ -243,8 +243,8 @@
     "@electron/rebuild": "^3.7.1"
   },
   "build": {
-    "productName": "Kshana",
-    "appId": "com.kshana.desktop",
+    "productName": "Dhee",
+    "appId": "com.dheeai.desktop",
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
     "asarUnpack": [
@@ -305,7 +305,7 @@
       "**/node_modules/.pnpm/style-loader@*/**",
       "**/node_modules/@turf/**",
       "**/node_modules/mapbox-gl/**",
-      "**/node_modules/kshana-core/**",
+      "**/node_modules/dhee-core/**",
       "**/node_modules/fastify/**",
       "**/node_modules/@fastify/**",
       "**/node_modules/openai/**",
@@ -321,7 +321,7 @@
       "dist",
       "node_modules",
       "package.json",
-      ".kshana-core-version.json"
+      ".dhee-core-version.json"
     ],
     "mac": {
       "notarize": false,
@@ -393,8 +393,8 @@
     ],
     "publish": {
       "provider": "github",
-      "owner": "anveshane",
-      "repo": "kshana-desktop",
+      "owner": "dheeai",
+      "repo": "dhee-desktop",
       "releaseType": "release"
     }
   },

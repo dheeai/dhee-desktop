@@ -4,7 +4,7 @@ import { useProject } from '../../../contexts/ProjectContext';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import styles from './NewProjectDialog.module.scss';
 
-const PROJECT_SETUP_STORAGE_KEY = 'kshana.pendingProjectSetup';
+const PROJECT_SETUP_STORAGE_KEY = 'dhee.pendingProjectSetup';
 
 interface NewProjectDialogProps {
   isOpen: boolean;
@@ -27,7 +27,7 @@ async function isExistingProjectDirectory(directory: string): Promise<boolean> {
     joinPath(normalizedDirectory, 'project.json'),
   );
   const hasLegacyProjectFile = await window.electron.project.checkFileExists(
-    joinPath(normalizedDirectory, '.kshana/agent/project.json'),
+    joinPath(normalizedDirectory, '.dhee/agent/project.json'),
   );
 
   return hasRootProjectFile || hasLegacyProjectFile;
@@ -94,7 +94,7 @@ export default function NewProjectDialog({
 
       if (await isExistingProjectDirectory(normalizedWorkspacePath)) {
         throw new Error(
-          'Selected location is already a Kshana project. Choose a parent folder instead.',
+          'Selected location is already a Dhee project. Choose a parent folder instead.',
         );
       }
 

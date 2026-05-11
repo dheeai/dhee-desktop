@@ -214,7 +214,7 @@ export default function MessageList({
   isStreaming = false,
   showThinkingPlaceholder = false,
   thinkingPlaceholderText = 'Thinking through the next steps...',
-  thinkingAgentName = 'Kshana',
+  thinkingAgentName = 'Dhee',
   onRegenerate = undefined,
   onDelete = undefined,
 }: MessageListProps) {

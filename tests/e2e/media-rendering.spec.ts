@@ -23,7 +23,7 @@ test('video media renders the 📹 text label with path', async ({
 
   // The 📹 label includes the absolute path verbatim.
   await expect(
-    page.getByText('📹 /tmp/noir.kshana/.kshana/cache/s1_shot_1.mp4'),
+    page.getByText('📹 /tmp/noir.dhee/.dhee/cache/s1_shot_1.mp4'),
   ).toBeVisible();
 
   // No <img> for video media (image branch should not run).
@@ -49,7 +49,7 @@ test('mixed image + video media render in event order', async ({
 
   // Video renders as 📹 text.
   await expect(
-    page.getByText('📹 /tmp/noir.kshana/.kshana/cache/scene1_render.mp4'),
+    page.getByText('📹 /tmp/noir.dhee/.dhee/cache/scene1_render.mp4'),
   ).toBeVisible();
 
   // Two media-bubble headers, one image kind and one video kind.

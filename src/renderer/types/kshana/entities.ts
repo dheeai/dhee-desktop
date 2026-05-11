@@ -1,12 +1,12 @@
 /**
- * Entity types for Kshana Project Directory
+ * Entity types for dhee Project Directory
  * Characters, Settings, Scenes, and related data structures
  */
 
 import type { ItemApprovalStatus } from './common';
 
 /**
- * Character data stored in .kshana/agent/project.json
+ * Character data stored in .dhee/agent/project.json
  */
 export interface CharacterData {
   /** Display name of the character */
@@ -47,7 +47,7 @@ export interface CharacterData {
 }
 
 /**
- * Setting/Location data stored in .kshana/agent/project.json
+ * Setting/Location data stored in .dhee/agent/project.json
  */
 export interface SettingData {
   /** Display name of the setting */
@@ -95,7 +95,7 @@ export interface SceneRef {
   /** Scene number (1-indexed, zero-padded in folder names) */
   scene_number: number;
 
-  /** Folder path relative to .kshana/agent/scenes/ */
+  /** Folder path relative to .dhee/agent/scenes/ */
   folder: string;
 
   /** Optional scene title */

@@ -4,17 +4,19 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 export interface RuntimeConfig {
-  /** Kshana website (Next.js): /auth/desktop, /api/credits/balance, etc. */
-  kshanaWebsiteUrl?: string;
-  /** Alias for kshanaWebsiteUrl */
+  /** Dhee website (Next.js): /auth/desktop, /api/credits/balance, etc. */
+  dheeWebsiteUrl?: string;
+  /** Legacy key from older packaged builds */
+  dheeWebsiteUrl?: string;
+  /** Generic alias */
   websiteUrl?: string;
   /** Authenticated proxy base URL for OpenRouter and Comfy Cloud metering. */
-  kshanaProxyBaseUrl?: string;
-  /** Alias for kshanaProxyBaseUrl */
+  dheeProxyBaseUrl?: string;
+  /** Alias for dheeProxyBaseUrl */
   proxyBaseUrl?: string;
-  /** kshana-core base URL: /api/v1/chat, /api/v1/ws/chat, /api/v1/templates, etc. */
-  kshanaCoreUrl?: string;
-  /** Alias for kshanaCoreUrl */
+  /** dhee-core base URL: /api/v1/chat, /api/v1/ws/chat, /api/v1/templates, etc. */
+  dheeCoreUrl?: string;
+  /** Alias for dheeCoreUrl */
   coreUrl?: string;
   /** Legacy key for core URL from older release pipelines */
   cloudServerUrl?: string;
@@ -67,39 +69,41 @@ export function normalizeServerUrl(value?: string): string | undefined {
   }
 }
 
-export async function resolveKshanaWebsiteUrl(
+export async function resolvedheeWebsiteUrl(
   source: RuntimeConfigSource,
 ): Promise<string> {
-  const fromEnv = normalizeServerUrl(source.env.KSHANA_CLOUD_URL);
+  const fromEnv = normalizeServerUrl(source.env.dhee_CLOUD_URL);
   if (fromEnv) return fromEnv;
   const parsed = await readRuntimeConfig(source);
   const fromFile = normalizeServerUrl(
-    parsed?.kshanaWebsiteUrl || parsed?.websiteUrl,
+    parsed?.dheeWebsiteUrl ||
+      parsed?.dheeWebsiteUrl ||
+      parsed?.websiteUrl,
   );
   if (fromFile) return fromFile;
   return 'http://localhost:3000';
 }
 
-export async function resolveKshanaProxyBaseUrl(
+export async function resolvedheeProxyBaseUrl(
   source: RuntimeConfigSource,
 ): Promise<string> {
-  const fromEnv = normalizeServerUrl(source.env.KSHANA_PROXY_BASE_URL);
+  const fromEnv = normalizeServerUrl(source.env.dhee_PROXY_BASE_URL);
   if (fromEnv) return fromEnv;
   const parsed = await readRuntimeConfig(source);
   const fromFile = normalizeServerUrl(
-    parsed?.kshanaProxyBaseUrl || parsed?.proxyBaseUrl,
+    parsed?.dheeProxyBaseUrl || parsed?.proxyBaseUrl,
   );
   if (fromFile) return fromFile;
-  return resolveKshanaWebsiteUrl(source);
+  return resolvedheeWebsiteUrl(source);
 }
 
-export async function resolveKshanaCoreUrl(
+export async function resolvedheeCoreUrl(
   source: RuntimeConfigSource,
 ): Promise<string | undefined> {
-  const fromEnv = normalizeServerUrl(source.env.KSHANA_CORE_URL);
+  const fromEnv = normalizeServerUrl(source.env.dhee_CORE_URL);
   if (fromEnv) return fromEnv;
   const parsed = await readRuntimeConfig(source);
   return normalizeServerUrl(
-    parsed?.kshanaCoreUrl || parsed?.coreUrl || parsed?.cloudServerUrl,
+    parsed?.dheeCoreUrl || parsed?.coreUrl || parsed?.cloudServerUrl,
   );
 }

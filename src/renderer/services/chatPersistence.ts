@@ -101,7 +101,7 @@ function normalizeUiState(value: unknown): ChatSnapshotUiState {
   if (!isRecord(value)) {
     return {
       agentStatus: 'idle',
-      agentName: 'Kshana',
+      agentName: 'dhee',
       statusMessage: 'Ready',
       hasUserSentMessage: false,
       isTaskRunning: false,
@@ -119,7 +119,7 @@ function normalizeUiState(value: unknown): ChatSnapshotUiState {
   return {
     agentStatus:
       typeof value.agentStatus === 'string' ? value.agentStatus : 'idle',
-    agentName: typeof value.agentName === 'string' ? value.agentName : 'Kshana',
+    agentName: typeof value.agentName === 'string' ? value.agentName : 'dhee',
     statusMessage:
       typeof value.statusMessage === 'string' ? value.statusMessage : 'Ready',
     currentPhase,

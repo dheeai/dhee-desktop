@@ -118,20 +118,20 @@ export default function AccountTab() {
     if (authStatus === 'expired') {
       emptyTitle = 'Desktop session expired';
       emptyText =
-        'Sign in again to reconnect Kshana Cloud credits. Your local projects are still available.';
+        'Sign in again to reconnect Dhee Cloud credits. Your local projects are still available.';
       emptyCardStatusClass = styles.statusCardWarning;
     } else if (isWaiting) {
       emptyTitle = 'Waiting for browser';
       emptyText =
-        'Finish sign-in in your browser. If Chrome asks, choose Open Kshana Desktop.';
+        'Finish sign-in in your browser. If Chrome asks, choose Open Dhee Desktop.';
       emptyCardStatusClass = styles.statusCard;
     }
 
     return (
       <>
         <div className={styles.sectionHeader}>
-          <h3>Kshana Account</h3>
-          <p>Sign in to use Kshana Cloud credits through the desktop proxy.</p>
+          <h3>Dhee Account</h3>
+          <p>Sign in to use Dhee Cloud credits through the desktop proxy.</p>
         </div>
         <div className={`${styles.infoCard} ${emptyCardStatusClass}`}>
           <div className={styles.statusTopRow}>
@@ -173,7 +173,7 @@ export default function AccountTab() {
   return (
     <>
       <div className={styles.sectionHeader}>
-        <h3>Kshana Account</h3>
+        <h3>Dhee Account</h3>
         <p>Your signed-in user controls proxy credits for this desktop.</p>
       </div>
 

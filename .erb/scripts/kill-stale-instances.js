@@ -44,15 +44,15 @@ const COMMAND_PATTERNS = [
  * Title-only patterns. Some processes show up in `ps` with just an
  * application title and no path — most importantly the
  * electronmon-spawned Electron process (rendered as
- * "kshana-desktop - electronmon"). Path scoping is impossible for
+ * "dhee-desktop - electronmon"). Path scoping is impossible for
  * these, but the title itself includes the package name so it's
  * specific enough to match unconditionally.
  */
-const TITLE_PATTERNS = ['kshana-desktop - electronmon'];
+const TITLE_PATTERNS = ['dhee-desktop - electronmon'];
 
 /**
  * Pure predicate: does `command` (a process's full argv string) belong
- * to a stale kshana-desktop dev instance rooted at `projectRootArg`?
+ * to a stale dhee-desktop dev instance rooted at `projectRootArg`?
  *
  * Exported for unit testing — the runtime path-scoping is what makes
  * this script safe (we don't want to nuke unrelated electron apps).
@@ -147,7 +147,7 @@ async function main() {
 
   console.log(
     chalk.yellow(
-      `[kill-stale-instances] Found ${stale.length} stale kshana-desktop process(es):`,
+      `[kill-stale-instances] Found ${stale.length} stale dhee-desktop process(es):`,
     ),
   );
   for (const { pid, command } of stale) {

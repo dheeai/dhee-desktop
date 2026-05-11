@@ -1,6 +1,6 @@
 /**
- * Asset Manifest (.kshana/agent/manifest.json)
- * Location: <ProjectName>/.kshana/agent/manifest.json
+ * Asset Manifest (.dhee/agent/manifest.json)
+ * Location: <ProjectName>/.dhee/agent/manifest.json
  * Owner: Agent
  * Purpose: Canonical list of all generated assets
  */

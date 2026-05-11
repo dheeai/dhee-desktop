@@ -304,7 +304,7 @@ class RemotionManager extends EventEmitter {
         return {
           jobId: '',
           error:
-            'Remotion bundle not found. Run "pnpm run build" in kshana-core/remotion-infographics first.',
+            'Remotion bundle not found. Run "pnpm run build" in dhee-core/remotion-infographics first.',
         };
       }
     }
@@ -323,7 +323,7 @@ class RemotionManager extends EventEmitter {
     const jobId = generateJobId();
     const tempDir = path.join(
       projectDirectory,
-      '.kshana',
+      '.dhee',
       'temp',
       'remotion',
       jobId,
@@ -457,7 +457,7 @@ class RemotionManager extends EventEmitter {
 
           const destDir = path.join(
             updatedJob.projectDirectory,
-            '.kshana',
+            '.dhee',
             'agent',
             'infographic-placements',
           );
@@ -532,7 +532,7 @@ class RemotionManager extends EventEmitter {
     const remotionDir = getRemotionInfographicsDir();
     const debugComponentsDir = path.join(
       projectDirectory,
-      '.kshana',
+      '.dhee',
       'agent',
       'infographic-components',
     );
@@ -544,7 +544,7 @@ class RemotionManager extends EventEmitter {
 
     const tempDir = path.join(
       projectDirectory,
-      '.kshana',
+      '.dhee',
       'temp',
       'remotion',
       `server-${requestId}`,
@@ -558,7 +558,7 @@ class RemotionManager extends EventEmitter {
     const outDir = path.join(tempDir, 'output');
     const destDir = path.join(
       projectDirectory,
-      '.kshana',
+      '.dhee',
       'agent',
       'infographic-placements',
     );
@@ -586,12 +586,12 @@ class RemotionManager extends EventEmitter {
       });
     };
 
-    const resolveProjectKshanaPath = (relativePath: string): string => {
+    const resolveProjectdheePath = (relativePath: string): string => {
       const normalized = relativePath.replace(/\\/g, '/').replace(/^\/+/, '');
-      const withoutPrefix = normalized.startsWith('.kshana/')
-        ? normalized.slice('.kshana/'.length)
+      const withoutPrefix = normalized.startsWith('.dhee/')
+        ? normalized.slice('.dhee/'.length)
         : normalized;
-      return path.join(projectDirectory, '.kshana', withoutPrefix);
+      return path.join(projectDirectory, '.dhee', withoutPrefix);
     };
 
     try {
@@ -630,10 +630,10 @@ class RemotionManager extends EventEmitter {
       let userSpaceComponentsDir = '';
       let userSpaceIndexPath = '';
       if (hasRequestedUserSpaceSource) {
-        userSpaceComponentsDir = resolveProjectKshanaPath(
+        userSpaceComponentsDir = resolveProjectdheePath(
           requestedSource.componentsDir,
         );
-        userSpaceIndexPath = resolveProjectKshanaPath(
+        userSpaceIndexPath = resolveProjectdheePath(
           requestedSource.indexPath,
         );
         const hasComponentsDir = await fs
@@ -684,7 +684,7 @@ class RemotionManager extends EventEmitter {
               stage: 'bundling',
               packaged: app.isPackaged,
               remotionDir,
-              hint: 'Expected .kshana/agent/infographic-components/{Infographic*.tsx,index.tsx} to exist before desktop render.',
+              hint: 'Expected .dhee/agent/infographic-components/{Infographic*.tsx,index.tsx} to exist before desktop render.',
             },
           };
         }
@@ -996,7 +996,7 @@ class RemotionManager extends EventEmitter {
 
       const destDir = path.join(
         job.projectDirectory,
-        '.kshana',
+        '.dhee',
         'agent',
         'infographic-placements',
       );
@@ -1073,7 +1073,7 @@ class RemotionManager extends EventEmitter {
    */
   async cleanupOnStartup(projectDirectory?: string): Promise<void> {
     const baseDir = projectDirectory
-      ? path.join(projectDirectory, '.kshana', 'temp', 'remotion')
+      ? path.join(projectDirectory, '.dhee', 'temp', 'remotion')
       : null;
 
     if (baseDir) {

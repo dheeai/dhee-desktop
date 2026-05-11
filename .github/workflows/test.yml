@@ -19,19 +19,19 @@ jobs:
     timeout-minutes: 20
 
     steps:
-      - name: Checkout kshana-desktop
+      - name: Checkout dhee-desktop
         uses: actions/checkout@v4
 
-      # The desktop loads kshana-core from a local path
-      # (release/app/package.json) and `kshanaCoreManager.ts` does a
-      # `import('kshana-core/runners')` dynamic import; without the
-      # sibling kshana-core checkout + built dist, that test suite
+      # The desktop loads dhee-core from a local path
+      # (release/app/package.json) and `dheeCoreManager.ts` does a
+      # `import('dhee-core/runners')` dynamic import; without the
+      # sibling dhee-core checkout + built dist, that test suite
       # fails with TS2307. Mirror the layout release.yml uses.
-      - name: Checkout kshana-core
+      - name: Checkout dhee-core
         uses: actions/checkout@v4
         with:
-          repository: anveshane/kshana-core
-          path: kshana-core
+          repository: dheeai/dhee-core
+          path: dhee-core
           token: ${{ secrets.BACKEND_REPO_TOKEN || secrets.GITHUB_TOKEN }}
           fetch-depth: 1
 
@@ -49,8 +49,8 @@ jobs:
           node-version: 20
           cache: npm
 
-      - name: Build kshana-core
-        working-directory: kshana-core
+      - name: Build dhee-core
+        working-directory: dhee-core
         run: |
           pnpm install --frozen-lockfile
           pnpm build
@@ -58,12 +58,12 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci
 
-      # `kshanaCoreManager.ts` does `import('kshana-core/runners')` —
+      # `dheeCoreManager.ts` does `import('dhee-core/runners')` —
       # jest's TS resolution needs that subpath available in
-      # node_modules. Install kshana-core as a local file dep into
+      # node_modules. Install dhee-core as a local file dep into
       # the desktop tree so ts-jest can find it.
-      - name: Link kshana-core into desktop node_modules
-        run: npm install --no-save --ignore-scripts ./kshana-core
+      - name: Link dhee-core into desktop node_modules
+        run: npm install --no-save --ignore-scripts ./dhee-core
 
       # `setupFiles` in jest config runs check-build-exists.ts which
       # asserts dist/main + dist/renderer are present. Locally these
@@ -77,5 +77,5 @@ jobs:
       # leave those to a separate workflow if/when they're wired up.
       - name: Run jest
         env:
-          KSHANA_INK_PATH: ${{ github.workspace }}/kshana-core
+          dhee_INK_PATH: ${{ github.workspace }}/dhee-core
         run: npx jest

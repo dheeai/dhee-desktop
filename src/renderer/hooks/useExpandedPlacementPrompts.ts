@@ -13,7 +13,7 @@ interface ExpandedPlacementPromptsState {
 }
 
 const EXPANDED_PROMPTS_RELATIVE_PATH =
-  '.kshana/agent/content/expanded-placement-prompts.json';
+  '.dhee/agent/content/expanded-placement-prompts.json';
 
 function createEmptyState(
   isLoading: boolean,

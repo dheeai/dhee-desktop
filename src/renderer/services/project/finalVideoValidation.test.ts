@@ -40,7 +40,7 @@ describe('finalVideoValidation', () => {
           },
         ],
       },
-      '/tmp/demo.kshana',
+      '/tmp/demo.dhee',
       false,
     );
 
@@ -50,9 +50,9 @@ describe('finalVideoValidation', () => {
   it('builds an absolute project-local path from a manifest relative path', () => {
     expect(
       buildProjectAbsolutePath(
-        '/tmp/demo.kshana',
+        '/tmp/demo.dhee',
         'assets/final_video/final_video.mp4',
       ),
-    ).toBe('/tmp/demo.kshana/assets/final_video/final_video.mp4');
+    ).toBe('/tmp/demo.dhee/assets/final_video/final_video.mp4');
   });
 });

@@ -8,7 +8,7 @@ import {
   summarizeChanges,
   type ChangeSummary,
 } from './buildFinalVideoVersions';
-import type { AssetInfo } from '../../../types/kshana/assetManifest';
+import type { AssetInfo } from '../../../types/dhee/assetManifest';
 
 interface SeedAsset {
   id: string;

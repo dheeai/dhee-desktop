@@ -23,7 +23,7 @@ describe('remotion packaging config', () => {
         '**/node_modules/extract-zip/**',
         '**/node_modules/source-map/**',
         '**/node_modules/ws/**',
-        '**/node_modules/kshana-core/**',
+        '**/node_modules/dhee-core/**',
       ]),
     );
   });

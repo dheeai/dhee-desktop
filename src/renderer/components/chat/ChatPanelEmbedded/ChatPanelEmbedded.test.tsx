@@ -1,27 +1,27 @@
 /**
  * Tests for `ChatPanelEmbedded` — the new chat panel that drives
- * kshana-ink in-process via window.kshana (instead of the legacy
+ * dhee-ink in-process via window.dhee (instead of the legacy
  * WebSocket-backed `ChatPanel.tsx`).
  *
  * Goal: verify the panel
  *   1. renders the chat input + send button
- *   2. submitting a task calls window.kshana.runTask via useKshanaSession
+ *   2. submitting a task calls window.dhee.runTask via usedheeSession
  *   3. tool_call events from the IPC stream appear in the message list
  *   4. agent_response events show as assistant messages
  *   5. media_generated events render inline thumbnails
- *   6. cancel button calls window.kshana.cancelTask
+ *   6. cancel button calls window.dhee.cancelTask
  */
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { KshanaEvent, KshanaEventName } from '../../../../shared/kshanaIpc';
+import type { dheeEvent, dheeEventName } from '../../../../shared/dheeIpc';
 
 // Mock the workspace context — the chat panel reads `projectName`
-// from it so it can auto-bind the kshana session to the current
+// from it so it can auto-bind the dhee session to the current
 // project. Default: no project selected; individual tests override.
 let mockWorkspaceProjectName: string | null = null;
 jest.mock('../../../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
-    projectDirectory: mockWorkspaceProjectName ? `/tmp/${mockWorkspaceProjectName}.kshana` : null,
+    projectDirectory: mockWorkspaceProjectName ? `/tmp/${mockWorkspaceProjectName}.dhee` : null,
     projectName: mockWorkspaceProjectName,
   }),
 }));
@@ -63,24 +63,24 @@ jest.mock('../../../contexts/AppSettingsContext', () => ({
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
 import ChatPanelEmbedded from './ChatPanelEmbedded';
 
-type EventListener = (e: KshanaEvent) => void;
-interface KshanaListenerSlot {
-  eventName: KshanaEventName | '*';
+type EventListener = (e: dheeEvent) => void;
+interface dheeListenerSlot {
+  eventName: dheeEventName | '*';
   cb: EventListener;
   active: boolean;
 }
 
-interface KshanaMockState {
+interface dheeMockState {
   runTaskCalls: Array<{ sessionId: string; task: string }>;
   cancelCalls: Array<{ sessionId: string }>;
-  listeners: KshanaListenerSlot[];
+  listeners: dheeListenerSlot[];
   nextSessionId: string;
 }
 
-let mockState: KshanaMockState;
+let mockState: dheeMockState;
 
-function publishEvent(eventName: KshanaEventName, data: unknown): void {
-  const event: KshanaEvent = { eventName, sessionId: mockState.nextSessionId, data };
+function publishEvent(eventName: dheeEventName, data: unknown): void {
+  const event: dheeEvent = { eventName, sessionId: mockState.nextSessionId, data };
   for (const slot of mockState.listeners) {
     if (!slot.active) continue;
     if (slot.eventName === '*' || slot.eventName === eventName) {
@@ -98,7 +98,7 @@ beforeEach(() => {
     listeners: [],
     nextSessionId: 's-1',
   };
-  (window as unknown as { kshana: unknown }).kshana = {
+  (window as unknown as { dhee: unknown }).dhee = {
     createSession: jest.fn(async () => ({ sessionId: mockState.nextSessionId })),
     configureProject: jest.fn(async () => ({ ok: true })),
     runTask: jest.fn(async (req: { sessionId: string; task: string }) => {
@@ -119,7 +119,7 @@ beforeEach(() => {
     // (polled), not by tool-call events. Default: idle.
     runnerStatus: jest.fn(async () => ({ active: false })),
     runnerCancel: jest.fn(async () => ({ cancelled: true })),
-    on: jest.fn((eventName: KshanaEventName | '*', cb: EventListener) => {
+    on: jest.fn((eventName: dheeEventName | '*', cb: EventListener) => {
       const slot = { eventName, cb, active: true };
       mockState.listeners.push(slot);
       return () => {
@@ -145,7 +145,7 @@ describe('ChatPanelEmbedded', () => {
     // The project name is the primary affordance now.
     expect(screen.getByText('BurgerEating')).toBeInTheDocument();
     // The old debug string should NOT be visible to users.
-    expect(screen.queryByText(/kshana embedded/i)).toBeNull();
+    expect(screen.queryByText(/dhee embedded/i)).toBeNull();
     expect(screen.queryByText(/session [0-9a-f]{8}/i)).toBeNull();
   });
 
@@ -354,11 +354,11 @@ describe('ChatPanelEmbedded', () => {
 
     expect(mockState.runTaskCalls.length).toBeGreaterThanOrEqual(1);
     const last = mockState.runTaskCalls[mockState.runTaskCalls.length - 1];
-    expect(last?.task).toMatch(/kshana_run_to/);
+    expect(last?.task).toMatch(/dhee_run_to/);
     expect(last?.task).toContain('BurgerEating');
   });
 
-  it('submitting a task calls window.kshana.runTask', async () => {
+  it('submitting a task calls window.dhee.runTask', async () => {
     render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     const input = screen.getByRole('textbox') as HTMLInputElement | HTMLTextAreaElement;
@@ -387,14 +387,14 @@ describe('ChatPanelEmbedded', () => {
     act(() => {
       publishEvent('tool_call', {
         toolCallId: 'tc-1',
-        toolName: 'kshana_run_to',
+        toolName: 'dhee_run_to',
         arguments: { project: 'noir' },
         status: 'in_progress',
       });
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/kshana_run_to/i)).toBeInTheDocument();
+      expect(screen.getByText(/dhee_run_to/i)).toBeInTheDocument();
     });
   });
 
@@ -431,7 +431,7 @@ describe('ChatPanelEmbedded', () => {
         kind: 'image',
         project: 'noir',
         path: 'assets/images/s1shot1_first_frame.png',
-        source: 'kshana_run_to',
+        source: 'dhee_run_to',
       });
     });
 
@@ -443,7 +443,7 @@ describe('ChatPanelEmbedded', () => {
 
   /**
    * GIVEN a workspace project is open at an absolute path
-   *       (e.g. /tmp/noir.kshana) AND the executor emits a
+   *       (e.g. /tmp/noir.dhee) AND the executor emits a
    *       media_generated event with a PROJECT-RELATIVE path
    *       (assets/images/foo.png — that's what ExecutorAgent
    *       writes to tool_result.file_path).
@@ -451,7 +451,7 @@ describe('ChatPanelEmbedded', () => {
    *  WHEN the chat panel renders the resulting media bubble.
    *
    *  THEN the <img>'s src must be a usable absolute file:// URL
-   *       (file:///tmp/noir.kshana/assets/images/foo.png), not the
+   *       (file:///tmp/noir.dhee/assets/images/foo.png), not the
    *       broken `file://assets/images/foo.png` form that produces
    *       a silent 404 + onError-hidden element — the bug the user
    *       reported as "shows the path but never the actual image".
@@ -469,7 +469,7 @@ describe('ChatPanelEmbedded', () => {
         kind: 'image',
         project: 'noir',
         path: 'assets/images/s1shot1_first_frame.png',
-        source: 'kshana_run_to',
+        source: 'dhee_run_to',
       });
     });
 
@@ -479,7 +479,7 @@ describe('ChatPanelEmbedded', () => {
       ) as HTMLImageElement | null;
       expect(img).not.toBeNull();
       expect(img!.src).toBe(
-        'file:///tmp/noir.kshana/assets/images/s1shot1_first_frame.png',
+        'file:///tmp/noir.dhee/assets/images/s1shot1_first_frame.png',
       );
     });
   });
@@ -509,7 +509,7 @@ describe('ChatPanelEmbedded', () => {
         kind: 'video',
         project: 'noir',
         path: 'assets/videos/s1shot1.mp4',
-        source: 'kshana_run_to',
+        source: 'dhee_run_to',
       });
     });
 
@@ -518,13 +518,13 @@ describe('ChatPanelEmbedded', () => {
       const video = document.querySelector('video') as HTMLVideoElement | null;
       expect(video).not.toBeNull();
       expect(video!.src).toBe(
-        'file:///tmp/noir.kshana/assets/videos/s1shot1.mp4',
+        'file:///tmp/noir.dhee/assets/videos/s1shot1.mp4',
       );
     });
   });
 
   /**
-   * GIVEN a kshana_run_to tool_call followed by several stream_chunks
+   * GIVEN a dhee_run_to tool_call followed by several stream_chunks
    *       (the per-line progress the executor pumps out — one for the
    *       "[info] [N/M] Working on: …" headline, one for each
    *       sub-step like "[generate_image]" or "→ assets/…").
@@ -538,7 +538,7 @@ describe('ChatPanelEmbedded', () => {
    *       heavy" with one bubble per event; this is the structural
    *       grouping that fixes it.
    */
-  it('progress events under one kshana_run_to call collapse into a single group element by default', async () => {
+  it('progress events under one dhee_run_to call collapse into a single group element by default', async () => {
     render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
@@ -548,7 +548,7 @@ describe('ChatPanelEmbedded', () => {
     act(() => {
       publishEvent('tool_call', {
         toolCallId: 'task:run-1',
-        toolName: 'kshana_run_to',
+        toolName: 'dhee_run_to',
         arguments: { project: 'noir' },
       });
       // The executor's per-step heartbeat — each line arrives as its
@@ -603,7 +603,7 @@ describe('ChatPanelEmbedded', () => {
     act(() => {
       publishEvent('tool_call', {
         toolCallId: 'task:run-2',
-        toolName: 'kshana_run_to',
+        toolName: 'dhee_run_to',
         arguments: { project: 'noir' },
       });
       publishEvent('stream_chunk', {
@@ -652,7 +652,7 @@ describe('ChatPanelEmbedded', () => {
         kind: 'image',
         project: 'noir',
         path: 'assets/images/foo.png',
-        source: 'kshana_run_to',
+        source: 'dhee_run_to',
       });
     });
 
@@ -696,7 +696,7 @@ describe('ChatPanelEmbedded', () => {
       resolveFirst = resolve;
     });
     let runTaskCount = 0;
-    (window as unknown as { kshana: Record<string, unknown> }).kshana.runTask =
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runTask =
       jest.fn(async (req: { sessionId: string; task: string }) => {
         runTaskCount += 1;
         mockState.runTaskCalls.push(req);
@@ -748,7 +748,7 @@ describe('ChatPanelEmbedded', () => {
     });
   });
 
-  it('auto-focuses the workspace project on the kshana session once both are ready', async () => {
+  it('auto-focuses the workspace project on the dhee session once both are ready', async () => {
     // The user has navigated into a project (chhaya_60s_anime) — the
     // workspace context exposes that as `projectName`. The chat panel
     // must tell the embedded core which project the user is in,
@@ -760,14 +760,14 @@ describe('ChatPanelEmbedded', () => {
 
     await waitFor(() => {
       const focusProject = (window as unknown as {
-        kshana: { focusProject: jest.Mock };
-      }).kshana.focusProject;
+        dhee: { focusProject: jest.Mock };
+      }).dhee.focusProject;
       expect(focusProject).toHaveBeenCalledWith({
         sessionId: 's-1',
         projectName: 'chhaya_60s_anime',
-        // The mock workspace exposes the dir as /tmp/<name>.kshana — the
-        // panel passes it through so the bridge can pin KSHANA_PROJECTS_DIR.
-        projectDir: '/tmp/chhaya_60s_anime.kshana',
+        // The mock workspace exposes the dir as /tmp/<name>.dhee — the
+        // panel passes it through so the bridge can pin dhee_PROJECTS_DIR.
+        projectDir: '/tmp/chhaya_60s_anime.dhee',
       });
     });
   });
@@ -777,8 +777,8 @@ describe('ChatPanelEmbedded', () => {
     render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     const focusProject = (window as unknown as {
-      kshana: { focusProject: jest.Mock };
-    }).kshana.focusProject;
+      dhee: { focusProject: jest.Mock };
+    }).dhee.focusProject;
     expect(focusProject).not.toHaveBeenCalled();
   });
 
@@ -792,7 +792,7 @@ describe('ChatPanelEmbedded', () => {
     act(() => {
       publishEvent('tool_call', {
         toolCallId: 'tc-42',
-        toolName: 'kshana_list_items',
+        toolName: 'dhee_list_items',
         arguments: {},
         status: 'in_progress',
       });
@@ -807,7 +807,7 @@ describe('ChatPanelEmbedded', () => {
     act(() => {
       publishEvent('tool_result', {
         toolCallId: 'tc-42',
-        toolName: 'kshana_list_items',
+        toolName: 'dhee_list_items',
         result: { items: [] },
         isError: false,
       });
@@ -835,7 +835,7 @@ describe('ChatPanelEmbedded', () => {
     act(() => {
       publishEvent('tool_call', {
         toolCallId: 'tc-run',
-        toolName: 'kshana_run_to',
+        toolName: 'dhee_run_to',
         arguments: { project: 'BurgerEating' },
         status: 'in_progress',
       });
@@ -871,18 +871,18 @@ describe('ChatPanelEmbedded', () => {
     expect(container.textContent).toContain('Working on: Story Essence');
   });
 
-  it('drops tool-tagged chunks whose parent tool is NOT a kshana_* tool (filters bash/read/grep noise)', async () => {
+  it('drops tool-tagged chunks whose parent tool is NOT a dhee_* tool (filters bash/read/grep noise)', async () => {
     // Without this filter, every line of `bash ls -la` and every
     // file Read by pi-agent would dump its contents into the chat
-    // as progress rows. The user only wants to see kshana_run_to /
-    // kshana_render_* progress; everything else is internal noise.
+    // as progress rows. The user only wants to see dhee_run_to /
+    // dhee_render_* progress; everything else is internal noise.
     const { container } = render(<ChatPanelEmbedded />);
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
     });
 
-    // tool_call for a non-kshana tool first (this is what the
+    // tool_call for a non-dhee tool first (this is what the
     // chat-noise scenario looked like in the wild — pi-agent ran
     // bash and `ls -la` output flooded the chat).
     act(() => {
@@ -1064,12 +1064,12 @@ describe('ChatPanelEmbedded', () => {
   // parallel. Resume/Stop in the header target the background
   // session; the inline send button stays Send-only.
 
-  it('clicking Resume runs kshana_run_to on the main session (which dispatches via BackgroundTaskRunner)', async () => {
-    // Architecture: kshana_run_to was previously dispatched on a
-    // dedicated bg session; now kshana-core's runner singleton
+  it('clicking Resume runs dhee_run_to on the main session (which dispatches via BackgroundTaskRunner)', async () => {
+    // Architecture: dhee_run_to was previously dispatched on a
+    // dedicated bg session; now dhee-core's runner singleton
     // handles detached execution, so the chat panel can fire from
     // the main session directly. The kickoff text still goes
-    // through runTask — pi-agent calls kshana_run_to which the
+    // through runTask — pi-agent calls dhee_run_to which the
     // dist now redirects to the runner.
     mockWorkspaceProjectName = 'BurgerEating';
     (window as unknown as { electron: unknown }).electron = {
@@ -1109,10 +1109,10 @@ describe('ChatPanelEmbedded', () => {
     // over from there, so we don't need a separate bg session id
     // anymore.
     expect(last?.sessionId).toBe('s-1');
-    expect(last?.task).toMatch(/kshana_run_to/);
+    expect(last?.task).toMatch(/dhee_run_to/);
   });
 
-  it('clicking Resume kicks off a kshana_run_to task, then Stop appears once runnerStatus reports active', async () => {
+  it('clicking Resume kicks off a dhee_run_to task, then Stop appears once runnerStatus reports active', async () => {
     mockWorkspaceProjectName = 'BurgerEating';
     (window as unknown as { electron: unknown }).electron = {
       project: {
@@ -1134,9 +1134,9 @@ describe('ChatPanelEmbedded', () => {
     // the next poll observes active=true.
     const runnerCancel = jest.fn(async () => ({ cancelled: true }));
     let runnerActive = false;
-    (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
       runnerCancel as never;
-    (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
       jest.fn(async () => ({ active: runnerActive })) as never;
 
     render(<ChatPanelEmbedded />);
@@ -1194,13 +1194,13 @@ describe('ChatPanelEmbedded', () => {
     };
 
     (
-      window as unknown as { kshana: { runTask: jest.Mock } }
-    ).kshana.runTask = jest.fn(async (req: { sessionId: string; task: string }) => {
+      window as unknown as { dhee: { runTask: jest.Mock } }
+    ).dhee.runTask = jest.fn(async (req: { sessionId: string; task: string }) => {
       mockState.runTaskCalls.push(req);
       return new Promise<{ ok: boolean }>(() => {});
     }) as never;
     // Runner reports active — same scenario as a long pipeline mid-run.
-    (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
       jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
 
     render(<ChatPanelEmbedded />);
@@ -1226,11 +1226,11 @@ describe('ChatPanelEmbedded', () => {
   // ── Single source of truth: runnerStatus drives the Stop button ──
   //
   // Earlier the header Stop button was driven by a hard-coded
-  // tool-name allowlist (`LONG_RUNNING_KSHANA_TOOLS`). That broke
+  // tool-name allowlist (`LONG_RUNNING_dhee_TOOLS`). That broke
   // whenever pi-agent generated a project via a path that didn't
   // call one of those exact tools — the runner would be busy for
   // hours but the button would never appear, and the user couldn't
-  // stop the run. Fix: poll `window.kshana.runnerStatus()` and
+  // stop the run. Fix: poll `window.dhee.runnerStatus()` and
   // treat its `.active` field as the only truth.
   describe('header Stop button — runnerStatus is the source of truth', () => {
     const setupProjectFiles = () => {
@@ -1255,8 +1255,8 @@ describe('ChatPanelEmbedded', () => {
       mockWorkspaceProjectName = 'BurgerEating';
       setupProjectFiles();
       // Mock the runner as already busy — same shape as a real
-      // `kshana-core` task running in the background.
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      // `dhee-core` task running in the background.
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
         jest.fn(async () => ({
           active: true,
           taskId: 'task-abc',
@@ -1280,12 +1280,12 @@ describe('ChatPanelEmbedded', () => {
       expect(screen.queryByRole('button', { name: /resume run/i })).toBeNull();
     });
 
-    it('GIVEN runnerStatus reports active=false THEN Stop is NOT visible even when a tool_call(kshana_run_to) fires', async () => {
+    it('GIVEN runnerStatus reports active=false THEN Stop is NOT visible even when a tool_call(dhee_run_to) fires', async () => {
       mockWorkspaceProjectName = 'BurgerEating';
       setupProjectFiles();
       // Runner is idle. The OLD design would have shown Stop based
       // on the tool_call alone — pin that this no longer happens.
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
         jest.fn(async () => ({ active: false })) as never;
 
       render(<ChatPanelEmbedded />);
@@ -1304,7 +1304,7 @@ describe('ChatPanelEmbedded', () => {
               sessionId: 's-1',
               data: {
                 toolCallId: 'tc-1',
-                toolName: 'kshana_run_to',
+                toolName: 'dhee_run_to',
                 status: 'in_progress',
               },
             } as never);
@@ -1322,7 +1322,7 @@ describe('ChatPanelEmbedded', () => {
       mockWorkspaceProjectName = 'BurgerEating';
       setupProjectFiles();
       let active = true;
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
         jest.fn(async () => ({ active })) as never;
 
       render(<ChatPanelEmbedded />);
@@ -1352,9 +1352,9 @@ describe('ChatPanelEmbedded', () => {
       mockWorkspaceProjectName = 'BurgerEating';
       setupProjectFiles();
       const runnerCancel = jest.fn(async () => ({ cancelled: true }));
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
         jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
         runnerCancel as never;
 
       render(<ChatPanelEmbedded />);
@@ -1383,11 +1383,11 @@ describe('ChatPanelEmbedded', () => {
       setupProjectFiles();
       const runnerCancel = jest.fn(async () => ({ cancelled: true }));
       const cancelTask = jest.fn(async () => ({ cancelled: true }));
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
         jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
         runnerCancel as never;
-      (window as unknown as { kshana: Record<string, unknown> }).kshana.cancelTask =
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.cancelTask =
         cancelTask as never;
 
       render(<ChatPanelEmbedded />);

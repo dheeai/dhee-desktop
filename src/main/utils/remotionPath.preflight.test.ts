@@ -50,7 +50,7 @@ describe('remotionPath runtime preflight', () => {
     const asarRoot = path.join(
       tempRoot,
       'Applications',
-      'Kshana.app',
+      'dhee.app',
       'Contents',
       'Resources',
       'app.asar',

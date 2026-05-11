@@ -1,6 +1,6 @@
 /**
- * Common types and enums for Kshana Project Directory
- * Based on Kshana Project Directory Specification v1.0
+ * Common types and enums for dhee Project Directory
+ * Based on dhee Project Directory Specification v1.0
  */
 
 /**

@@ -41,13 +41,13 @@ function runNpm(
   });
 }
 
-function resolveKshanaInkPath(): string {
-  const configured = process.env['KSHANA_INK_PATH'];
+function resolvedheeInkPath(): string {
+  const configured = process.env['dhee_INK_PATH'];
   if (configured && configured.trim()) {
     return path.resolve(configured);
   }
 
-  return path.resolve(webpackPaths.rootPath, '../kshana-core');
+  return path.resolve(webpackPaths.rootPath, '../dhee-core');
 }
 
 function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: string) {
@@ -61,13 +61,13 @@ function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: str
   };
 
   const appPackage = {
-    name: mainPackage.name || 'kshana-desktop',
+    name: mainPackage.name || 'dhee-desktop',
     version: mainPackage.version || '1.0.0',
     description: mainPackage.description || '',
     main: './dist/main/main.js',
     dependencies: {
       ...(mainPackage.dependencies || {}),
-      'kshana-core': `file:${tarballRelativePath}`,
+      'dhee-core': `file:${tarballRelativePath}`,
     },
   };
 
@@ -78,7 +78,7 @@ function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: str
   );
 }
 
-function packKshanaInk(kshanaInkPath: string): string {
+function packdheeInk(dheeInkPath: string): string {
   const vendorPath = path.join(webpackPaths.appPath, 'vendor');
   fs.rmSync(vendorPath, { recursive: true, force: true });
   fs.mkdirSync(vendorPath, { recursive: true });
@@ -86,7 +86,7 @@ function packKshanaInk(kshanaInkPath: string): string {
   const rawOutput = runNpm(
     ['pack', '--json', '--pack-destination', vendorPath],
     {
-      cwd: kshanaInkPath,
+      cwd: dheeInkPath,
       stdio: ['ignore', 'pipe', 'inherit'],
     },
   )
@@ -95,16 +95,16 @@ function packKshanaInk(kshanaInkPath: string): string {
 
   const [result] = JSON.parse(rawOutput) as PackResult[];
   if (!result?.filename) {
-    throw new Error('npm pack did not return a tarball filename for kshana-core');
+    throw new Error('npm pack did not return a tarball filename for dhee-core');
   }
 
   return path.join(vendorPath, result.filename);
 }
 
-function buildKshanaInk(kshanaInkPath: string): void {
-  console.log(`Building kshana-core before packaging from ${kshanaInkPath}`);
+function builddheeInk(dheeInkPath: string): void {
+  console.log(`Building dhee-core before packaging from ${dheeInkPath}`);
   runNpm(['run', 'build'], {
-    cwd: kshanaInkPath,
+    cwd: dheeInkPath,
     stdio: 'inherit',
   });
 }
@@ -146,26 +146,26 @@ function removeDirectoryForFreshInstall(dirPath: string): void {
   }
 
   throw new Error(
-    `Could not remove generated app dependencies at ${dirPath}. Quit Kshana, IDEs, and terminals using release/app, then retry.${
+    `Could not remove generated app dependencies at ${dirPath}. Quit dhee, IDEs, and terminals using release/app, then retry.${
       errors.length ? ` Last cleanup errors: ${errors.slice(-3).join(' | ')}` : ''
     }`,
   );
 }
 
 function installAppDeps(): void {
-  const kshanaInkPath = resolveKshanaInkPath();
+  const dheeInkPath = resolvedheeInkPath();
   const mainPackagePath = path.join(webpackPaths.rootPath, 'package.json');
 
   if (!fs.existsSync(mainPackagePath)) {
     throw new Error(`Main package.json not found at ${mainPackagePath}`);
   }
 
-  if (!fs.existsSync(kshanaInkPath)) {
-    throw new Error(`kshana-core repo not found at ${kshanaInkPath}`);
+  if (!fs.existsSync(dheeInkPath)) {
+    throw new Error(`dhee-core repo not found at ${dheeInkPath}`);
   }
 
-  buildKshanaInk(kshanaInkPath);
-  const tarballPath = packKshanaInk(kshanaInkPath);
+  builddheeInk(dheeInkPath);
+  const tarballPath = packdheeInk(dheeInkPath);
   const tarballRelativePath = path.relative(webpackPaths.appPath, tarballPath);
   syncReleaseAppPackage(mainPackagePath, tarballRelativePath);
 
@@ -183,7 +183,7 @@ function installAppDeps(): void {
 
   const installedServerCliPath = path.join(
     webpackPaths.appNodeModulesPath,
-    'kshana-core',
+    'dhee-core',
     'dist',
     'server',
     'cli.cjs',
@@ -191,11 +191,11 @@ function installAppDeps(): void {
 
   if (!fs.existsSync(installedServerCliPath)) {
     throw new Error(
-      `Installed kshana-core server entry not found at ${installedServerCliPath}`,
+      `Installed dhee-core server entry not found at ${installedServerCliPath}`,
     );
   }
 
-  console.log(`✓ Installed app dependencies with bundled kshana-core`);
+  console.log(`✓ Installed app dependencies with bundled dhee-core`);
   console.log(`✓ Verified bundled server entry at ${installedServerCliPath}`);
 }
 

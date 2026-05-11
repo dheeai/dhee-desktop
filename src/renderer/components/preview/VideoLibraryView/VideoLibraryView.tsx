@@ -44,8 +44,8 @@ import {
   type FinalVideoVersion,
 } from './buildFinalVideoVersions';
 import type { Artifact } from '../../../types/projectState';
-import type { SceneRef } from '../../../types/kshana/entities';
-import type { SceneVersions } from '../../../types/kshana/timeline';
+import type { SceneRef } from '../../../types/dhee/entities';
+import type { SceneVersions } from '../../../types/dhee/timeline';
 import type { PromptOverlayCue, TextOverlayCue } from '../../../types/captions';
 import {
   getActiveCue,
@@ -53,7 +53,7 @@ import {
 } from '../../../utils/captionGrouping';
 import styles from './VideoLibraryView.module.scss';
 
-const PREVIEW_WATERMARK_TEXT = 'kshana';
+const PREVIEW_WATERMARK_TEXT = 'dhee';
 type ExportAspectRatio = '16:9' | '9:16';
 type ExportQuality = 'standard' | 'high';
 

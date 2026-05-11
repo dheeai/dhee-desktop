@@ -95,7 +95,7 @@ describe('NewProjectDialog', () => {
     await waitFor(() => {
       expect(
         screen.getByText(
-          'Selected location is already a Kshana project. Choose a parent folder instead.',
+          'Selected location is already a Dhee project. Choose a parent folder instead.',
         ),
       ).not.toBeNull();
     });

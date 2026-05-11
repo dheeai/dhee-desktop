@@ -1,24 +1,24 @@
 /**
- * Tests for `kshanaIpcBridge` — the typed IPC layer that connects
- * `KshanaCoreManager` (main process) to the renderer.
+ * Tests for `dheeIpcBridge` — the typed IPC layer that connects
+ * `dheeCoreManager` (main process) to the renderer.
  *
  * Goal: verify that
- *   1. each public method on KshanaCoreManager has a matching
+ *   1. each public method on dheeCoreManager has a matching
  *      `ipcMain.handle(channel, …)` registration
  *   2. invoking the handler delegates correctly to the manager
- *   3. streaming events received from KshanaCoreManager via its
- *      eventCb are re-published on `webContents.send('kshana:event', …)`
+ *   3. streaming events received from dheeCoreManager via its
+ *      eventCb are re-published on `webContents.send('dhee:event', …)`
  *   4. unknown event names don't crash the bridge
  *
  * The bridge is pure plumbing — these tests use a hand-rolled mock
- * for ipcMain (records handlers in a map) and a mock KshanaCoreManager
+ * for ipcMain (records handlers in a map) and a mock dheeCoreManager
  * (records calls). No real Electron is needed.
  */
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 import {
-  KSHANA_CHANNELS,
-  KSHANA_EVENT_CHANNEL,
-} from '../shared/kshanaIpc';
+  dhee_CHANNELS,
+  dhee_EVENT_CHANNEL,
+} from '../shared/dheeIpc';
 
 // ── Hand-rolled mocks ──────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ jest.mock('electron', () => ({
   app: { isPackaged: false },
 }));
 
-// ── Mock KshanaCoreManager ─────────────────────────────────────────────
+// ── Mock dheeCoreManager ─────────────────────────────────────────────
 
 const managerCalls: Array<{ method: string; args: unknown[] }> = [];
 let runTaskEventCb:
@@ -118,35 +118,35 @@ beforeEach(() => {
 });
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { registerKshanaIpcBridge } = require('./kshanaIpcBridge') as typeof import('./kshanaIpcBridge');
+const { registerdheeIpcBridge } = require('./dheeIpcBridge') as typeof import('./dheeIpcBridge');
 
-describe('kshanaIpcBridge', () => {
-  it('registers a handler for every channel in KSHANA_CHANNELS', () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+describe('dheeIpcBridge', () => {
+  it('registers a handler for every channel in dhee_CHANNELS', () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    for (const channel of Object.values(KSHANA_CHANNELS)) {
+    for (const channel of Object.values(dhee_CHANNELS)) {
       expect(handlerRegistry.has(channel)).toBe(true);
     }
   });
 
   it('createSession channel returns the session id from the manager', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.CREATE_SESSION)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.CREATE_SESSION)!;
     const result = await handler({} as never);
     expect(result).toEqual({ sessionId: 's-1', resumed: false });
   });
 
-  it('runTask channel forwards (sessionId, task, opts) to KshanaCoreManager.runTask', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+  it('runTask channel forwards (sessionId, task, opts) to dheeCoreManager.runTask', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.RUN_TASK)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
     await handler({} as never, { sessionId: 's-1', task: 'hi', stopAtStage: 'shot_image' });
     const call = managerCalls.find((c) => c.method === 'runTask');
     expect(call).toBeDefined();
@@ -155,21 +155,21 @@ describe('kshanaIpcBridge', () => {
     expect(call?.args[2]).toMatchObject({ stopAtStage: 'shot_image' });
   });
 
-  it('runTask routes events from manager.eventCb to webContents.send(KSHANA_EVENT_CHANNEL, …)', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+  it('runTask routes events from manager.eventCb to webContents.send(dhee_EVENT_CHANNEL, …)', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.RUN_TASK)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
     await handler({} as never, { sessionId: 's-1', task: 'hi' });
     expect(runTaskEventCb).not.toBeNull();
     runTaskEventCb!({
       eventName: 'tool_call',
       sessionId: 's-1',
-      data: { toolName: 'kshana_run_to', toolCallId: 'tc-1', arguments: {} },
+      data: { toolName: 'dhee_run_to', toolCallId: 'tc-1', arguments: {} },
     });
     expect(sentEvents).toHaveLength(1);
-    expect(sentEvents[0]?.channel).toBe(KSHANA_EVENT_CHANNEL);
+    expect(sentEvents[0]?.channel).toBe(dhee_EVENT_CHANNEL);
     expect(sentEvents[0]?.payload).toMatchObject({
       eventName: 'tool_call',
       sessionId: 's-1',
@@ -177,21 +177,21 @@ describe('kshanaIpcBridge', () => {
   });
 
   it('cancelTask channel returns the boolean from manager.cancelTask', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.CANCEL_TASK)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.CANCEL_TASK)!;
     expect(await handler({} as never, { sessionId: 's-1' })).toEqual({ cancelled: true });
     expect(await handler({} as never, { sessionId: 'unknown' })).toEqual({ cancelled: false });
   });
 
   it('invalidateNodes channel forwards (sessionId, nodeIds) and returns the manager result', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.INVALIDATE_NODES)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.INVALIDATE_NODES)!;
     const result = await handler({} as never, {
       sessionId: 's-1',
       nodeIds: ['shot_image:scene_1_shot_2'],
@@ -206,11 +206,11 @@ describe('kshanaIpcBridge', () => {
   });
 
   it('invalidateNodes wraps manager errors in { ok: false, error }', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.INVALIDATE_NODES)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.INVALIDATE_NODES)!;
     const result = (await handler({} as never, {
       sessionId: 'boom',
       nodeIds: ['x'],
@@ -220,11 +220,11 @@ describe('kshanaIpcBridge', () => {
   });
 
   it('redoNode channel forwards editedPrompt unchanged', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.REDO_NODE)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.REDO_NODE)!;
     await handler({} as never, {
       sessionId: 's-1',
       nodeId: 'shot_image:scene_1_shot_4',
@@ -236,11 +236,11 @@ describe('kshanaIpcBridge', () => {
   });
 
   it('configureProject channel returns { ok: true } on success', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const handler = handlerRegistry.get(KSHANA_CHANNELS.CONFIGURE_PROJECT)!;
+    const handler = handlerRegistry.get(dhee_CHANNELS.CONFIGURE_PROJECT)!;
     const result = await handler({} as never, {
       sessionId: 's-1',
       projectDir: '/path/to/project',
@@ -249,44 +249,44 @@ describe('kshanaIpcBridge', () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it('focusProject sets KSHANA_PROJECTS_DIR to dirname(projectDir) so kshana-ink looks in the right place', async () => {
+  it('focusProject sets dhee_PROJECTS_DIR to dirname(projectDir) so dhee-ink looks in the right place', async () => {
     // Real desktop scenario: user opens
-    //   /Users/foo/MyVideos/storyA.kshana
-    // The bridge must update KSHANA_PROJECTS_DIR=/Users/foo/MyVideos/
+    //   /Users/foo/MyVideos/storyA.dhee
+    // The bridge must update dhee_PROJECTS_DIR=/Users/foo/MyVideos/
     // so the embedded core's project.json read resolves correctly.
-    delete process.env['KSHANA_PROJECTS_DIR'];
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    delete process.env['dhee_PROJECTS_DIR'];
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const focusHandler = handlerRegistry.get(KSHANA_CHANNELS.FOCUS_PROJECT)!;
+    const focusHandler = handlerRegistry.get(dhee_CHANNELS.FOCUS_PROJECT)!;
     const focusResult = await focusHandler({} as never, {
       sessionId: 's-1',
       projectName: 'storyA',
-      projectDir: '/Users/foo/MyVideos/storyA.kshana',
+      projectDir: '/Users/foo/MyVideos/storyA.dhee',
     });
-    expect(process.env['KSHANA_PROJECTS_DIR']).toBe('/Users/foo/MyVideos');
+    expect(process.env['dhee_PROJECTS_DIR']).toBe('/Users/foo/MyVideos');
     expect(focusResult).toEqual({ ok: true });
   });
 
-  it('focusProject without projectDir leaves KSHANA_PROJECTS_DIR untouched (backwards-compat)', async () => {
-    process.env['KSHANA_PROJECTS_DIR'] = '/preset/dir';
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+  it('focusProject without projectDir leaves dhee_PROJECTS_DIR untouched (backwards-compat)', async () => {
+    process.env['dhee_PROJECTS_DIR'] = '/preset/dir';
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const focusHandler = handlerRegistry.get(KSHANA_CHANNELS.FOCUS_PROJECT)!;
+    const focusHandler = handlerRegistry.get(dhee_CHANNELS.FOCUS_PROJECT)!;
     await focusHandler({} as never, { sessionId: 's-1', projectName: 'storyA' });
-    expect(process.env['KSHANA_PROJECTS_DIR']).toBe('/preset/dir');
+    expect(process.env['dhee_PROJECTS_DIR']).toBe('/preset/dir');
   });
 
   it('handler invocations are isolated — calls do not leak between channels', async () => {
-    registerKshanaIpcBridge(
-      fakeManager as unknown as import('./kshanaCoreManager').KshanaCoreManager,
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
-    const focusHandler = handlerRegistry.get(KSHANA_CHANNELS.FOCUS_PROJECT)!;
-    const setAutoHandler = handlerRegistry.get(KSHANA_CHANNELS.SET_AUTONOMOUS)!;
+    const focusHandler = handlerRegistry.get(dhee_CHANNELS.FOCUS_PROJECT)!;
+    const setAutoHandler = handlerRegistry.get(dhee_CHANNELS.SET_AUTONOMOUS)!;
     await focusHandler({} as never, { sessionId: 's-1', projectName: 'parvati' });
     await setAutoHandler({} as never, { sessionId: 's-1', enabled: true });
     expect(managerCalls.find((c) => c.method === 'focusSessionProject')).toBeDefined();

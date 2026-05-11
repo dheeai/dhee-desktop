@@ -2,7 +2,7 @@
  * Wave 5 — Autonomous mode toggle in the chat panel.
  *
  * ChatPanelEmbedded now has an AUTO button (aria-pressed) that calls
- * `session.setAutonomous(enabled)` → `window.kshana.setAutonomous`.
+ * `session.setAutonomous(enabled)` → `window.dhee.setAutonomous`.
  */
 import { test, expect } from './fixtures';
 
@@ -15,7 +15,7 @@ test.describe('Feature: Autonomous mode toggle', () => {
       // Given — chat surface, autonomous starts off
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
       await expect(
@@ -35,7 +35,7 @@ test.describe('Feature: Autonomous mode toggle', () => {
         .poll(
           () =>
             page.evaluate(() => {
-              const calls = window.__kshanaTest!.getCalls('setAutonomous');
+              const calls = window.__dheeTest!.getCalls('setAutonomous');
               return calls.map((c) => (c.args as { enabled: boolean }).enabled);
             }),
           { timeout: 5_000 },
@@ -50,7 +50,7 @@ test.describe('Feature: Autonomous mode toggle', () => {
       // Given — toggle on first
       await bootInline({
         surface: 'chat',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
       await page.getByRole('button', { name: 'AUTO' }).click();
@@ -70,7 +70,7 @@ test.describe('Feature: Autonomous mode toggle', () => {
         .poll(
           () =>
             page.evaluate(() => {
-              const calls = window.__kshanaTest!.getCalls('setAutonomous');
+              const calls = window.__dheeTest!.getCalls('setAutonomous');
               return calls.map((c) => (c.args as { enabled: boolean }).enabled);
             }),
           { timeout: 5_000 },

@@ -8,8 +8,8 @@
 import { test, expect } from './fixtures';
 
 const RECENTS = [
-  { name: 'noir', path: '/tmp/noir.kshana', lastOpened: 1700000000000 },
-  { name: 'sci-fi', path: '/tmp/sci-fi.kshana', lastOpened: 1700000010000 },
+  { name: 'noir', path: '/tmp/noir.dhee', lastOpened: 1700000000000 },
+  { name: 'sci-fi', path: '/tmp/sci-fi.dhee', lastOpened: 1700000010000 },
 ];
 
 const MANY_RECENTS = Array.from({ length: 11 }, (_, index) => {
@@ -17,7 +17,7 @@ const MANY_RECENTS = Array.from({ length: 11 }, (_, index) => {
   const name = `project-${projectNumber.toString().padStart(2, '0')}`;
   return {
     name,
-    path: `/tmp/${name}.kshana`,
+    path: `/tmp/${name}.dhee`,
     lastOpened: 1700000000000 + projectNumber,
   };
 });
@@ -44,8 +44,8 @@ test.describe('Feature: Landing screen, recent projects', () => {
       ).toBeVisible();
 
       // And — paths appear in card meta (shortened form contains the basename).
-      await expect(page.getByText(/noir\.kshana/).first()).toBeVisible();
-      await expect(page.getByText(/sci-fi\.kshana/).first()).toBeVisible();
+      await expect(page.getByText(/noir\.dhee/).first()).toBeVisible();
+      await expect(page.getByText(/sci-fi\.dhee/).first()).toBeVisible();
     });
 
     test('When the user clicks a project card, Then project.watchDirectory + project.addRecent are called with that path', async ({
@@ -65,14 +65,14 @@ test.describe('Feature: Landing screen, recent projects', () => {
 
       // Then — openProject() in WorkspaceContext fires both bridge calls.
       const watchCalls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.watchDirectory'),
+        window.__dheeTest!.getCalls('project.watchDirectory'),
       );
       const addCalls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.addRecent'),
+        window.__dheeTest!.getCalls('project.addRecent'),
       );
 
-      expect(watchCalls.map((c) => c.args)).toContain('/tmp/noir.kshana');
-      expect(addCalls.map((c) => c.args)).toContain('/tmp/noir.kshana');
+      expect(watchCalls.map((c) => c.args)).toContain('/tmp/noir.dhee');
+      expect(addCalls.map((c) => c.args)).toContain('/tmp/noir.dhee');
     });
 
     test('When the user clicks "Open Workspace", Then project.selectDirectory is called', async ({
@@ -91,7 +91,7 @@ test.describe('Feature: Landing screen, recent projects', () => {
 
       // Then
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.selectDirectory'),
+        window.__dheeTest!.getCalls('project.selectDirectory'),
       );
       expect(calls.length).toBeGreaterThanOrEqual(1);
     });

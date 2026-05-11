@@ -38,7 +38,7 @@ test('unhandled event types are silently dropped, do not crash the panel', async
   // Chat input is still usable — fire a follow-up handled event and
   // verify it renders normally.
   await page.evaluate(() => {
-    window.__kshanaTest!.emit('notification', {
+    window.__dheeTest!.emit('notification', {
       level: 'info',
       message: 'follow-up after barrage',
     });
@@ -47,7 +47,7 @@ test('unhandled event types are silently dropped, do not crash the panel', async
 });
 
 /**
- * Bogus event names (not in KshanaEventName) also fall through default.
+ * Bogus event names (not in dheeEventName) also fall through default.
  */
 test('unknown event name falls through default without error', async ({
   page,
@@ -64,7 +64,7 @@ test('unknown event name falls through default without error', async ({
   ).toBeVisible();
 
   await page.evaluate(() => {
-    window.__kshanaTest!.emit(
+    window.__dheeTest!.emit(
       'totally_made_up_event' as 'notification',
       { foo: 'bar' },
     );
@@ -76,7 +76,7 @@ test('unknown event name falls through default without error', async ({
 
   // Chat input still works — fire a real notification afterward.
   await page.evaluate(() => {
-    window.__kshanaTest!.emit('notification', {
+    window.__dheeTest!.emit('notification', {
       level: 'info',
       message: 'recovered',
     });

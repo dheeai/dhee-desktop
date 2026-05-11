@@ -50,7 +50,7 @@ describe('capcutGenerator watermark export', () => {
 
       const watermarkMaterial = draftInfo.materials.texts.find(
         (material: { content: string }) =>
-          JSON.parse(material.content).text === 'kshana',
+          JSON.parse(material.content).text === 'dhee',
       );
       expect(watermarkMaterial).toBeDefined();
       expect(watermarkMaterial.alignment).toBe(2);

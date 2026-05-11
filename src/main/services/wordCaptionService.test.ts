@@ -21,7 +21,7 @@ jest.mock('electron', () => ({
         return os.tmpdir();
       }
       if (name === 'userData') {
-        return path.join(os.tmpdir(), 'kshana-word-caption-tests');
+        return path.join(os.tmpdir(), 'dhee-word-caption-tests');
       }
       return os.tmpdir();
     },

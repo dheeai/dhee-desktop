@@ -1,4 +1,4 @@
-import type { AssetInfo, AssetManifest } from '../../types/kshana/assetManifest';
+import type { AssetInfo, AssetManifest } from '../../types/dhee/assetManifest';
 import { ImageAssetProjectionStore } from './ImageAssetProjectionStore';
 import {
   selectBestAssetForPlacement,

@@ -25,7 +25,7 @@ export default defineConfig({
       testIgnore: /.*\.live\.spec\.ts$/,
       use: { ...devices['Desktop Chrome'] },
     },
-    // Layer 3 (live Electron + real kshana-ink + real ComfyUI) goes here later.
+    // Layer 3 (live Electron + real dhee-ink + real ComfyUI) goes here later.
     // Tagged with `.live.spec.ts` so it's excluded from the default run.
   ],
 

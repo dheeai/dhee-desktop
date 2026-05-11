@@ -1,11 +1,11 @@
 /**
- * Typed IPC bridge between the renderer's `window.kshana.*` API and
- * the embedded `KshanaCoreManager` in the main process.
+ * Typed IPC bridge between the renderer's `window.dhee.*` API and
+ * the embedded `dheeCoreManager` in the main process.
  *
- * Each public method on `KshanaCoreManager` gets a single
+ * Each public method on `dheeCoreManager` gets a single
  * `ipcMain.handle(channel, …)` registration. Streaming events
  * (tool_call, agent_response, media_generated, …) all share one
- * channel — `kshana:event` — with a `{ eventName, sessionId, data }`
+ * channel — `dhee:event` — with a `{ eventName, sessionId, data }`
  * payload that mirrors the original WebSocket protocol so the
  * renderer's narrowing logic stays unchanged.
  *
@@ -15,10 +15,10 @@
 import path from 'path';
 import { ipcMain, type BrowserWindow } from 'electron';
 import {
-  KSHANA_CHANNELS,
-  KSHANA_EVENT_CHANNEL,
-  type KshanaEvent,
-  type KshanaEventName,
+  dhee_CHANNELS,
+  dhee_EVENT_CHANNEL,
+  type dheeEvent,
+  type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
   type RunnerCancelResponse,
@@ -49,9 +49,9 @@ import {
   type ValidateWorkflowResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
-} from '../shared/kshanaIpc';
+} from '../shared/dheeIpc';
 import { prefixAttachmentsToTask } from '../shared/attachmentTypes';
-import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
+import type { dheeCoreManager, dheeCoreEvent } from './dheeCoreManager';
 
 /**
  * Wire the bridge. Idempotent — if the channels are already registered
@@ -62,20 +62,20 @@ import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
  * a window-id-keyed registry; for now there's exactly one Electron
  * BrowserWindow.
  */
-export function registerKshanaIpcBridge(
-  manager: KshanaCoreManager,
+export function registerdheeIpcBridge(
+  manager: dheeCoreManager,
   window: BrowserWindow,
 ): void {
   // Re-register defensively (Electron throws if a channel is already
   // registered with the same name).
-  for (const channel of Object.values(KSHANA_CHANNELS)) {
+  for (const channel of Object.values(dhee_CHANNELS)) {
     try {
       ipcMain.removeHandler(channel);
     } catch { /* ignore — handler may not be registered yet */ }
   }
 
   ipcMain.handle(
-    KSHANA_CHANNELS.CREATE_SESSION,
+    dhee_CHANNELS.CREATE_SESSION,
     (_event, req?: CreateSessionRequest): CreateSessionResponse => {
       const { id, resumed } = manager.createSession(req?.role, req?.resumeSessionId);
       const response: CreateSessionResponse = { sessionId: id, resumed };
@@ -90,7 +90,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.CLEAR_CHAT_HISTORY,
+    dhee_CHANNELS.CLEAR_CHAT_HISTORY,
     (_event, req: ClearChatHistoryRequest): ClearChatHistoryResponse => {
       const { newSessionId } = manager.clearChatHistory(req.sessionId, req.role);
       return { newSessionId, oldSessionId: req.sessionId };
@@ -98,7 +98,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.CONFIGURE_PROJECT,
+    dhee_CHANNELS.CONFIGURE_PROJECT,
     async (_event, req: ConfigureProjectRequest): Promise<OkResponse> => {
       try {
         await manager.configureSessionForProject(req.sessionId, {
@@ -116,13 +116,13 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.RUN_TASK,
+    dhee_CHANNELS.RUN_TASK,
     async (_event, req: RunTaskRequest): Promise<OkResponse> => {
-      const eventCb = (e: KshanaCoreEvent) => publishEvent(window, e);
+      const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
       // Attachment hints are prepended to the user's task here so
       // pi-agent's skill prompts (e.g. comfyui-workflow-integration)
       // see a one-line marker per attachment and call the right tool
-      // without us having to extend kshana-core's runTask signature.
+      // without us having to extend dhee-core's runTask signature.
       const finalTask = prefixAttachmentsToTask(req.task, req.attachments);
       const result = await manager.runTask(
         req.sessionId,
@@ -137,14 +137,14 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.SEND_RESPONSE,
+    dhee_CHANNELS.SEND_RESPONSE,
     async (_event, req: SendResponseRequest): Promise<OkResponse> => {
-      // sendUserResponse is a planned method on KshanaCoreManager;
+      // sendUserResponse is a planned method on dheeCoreManager;
       // until it lands the bridge surfaces a clear "not yet" error
       // rather than crashing.
       const m = manager as unknown as { sendUserResponse?: (s: string, r: string, t?: string) => Promise<void> };
       if (typeof m.sendUserResponse !== 'function') {
-        return { ok: false, error: 'sendUserResponse not yet implemented on KshanaCoreManager' };
+        return { ok: false, error: 'sendUserResponse not yet implemented on dheeCoreManager' };
       }
       try {
         await m.sendUserResponse(req.sessionId, req.response, req.toolCallId);
@@ -156,7 +156,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.CANCEL_TASK,
+    dhee_CHANNELS.CANCEL_TASK,
     (_event, req: CancelTaskRequest): CancelTaskResponse => {
       const cancelled = manager.cancelTask(req.sessionId);
       return { cancelled };
@@ -164,21 +164,21 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.RUNNER_CANCEL,
+    dhee_CHANNELS.RUNNER_CANCEL,
     async (): Promise<RunnerCancelResponse> => {
       return { cancelled: await manager.cancelBackgroundTask() };
     },
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.RUNNER_STATUS,
+    dhee_CHANNELS.RUNNER_STATUS,
     async (): Promise<RunnerStatusResponse> => {
       return manager.getBackgroundTaskStatus();
     },
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.REDO_NODE,
+    dhee_CHANNELS.REDO_NODE,
     async (_event, req: RedoNodeRequest): Promise<OkResponse> => {
       const result = await manager.redoNode(req.sessionId, req.nodeId, {
         ...(req.editedPrompt ? { editedPrompt: req.editedPrompt } : {}),
@@ -190,23 +190,23 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.FOCUS_PROJECT,
+    dhee_CHANNELS.FOCUS_PROJECT,
     async (_event, req: FocusProjectRequest): Promise<OkResponse> => {
       // The desktop sends the user-selected project's absolute path.
-      // Pin KSHANA_PROJECTS_DIR to its parent so the embedded core's
+      // Pin dhee_PROJECTS_DIR to its parent so the embedded core's
       // filesystem helpers (and focusSessionProject's project.json
       // read) resolve to the same folder the user opened — not to
       // wherever the desktop was launched from. Backwards-compat:
       // older callers that omit projectDir leave the env untouched.
       if (req.projectDir) {
-        process.env['KSHANA_PROJECTS_DIR'] = path.dirname(req.projectDir);
+        process.env['dhee_PROJECTS_DIR'] = path.dirname(req.projectDir);
       }
       return manager.focusSessionProject(req.sessionId, req.projectName);
     },
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.SET_AUTONOMOUS,
+    dhee_CHANNELS.SET_AUTONOMOUS,
     (_event, req: SetAutonomousRequest): OkResponse => {
       manager.setAutonomousMode(req.sessionId, req.enabled);
       return { ok: true };
@@ -214,7 +214,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.SET_PI_OVERSIGHT,
+    dhee_CHANNELS.SET_PI_OVERSIGHT,
     (_event, req: SetPiOversightRequest): OkResponse => {
       manager.setPiOversight(req.sessionId, req.enabled);
       return { ok: true };
@@ -222,7 +222,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.SET_VLM_JUDGE,
+    dhee_CHANNELS.SET_VLM_JUDGE,
     (_event, req: SetVlmJudgeRequest): OkResponse => {
       manager.setVlmJudge(req.sessionId, req.enabled);
       return { ok: true };
@@ -230,7 +230,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.DELETE_SESSION,
+    dhee_CHANNELS.DELETE_SESSION,
     (_event, req: DeleteSessionRequest): OkResponse => {
       manager.deleteSession(req.sessionId);
       return { ok: true };
@@ -238,7 +238,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.INVALIDATE_NODES,
+    dhee_CHANNELS.INVALIDATE_NODES,
     async (
       _event,
       req: InvalidateNodesRequest,
@@ -265,7 +265,7 @@ export function registerKshanaIpcBridge(
   // ── Custom ComfyUI workflow management ─────────────────────────────
 
   ipcMain.handle(
-    KSHANA_CHANNELS.LIST_WORKFLOWS,
+    dhee_CHANNELS.LIST_WORKFLOWS,
     (_event, req?: ListWorkflowsRequest): ListWorkflowsResponse => {
       try {
         const workflows = manager.listWorkflows({ userOnly: req?.userOnly });
@@ -277,7 +277,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.GET_WORKFLOW,
+    dhee_CHANNELS.GET_WORKFLOW,
     (_event, req: GetWorkflowRequest): GetWorkflowResponse => {
       try {
         const manifest = manager.getWorkflow(req.id);
@@ -290,7 +290,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.UPDATE_WORKFLOW,
+    dhee_CHANNELS.UPDATE_WORKFLOW,
     (_event, req: UpdateWorkflowRequest): UpdateWorkflowResponse => {
       try {
         const manifest = manager.updateWorkflow(req.id, req.patch);
@@ -302,7 +302,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.DELETE_WORKFLOW,
+    dhee_CHANNELS.DELETE_WORKFLOW,
     (_event, req: DeleteWorkflowRequest): DeleteWorkflowResponse => {
       try {
         manager.deleteWorkflow(req.id);
@@ -314,7 +314,7 @@ export function registerKshanaIpcBridge(
   );
 
   ipcMain.handle(
-    KSHANA_CHANNELS.VALIDATE_WORKFLOW,
+    dhee_CHANNELS.VALIDATE_WORKFLOW,
     (_event, req: ValidateWorkflowRequest): ValidateWorkflowResponse => {
       try {
         const result = manager.validateWorkflow(req.path);
@@ -341,16 +341,16 @@ export function registerKshanaIpcBridge(
 }
 
 /**
- * Re-publish a `KshanaCoreEvent` from the manager onto the renderer's
+ * Re-publish a `dheeCoreEvent` from the manager onto the renderer's
  * single streaming channel. Defensive: if the eventName isn't a
- * known KshanaEventName, drop the event with a console warning rather
+ * known dheeEventName, drop the event with a console warning rather
  * than crashing the bridge.
  */
-function publishEvent(window: BrowserWindow, event: KshanaCoreEvent): void {
+function publishEvent(window: BrowserWindow, event: dheeCoreEvent): void {
   if (!window) return;
   // isDestroyed may be absent on test mocks; guard defensively.
   if (typeof window.isDestroyed === 'function' && window.isDestroyed()) return;
-  const knownEvents: ReadonlySet<string> = new Set<KshanaEventName>([
+  const knownEvents: ReadonlySet<string> = new Set<dheeEventName>([
     'progress',
     'tool_call',
     'tool_result',
@@ -369,13 +369,13 @@ function publishEvent(window: BrowserWindow, event: KshanaCoreEvent): void {
   if (!knownEvents.has(event.eventName)) {
     // Don't crash the bridge on unrecognized event names — surface and drop.
     // eslint-disable-next-line no-console
-    console.warn(`[kshanaIpcBridge] unknown event '${event.eventName}' — dropping`);
+    console.warn(`[dheeIpcBridge] unknown event '${event.eventName}' — dropping`);
     return;
   }
-  const payload: KshanaEvent = {
-    eventName: event.eventName as KshanaEventName,
+  const payload: dheeEvent = {
+    eventName: event.eventName as dheeEventName,
     sessionId: event.sessionId,
     data: event.data,
   };
-  window.webContents.send(KSHANA_EVENT_CHANNEL, payload);
+  window.webContents.send(dhee_EVENT_CHANNEL, payload);
 }

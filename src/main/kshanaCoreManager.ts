@@ -1,8 +1,8 @@
 /**
- * `KshanaCoreManager` — main-process owner of the embedded
- * `ConversationManager` from kshana-ink. Replaces the legacy
+ * `dheeCoreManager` — main-process owner of the embedded
+ * `ConversationManager` from dhee-ink. Replaces the legacy
  * spawn-and-WebSocket `localBackendManager` with an in-process
- * integration: kshana-ink's pipeline runs inside the Electron main
+ * integration: dhee-ink's pipeline runs inside the Electron main
  * process, and events flow through callbacks to whoever owns the
  * IPC bridge.
  *
@@ -15,11 +15,11 @@
  * class is a thin facade that converts AppSettings → process.env
  * before constructing the manager, and translates the
  * `ConversationEvents` callback shape into a single
- * `KshanaCoreEvent` stream the IPC bridge can re-publish over
+ * `dheeCoreEvent` stream the IPC bridge can re-publish over
  * `webContents.send`.
  */
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
-import type { OkResponse } from '../shared/kshanaIpc';
+import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
 import fs from 'fs';
@@ -27,7 +27,7 @@ import { app } from 'electron';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 
-export interface KshanaCloudAuthRuntime {
+export interface dheeCloudAuthRuntime {
   websiteUrl: string;
   desktopToken: string;
 }
@@ -54,7 +54,7 @@ type AnalyticsIdentity = {
   userId?: string;
 };
 
-const KSHANA_CORE_MANAGER_MODULE = 'kshana-core/manager';
+const dhee_CORE_MANAGER_MODULE = 'dhee-core/manager';
 
 function getPackagedManagerModuleUrl(): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
@@ -66,7 +66,7 @@ function getPackagedManagerModuleUrl(): string | null {
       resourcesPath,
       'app.asar.unpacked',
       'node_modules',
-      'kshana-core',
+      'dhee-core',
       'dist',
       'server',
       'manager.js',
@@ -105,12 +105,12 @@ type ManagerModule = {
    * the real bundle always exports it.
    *
    * Returns:
-   *   - `root`: the kshana-ink package root (debug only)
-   *   - `projectsDir`: where projects live, computed by kshana-ink's
+   *   - `root`: the dhee-ink package root (debug only)
+   *   - `projectsDir`: where projects live, computed by dhee-ink's
    *     `getProjectsDir()`. We chdir to this so the package's
    *     filesystem helpers (which default to process.cwd()) line up.
-   *     Honours KSHANA_PROJECTS_DIR override and the
-   *     KSHANA_PACKAGED=1 → ~/Kshana mapping.
+   *     Honours dhee_PROJECTS_DIR override and the
+   *     dhee_PACKAGED=1 → ~/dhee mapping.
    */
   loadDevEnv?: (root?: string) => {
     loaded: boolean;
@@ -124,7 +124,7 @@ type ManagerModule = {
   /**
    * Pin the directory where user-uploaded workflows + manifests live.
    * Must be called before the WorkflowModeRegistry singleton is first
-   * accessed — kshana-core throws if called too late.
+   * accessed — dhee-core throws if called too late.
    */
   setUserWorkflowsDir?: (path: string) => void;
   /**
@@ -153,7 +153,7 @@ type ManagerModule = {
   /**
    * Returns a HistoryData snapshot for a sessionId by reading the
    * on-disk pi-coding-agent transcript. Returns null when the id is
-   * unknown to the index. Optional in old kshana-core versions —
+   * unknown to the index. Optional in old dhee-core versions —
    * callers must null-check.
    */
   getSessionHistorySnapshot?: (sessionId: string) => {
@@ -167,7 +167,7 @@ type ManagerModule = {
 };
 
 /**
- * kshana-ink's embed entries are ESM-only (transitive deps
+ * dhee-ink's embed entries are ESM-only (transitive deps
  * `@mariozechner/pi-coding-agent` and `pi-ai` ship ESM with no CJS
  * `require` exports). The `webpackIgnore: true` magic comment tells
  * webpack to leave this dynamic import alone so Node's runtime ESM
@@ -177,39 +177,39 @@ type ManagerModule = {
 let loadManagerModule: () => Promise<ManagerModule> = async () => {
   try {
     log.info(
-      `[KshanaCoreManager] Importing ${KSHANA_CORE_MANAGER_MODULE} via package exports`,
+      `[DheeCoreManager] Importing ${dhee_CORE_MANAGER_MODULE} via package exports`,
     );
     const module = (await import(
-      /* webpackIgnore: true */ KSHANA_CORE_MANAGER_MODULE
+      /* webpackIgnore: true */ dhee_CORE_MANAGER_MODULE
     )) as ManagerModule;
-    log.info('[KshanaCoreManager] Package export import succeeded');
+    log.info('[DheeCoreManager] Package export import succeeded');
     return module;
   } catch (error) {
     log.error(
-      `[KshanaCoreManager] Package export import failed: ${
+      `[DheeCoreManager] Package export import failed: ${
         (error as Error).message
       }\n${(error as Error).stack}`,
     );
 
-    if (process.env.KSHANA_PACKAGED !== '1') {
+    if (process.env.dhee_PACKAGED !== '1') {
       throw error;
     }
 
     const packagedModuleUrl = getPackagedManagerModuleUrl();
     if (!packagedModuleUrl) {
       log.error(
-        '[KshanaCoreManager] Cannot resolve packaged fallback manager URL',
+        '[DheeCoreManager] Cannot resolve packaged fallback manager URL',
       );
       throw error;
     }
 
     log.info(
-      `[KshanaCoreManager] Importing packaged fallback ${packagedModuleUrl}`,
+      `[DheeCoreManager] Importing packaged fallback ${packagedModuleUrl}`,
     );
     const module = (await import(
       /* webpackIgnore: true */ packagedModuleUrl
     )) as ManagerModule;
-    log.info('[KshanaCoreManager] Packaged fallback import succeeded');
+    log.info('[DheeCoreManager] Packaged fallback import succeeded');
     return module;
   }
 };
@@ -220,9 +220,9 @@ export function __setManagerLoader(loader: () => Promise<ManagerModule>): void {
 }
 
 /**
- * `kshana-core/runners` is also ESM-only, so it has to come in via the
+ * `dhee-core/runners` is also ESM-only, so it has to come in via the
  * same `webpackIgnore`'d dynamic import as the manager bundle. The
- * earlier `require('kshana-core/runners')` threw `ERR_REQUIRE_ESM` at
+ * earlier `require('dhee-core/runners')` threw `ERR_REQUIRE_ESM` at
  * the IPC boundary — Stop button "worked" in the UI (local spinner)
  * while the main process silently failed to call `runner.cancel()`.
  */
@@ -238,7 +238,7 @@ type RunnersModule = {
 };
 
 let loadRunnersModule: () => Promise<RunnersModule> = () =>
-  import(/* webpackIgnore: true */ 'kshana-core/runners') as Promise<RunnersModule>;
+  import(/* webpackIgnore: true */ 'dhee-core/runners') as Promise<RunnersModule>;
 
 /** Test seam — replace the loader so unit tests can supply a fake. */
 export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
@@ -250,8 +250,8 @@ export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
  * Mirrors the existing WebSocket `ServerMessage` shape so the renderer
  * doesn't have to learn a new schema — only the transport changes.
  */
-export interface KshanaCoreEvent {
-  /** The kshana-ink ServerMessageType (`tool_call`, `agent_response`, …). */
+export interface dheeCoreEvent {
+  /** The dhee-ink ServerMessageType (`tool_call`, `agent_response`, …). */
   eventName: string;
   /** Session this event belongs to. */
   sessionId: string;
@@ -259,7 +259,7 @@ export interface KshanaCoreEvent {
   data: unknown;
 }
 
-export type KshanaCoreEventCallback = (event: KshanaCoreEvent) => void;
+export type dheeCoreEventCallback = (event: dheeCoreEvent) => void;
 
 /** Subset of `ConversationManager.runTask` opts the IPC bridge forwards. */
 export interface RunTaskOpts {
@@ -289,7 +289,7 @@ export interface RunResult {
 /**
  * Apply AppSettings to `process.env` in-place. Mirrors
  * `buildLocalBackendEnv()` from `localBackendManager.ts` but does NOT
- * set `KSHANA_HOST/PORT/PUBLIC_HOST` (no Fastify in this path) and
+ * set `dhee_HOST/PORT/PUBLIC_HOST` (no Fastify in this path) and
  * does NOT delete NODE_OPTIONS / TS_NODE_* (those are already owned
  * by the main process and we don't spawn anything).
  *
@@ -302,9 +302,9 @@ function joinUrl(base: string, pathname: string): string {
 /**
  * Clear all LLM routing/tier/purpose env vars before applying Settings.
  *
- * Why: kshana-core/.env can populate `LLM_ROUTING_ENABLED` and
+ * Why: dhee-core/.env can populate `LLM_ROUTING_ENABLED` and
  * `LLM_TIER_*_*` (and per-purpose `LLM_PURPOSE__*`). When the desktop
- * runs from a checkout, `import 'dotenv/config'` in kshana-core fires at
+ * runs from a checkout, `import 'dotenv/config'` in dhee-core fires at
  * package-import time — *before* `applyEnvFromSettings` runs — so those
  * .env values land in process.env first. Without this clear, the
  * LLMRouter and PiSessionAgent silently route every call through whatever
@@ -336,7 +336,7 @@ function tierConfigFromPrimarySettings(settings: AppSettings): LLMTierConfig {
 /**
  * Write one tier's config into `LLM_TIER_<TIER>_*` env vars.
  *
- * The shape is dictated by kshana-core/src/core/llm/router.ts
+ * The shape is dictated by dhee-core/src/core/llm/router.ts
  * (`readConfigFromEnv`): PROVIDER / API_KEY / MODEL / BASE_URL. For
  * gemini we set BASE_URL to its OpenAI-compatible endpoint so the
  * router can reuse the OpenAI client unchanged.
@@ -378,15 +378,15 @@ function clearRoutingAndTierEnv(): void {
 }
 
 function clearCloudProxyEnv(): void {
-  const wasUsingDesktopCloudProxy = process.env.KSHANA_CLOUD === 'true';
-  delete process.env.KSHANA_CLOUD;
-  delete process.env.KSHANA_CLOUD_URL;
+  const wasUsingDesktopCloudProxy = process.env.dhee_CLOUD === 'true';
+  delete process.env.dhee_CLOUD;
+  delete process.env.dhee_CLOUD_URL;
   delete process.env.LLM_CONTEXT_TOKENS;
   if (wasUsingDesktopCloudProxy) {
     // Cloud auth no longer touches OPENAI_* — Settings is the canonical
     // LLM source (see applyEnvFromSettings comment). Deleting them
     // here on every restart-while-signed-in nukes the dev fallback
-    // OPENAI_API_KEY loaded from kshana-core/.env, leaving signed-in
+    // OPENAI_API_KEY loaded from dhee-core/.env, leaving signed-in
     // users with empty openaiApiKey in Settings → resolvePiSessionModel
     // returning undefined → "Cannot read properties of undefined
     // (reading 'api')" on the next chat send. Only ComfyUI proxy env
@@ -398,11 +398,11 @@ function clearCloudProxyEnv(): void {
 
 export function applyEnvFromSettings(
   settings: AppSettings,
-  cloudAuth?: KshanaCloudAuthRuntime | null,
+  cloudAuth?: dheeCloudAuthRuntime | null,
 ): void {
   // Set env vars from settings, but only when the setting has a
   // non-empty value. Empty strings are treated as "use whatever is
-  // already in process.env" — so dev users with kshana-ink/.env
+  // already in process.env" — so dev users with dhee-ink/.env
   // loaded via loadDevEnv() see their keys come through. The
   // packaged build supplies all values via AppSettings UI, so this
   // skip-on-empty rule is a no-op there.
@@ -420,10 +420,10 @@ export function applyEnvFromSettings(
 
   // Three independent backend lanes — LLM, ComfyUI, VLM — each can be
   // 'cloud' or 'local'. A user can keep ComfyUI on a self-hosted GPU
-  // box while routing paid LLM traffic through the metered Kshana
+  // box while routing paid LLM traffic through the metered dhee
   // proxy and VLM judging back through their local LM-Studio vision
   // model — or any other combo. Cloud routing for any lane requires
-  // a valid Kshana Cloud sign-in (`haveCloudAuth`); without it the
+  // a valid dhee Cloud sign-in (`haveCloudAuth`); without it the
   // lane falls through to Settings regardless of the toggle.
   const useCloudComfy = settings.comfyBackend === 'cloud' && haveCloudAuth;
   const useCloudLLM = settings.llmBackend === 'cloud' && haveCloudAuth;
@@ -433,8 +433,8 @@ export function applyEnvFromSettings(
   // whenever ANY lane is on cloud — they share the same desktop token
   // + website URL.
   if (useCloudLLM || useCloudComfy || useCloudVLM) {
-    process.env.KSHANA_CLOUD = 'true';
-    process.env.KSHANA_CLOUD_URL = cloudWebsiteUrl!;
+    process.env.dhee_CLOUD = 'true';
+    process.env.dhee_CLOUD_URL = cloudWebsiteUrl!;
   }
 
   if (useCloudComfy) {
@@ -448,7 +448,7 @@ export function applyEnvFromSettings(
     setIfPresent('COMFYUI_BASE_URL', comfyUiUrl);
 
     // Auto-derive COMFY_MODE from the URL. Without this, the ComfyUI
-    // client in kshana-core falls back to its 'local' default and
+    // client in dhee-core falls back to its 'local' default and
     // uses COMFYUI_BASE_URL even when the URL points at
     // cloud.comfy.org — meaning the cloud-specific code path
     // (api-key auth, /api prefix, cloud workflow selection) is
@@ -462,7 +462,7 @@ export function applyEnvFromSettings(
       process.env.COMFY_MODE = 'local';
     }
   }
-  setIfPresent('KSHANA_PROJECT_DIR', settings.projectDir);
+  setIfPresent('dhee_PROJECT_DIR', settings.projectDir);
 
   // LLM routing — gated by the dedicated `llmBackend` lane (set above
   // as `useCloudLLM`). This is independent of `comfyBackend`: a user
@@ -501,11 +501,11 @@ export function applyEnvFromSettings(
 
   // VLM (vision judge) env wiring:
   //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
-  //     (dev users with VLM_* in kshana-core/.env) survives. Production
+  //     (dev users with VLM_* in dhee-core/.env) survives. Production
   //     users with vlmJudge off won't trigger VLM calls anyway, so the
   //     stale env doesn't matter.
   //   - vlmJudge=true + llmBackend='cloud' + cloudAuth → auto-route VLM
-  //     to the same Kshana Cloud proxy as the LLM. The user doesn't
+  //     to the same dhee Cloud proxy as the LLM. The user doesn't
   //     have to reconfigure.
   //   - vlmJudge=true + local LLM → set VLM_* from Settings (skip-on-empty
   //     so the .env fallback still fires for dev users who haven't filled
@@ -543,7 +543,7 @@ export function applyEnvFromSettings(
   // Per-tier routing: when the user opted out of the
   // "use same LLM for everything" toggle, mirror the three tier
   // configs into LLM_TIER_*_* env vars and flip on
-  // LLM_ROUTING_ENABLED. kshana-core's LLMRouter picks these up at
+  // LLM_ROUTING_ENABLED. dhee-core's LLMRouter picks these up at
   // construction time. Heavy = the flat OPENAI_*/GOOGLE_*/GEMINI_*
   // fields the user already entered (so the primary section in the UI
   // doubles as the heavy tier).
@@ -594,7 +594,7 @@ export function applyEnvFromSettings(
 /**
  * Build the `LLMClientConfig` from settings. The provider routing
  * (`LLM_PROVIDER` env var) is set by `applyEnvFromSettings`;
- * kshana-ink's `getLLMConfig()` reads that env to dispatch. The
+ * dhee-ink's `getLLMConfig()` reads that env to dispatch. The
  * explicit `LLMClientConfig` here just carries baseUrl / apiKey /
  * model so the manager doesn't need to read env vars at construction
  * time for the active provider.
@@ -602,7 +602,7 @@ export function applyEnvFromSettings(
 function buildLLMConfig(settings: AppSettings): LLMClientConfig {
   // Settings panel is the only source of truth. cloudAuth used to
   // override here too — pulled out so the desktop's UI matches what
-  // kshana-core actually sees.
+  // dhee-core actually sees.
   switch (settings.llmProvider) {
     case 'gemini':
       return {
@@ -620,8 +620,8 @@ function buildLLMConfig(settings: AppSettings): LLMClientConfig {
 }
 
 /**
- * Translate a `ConversationEvents` object (the kshana-ink callback
- * surface) into a stream of `KshanaCoreEvent`s on `eventCb`. Each
+ * Translate a `ConversationEvents` object (the dhee-ink callback
+ * surface) into a stream of `dheeCoreEvent`s on `eventCb`. Each
  * callback's args are normalized into a `data` payload; the
  * `eventName` matches the existing WebSocket `ServerMessageType` so
  * the renderer doesn't have to learn new event names.
@@ -630,7 +630,7 @@ function buildLLMConfig(settings: AppSettings): LLMClientConfig {
  * event translation independently of the full manager wiring.
  */
 export function buildEventsAdapter(
-  eventCb: KshanaCoreEventCallback,
+  eventCb: dheeCoreEventCallback,
 ): ConversationEvents {
   const emit = (eventName: string, sessionId: string, data: unknown) =>
     eventCb({ eventName, sessionId, data });
@@ -715,7 +715,7 @@ export function buildEventsAdapter(
   };
 }
 
-export class KshanaCoreManager {
+export class dheeCoreManager {
   private cm: ConversationManager | null = null;
 
   private managerModule: ManagerModule | null = null;
@@ -726,45 +726,45 @@ export class KshanaCoreManager {
    * reads env vars at construction time sees the right values.
    *
    * Async because the manager bundle is ESM and loaded via dynamic
-   * import (CJS Electron main → ESM kshana-ink). Subsequent calls
+   * import (CJS Electron main → ESM dhee-ink). Subsequent calls
    * reuse the cached module reference.
    */
   async start(
     settings: AppSettings,
-    cloudAuth?: KshanaCloudAuthRuntime | null,
+    cloudAuth?: dheeCloudAuthRuntime | null,
   ): Promise<void> {
     if (!this.managerModule) {
       this.managerModule = await loadManagerModule();
     }
-    // Load kshana-ink/.env BEFORE applying AppSettings so the
+    // Load dhee-ink/.env BEFORE applying AppSettings so the
     // settings UI's explicit values still win for any field the user
     // has filled in. Loaded values fill the gaps (LLM_TIER_*,
     // GROQ_*, OpenRouter keys, etc. that the desktop UI doesn't
     // model). In packaged builds the .env doesn't ship, so this is
     // a no-op there.
     const devEnv = this.managerModule.loadDevEnv?.();
-    // kshana-ink's filesystem helpers (projectFileIO, loadProject)
+    // dhee-ink's filesystem helpers (projectFileIO, loadProject)
     // default basePath to `process.cwd()`. Embedded in Electron, cwd
-    // points at kshana-desktop/ — not where projects live.
+    // points at dhee-desktop/ — not where projects live.
     //
-    // Setting KSHANA_PROJECTS_DIR exposes the right basePath via env;
-    // kshana-ink reads this in `getProjectsDir()` and (per the
+    // Setting dhee_PROJECTS_DIR exposes the right basePath via env;
+    // dhee-ink reads this in `getProjectsDir()` and (per the
     // companion fix in projectFileIO) uses it as the default basePath
     // when no session-context override is in scope.
     //
     // Using an env var (instead of process.chdir) is critical because
-    // many handlers in kshana-desktop's main process call
+    // many handlers in dhee-desktop's main process call
     // `process.cwd()` directly for path normalization — chdir-ing
     // globally would silently break those.
     if (devEnv?.projectsDir) {
-      process.env.KSHANA_PROJECTS_DIR = devEnv.projectsDir;
+      process.env.dhee_PROJECTS_DIR = devEnv.projectsDir;
     }
 
     // Pin the user-workflows directory under userData/ so custom
     // ComfyUI workflows uploaded by the user (via the chat or the
     // Settings → Workflows tab) live in a writable, per-install
     // location. Must happen BEFORE ConversationManager is constructed
-    // — once the WorkflowModeRegistry singleton is accessed, kshana-
+    // — once the WorkflowModeRegistry singleton is accessed, dhee-
     // core refuses further setUserWorkflowsDir calls.
     if (this.managerModule.setUserWorkflowsDir) {
       const userWorkflowsDir = path.join(
@@ -777,10 +777,10 @@ export class KshanaCoreManager {
           fs.mkdirSync(userWorkflowsDir, { recursive: true });
         }
         this.managerModule.setUserWorkflowsDir(userWorkflowsDir);
-        log.info(`[KshanaCoreManager] User workflows dir: ${userWorkflowsDir}`);
+        log.info(`[DheeCoreManager] User workflows dir: ${userWorkflowsDir}`);
       } catch (err) {
         log.warn(
-          `[KshanaCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
+          `[DheeCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
         );
       }
     }
@@ -797,7 +797,7 @@ export class KshanaCoreManager {
       this.managerModule.refreshWorkflowRegistry?.();
     } catch (err) {
       log.warn(
-        `[KshanaCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
+        `[DheeCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
       );
     }
 
@@ -827,7 +827,7 @@ export class KshanaCoreManager {
   /** Replace the manager (used when settings change). */
   async restart(
     settings: AppSettings,
-    cloudAuth?: KshanaCloudAuthRuntime | null,
+    cloudAuth?: dheeCloudAuthRuntime | null,
   ): Promise<void> {
     this.stop();
     await this.start(settings, cloudAuth);
@@ -874,7 +874,7 @@ export class KshanaCoreManager {
     properties: Record<string, unknown> = {},
   ): void {
     this.managerModule?.captureAnalyticsEvent?.(event, properties, {
-      component: 'kshana-desktop',
+      component: 'dhee-desktop',
     });
   }
 
@@ -891,11 +891,11 @@ export class KshanaCoreManager {
    * from disk) the persisted chat snapshot.
    *
    * `role` controls long-running tool availability — `'interactive'`
-   * (default) strips kshana_run_to / render_scene_bundle /
+   * (default) strips dhee_run_to / render_scene_bundle /
    * audit_fidelity so a chat session can't accidentally block on a
    * 1–4h task. `'background'` opts in to the full toolkit.
    *
-   * When `resumeSessionId` is set and recognized by kshana-core's
+   * When `resumeSessionId` is set and recognized by dhee-core's
    * sessionStore, the in-memory ActiveSession is reconstructed under
    * that id (the on-disk JSONL is reopened on next agent build) and
    * `resumed` is true. Unknown ids fall through to a fresh-session
@@ -925,7 +925,7 @@ export class KshanaCoreManager {
 
   /**
    * Read the persisted chat snapshot for a sessionId. Returns null
-   * when kshana-core doesn't expose the helper (older version) or
+   * when dhee-core doesn't expose the helper (older version) or
    * the id is unknown.
    */
   getSessionHistorySnapshot(sessionId: string): {
@@ -939,7 +939,7 @@ export class KshanaCoreManager {
     try {
       return fn(sessionId);
     } catch (err) {
-      log.warn('[KshanaCoreManager] getSessionHistorySnapshot failed:', err);
+      log.warn('[DheeCoreManager] getSessionHistorySnapshot failed:', err);
       return null;
     }
   }
@@ -958,13 +958,13 @@ export class KshanaCoreManager {
     try {
       (cm as unknown as { deleteSession?: (id: string) => void }).deleteSession?.(oldSessionId);
     } catch (err) {
-      log.warn('[KshanaCoreManager] deleteSession during clearChatHistory failed:', err);
+      log.warn('[DheeCoreManager] deleteSession during clearChatHistory failed:', err);
     }
     // Wipe the JSONL + sessionStore index.
     try {
       this.managerModule?.clearSessionHistory?.(oldSessionId);
     } catch (err) {
-      log.warn('[KshanaCoreManager] clearSessionHistory failed:', err);
+      log.warn('[DheeCoreManager] clearSessionHistory failed:', err);
     }
     const fresh = this.createSession(role);
     return { newSessionId: fresh.id };
@@ -976,7 +976,7 @@ export class KshanaCoreManager {
   ): Promise<void> {
     const cm = this.requireStarted();
     // Pass through whatever ConversationManager expects. The actual
-    // shape may differ per kshana-ink version; we forward the opts
+    // shape may differ per dhee-ink version; we forward the opts
     // object as-is and let the manager validate.
     await (
       cm as unknown as {
@@ -987,9 +987,9 @@ export class KshanaCoreManager {
 
   /**
    * Run a task on the given session. `eventCb` receives a stream of
-   * KshanaCoreEvents (mirroring the existing WebSocket message types)
+   * dheeCoreEvents (mirroring the existing WebSocket message types)
    * — typically the IPC bridge re-publishes each event over
-   * `webContents.send('kshana:event', …)`.
+   * `webContents.send('dhee:event', …)`.
    *
    * Returns an error-shaped result rather than throwing if the manager
    * hasn't been started — the caller (IPC bridge) shouldn't have to
@@ -999,12 +999,12 @@ export class KshanaCoreManager {
     sessionId: string,
     task: string,
     opts: RunTaskOpts,
-    eventCb: KshanaCoreEventCallback,
+    eventCb: dheeCoreEventCallback,
   ): Promise<RunResult> {
     if (!this.cm) {
       return {
         status: 'failed',
-        error: 'KshanaCoreManager not started — call start() first.',
+        error: 'dheeCoreManager not started — call start() first.',
       };
     }
     const events = buildEventsAdapter(eventCb);
@@ -1083,7 +1083,7 @@ export class KshanaCoreManager {
     editedPrompt?: string;
     error?: string;
   }> {
-    if (!this.cm) return { ok: false, error: 'KshanaCoreManager not started' };
+    if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
     return (
       this.cm as unknown as {
         redoNode: (
@@ -1108,7 +1108,7 @@ export class KshanaCoreManager {
     sessionId: string,
     nodeIds: string[],
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
-    if (!this.cm) throw new Error('KshanaCoreManager not started');
+    if (!this.cm) throw new Error('dheeCoreManager not started');
     return (
       this.cm as unknown as {
         invalidateNodes(
@@ -1141,7 +1141,7 @@ export class KshanaCoreManager {
   }
 
   // ── Custom ComfyUI workflow management ─────────────────────────────
-  // Pass-through to kshana-core's workflowIntegration helpers. Same
+  // Pass-through to dhee-core's workflowIntegration helpers. Same
   // helpers the pi-agent tools wrap, so a workflow saved via the
   // Settings UI shows up in chat-driven generations and vice versa.
 
@@ -1150,7 +1150,7 @@ export class KshanaCoreManager {
     | { ok: false; reason: string }
     | { ok: false; reason: string; error: true } {
     if (!this.managerModule?.validateWorkflowFile) {
-      return { ok: false, reason: 'kshana-core not started yet', error: true };
+      return { ok: false, reason: 'dhee-core not started yet', error: true };
     }
     const result = this.managerModule.validateWorkflowFile(workflowPath);
     if (!result.ok) return { ok: false, reason: result.reason };
@@ -1182,14 +1182,14 @@ export class KshanaCoreManager {
 
   updateWorkflow(id: string, patch: Record<string, unknown>): Record<string, unknown> {
     if (!this.managerModule?.updateWorkflow) {
-      throw new Error('kshana-core not started yet');
+      throw new Error('dhee-core not started yet');
     }
     return this.managerModule.updateWorkflow(id, patch);
   }
 
   deleteWorkflow(id: string): void {
     if (!this.managerModule?.deleteWorkflow) {
-      throw new Error('kshana-core not started yet');
+      throw new Error('dhee-core not started yet');
     }
     this.managerModule.deleteWorkflow(id);
   }
@@ -1198,7 +1198,7 @@ export class KshanaCoreManager {
     sessionId: string,
     projectName: string,
   ): Promise<OkResponse> {
-    if (!this.cm) return { ok: false, error: 'KshanaCoreManager not started' };
+    if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
     try {
       await (
         this.cm as unknown as {
@@ -1221,7 +1221,7 @@ export class KshanaCoreManager {
 
   private requireStarted(): ConversationManager {
     if (!this.cm) {
-      throw new Error('KshanaCoreManager not started — call start() first.');
+      throw new Error('dheeCoreManager not started — call start() first.');
     }
     return this.cm;
   }

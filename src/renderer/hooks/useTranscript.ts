@@ -101,7 +101,7 @@ export function useTranscript(): TranscriptState {
     setState((prev) => ({ ...prev, isLoading: true, error: null }));
 
     try {
-      const transcriptPath = `${projectDirectory}/.kshana/agent/content/transcript.md`;
+      const transcriptPath = `${projectDirectory}/.dhee/agent/content/transcript.md`;
       const content = await window.electron.project
         .readFile(transcriptPath)
         .catch(() => null);

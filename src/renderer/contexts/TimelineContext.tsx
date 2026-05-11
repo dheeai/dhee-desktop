@@ -169,7 +169,7 @@ export function TimelineProvider({ children }: TimelineProviderProps) {
 
       // Save to file
       try {
-        const stateFilePath = `${projectDirectory}/.kshana/project.json`;
+        const stateFilePath = `${projectDirectory}/.dhee/project.json`;
         await window.electron.project.writeFile(
           stateFilePath,
           JSON.stringify(updatedState, null, 2),

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FolderOpen, Trash2 } from 'lucide-react';
-import type { AgentProjectFile } from '../../../types/kshana';
+import type { AgentProjectFile } from '../../../types/dhee';
 import { safeJsonParse } from '../../../utils/safeJsonParse';
 import styles from './ProjectSelectionDialog.module.scss';
 
@@ -30,7 +30,7 @@ export default function ProjectSelectionDialog({
     const checkProject = async () => {
       setLoading(true);
       try {
-        const projectFilePath = `${projectDirectory}/.kshana/agent/project.json`;
+        const projectFilePath = `${projectDirectory}/.dhee/agent/project.json`;
         const content = await window.electron.project.readFile(projectFilePath);
         if (!content) {
           setProjectStatus({ exists: false });
@@ -56,8 +56,8 @@ export default function ProjectSelectionDialog({
   const handleStartNew = async () => {
     setDeleting(true);
     try {
-      const kshanaDir = `${projectDirectory}/.kshana`;
-      await window.electron.project.delete(kshanaDir);
+      const dheeDir = `${projectDirectory}/.dhee`;
+      await window.electron.project.delete(dheeDir);
       onStartNew();
     } catch (error) {
       console.error('[ProjectSelectionDialog] Error deleting project:', error);

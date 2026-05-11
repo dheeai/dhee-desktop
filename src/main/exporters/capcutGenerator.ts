@@ -84,7 +84,7 @@ const CAPCUT_VERSION = '159.0.0';
 const CAPCUT_APP_VERSION = '8.1.1';
 const CAPCUT_APP_ID = 359289;
 const SCHEMA_VERSION = 360000;
-const WATERMARK_TEXT = 'kshana';
+const WATERMARK_TEXT = 'dhee';
 const WATERMARK_RENDER_INDEX = 13000;
 
 interface TextPresentation {
@@ -897,7 +897,7 @@ export async function generateCapcutProject(
 
   // Create project folder inside CapCut's projects directory
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-  const displayName = `Kshana-${projectName}`;
+  const displayName = `dhee-${projectName}`;
   const folderName = `${displayName}-${timestamp}`;
   const projectDir = path.join(projectsRoot, folderName);
 

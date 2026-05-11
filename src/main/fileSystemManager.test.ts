@@ -35,7 +35,7 @@ describe('fileSystemManager project mutations', () => {
   let tempRoot: string;
 
   beforeEach(async () => {
-    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'kshana-fs-manager-'));
+    tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'dhee-fs-manager-'));
     const manager = await loadManager();
     manager.getRecentProjects().forEach((project) => {
       manager.removeRecentProject(project.path);

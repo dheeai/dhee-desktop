@@ -49,7 +49,7 @@ test('iterative edit chain: v1 → v2 → v3 → v4 accumulates in chat history'
 
   // ── runTask was called 4 times with the right tasks ────────────
   const calls = await page.evaluate(() =>
-    window.__kshanaTest!.getCalls('runTask'),
+    window.__dheeTest!.getCalls('runTask'),
   );
   expect(calls).toHaveLength(4);
 });

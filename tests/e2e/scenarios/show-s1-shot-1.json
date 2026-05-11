@@ -1,7 +1,7 @@
 {
   "project": {
     "name": "noir",
-    "directory": "/tmp/noir.kshana"
+    "directory": "/tmp/noir.dhee"
   },
   "rules": [
     {
@@ -27,7 +27,7 @@
           "event": "media_generated",
           "data": {
             "kind": "image",
-            "path": "/tmp/noir.kshana/.kshana/cache/s1_shot_1.png",
+            "path": "/tmp/noir.dhee/.dhee/cache/s1_shot_1.png",
             "project": "noir"
           }
         },

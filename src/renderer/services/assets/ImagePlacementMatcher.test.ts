@@ -1,5 +1,5 @@
 import { describe, expect, test } from '@jest/globals';
-import type { AssetInfo } from '../../types/kshana/assetManifest';
+import type { AssetInfo } from '../../types/dhee/assetManifest';
 import {
   inferImagePlacementNumberFromPath,
   resolvePlacementNumberFromAsset,

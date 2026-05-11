@@ -11,18 +11,18 @@
 import { test, expect } from './fixtures';
 
 const seededTree = {
-  name: 'noir.kshana',
-  path: '/tmp/noir.kshana',
+  name: 'noir.dhee',
+  path: '/tmp/noir.dhee',
   type: 'directory' as const,
   children: [
     {
       name: 'assets',
-      path: '/tmp/noir.kshana/assets',
+      path: '/tmp/noir.dhee/assets',
       type: 'directory' as const,
       children: [
         {
           name: 'scene_001.png',
-          path: '/tmp/noir.kshana/assets/scene_001.png',
+          path: '/tmp/noir.dhee/assets/scene_001.png',
           type: 'file' as const,
           extension: '.png',
           children: [],
@@ -41,7 +41,7 @@ test.describe('Feature: Assets browser', () => {
       // Given
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
@@ -58,7 +58,7 @@ test.describe('Feature: Assets browser', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('project.watchDirectory').length,
+              () => window.__dheeTest!.getCalls('project.watchDirectory').length,
             ),
           { timeout: 10_000 },
         )
@@ -72,7 +72,7 @@ test.describe('Feature: Assets browser', () => {
       // Given — seed readTree to return a tree with one image file
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
         bridgeReturns: { 'project.readTree': seededTree },
       });
@@ -100,7 +100,7 @@ test.describe('Feature: Assets browser', () => {
       // Given
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
@@ -111,20 +111,20 @@ test.describe('Feature: Assets browser', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('project.readTree').length,
+              () => window.__dheeTest!.getCalls('project.readTree').length,
             ),
           { timeout: 8_000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const baseline = await page.evaluate(
-        () => window.__kshanaTest!.getCalls('project.readTree').length,
+        () => window.__dheeTest!.getCalls('project.readTree').length,
       );
 
       // When — emit file-change to trigger re-scan
       await page.evaluate(() => {
-        window.__kshanaTest!.emitElectron('project:file-change', {
-          path: '/tmp/noir.kshana/assets/new_image.png',
+        window.__dheeTest!.emitElectron('project:file-change', {
+          path: '/tmp/noir.dhee/assets/new_image.png',
           eventType: 'add',
         });
       });
@@ -134,7 +134,7 @@ test.describe('Feature: Assets browser', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('project.readTree').length,
+              () => window.__dheeTest!.getCalls('project.readTree').length,
             ),
           { timeout: 8_000 },
         )

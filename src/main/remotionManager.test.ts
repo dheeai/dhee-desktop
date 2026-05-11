@@ -13,7 +13,7 @@ import {
 jest.mock('electron', () => ({
   app: {
     isPackaged: false,
-    getAppPath: () => '/tmp/kshana-app',
+    getAppPath: () => '/tmp/dhee-app',
   },
 }));
 

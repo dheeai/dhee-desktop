@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Trash2, Pencil, AlertCircle, Info, RefreshCw } from 'lucide-react';
 import type {
   WorkflowSummary,
-} from '../../../shared/kshanaIpc';
+} from '../../../shared/dheeIpc';
 import styles from './SettingsPanel.module.scss';
 import workflowStyles from './WorkflowsTab.module.scss';
 
@@ -29,7 +29,7 @@ export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps)
     setLoading(true);
     setError(null);
     try {
-      const result = await window.kshana.workflows.list({});
+      const result = await window.dhee.workflows.list({});
       if (!result.ok) {
         setError(result.error ?? 'Failed to load workflows');
         setWorkflows([]);
@@ -58,7 +58,7 @@ export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps)
       setBusyId(workflow.id);
       setActionError(null);
       try {
-        const result = await window.kshana.workflows.delete({ id: workflow.id });
+        const result = await window.dhee.workflows.delete({ id: workflow.id });
         if (!result.ok) {
           setActionError(result.error ?? 'Delete failed');
           return;
@@ -78,7 +78,7 @@ export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps)
       setBusyId(workflow.id);
       setActionError(null);
       try {
-        const result = await window.kshana.workflows.update({
+        const result = await window.dhee.workflows.update({
           id: workflow.id,
           patch: { isOverride: true },
         });
@@ -115,7 +115,7 @@ export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps)
         <div className={workflowStyles.cloudBanner} role="status">
           <Info size={14} className={workflowStyles.cloudBannerIcon} />
           <span>
-            Custom workflows only run on local ComfyUI. While Kshana is
+            Custom workflows only run on local ComfyUI. While Dhee is
             set to cloud mode, your custom workflows are inactive — the
             cloud service uses its built-in workflows instead. Switch
             to local mode (Settings → Connection) to use your custom
@@ -323,7 +323,7 @@ function WorkflowEditor({
       setLoading(true);
       setError(null);
       try {
-        const result = await window.kshana.workflows.get({ id: workflowId });
+        const result = await window.dhee.workflows.get({ id: workflowId });
         if (cancelled) return;
         if (!result.ok || !result.manifest) {
           setError(result.error ?? 'Could not load workflow');
@@ -357,7 +357,7 @@ function WorkflowEditor({
     setSaving(true);
     setError(null);
     try {
-      const result = await window.kshana.workflows.update({
+      const result = await window.dhee.workflows.update({
         id: workflowId,
         patch: {
           displayName,
@@ -437,7 +437,7 @@ function WorkflowEditor({
                       onChange={(e) => {
                         const next = [...mappings];
                         // Keep value as a string by default. Numeric
-                        // fields can be edited as text — kshana-core
+                        // fields can be edited as text — dhee-core
                         // coerces at execution time.
                         next[idx] = { ...next[idx], defaultValue: e.target.value };
                         setMappings(next);

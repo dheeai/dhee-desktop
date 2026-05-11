@@ -1,7 +1,7 @@
 {
   "project": {
     "name": "noir",
-    "directory": "/tmp/noir.kshana"
+    "directory": "/tmp/noir.dhee"
   },
   "rules": [
     {
@@ -27,7 +27,7 @@
           "event": "media_generated",
           "data": {
             "kind": "image",
-            "path": "/tmp/noir.kshana/.kshana/cache/v1.png",
+            "path": "/tmp/noir.dhee/.dhee/cache/v1.png",
             "project": "noir"
           }
         },
@@ -61,7 +61,7 @@
           "event": "media_generated",
           "data": {
             "kind": "image",
-            "path": "/tmp/noir.kshana/.kshana/cache/v2.png",
+            "path": "/tmp/noir.dhee/.dhee/cache/v2.png",
             "project": "noir"
           }
         },
@@ -98,7 +98,7 @@
           "event": "media_generated",
           "data": {
             "kind": "image",
-            "path": "/tmp/noir.kshana/.kshana/cache/v3.png",
+            "path": "/tmp/noir.dhee/.dhee/cache/v3.png",
             "project": "noir"
           }
         },
@@ -132,7 +132,7 @@
           "event": "media_generated",
           "data": {
             "kind": "image",
-            "path": "/tmp/noir.kshana/.kshana/cache/v4.png",
+            "path": "/tmp/noir.dhee/.dhee/cache/v4.png",
             "project": "noir"
           }
         },

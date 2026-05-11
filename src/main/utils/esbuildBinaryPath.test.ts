@@ -16,7 +16,7 @@ afterEach(() => {
 });
 
 function createTempResourcesDir(): string {
-  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kshana-esbuild-'));
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'dhee-esbuild-'));
   tempDirs.push(tempDir);
   return tempDir;
 }

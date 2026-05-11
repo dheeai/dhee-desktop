@@ -1,6 +1,6 @@
 /**
- * Timeline State (.kshana/ui/timeline.json)
- * Location: <ProjectName>/.kshana/ui/timeline.json
+ * Timeline State (.dhee/ui/timeline.json)
+ * Location: <ProjectName>/.dhee/ui/timeline.json
  * Owner: UI
  * Purpose: Persistence of timeline interaction state
  */

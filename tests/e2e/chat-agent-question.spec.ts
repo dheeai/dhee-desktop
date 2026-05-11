@@ -52,7 +52,7 @@ test.describe('Feature: Agent question prompt', () => {
         .poll(
           () =>
             page.evaluate(() => {
-              const calls = window.__kshanaTest!.getCalls('sendResponse');
+              const calls = window.__dheeTest!.getCalls('sendResponse');
               return calls.map((c) => (c.args as { response: string }).response);
             }),
           { timeout: 5_000 },

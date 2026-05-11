@@ -74,9 +74,9 @@ export interface RemotionGeneratedComponent {
 
 export interface RemotionComponentSource {
   mode: 'user_space' | 'legacy_runtime';
-  /** Path relative to project `.kshana/` root. */
+  /** Path relative to project `.dhee/` root. */
   componentsDir: string;
-  /** Path relative to project `.kshana/` root. */
+  /** Path relative to project `.dhee/` root. */
   indexPath: string;
 }
 
