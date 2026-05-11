@@ -4,6 +4,7 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import MarkdownEditor from '../MarkdownEditor';
 import {
   groupPlanFiles,
+  isPlanFilePath,
   type PlanCategory,
   type PlanFile as CategorizedPlanFile,
 } from './planFileCategorization';
@@ -22,8 +23,6 @@ interface PlansViewProps {
   fileToOpen?: string | null;
   onFileOpened?: () => void;
 }
-
-const MARKDOWN_EXTENSION = '.md';
 
 const getRelativeProjectPath = (
   projectDirectory: string,
@@ -151,10 +150,14 @@ export default function PlansView({
       const snapshot =
         await window.electron.project.readProjectSnapshot(projectDirectory);
       const grouped = groupPlanFiles(Object.keys(snapshot.files));
-      // Order in which sections appear in the sidebar.
+      // Order in which sections appear in the sidebar. Breakdowns sit
+      // between Scenes and Settings — they're per-scene artifacts the
+      // executor produces, so they read naturally after the user's
+      // scene prose.
       const SECTION_ORDER: PlanCategory[] = [
         'content',
         'scenes',
+        'breakdowns',
         'settings',
         'characters',
         'other',
@@ -218,22 +221,23 @@ export default function PlansView({
         return;
       }
 
-      const isMarkdownFile = normalizedPath
-        .toLowerCase()
-        .endsWith(MARKDOWN_EXTENSION);
-      const isDirectoryChange =
-        event.type === 'addDir' || event.type === 'unlinkDir';
-
-      if (!isMarkdownFile && !isDirectoryChange) {
-        return;
-      }
-
       const relativePath = getRelativeProjectPath(
         projectDirectory,
         normalizedPath,
       );
+      // Plan-eligible file (any .md or hierarchical scene-breakdown JSON).
+      // Mirrors the filter in groupPlanFiles so the watcher and the
+      // discovery pass agree on what shows up in the Content tab.
+      const isPlanFile = isPlanFilePath(relativePath);
+      const isDirectoryChange =
+        event.type === 'addDir' || event.type === 'unlinkDir';
+
+      if (!isPlanFile && !isDirectoryChange) {
+        return;
+      }
+
       if (
-        isMarkdownFile &&
+        isPlanFile &&
         selectedPlanRef.current &&
         selectedPlanRef.current.path === relativePath &&
         event.type !== 'unlink'
@@ -343,6 +347,7 @@ export default function PlansView({
       scenes: [],
       settings: [],
       characters: [],
+      breakdowns: [],
       other: [],
     };
     for (const plan of availablePlans) {
@@ -406,6 +411,7 @@ export default function PlansView({
           <div className={styles.sidebarContent}>
             {renderPlanSection('Content', sectionsByCategory.content)}
             {renderPlanSection('Scenes', sectionsByCategory.scenes)}
+            {renderPlanSection('Scene Breakdown', sectionsByCategory.breakdowns)}
             {renderPlanSection('Settings', sectionsByCategory.settings)}
             {renderPlanSection('Characters', sectionsByCategory.characters)}
             {renderPlanSection('Other', sectionsByCategory.other)}
@@ -433,7 +439,7 @@ export default function PlansView({
           <div className={styles.placeholder}>
             <FileText size={48} className={styles.placeholderIcon} />
             <p className={styles.placeholderText}>
-              Select a markdown file to preview
+              Select a file to preview
             </p>
           </div>
         )}

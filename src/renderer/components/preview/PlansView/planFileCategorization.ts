@@ -10,6 +10,10 @@
  *   - scenes     — per-scene markdown
  *   - settings   — per-setting markdown
  *   - characters — per-character markdown
+ *   - breakdowns — scene shot plan, per-shot breakdown, assembled
+ *                  scene breakdown JSONs (the three layers of the
+ *                  hierarchical scene-breakdown flow added in
+ *                  kshana-core's feat/hierarchical-shot-breakdown).
  *   - other      — anything else (rare; surfaced for visibility)
  *
  * Pure: no fs, no React. Path string in, structured record out.
@@ -20,6 +24,7 @@ export type PlanCategory =
   | 'scenes'
   | 'settings'
   | 'characters'
+  | 'breakdowns'
   | 'other';
 
 export interface PlanFile {
@@ -39,6 +44,31 @@ export interface PlanFile {
 
 const MD_RE = /\.md$/i;
 
+// Hierarchical scene-breakdown JSONs (kshana-core feat/hierarchical-shot-breakdown).
+// Three flavors all live under `prompts/videos/scenes/`:
+//
+//   scene_N.plan.json          — Stage A: the lightweight shot plan
+//   scene_N.shots/M.json       — Stage B: per-shot expanded breakdown
+//   scene_N.json               — Stage C: deterministic assembled output
+//
+// These are the only JSONs we surface in the Content tab — random
+// project.json / config files stay out, same as before.
+const PLAN_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.plan\.json$/;
+const SHOT_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.shots\/(\d+)\.json$/;
+const ASSEMBLED_SCENE_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.json$/;
+
+/**
+ * True for any file that belongs in the Content tab.
+ * The grouping pass uses this to filter the snapshot.
+ */
+export function isPlanFilePath(relativePath: string): boolean {
+  if (MD_RE.test(relativePath)) return true;
+  if (PLAN_JSON_RE.test(relativePath)) return true;
+  if (SHOT_JSON_RE.test(relativePath)) return true;
+  if (ASSEMBLED_SCENE_JSON_RE.test(relativePath)) return true;
+  return false;
+}
+
 function toTitleCase(value: string): string {
   return value
     .split(/[\s._-]+/)
@@ -57,11 +87,56 @@ function slugFromMd(path: string): string {
 }
 
 /**
- * Map a single markdown path to its category + display name. Caller
- * should pre-filter to `.md` paths; non-md paths return `other`
- * with a best-effort name (the helper isn't strict about extension).
+ * Map a single project path to its category + display name. Caller
+ * should pre-filter via `isPlanFilePath` — markdown anywhere in the
+ * project, plus the hierarchical scene-breakdown JSONs under
+ * `prompts/videos/scenes/`. Unrecognized paths return `other` with
+ * a best-effort name.
  */
 export function categorizePlanFile(relativePath: string): PlanFile {
+  // Stage C — the assembled scene breakdown (the canonical scene_N.json).
+  // Listed first under Breakdowns so users see the rolled-up output
+  // before the per-stage intermediates.
+  const assembledMatch = relativePath.match(ASSEMBLED_SCENE_JSON_RE);
+  if (assembledMatch) {
+    const sceneNum = parseInt(assembledMatch[1] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Scene ${sceneNum} — Breakdown`,
+      category: 'breakdowns',
+      // Three slots per scene: assembled (0), plan (1), per-shot (2..).
+      // Multiply by 100 so 1..99 shots per scene fit before the next scene.
+      sortKey: sceneNum * 100,
+    };
+  }
+
+  // Stage A — the shot plan (scene_N.plan.json).
+  const planMatch = relativePath.match(PLAN_JSON_RE);
+  if (planMatch) {
+    const sceneNum = parseInt(planMatch[1] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Scene ${sceneNum} — Shot Plan`,
+      category: 'breakdowns',
+      sortKey: sceneNum * 100 + 1,
+    };
+  }
+
+  // Stage B — per-shot breakdowns under `scene_N.shots/M.json`.
+  const shotMatch = relativePath.match(SHOT_JSON_RE);
+  if (shotMatch) {
+    const sceneNum = parseInt(shotMatch[1] ?? '0', 10);
+    const shotNum = parseInt(shotMatch[2] ?? '0', 10);
+    return {
+      path: relativePath,
+      displayName: `Scene ${sceneNum} — Shot ${shotNum}`,
+      category: 'breakdowns',
+      // Per-shot files occupy slot 2..(2 + shot count); +shotNum keeps
+      // them in numeric order under their scene.
+      sortKey: sceneNum * 100 + 2 + shotNum,
+    };
+  }
+
   const slug = slugFromMd(relativePath);
 
   // Top-level "Original Input" — the user's seed prompt.
@@ -122,13 +197,15 @@ export function categorizePlanFile(relativePath: string): PlanFile {
 export type GroupedPlanFiles = Record<PlanCategory, PlanFile[]>;
 
 /**
- * Filter the supplied paths to `.md` files, categorize each, then
- * return a record keyed by category. Each bucket is sorted by its
- * `sortKey` (numeric for scenes/content, alphabetical for
- * settings/characters/other).
+ * Filter the supplied paths to plan-eligible files (`.md` anywhere
+ * plus hierarchical scene-breakdown JSONs under
+ * `prompts/videos/scenes/`), categorize each, then return a record
+ * keyed by category. Each bucket is sorted by its `sortKey` (numeric
+ * for scenes / content / breakdowns; alphabetical for
+ * settings / characters / other).
  *
- * The returned record always has all five keys; missing categories
- * are empty arrays so consumers can iterate without null checks.
+ * The returned record always has all keys; missing categories are
+ * empty arrays so consumers can iterate without null checks.
  */
 export function groupPlanFiles(paths: string[]): GroupedPlanFiles {
   const grouped: GroupedPlanFiles = {
@@ -136,11 +213,12 @@ export function groupPlanFiles(paths: string[]): GroupedPlanFiles {
     scenes: [],
     settings: [],
     characters: [],
+    breakdowns: [],
     other: [],
   };
 
   for (const path of paths) {
-    if (!MD_RE.test(path)) continue;
+    if (!isPlanFilePath(path)) continue;
     const file = categorizePlanFile(path);
     grouped[file.category].push(file);
   }
