@@ -9,6 +9,14 @@ interface MarkdownEditorProps {
   fileName?: string;
   filePath?: string;
   onDirtyChange?: (isDirty: boolean) => void;
+  /**
+   * Hide the edit toggle and force preview-only mode. Used when the
+   * rendered markdown is a *view* over a source file in a different
+   * format (e.g. the breakdown JSONs are rendered as markdown for
+   * readability; saving the rendered markdown back would corrupt the
+   * source JSON).
+   */
+  readOnly?: boolean;
 }
 
 export default function MarkdownEditor({
@@ -16,6 +24,7 @@ export default function MarkdownEditor({
   fileName,
   filePath,
   onDirtyChange,
+  readOnly = false,
 }: MarkdownEditorProps) {
   const [mode, setMode] = useState<'edit' | 'preview'>('preview');
   const [currentContent, setCurrentContent] = useState<string>(content);
@@ -85,27 +94,29 @@ export default function MarkdownEditor({
           {fileName && <span className={styles.fileName}>{fileName}</span>}
           {isDirty && <span className={styles.dirtyIndicator}>●</span>}
         </div>
-        <button
-          type="button"
-          className={styles.modeToggle}
-          onClick={toggleMode}
-          title={mode === 'edit' ? 'Switch to Preview' : 'Switch to Edit'}
-        >
-          {mode === 'edit' ? (
-            <>
-              <Eye size={14} />
-              <span>Preview</span>
-            </>
-          ) : (
-            <>
-              <Edit size={14} />
-              <span>Edit</span>
-            </>
-          )}
-        </button>
+        {readOnly ? null : (
+          <button
+            type="button"
+            className={styles.modeToggle}
+            onClick={toggleMode}
+            title={mode === 'edit' ? 'Switch to Preview' : 'Switch to Edit'}
+          >
+            {mode === 'edit' ? (
+              <>
+                <Eye size={14} />
+                <span>Preview</span>
+              </>
+            ) : (
+              <>
+                <Edit size={14} />
+                <span>Edit</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
       <div className={styles.content}>
-        {mode === 'edit' ? (
+        {mode === 'edit' && !readOnly ? (
           <textarea
             ref={textareaRef}
             className={styles.textarea}

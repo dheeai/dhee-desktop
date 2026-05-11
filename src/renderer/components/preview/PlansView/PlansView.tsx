@@ -8,6 +8,7 @@ import {
   type PlanCategory,
   type PlanFile as CategorizedPlanFile,
 } from './planFileCategorization';
+import { renderBreakdownAsMarkdown } from './breakdownJsonToMarkdown';
 import styles from './PlansView.module.scss';
 
 interface PlanFile {
@@ -86,11 +87,19 @@ export default function PlansView({
         `${projectDirectory}/${plan.path}`,
       );
 
-      if (content !== null) {
-        return content;
+      if (content === null) {
+        return `# ${plan.displayName}\n\nContent not available.`;
       }
 
-      return `# ${plan.displayName}\n\nContent not available.`;
+      // Breakdown JSONs are rendered as markdown for readability.
+      // The MarkdownEditor is locked to preview-only for these files
+      // (saving the rendered markdown back would corrupt the source
+      // JSON — see `readOnly` prop below).
+      if (plan.category === 'breakdowns') {
+        return renderBreakdownAsMarkdown(content);
+      }
+
+      return content;
     },
     [projectDirectory],
   );
@@ -434,6 +443,11 @@ export default function PlansView({
             fileName={selectedPlan.name}
             filePath={getFilePath(selectedPlan)}
             onDirtyChange={setIsEditorDirty}
+            // Breakdown files are JSON on disk; the markdown shown
+            // is a derived view. Locking to read-only prevents the
+            // edit toggle from offering a save that would clobber
+            // the source JSON with the rendered markdown.
+            readOnly={selectedPlan.category === 'breakdowns'}
           />
         ) : (
           <div className={styles.placeholder}>
