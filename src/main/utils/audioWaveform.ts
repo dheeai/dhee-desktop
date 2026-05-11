@@ -107,13 +107,17 @@ async function extractAudioWaveformPeaks(
   if (!configuredFfmpegPath) {
     throw new Error('FFmpeg path is not configured for audio waveform extraction.');
   }
+  // Capture into a const so the `Promise` callback closure keeps the
+  // narrowed `string` type — the module-level `configuredFfmpegPath`
+  // (string | null) widens back to nullable across the closure boundary.
+  const ffmpegPath = configuredFfmpegPath;
 
   return new Promise((resolve, reject) => {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: string[] = [];
 
     const ffmpegProcess = spawn(
-      configuredFfmpegPath,
+      ffmpegPath,
       [
         '-v',
         'error',
@@ -131,7 +135,7 @@ async function extractAudioWaveformPeaks(
         'pipe:1',
       ],
       {
-        stdio: ['ignore', 'pipe', 'pipe'],
+        stdio: ['ignore', 'pipe', 'pipe'] as const,
       },
     );
 

@@ -153,7 +153,8 @@ export const Infographic6: React.FC<InfographicProps> = () => {
             width: '100%',
             display: 'flex',
             justifyContent: 'space-around',
-            paddingHorizontal: '140px',
+            paddingLeft: '140px',
+            paddingRight: '140px',
           }}
         >
           {steps.map((step, i) => {

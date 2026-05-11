@@ -27,7 +27,7 @@ interface BackendProjectManifest {
   [key: string]: unknown;
 }
 
-class FileSystemManager extends EventEmitter {
+export class FileSystemManager extends EventEmitter {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private watcher: any = null;
 

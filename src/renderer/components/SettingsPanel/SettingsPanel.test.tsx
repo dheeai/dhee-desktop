@@ -287,7 +287,12 @@ describe('SettingsPanel', () => {
     expect(toggle.checked).toBe(true);
   });
 
-  it('VLM cloud lane: provider radios hidden, only model id input visible', async () => {
+  it('VLM cloud lane: provider radios and the Model ID input are both hidden — cloud owns model selection', async () => {
+    // Cloud VLM contract: the proxy chooses a vision model. Exposing the
+    // VLM Model ID field invites users to set a value that gets ignored
+    // (and historically rode through to the cloud request as a stale
+    // local-mode model name). The toggle + the helper text is the whole
+    // UI surface in cloud mode.
     await act(async () => {
       render(
         <SettingsPanel
@@ -313,8 +318,8 @@ describe('SettingsPanel', () => {
     expect(
       screen.getByText(/VLM routes through the Kshana Cloud proxy/i),
     ).toBeInTheDocument();
-    // Single Model ID input present.
-    expect(screen.getByLabelText('VLM Model ID')).toBeInTheDocument();
+    // Model ID input MUST NOT be present — cloud owns model selection.
+    expect(screen.queryByLabelText('VLM Model ID')).not.toBeInTheDocument();
   });
 
   it('saves Medium tier edits through onSaveConnection when the toggle is off', async () => {

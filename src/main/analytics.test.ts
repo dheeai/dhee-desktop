@@ -50,7 +50,7 @@ function createAccount(userId: string): AccountInfo {
 }
 
 async function loadAnalytics() {
-  return import('./analytics');
+  return import('./analytics.js');
 }
 
 beforeEach(() => {

@@ -48,10 +48,10 @@ export function usePlaybackController(
 
   // Update state machine on playback time changes
   // Get seeking state inside useMemo to avoid calling function during render
-  const playbackState = useMemo(() => {
+  const playbackState = useMemo<PlaybackState>(() => {
     if (isDragging) {
       // Don't update during drag - return current state
-      return stateMachineRef.current?.getCurrentState() || { type: 'IDLE' };
+      return stateMachineRef.current?.getCurrentState() ?? { type: 'IDLE' };
     }
 
     if (!stateMachineRef.current) {

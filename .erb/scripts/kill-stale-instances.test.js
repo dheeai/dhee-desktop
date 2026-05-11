@@ -1,3 +1,4 @@
+/* eslint-disable no-restricted-syntax */
 const { describe, expect, it } = require('@jest/globals');
 const { isStaleCommand, COMMAND_PATTERNS } = require('./kill-stale-instances');
 
@@ -76,7 +77,8 @@ describe('isStaleCommand', () => {
   });
 
   it('does NOT match a cross-env process from a different project', () => {
-    const cmd = '/Users/me/other-project/node_modules/.bin/cross-env FOO=1 some-cmd';
+    const cmd =
+      '/Users/me/other-project/node_modules/.bin/cross-env FOO=1 some-cmd';
     expect(isStaleCommand(cmd, PROJECT_ROOT)).toBe(false);
   });
 
@@ -91,8 +93,7 @@ describe('isStaleCommand', () => {
   it('does NOT match the installed Kshana.app from /Applications', () => {
     // Packaged app installs land under /Applications and don't
     // include the dev project path. Those should remain untouched.
-    const cmd =
-      '/Applications/Kshana.app/Contents/MacOS/Kshana --some-flag';
+    const cmd = '/Applications/Kshana.app/Contents/MacOS/Kshana --some-flag';
     expect(isStaleCommand(cmd, PROJECT_ROOT)).toBe(false);
   });
 

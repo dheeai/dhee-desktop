@@ -72,7 +72,13 @@ export const Infographic3: React.FC<InfographicProps> = ({ data }) => {
 
             // SVG Icon Selection
             const renderIcon = () => {
-              const commonProps = { width: 24, height: 24, strokeWidth: 2.5, strokeLinecap: 'round', strokeLinejoin: 'round' };
+              const commonProps = {
+                width: 24,
+                height: 24,
+                strokeWidth: 2.5,
+                strokeLinecap: 'round',
+                strokeLinejoin: 'round',
+              } as const;
               if (track.icon === 'anchor') {
                 return (
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...commonProps}>
