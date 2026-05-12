@@ -29,6 +29,7 @@ import {
 } from './redoFromStages';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import styles from './RedoFromMenu.module.scss';
 
 type MenuState =
@@ -41,6 +42,7 @@ type MenuState =
 export default function RedoFromMenu() {
   const { projectDirectory } = useWorkspace();
   const session = useKshanaSession();
+  const { askQuestion } = useChatQuestions();
   const [state, setState] = useState<MenuState>({ kind: 'closed' });
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -102,7 +104,32 @@ export default function RedoFromMenu() {
       return;
     }
     setState({ kind: 'closed' });
-  }, [state, projectDirectory, session]);
+
+    // Ask the user (via the chat panel) whether to kick off the
+    // pipeline now. The same question API is used by agent prompts —
+    // we just don't go through session.sendResponse, we drive the
+    // follow-up here. Picking "Continue now" reproduces the chat
+    // panel's Resume button: a runTask message that asks pi-agent to
+    // call kshana_run_to with no stage (run to completion).
+    const continueOption = 'Continue now';
+    const pick = await askQuestion({
+      question:
+        `Marked ${result.invalidated?.length ?? ids.length} node(s) for regeneration from "${stage.label}". ` +
+        `Continue the pipeline now?`,
+      options: [continueOption, 'Later'],
+      defaultOption: continueOption,
+    });
+    if (pick !== continueOption) return;
+
+    const projectDirName =
+      projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') || 'project';
+    const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
+    const task =
+      `Continue running the kshana pipeline for ${params} all the way to ` +
+      'completion. Use kshana_run_to with no stage so it runs to the end. ' +
+      'Stream progress as nodes finish.';
+    await session.runTask(task);
+  }, [state, projectDirectory, session, askQuestion]);
 
   const onCancel = useCallback(() => setState({ kind: 'closed' }), []);
 

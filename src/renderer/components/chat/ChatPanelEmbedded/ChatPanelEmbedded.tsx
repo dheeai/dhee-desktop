@@ -39,6 +39,7 @@ import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import { useAgent } from '../../../contexts/AgentContext';
+import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import type { KshanaEvent } from '../../../../shared/kshanaIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import ProjectSetupPanel, {
@@ -70,7 +71,8 @@ type Role =
   | 'media'
   | 'question'
   | 'phase'
-  | 'progress';
+  | 'progress'
+  | 'thinking';
 type ToolStatus = 'in_progress' | 'completed' | 'error';
 
 interface ChatMessage {
@@ -91,6 +93,14 @@ interface ChatMessage {
   progressForToolCallId?: string;
   /** For role='progress' rows: the line itself (already trimmed). */
   progressText?: string;
+  /**
+   * For role='thinking' rows: the originating tool's call id. Used to
+   * group consecutive reasoning chunks emitted under the same tool
+   * invocation into a single growing thinking block.
+   */
+  thinkingForToolCallId?: string;
+  /** For role='thinking' rows: the accumulated reasoning text. */
+  thinkingText?: string;
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
@@ -141,6 +151,34 @@ const RUNNER_STATUS_POLL_MS = 1500;
  * length string whose first half is byte-identical to the second
  * half is overwhelmingly the bug, not real content.
  */
+/**
+ * Pull every `<thinking>…</thinking>` body out of a stream chunk and
+ * concatenate them. Streaming sometimes splits a single thinking block
+ * across multiple chunks (open tag in one, body in the next, close tag
+ * later) — we cope by also accepting "no close tag" content as
+ * thinking-in-progress when the preceding text was already inside a
+ * thinking block. For simplicity, the executor wraps each emitted
+ * thinking fragment in its own pair of tags, so the multi-fragment
+ * case is rare in practice.
+ */
+function extractThinkingText(chunk: string): string {
+  if (!chunk.includes('<thinking>') && !chunk.includes('</thinking>')) return '';
+  const matches = chunk.match(/<thinking>([\s\S]*?)<\/thinking>/g) ?? [];
+  return matches
+    .map((m) => m.replace(/^<thinking>/, '').replace(/<\/thinking>$/, ''))
+    .join('');
+}
+
+/**
+ * Remove every `<thinking>…</thinking>` (including any open tag with no
+ * matching close, defensively) so the residual chunk can fall through
+ * to the regular progress-row path without spilling reasoning into
+ * the tool log.
+ */
+function stripThinkingTags(chunk: string): string {
+  return chunk.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').replace(/<thinking>[\s\S]*$/, '');
+}
+
 function dedupeDoubled(text: string): string {
   const len = text.length;
   if (len < 120 || len % 2 !== 0) return text;
@@ -227,6 +265,7 @@ export default function ChatPanelEmbedded() {
   const session = useKshanaSession();
   const { projectName, projectDirectory } = useWorkspace();
   const agent = useAgent();
+  const chatQuestions = useChatQuestions();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
@@ -1208,6 +1247,8 @@ export default function ChatPanelEmbedded() {
                 message={item.message}
                 onSelect={(opt) => handleSelectOption(item.message.id, opt)}
               />
+            ) : item.message.role === 'thinking' ? (
+              <ThinkingRow key={item.message.id} message={item.message} />
             ) : (
               <MessageRow
                 key={item.message.id}
@@ -1217,6 +1258,25 @@ export default function ChatPanelEmbedded() {
             ),
           )
         )}
+        {/* External question banners — posted via the ChatQuestions
+         *  context by non-chat code (e.g. the PreviewPanel's "Redo
+         *  from..." flow). Rendered through the same QuestionRow UI
+         *  as agent questions so the user sees a uniform prompt
+         *  regardless of where it originated. */}
+        {chatQuestions.pending.map((q) => (
+          <QuestionRow
+            key={q.id}
+            message={{
+              id: q.id,
+              role: 'question',
+              question: q.question,
+              options: q.options,
+              defaultOption: q.defaultOption,
+              answered: false,
+            }}
+            onSelect={(opt) => chatQuestions.resolveQuestion(q.id, opt)}
+          />
+        ))}
         <div ref={messagesEndRef} />
       </div>
 
@@ -1346,6 +1406,38 @@ function QuestionRow({
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * Reasoning trace from a "thinking" model (DeepSeek-R, o-series,
+ * Gemini-thinking, Claude with extended thinking, …). Collapsed by
+ * default — these can be long and noisy, but seeing them is critical
+ * for trust ("what is the model actually doing during that 30s
+ * pause?") and for debugging stub-plan / truncation issues. Click to
+ * expand the full body.
+ */
+function ThinkingRow({ message: m }: { message: ChatMessage }) {
+  const [expanded, setExpanded] = useState(false);
+  const body = (m.thinkingText ?? '').trim();
+  const preview = body.length > 120 ? `${body.slice(0, 120)}…` : body;
+  if (!body) return null;
+  return (
+    <div className={styles.thinkingRow}>
+      <button
+        type="button"
+        className={styles.thinkingToggle}
+        onClick={() => setExpanded((x) => !x)}
+        aria-expanded={expanded}
+      >
+        <span className={styles.thinkingGlyph} aria-hidden="true">
+          {expanded ? '▾' : '▸'}
+        </span>
+        <span className={styles.thinkingLabel}>thinking</span>
+        {!expanded && <span className={styles.thinkingPreview}>{preview}</span>}
+      </button>
+      {expanded && <pre className={styles.thinkingBody}>{body}</pre>}
     </div>
   );
 }
@@ -1591,6 +1683,53 @@ function handleEvent(
       // the run; the per-line rows stream in below it (and naturally
       // interleave with any user chat that comes in mid-run).
       if (data.toolCallId) {
+        // Reasoning-model chain-of-thought arrives as tool_streaming
+        // chunks wrapped in `<thinking>…</thinking>` (LLMClient splits
+        // out the model's `reasoning_content` or any inline `<think>`
+        // block; ExecutorAgent re-emits it as tool_streaming with
+        // those tags). Route to a dedicated thinking row BEFORE the
+        // kshana_* filter so non-kshana tools (e.g. the executor's
+        // own `generate_scene_shot_plan` Stage A call) still surface
+        // their reasoning. Without this, the thinking text was either
+        // dropped or buried inside the tool card's collapsed body
+        // and the user never saw what the model was "thinking".
+        const rawChunk = data.content ?? '';
+        const thinkingText = extractThinkingText(rawChunk);
+        if (thinkingText.length > 0) {
+          setMessages((prev) => {
+            // Coalesce with the most recent thinking row for THIS
+            // tool call so a long reasoning trace shows as one
+            // growing block, not 50 tiny rows.
+            const last = prev[prev.length - 1];
+            if (
+              last?.role === 'thinking' &&
+              last.thinkingForToolCallId === data.toolCallId
+            ) {
+              return prev.map((m, i) =>
+                i === prev.length - 1
+                  ? { ...m, thinkingText: (m.thinkingText ?? '') + thinkingText }
+                  : m,
+              );
+            }
+            return [
+              ...prev,
+              {
+                id: newMessageId(),
+                role: 'thinking' as const,
+                thinkingForToolCallId: data.toolCallId,
+                thinkingText,
+              },
+            ];
+          });
+          // If the chunk was PURE thinking, nothing else to surface.
+          // If it had non-thinking text too (rare — the executor wraps
+          // <thinking> separately from regular content), fall through
+          // so the remainder still hits the progress-row path below.
+          const remainder = stripThinkingTags(rawChunk);
+          if (remainder.trim().length === 0) return;
+          // Substitute the cleaned chunk for downstream processing.
+          (data as { content?: string }).content = remainder;
+        }
         // Filter: only kshana_* tools (kshana_run_to, kshana_render_*)
         // surface their per-line progress in the chat. Internal
         // pi-agent tool output (bash listings, file reads, grep

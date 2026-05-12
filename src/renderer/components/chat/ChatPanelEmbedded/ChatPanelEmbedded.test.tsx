@@ -53,6 +53,17 @@ jest.mock('../../../contexts/AppSettingsContext', () => ({
   }),
 }));
 
+// ChatQuestionsContext: tests render <ChatPanelEmbedded /> without
+// the provider — stub the hook so the component reads an empty
+// pending-questions queue.
+jest.mock('../../../contexts/ChatQuestionsContext', () => ({
+  useChatQuestions: () => ({
+    pending: [],
+    askQuestion: jest.fn(async () => null),
+    resolveQuestion: jest.fn(),
+  }),
+}));
+
 // Inline mocks deferred to the global moduleNameMapper in
 // package.json (see .erb/mocks/reactMarkdownMock.tsx). The previous
 // inline jest.mock factory returned a function but the rendered
@@ -62,6 +73,20 @@ jest.mock('../../../contexts/AppSettingsContext', () => ({
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
 import ChatPanelEmbedded from './ChatPanelEmbedded';
+// eslint-disable-next-line import/first
+import { KshanaSessionProvider } from '../../../hooks/useKshanaSession';
+
+// Render helper — wraps the panel in the singleton session provider
+// so the in-component `useKshanaSession` reads from context (the
+// hook now requires a provider; tests historically rendered the
+// panel bare).
+function renderPanel() {
+  return render(
+    <KshanaSessionProvider>
+      <ChatPanelEmbedded />
+    </KshanaSessionProvider>,
+  );
+}
 
 type EventListener = (e: KshanaEvent) => void;
 interface KshanaListenerSlot {
@@ -131,7 +156,7 @@ beforeEach(() => {
 
 describe('ChatPanelEmbedded', () => {
   it('renders the chat input + send button', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     expect(screen.getByRole('button', { name: /send/i })).toBeInTheDocument();
   });
@@ -140,7 +165,7 @@ describe('ChatPanelEmbedded', () => {
 
   it('header shows the active project name (not the embedded-session debug string)', async () => {
     mockWorkspaceProjectName = 'BurgerEating';
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     // The project name is the primary affordance now.
     expect(screen.getByText('BurgerEating')).toBeInTheDocument();
@@ -151,14 +176,14 @@ describe('ChatPanelEmbedded', () => {
 
   it('header shows "No project open" when no workspace project is selected', async () => {
     mockWorkspaceProjectName = null;
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     expect(screen.getByText(/No project open/i)).toBeInTheDocument();
   });
 
   it('clicking the project name opens a menu containing Export chat', async () => {
     mockWorkspaceProjectName = 'BurgerEating';
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
 
     // The menu is closed by default — Export chat must NOT be in the DOM yet.
@@ -185,7 +210,7 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -214,7 +239,7 @@ describe('ChatPanelEmbedded', () => {
     // every run is interactive. A regression that re-introduces the
     // toggle would be visible in user testing immediately, but a
     // pinned negative test is cheap insurance.
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     expect(screen.queryByRole('button', { name: /^auto$/i })).toBeNull();
     expect(
@@ -223,7 +248,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('does not render a separate Export Chat footer button (moved into the project menu)', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     // The footer should NOT have a chip button labelled "Export Chat".
     // The menuitem inside the dropdown is the only export entry now.
@@ -260,7 +285,7 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
 
     await waitFor(
@@ -303,7 +328,7 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
@@ -335,7 +360,7 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
@@ -359,7 +384,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('submitting a task calls window.kshana.runTask', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     const input = screen.getByRole('textbox') as HTMLInputElement | HTMLTextAreaElement;
     const button = screen.getByRole('button', { name: /send/i });
@@ -377,7 +402,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('tool_call events appear in the message list', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     // Wait for the subscription effect to fire after sessionId is set.
     await waitFor(() => {
@@ -399,7 +424,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('agent_response events show as assistant messages', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     // Wait for the subscription effect to fire after sessionId is set.
     await waitFor(() => {
@@ -419,7 +444,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('media_generated events render inline media thumbnails', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     // Wait for the subscription effect to fire after sessionId is set.
     await waitFor(() => {
@@ -458,7 +483,7 @@ describe('ChatPanelEmbedded', () => {
    */
   it('media_generated with a relative path resolves to an absolute file:// URL under the workspace project dir', async () => {
     mockWorkspaceProjectName = 'noir';
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -498,7 +523,7 @@ describe('ChatPanelEmbedded', () => {
    */
   it('media_generated with a video path renders a <video> element with absolute file:// src', async () => {
     mockWorkspaceProjectName = 'noir';
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -539,7 +564,7 @@ describe('ChatPanelEmbedded', () => {
    *       grouping that fixes it.
    */
   it('progress events under one kshana_run_to call collapse into a single group element by default', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -594,7 +619,7 @@ describe('ChatPanelEmbedded', () => {
    *  THEN every stream_chunk row that was hidden becomes visible.
    */
   it('clicking the run progress group expander reveals every stream_chunk row', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -641,7 +666,7 @@ describe('ChatPanelEmbedded', () => {
    */
   it('generated images render as compact thumbnails (max-width <= 240px), not full-bleed', async () => {
     mockWorkspaceProjectName = 'noir';
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -707,7 +732,7 @@ describe('ChatPanelEmbedded', () => {
         return { ok: true };
       }) as never;
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -756,7 +781,7 @@ describe('ChatPanelEmbedded', () => {
     // the session has no agent attached yet.
     mockWorkspaceProjectName = 'chhaya_60s_anime';
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
 
     await waitFor(() => {
       const focusProject = (window as unknown as {
@@ -774,7 +799,7 @@ describe('ChatPanelEmbedded', () => {
 
   it('does not call focusProject when no project is selected', async () => {
     mockWorkspaceProjectName = null;
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     const focusProject = (window as unknown as {
       kshana: { focusProject: jest.Mock };
@@ -783,7 +808,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('tool_result event updates the matching tool card from in_progress to completed', async () => {
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -826,7 +851,7 @@ describe('ChatPanelEmbedded', () => {
     // are wrapped in a collapsible group (default collapsed); this
     // test verifies the underlying granularity by expanding the
     // group and counting individual rows.
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -876,7 +901,7 @@ describe('ChatPanelEmbedded', () => {
     // file Read by pi-agent would dump its contents into the chat
     // as progress rows. The user only wants to see kshana_run_to /
     // kshana_render_* progress; everything else is internal noise.
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -923,7 +948,7 @@ describe('ChatPanelEmbedded', () => {
     // Defense in depth: if a stream_chunk somehow arrives without
     // its tool_call having been seen first (replay, race), drop it
     // rather than rendering it as a mystery progress row.
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -948,7 +973,7 @@ describe('ChatPanelEmbedded', () => {
     // Real agent flow: chunks stream in, the final agent_response
     // arrives with the full text. The panel must not append a second
     // bubble — the streaming bubble already contains the same text.
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -981,7 +1006,7 @@ describe('ChatPanelEmbedded', () => {
     // twice as two stream_chunk events, which used to render as a
     // doubled bubble in the chat. The render-layer dedupeDoubled
     // collapses it.
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -1015,7 +1040,7 @@ describe('ChatPanelEmbedded', () => {
   it('does NOT collapse short repeated phrases (false-positive guard)', async () => {
     // "Yes! Yes!" is doubled but only 10 chars. Must NOT be
     // collapsed — the dedup threshold (120 chars) skips it.
-    const { container } = render(<ChatPanelEmbedded />);
+    const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -1034,7 +1059,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('stream_chunk events accumulate into a single assistant message that grows as chunks arrive', async () => {
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {
       expect(mockState.listeners.some((l) => l.active)).toBe(true);
@@ -1088,7 +1113,7 @@ describe('ChatPanelEmbedded', () => {
       logger: { logUserInput: jest.fn() },
     };
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
@@ -1139,7 +1164,7 @@ describe('ChatPanelEmbedded', () => {
     (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
       jest.fn(async () => ({ active: runnerActive })) as never;
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
@@ -1203,7 +1228,7 @@ describe('ChatPanelEmbedded', () => {
     (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
       jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
 
-    render(<ChatPanelEmbedded />);
+    renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
@@ -1264,7 +1289,7 @@ describe('ChatPanelEmbedded', () => {
           projectName: 'BurgerEating',
         })) as never;
 
-      render(<ChatPanelEmbedded />);
+      renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
 
       // Allow the mount-time poll + first interval tick to land.
@@ -1288,7 +1313,7 @@ describe('ChatPanelEmbedded', () => {
       (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
         jest.fn(async () => ({ active: false })) as never;
 
-      render(<ChatPanelEmbedded />);
+      renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
       await waitFor(() =>
         expect(mockState.listeners.some((l) => l.active)).toBe(true),
@@ -1325,7 +1350,7 @@ describe('ChatPanelEmbedded', () => {
       (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerStatus =
         jest.fn(async () => ({ active })) as never;
 
-      render(<ChatPanelEmbedded />);
+      renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
       await waitFor(
         () => {
@@ -1357,7 +1382,7 @@ describe('ChatPanelEmbedded', () => {
       (window as unknown as { kshana: Record<string, unknown> }).kshana.runnerCancel =
         runnerCancel as never;
 
-      render(<ChatPanelEmbedded />);
+      renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
       await waitFor(
         () => {
@@ -1390,7 +1415,7 @@ describe('ChatPanelEmbedded', () => {
       (window as unknown as { kshana: Record<string, unknown> }).kshana.cancelTask =
         cancelTask as never;
 
-      render(<ChatPanelEmbedded />);
+      renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
       await waitFor(
         () => {

@@ -15,7 +15,7 @@
 import '@testing-library/jest-dom';
 import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
-import { useKshanaSession } from './useKshanaSession';
+import { KshanaSessionProvider, useKshanaSession } from './useKshanaSession';
 import type { KshanaEvent, KshanaEventName } from '../../shared/kshanaIpc';
 
 type EventListener = (e: KshanaEvent) => void;
@@ -98,7 +98,7 @@ function TestHarness({
 
 describe('useKshanaSession', () => {
   it('creates a session on mount', async () => {
-    render(<TestHarness />);
+    render(<KshanaSessionProvider><TestHarness /></KshanaSessionProvider>);
     await waitFor(() => {
       expect(mockState.createSessionCount).toBe(1);
     });
@@ -106,7 +106,7 @@ describe('useKshanaSession', () => {
 
   it('exposes the created sessionId', async () => {
     let observedSessionId: string | null = null;
-    render(<TestHarness onSession={(s) => { observedSessionId = s; }} />);
+    render(<KshanaSessionProvider><TestHarness onSession={(s) => { observedSessionId = s; }} /></KshanaSessionProvider>);
     await waitFor(() => {
       expect(observedSessionId).toBe('s-1');
     });
@@ -114,7 +114,7 @@ describe('useKshanaSession', () => {
 
   it('runTask delegates to window.kshana.runTask with the current sessionId', async () => {
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
       await api!.runTask('write a noir story', { stopAtStage: 'shot_image' });
@@ -129,7 +129,7 @@ describe('useKshanaSession', () => {
 
   it('cancelTask delegates to window.kshana.cancelTask', async () => {
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => { await api!.cancel(); });
     expect(mockState.cancelTaskArgs).toHaveLength(1);
@@ -138,7 +138,7 @@ describe('useKshanaSession', () => {
 
   it('redoNode delegates with sessionId and editedPrompt', async () => {
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
       await api!.redoNode('shot_image:scene_1_shot_4', { editedPrompt: 'new prompt' });
@@ -152,7 +152,7 @@ describe('useKshanaSession', () => {
 
   it('configureProject delegates with sessionId + opts', async () => {
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
       await api!.configureProject({ projectDir: '/path/to/parvati', templateId: 'narrative' });
@@ -165,7 +165,7 @@ describe('useKshanaSession', () => {
 
   it('status flips to "running" while runTask is awaiting and back to "idle" after success', async () => {
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     expect(api!.status).toBe('idle');
     let runPromise: Promise<unknown>;
@@ -181,7 +181,7 @@ describe('useKshanaSession', () => {
   it('status flips to "error" when runTask returns ok:false', async () => {
     mockState.runTaskResult = { ok: false, error: 'something broke' };
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => { await api!.runTask('hi'); });
     expect(api!.status).toBe('error');
@@ -189,7 +189,7 @@ describe('useKshanaSession', () => {
 
   it('subscribe(event, cb) registers a listener; returned unsubscribe deactivates it', async () => {
     let api: ReturnType<typeof useKshanaSession> | null = null;
-    render(<TestHarness onApi={(a) => { api = a; }} />);
+    render(<KshanaSessionProvider><TestHarness onApi={(a) => { api = a; }} /></KshanaSessionProvider>);
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
 
     const handler = jest.fn();
@@ -204,5 +204,121 @@ describe('useKshanaSession', () => {
 
     unsubscribe!();
     expect(mockState.listeners[0]?.active).toBe(false);
+  });
+
+  // ── Resilience: createSession startup race ──────────────────────────────
+  // The kshana-core manager boots async on the main process. If the
+  // renderer's createSession fires before the IPC bridge is registered,
+  // the call rejects. Pre-fix, the renderer surfaced an error and the
+  // user had to ⌘+R to recover. The retry-with-backoff path should
+  // transparently recover once the bridge comes up.
+
+  it('createSession on mount retries when the IPC layer initially rejects (startup race)', async () => {
+    let attempts = 0;
+    (window as unknown as { kshana: { createSession: jest.Mock } }).kshana.createSession =
+      jest.fn(async () => {
+        attempts += 1;
+        if (attempts < 3) {
+          throw new Error('No handler registered for kshana:createSession');
+        }
+        return { sessionId: 's-recovered' };
+      });
+
+    let observedSessionId: string | null = null;
+    render(
+      <KshanaSessionProvider>
+        <TestHarness onSession={(s) => { observedSessionId = s; }} />
+      </KshanaSessionProvider>,
+    );
+    await waitFor(
+      () => {
+        expect(observedSessionId).toBe('s-recovered');
+      },
+      { timeout: 4000 },
+    );
+    expect(attempts).toBeGreaterThanOrEqual(3);
+  });
+
+  // ── Resilience: mid-session "Session not found" ─────────────────────────
+  // When kshana-core restarts (settings update / account change) it
+  // wipes the in-memory sessions Map without notifying the renderer.
+  // Any subsequent IPC call returns "Session not found: <id>". The
+  // self-heal wrapper should re-run createSession transparently and
+  // retry the operation once.
+
+  it('IPC calls self-heal when the server reports "Session not found" mid-session', async () => {
+    let api: ReturnType<typeof useKshanaSession> | null = null;
+    render(
+      <KshanaSessionProvider>
+        <TestHarness onApi={(a) => { api = a; }} />
+      </KshanaSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    // First call returns "Session not found". After re-create, the
+    // session id changes (server hands back 's-2' the second time
+    // around — simulating a fresh in-memory entry).
+    let runCalls = 0;
+    let createSessionCalls = 0;
+    (window as unknown as { kshana: { runTask: jest.Mock; createSession: jest.Mock } })
+      .kshana.runTask = jest.fn(async (req: { sessionId: string }) => {
+      runCalls += 1;
+      if (runCalls === 1) {
+        return { ok: false, error: `Session not found: ${req.sessionId}` };
+      }
+      return { ok: true };
+    });
+    (window as unknown as { kshana: { createSession: jest.Mock } }).kshana.createSession =
+      jest.fn(async () => {
+        createSessionCalls += 1;
+        return { sessionId: 's-2' };
+      });
+
+    let runResult: { ok: boolean; error?: string } | undefined;
+    await act(async () => {
+      runResult = await api!.runTask('hi');
+    });
+
+    // Self-heal triggered: createSession was called to revive, then
+    // runTask succeeded on the retry.
+    expect(createSessionCalls).toBeGreaterThanOrEqual(1);
+    expect(runCalls).toBe(2);
+    expect(runResult?.ok).toBe(true);
+    // The renderer's session id was updated to the new server-side
+    // session.
+    await waitFor(() => expect(api!.sessionId).toBe('s-2'));
+  });
+
+  it('non-"Session not found" errors are surfaced verbatim (no self-heal loop)', async () => {
+    let api: ReturnType<typeof useKshanaSession> | null = null;
+    render(
+      <KshanaSessionProvider>
+        <TestHarness onApi={(a) => { api = a; }} />
+      </KshanaSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    let runCalls = 0;
+    let createSessionCalls = 0;
+    (window as unknown as { kshana: { runTask: jest.Mock; createSession: jest.Mock } })
+      .kshana.runTask = jest.fn(async () => {
+      runCalls += 1;
+      return { ok: false, error: 'something else broke' };
+    });
+    (window as unknown as { kshana: { createSession: jest.Mock } }).kshana.createSession =
+      jest.fn(async () => {
+        createSessionCalls += 1;
+        return { sessionId: 's-should-not-be-called' };
+      });
+
+    let runResult: { ok: boolean; error?: string } | undefined;
+    await act(async () => {
+      runResult = await api!.runTask('hi');
+    });
+
+    // No retry, no createSession call — error returned as-is.
+    expect(runCalls).toBe(1);
+    expect(createSessionCalls).toBe(0);
+    expect(runResult).toEqual({ ok: false, error: 'something else broke' });
   });
 });

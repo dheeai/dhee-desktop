@@ -3,6 +3,8 @@ import { TimelineProvider } from './contexts/TimelineContext';
 import { ProjectProvider } from './contexts/ProjectContext';
 import { AgentProvider } from './contexts/AgentContext';
 import { AppSettingsProvider } from './contexts/AppSettingsContext';
+import { ChatQuestionsProvider } from './contexts/ChatQuestionsContext';
+import { KshanaSessionProvider } from './hooks/useKshanaSession';
 import LandingScreen from './components/landing/LandingScreen/LandingScreen';
 import WorkspaceLayout from './components/layout/WorkspaceLayout/WorkspaceLayout';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -22,15 +24,19 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppSettingsProvider>
-        <WorkspaceProvider>
-          <ProjectProvider>
-            <TimelineProvider>
-              <AgentProvider>
-                <AppContent />
-              </AgentProvider>
-            </TimelineProvider>
-          </ProjectProvider>
-        </WorkspaceProvider>
+        <KshanaSessionProvider>
+          <WorkspaceProvider>
+            <ProjectProvider>
+              <TimelineProvider>
+                <AgentProvider>
+                  <ChatQuestionsProvider>
+                    <AppContent />
+                  </ChatQuestionsProvider>
+                </AgentProvider>
+              </TimelineProvider>
+            </ProjectProvider>
+          </WorkspaceProvider>
+        </KshanaSessionProvider>
       </AppSettingsProvider>
     </ErrorBoundary>
   );
