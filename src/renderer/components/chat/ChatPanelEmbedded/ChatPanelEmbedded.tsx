@@ -277,12 +277,25 @@ export default function ChatPanelEmbedded() {
   const menuWrapperRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
+  // ── Re-hydrate on every mount ─────────────────────────────────────
+  // When the user navigates away (e.g. to Settings) and comes back,
+  // this component is fully unmounted — `messages` state is lost. The
+  // KshanaSessionProvider stays alive at app root so the session id
+  // survives, but its `history` snapshot was already consumed by the
+  // previous mount. Refetch from disk (the source of truth) on every
+  // mount; the hydration effect below then re-seeds the panel.
+  useEffect(() => {
+    if (!session.sessionId) return;
+    void session.refreshHistory();
+  }, [session.sessionId, session.refreshHistory]);
+
   // ── Resume hydration ──────────────────────────────────────────────
-  // When the session was reconstructed from disk on app launch, the
-  // hook hands us a HistorySnapshot. Translate it into local
+  // When `session.history` is set (either from initial resume or from
+  // a `refreshHistory()` call above), translate it into local
   // ChatMessage rows so the panel renders the prior conversation as if
   // it had been streamed live. One-shot: consumeHistory() reads-and-
-  // clears, so a later remount won't double-seed.
+  // clears, so a later refresh-driven update of the same content
+  // doesn't double-seed.
   useEffect(() => {
     if (!session.sessionId) return;
     if (!session.history) return;

@@ -69,6 +69,16 @@ export const KSHANA_CHANNELS = {
    * value returned in `ClearChatHistoryResponse.newSessionId`.
    */
   CLEAR_CHAT_HISTORY: 'kshana:clearChatHistory',
+  /**
+   * Refetch a session's persisted chat snapshot from disk. Used by
+   * the renderer when the chat panel remounts (e.g. after the user
+   * navigates to Settings and back) — `createSession` only returns
+   * history when the session is being resumed, so a same-app-run
+   * remount needs an explicit refresh against the source of truth
+   * (the JSONL transcript) rather than the snapshot cached at
+   * create-time, which would miss any messages streamed since.
+   */
+  GET_HISTORY: 'kshana:getHistory',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -181,6 +191,16 @@ export interface ClearChatHistoryRequest {
   sessionId: string;
   /** Optional role for the freshly-minted replacement session. */
   role?: CreateSessionRole;
+}
+
+export interface GetHistoryRequest {
+  sessionId: string;
+}
+
+export interface GetHistoryResponse {
+  sessionId: string;
+  /** Null when the sessionId is unknown to the on-disk index. */
+  history: HistorySnapshot | null;
 }
 
 export interface ClearChatHistoryResponse {

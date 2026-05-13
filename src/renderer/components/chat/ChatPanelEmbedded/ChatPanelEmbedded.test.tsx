@@ -139,6 +139,10 @@ beforeEach(() => {
     focusProject: jest.fn(async () => ({ ok: true })),
     setAutonomous: jest.fn(async () => ({ ok: true })),
     deleteSession: jest.fn(async () => ({ ok: true })),
+    getHistory: jest.fn(async (req: { sessionId: string }) => ({
+      sessionId: req.sessionId,
+      history: null,
+    })),
     // runnerStatus is the SINGLE SOURCE OF TRUTH for whether a long
     // pipeline is in flight. The header Stop button is driven by it
     // (polled), not by tool-call events. Default: idle.
@@ -1431,6 +1435,65 @@ describe('ChatPanelEmbedded', () => {
       });
       expect(runnerCancel).toHaveBeenCalledTimes(1);
       expect(cancelTask).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  // ── Re-hydrate on remount ───────────────────────────────────────────
+  // When the user navigates to Settings and back, this component fully
+  // unmounts and the local `messages` state is lost. The session
+  // provider is still alive at app root, but its initial `history`
+  // snapshot was already consumed by the previous mount. On every
+  // mount, the panel must refetch the persisted snapshot from disk so
+  // the user doesn't see an empty chat even though the agent's
+  // server-side memory is intact.
+
+  describe('history re-hydration on mount', () => {
+    it('calls window.kshana.getHistory(sessionId) once the session is ready', async () => {
+      const getHistory = jest.fn(async (req: { sessionId: string }) => ({
+        sessionId: req.sessionId,
+        history: null,
+      }));
+      (window as unknown as { kshana: { getHistory: jest.Mock } }).kshana.getHistory =
+        getHistory;
+
+      renderPanel();
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(() => expect(getHistory).toHaveBeenCalled());
+      expect(getHistory.mock.calls[0]?.[0]).toMatchObject({ sessionId: 's-1' });
+    });
+
+    it('renders prior user + assistant messages from the refetched snapshot', async () => {
+      (window as unknown as { kshana: { getHistory: jest.Mock } }).kshana.getHistory =
+        jest.fn(async (req: { sessionId: string }) => ({
+          sessionId: req.sessionId,
+          history: {
+            messages: [
+              {
+                id: 'm-1',
+                type: 'user' as const,
+                content: 'render the noir scene',
+                timestamp: 1700000000000,
+              },
+              {
+                id: 'm-2',
+                type: 'agent' as const,
+                content: 'Sure — kicking off scene 1.',
+                timestamp: 1700000001000,
+              },
+            ],
+            toolCalls: [],
+            compactionCount: 0,
+          },
+        }));
+
+      renderPanel();
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(() =>
+        expect(screen.getByText('render the noir scene')).toBeInTheDocument(),
+      );
+      expect(
+        screen.getByText('Sure — kicking off scene 1.'),
+      ).toBeInTheDocument();
     });
   });
 });

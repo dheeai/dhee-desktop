@@ -154,6 +154,15 @@ export interface KshanaSessionApi {
    */
   consumeHistory: () => HistorySnapshot | null;
   /**
+   * Refetch the persisted chat snapshot for the current sessionId
+   * from disk and store it on `history`. Used by the chat panel on
+   * mount so a remount (e.g. user navigated to Settings and back)
+   * re-hydrates with everything streamed since the session was
+   * created — `createSession`'s initial `history` only covers the
+   * moment of resume. A no-op when no sessionId is set yet.
+   */
+  refreshHistory: () => Promise<HistorySnapshot | null>;
+  /**
    * Hard-delete the persisted chat for the current session and switch
    * to a freshly-minted one. Updates `sessionId`, persists the new id
    * to localStorage, and resolves once the swap completes. Callers
@@ -309,6 +318,25 @@ function useCreateKshanaSession(): KshanaSessionApi {
     return snap;
   }, [history]);
 
+  const refreshHistory = useCallback<KshanaSessionApi['refreshHistory']>(
+    async () => {
+      const id = sessionIdRef.current;
+      if (!id) return null;
+      try {
+        const resp = await window.kshana.getHistory({ sessionId: id });
+        const snap = resp.history ?? null;
+        setHistory(snap);
+        return snap;
+      } catch {
+        // Refresh failures are non-fatal — the panel just stays on
+        // whatever state it already had. The user can retry by
+        // re-mounting (close-and-reopen project).
+        return null;
+      }
+    },
+    [],
+  );
+
   const clearChatHistory = useCallback<KshanaSessionApi['clearChatHistory']>(
     async () => {
       const id = sessionIdRef.current;
@@ -434,6 +462,7 @@ function useCreateKshanaSession(): KshanaSessionApi {
     error,
     history,
     consumeHistory,
+    refreshHistory,
     clearChatHistory,
     runTask,
     cancel,
@@ -474,6 +503,7 @@ export function KshanaSessionProvider({ children }: { children: ReactNode }) {
     api.error,
     api.history,
     api.consumeHistory,
+    api.refreshHistory,
     api.clearChatHistory,
     api.runTask,
     api.cancel,

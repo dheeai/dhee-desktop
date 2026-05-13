@@ -80,6 +80,7 @@ beforeEach(() => {
     focusProject: jest.fn(async () => ({ ok: true })),
     setAutonomous: jest.fn(async () => ({ ok: true })),
     deleteSession: jest.fn(async () => ({ ok: true })),
+    getHistory: jest.fn(async () => ({ history: null })),
   };
 });
 
@@ -287,6 +288,79 @@ describe('useKshanaSession', () => {
     // The renderer's session id was updated to the new server-side
     // session.
     await waitFor(() => expect(api!.sessionId).toBe('s-2'));
+  });
+
+  // ── Resume hydration on remount ─────────────────────────────────────────
+  // The chat panel unmounts when the user nav's to Settings. The session
+  // provider stays alive at app root, but the panel's local `messages`
+  // state is gone. On remount, the panel calls `refreshHistory()` to
+  // refetch the persisted snapshot from disk (the source of truth) and
+  // re-seeds itself. Without this, the chat re-appears empty even though
+  // the agent's server-side memory is intact.
+
+  it('refreshHistory() fetches the persisted snapshot via window.kshana.getHistory and exposes it on `history`', async () => {
+    const snapshot = {
+      messages: [
+        {
+          id: 'm-1',
+          type: 'user' as const,
+          content: 'hello',
+          timestamp: 1700000000000,
+        },
+      ],
+      toolCalls: [],
+      compactionCount: 0,
+    };
+    let getHistoryCalls = 0;
+    (window as unknown as { kshana: { getHistory: jest.Mock } }).kshana.getHistory =
+      jest.fn(async (req: { sessionId: string }) => {
+        getHistoryCalls += 1;
+        return { sessionId: req.sessionId, history: snapshot };
+      });
+
+    let api: ReturnType<typeof useKshanaSession> | null = null;
+    render(
+      <KshanaSessionProvider>
+        <TestHarness onApi={(a) => { api = a; }} />
+      </KshanaSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    // Sanity: no history initially (fresh-session response carries none).
+    expect(api!.history).toBeNull();
+
+    await act(async () => {
+      await api!.refreshHistory();
+    });
+
+    expect(getHistoryCalls).toBe(1);
+    await waitFor(() => expect(api!.history).toEqual(snapshot));
+    // consumeHistory should still drain it (one-shot semantics
+    // preserved — the consumer reads-and-clears once).
+    let drained: typeof snapshot | null = null;
+    act(() => {
+      drained = api!.consumeHistory() as typeof snapshot | null;
+    });
+    expect(drained).toEqual(snapshot);
+    await waitFor(() => expect(api!.history).toBeNull());
+  });
+
+  it('refreshHistory() leaves history null when the backend has no snapshot', async () => {
+    (window as unknown as { kshana: { getHistory: jest.Mock } }).kshana.getHistory =
+      jest.fn(async () => ({ sessionId: 's-1', history: null }));
+
+    let api: ReturnType<typeof useKshanaSession> | null = null;
+    render(
+      <KshanaSessionProvider>
+        <TestHarness onApi={(a) => { api = a; }} />
+      </KshanaSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    await act(async () => {
+      await api!.refreshHistory();
+    });
+    expect(api!.history).toBeNull();
   });
 
   it('non-"Session not found" errors are surfaced verbatim (no self-heal loop)', async () => {

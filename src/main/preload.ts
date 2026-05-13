@@ -57,6 +57,8 @@ import {
   type ValidateWorkflowResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
+  type GetHistoryRequest,
+  type GetHistoryResponse,
 } from '../shared/kshanaIpc';
 
 interface WordTimestamp {
@@ -734,6 +736,9 @@ const kshanaBridge = {
     req: ClearChatHistoryRequest,
   ): Promise<ClearChatHistoryResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.CLEAR_CHAT_HISTORY, req);
+  },
+  getHistory(req: GetHistoryRequest): Promise<GetHistoryResponse> {
+    return ipcRenderer.invoke(KSHANA_CHANNELS.GET_HISTORY, req);
   },
   runnerCancel(): Promise<RunnerCancelResponse> {
     return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_CANCEL);

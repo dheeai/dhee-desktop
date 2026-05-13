@@ -49,6 +49,8 @@ import {
   type ValidateWorkflowResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
+  type GetHistoryRequest,
+  type GetHistoryResponse,
 } from '../shared/kshanaIpc';
 import { prefixAttachmentsToTask } from '../shared/attachmentTypes';
 import type { KshanaCoreManager, KshanaCoreEvent } from './kshanaCoreManager';
@@ -94,6 +96,18 @@ export function registerKshanaIpcBridge(
     (_event, req: ClearChatHistoryRequest): ClearChatHistoryResponse => {
       const { newSessionId } = manager.clearChatHistory(req.sessionId, req.role);
       return { newSessionId, oldSessionId: req.sessionId };
+    },
+  );
+
+  ipcMain.handle(
+    KSHANA_CHANNELS.GET_HISTORY,
+    (_event, req: GetHistoryRequest): GetHistoryResponse => {
+      const snapshot = manager.getSessionHistorySnapshot(req.sessionId);
+      const history =
+        snapshot && (snapshot.messages.length > 0 || snapshot.toolCalls.length > 0)
+          ? (snapshot as GetHistoryResponse['history'])
+          : null;
+      return { sessionId: req.sessionId, history };
     },
   );
 
