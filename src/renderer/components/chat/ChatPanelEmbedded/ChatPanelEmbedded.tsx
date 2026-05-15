@@ -111,6 +111,14 @@ interface ChatMessage {
   options?: string[];
   defaultOption?: string;
   answered?: boolean;
+  /**
+   * For role='system' rows emitted from the executor's `notification`
+   * event: the severity level (info / warning / error). When set to
+   * 'error' the renderer styles the pill as a red error card so the
+   * user notices ComfyUI / LLM failures instead of skimming past them
+   * as ordinary system messages.
+   */
+  notificationLevel?: 'info' | 'warning' | 'error';
 }
 
 interface ContextUsage {
@@ -1530,7 +1538,17 @@ function MessageRow({
     // like "Resuming pipeline run…" or CTA labels. Distinct enough
     // from chat bubbles that the eye reads it as metadata, not as
     // either party speaking.
-    return <div className={styles.systemPill}>{m.text}</div>;
+    //
+    // When the system row was synthesized from an executor 'error' or
+    // 'warning' notification, style it as a distinct error/warning
+    // card so ComfyUI/LLM failures don't read as ordinary metadata.
+    const levelClass =
+      m.notificationLevel === 'error'
+        ? ` ${styles.systemPillError ?? ''}`
+        : m.notificationLevel === 'warning'
+          ? ` ${styles.systemPillWarning ?? ''}`
+          : '';
+    return <div className={`${styles.systemPill}${levelClass}`.trim()}>{m.text}</div>;
   }
   if (m.role === 'phase') {
     return (
@@ -1891,12 +1909,16 @@ function handleEvent(
     case 'notification': {
       const data = event.data as { level?: string; message?: string };
       if (!data.message) return;
+      const rawLevel = data.level ?? 'info';
+      const level: 'info' | 'warning' | 'error' =
+        rawLevel === 'error' || rawLevel === 'warning' ? rawLevel : 'info';
       setMessages((prev) => [
         ...prev,
         {
           id: newMessageId(),
           role: 'system',
-          text: `[${data.level ?? 'info'}] ${data.message}`,
+          text: level === 'info' ? data.message! : `[${level}] ${data.message}`,
+          notificationLevel: level,
         },
       ]);
       return;
