@@ -42,6 +42,7 @@
     "package": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
     "package:mac": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --arm64 --publish never && npm run build:dll",
     "package:win": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --win --publish never && npm run build:dll",
+    "package:linux": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --linux --publish never && npm run build:dll",
     "package:all": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
     "release": "npm run verify:dhee-core && npm run prepare:desktop-runtime && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --publish always",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
@@ -248,6 +249,7 @@
     "appId": "com.dheeai.desktop",
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
+    "afterAllArtifactBuild": ".erb/scripts/stable-release-artifacts.cjs",
     "asarUnpack": [
       "**\\*.{node,dll}",
       "**/node_modules/@ffmpeg-installer/**",

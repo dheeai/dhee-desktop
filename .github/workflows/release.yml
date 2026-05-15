@@ -129,3 +129,72 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           dhee_INK_PATH: ${{ github.workspace }}\dhee-core
         run: npm run release
+
+  release-linux:
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+
+    steps:
+      - name: Checkout dhee-desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout dhee-core
+        uses: actions/checkout@v4
+        with:
+          repository: dheeai/dhee-core
+          path: dhee-core
+          token: ${{ secrets.BACKEND_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libarchive-tools libfuse2
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Build dhee-core
+        working-directory: dhee-core
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install desktop dependencies
+        run: |
+          npm ci --ignore-scripts
+          npx ts-node .erb/scripts/check-native-dep.js
+          npm run build:dll
+
+      - name: Inject cloud runtime config
+        env:
+          dhee_WEBSITE_URL: ${{ vars.dhee_WEBSITE_URL || secrets.dhee_WEBSITE_URL }}
+        run: |
+          node << 'EOF'
+          const fs = require('fs');
+          const website = process.env.dhee_WEBSITE_URL;
+          if (!website || !website.trim()) throw new Error('dhee_WEBSITE_URL is missing');
+          const cfg = { dheeWebsiteUrl: website.trim().replace(/\/$/, '') };
+          fs.writeFileSync(
+            'assets/runtime-config.json',
+            JSON.stringify(cfg, null, 2),
+          );
+          console.log('Wrote assets/runtime-config.json');
+          EOF
+
+      - name: Build and publish Electron app
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          dhee_INK_PATH: ${{ github.workspace }}/dhee-core
+        run: npm run release
