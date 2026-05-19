@@ -26,6 +26,7 @@ import fs from 'fs';
 import { app } from 'electron';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
+import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
 
 export interface dheeCloudAuthRuntime {
   websiteUrl: string;
@@ -92,6 +93,11 @@ type ManagerModule = {
     appVersion?: string;
     identity?: AnalyticsIdentity;
     properties?: Record<string, unknown>;
+  }) => void;
+  configurePostHogRuntime?: (input: {
+    apiKey?: string;
+    host?: string;
+    analyticsSalt?: string;
   }) => void;
   identifyAnalyticsUser?: (
     identity: { userId: string } & AnalyticsIdentity,
@@ -733,9 +739,21 @@ export class dheeCoreManager {
     settings: AppSettings,
     cloudAuth?: dheeCloudAuthRuntime | null,
   ): Promise<void> {
+    await applyRuntimeAnalyticsConfig({
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      dirname: __dirname,
+      env: process.env,
+    });
+
     if (!this.managerModule) {
       this.managerModule = await loadManagerModule();
     }
+    this.managerModule.configurePostHogRuntime?.({
+      apiKey: process.env.POSTHOG_API_KEY,
+      host: process.env.POSTHOG_HOST,
+      analyticsSalt: process.env.ANALYTICS_SALT,
+    });
     // Load dhee-ink/.env BEFORE applying AppSettings so the
     // settings UI's explicit values still win for any field the user
     // has filled in. Loaded values fill the gaps (LLM_TIER_*,
