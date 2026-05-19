@@ -29,7 +29,6 @@ import {
 } from './redoFromStages';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
-import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import styles from './RedoFromMenu.module.scss';
 
 type MenuState =
@@ -42,7 +41,6 @@ type MenuState =
 export default function RedoFromMenu() {
   const { projectDirectory } = useWorkspace();
   const session = useKshanaSession();
-  const { askQuestion } = useChatQuestions();
   const [state, setState] = useState<MenuState>({ kind: 'closed' });
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -103,33 +101,37 @@ export default function RedoFromMenu() {
       });
       return;
     }
-    setState({ kind: 'closed' });
 
-    // Ask the user (via the chat panel) whether to kick off the
-    // pipeline now. The same question API is used by agent prompts —
-    // we just don't go through session.sendResponse, we drive the
-    // follow-up here. Picking "Continue now" reproduces the chat
-    // panel's Resume button: a runTask message that asks pi-agent to
-    // call kshana_run_to with no stage (run to completion).
-    const continueOption = 'Continue now';
-    const pick = await askQuestion({
-      question:
-        `Marked ${result.invalidated?.length ?? ids.length} node(s) for regeneration from "${stage.label}". ` +
-        `Continue the pipeline now?`,
-      options: [continueOption, 'Later'],
-      defaultOption: continueOption,
-    });
-    if (pick !== continueOption) return;
-
+    // Redo is atomic — the user already confirmed in the modal. Dispatch
+    // the continuation run directly. Previously we asked a second
+    // "Continue now / Later" question here, but that left users with a
+    // half-state (final_video flipped to pending, never re-rendered) when
+    // they picked Later, dismissed the question, or pi-agent decided the
+    // project was already "complete" and skipped the dispatch. "Redo"
+    // should mean "redo".
     const projectDirName =
       projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') || 'project';
     const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
     const task =
       `Continue running the kshana pipeline for ${params} all the way to ` +
-      'completion. Use kshana_run_to with no stage so it runs to the end. ' +
-      'Stream progress as nodes finish.';
-    await session.runTask(task);
-  }, [state, projectDirectory, session, askQuestion]);
+      'completion. Call kshana_run_to with no stage so it runs every pending ' +
+      'node to the end — DO NOT skip the call even if status appears complete, ' +
+      'because invalidation just flipped node(s) back to pending. Stream progress ' +
+      'as nodes finish.';
+    try {
+      await session.runTask(task);
+      setState({ kind: 'closed' });
+    } catch (err) {
+      setState({
+        kind: 'error',
+        stage,
+        message:
+          (err instanceof Error ? err.message : String(err)) ||
+          'Could not start the run after invalidation. ' +
+          'Nodes are marked pending — you can dispatch manually from chat.',
+      });
+    }
+  }, [state, projectDirectory, session]);
 
   const onCancel = useCallback(() => setState({ kind: 'closed' }), []);
 

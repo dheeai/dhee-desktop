@@ -57,9 +57,9 @@ export default function BackendBadges({ className }: BackendBadgesProps) {
   const vlmCloud = isCloud(settings?.vlmBackend, account);
 
   const title = [
-    `LLM: ${llmCloud ? 'Kshana Cloud' : 'Local'}`,
-    `ComfyUI: ${comfyCloud ? 'Kshana Cloud' : 'Local'}`,
-    `VLM: ${vlmCloud ? 'Kshana Cloud' : 'Local'}`,
+    `LLM: ${llmCloud ? 'Dhee Cloud' : 'Local'}`,
+    `ComfyUI: ${comfyCloud ? 'Dhee Cloud' : 'Local'}`,
+    `VLM: ${vlmCloud ? 'Dhee Cloud' : 'Local'}`,
   ].join(' · ');
 
   const rowClass = className ? `${styles.row} ${className}` : styles.row;

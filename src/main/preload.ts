@@ -140,6 +140,15 @@ const projectBridge = {
   selectDirectory(): Promise<string | null> {
     return ipcRenderer.invoke('project:select-directory');
   },
+  /**
+   * Suggested default workspace folder for a new project when the user
+   * has not yet picked one. Returns `<home>/dhee-studios`. Pair with
+   * `renderer/utils/workspacePathDefaults.readPersistedWorkspacePath` —
+   * stored choice wins over this default on subsequent opens.
+   */
+  getDefaultWorkspacePath(): Promise<string> {
+    return ipcRenderer.invoke('project:get-default-workspace-path');
+  },
   selectVideoFile(): Promise<string | null> {
     return ipcRenderer.invoke('project:select-video-file');
   },

@@ -531,3 +531,15 @@ export function useKshanaSession(): KshanaSessionApi {
   }
   return ctx;
 }
+
+/**
+ * Non-throwing variant for components that legitimately mount outside
+ * a provider (e.g., NewProjectDialog inside test fixtures that don't
+ * stage the full session graph). Returns `null` when no provider is
+ * present so callers can guard their session-dependent side effects
+ * (typically: chat reset, runTask). Production mounts under the
+ * provider so the hook returns the full API.
+ */
+export function useOptionalKshanaSession(): KshanaSessionApi | null {
+  return useContext(KshanaSessionContext);
+}

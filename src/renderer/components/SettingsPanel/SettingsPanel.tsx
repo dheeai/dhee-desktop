@@ -376,8 +376,8 @@ export default function SettingsPanel({
     : 'Connected to Local';
   const statusSupportText = isCloudMode
     ? isCloudReady
-      ? 'The bundled core is running locally while paid calls use Kshana Cloud credits through the proxy.'
-      : 'Sign in to Kshana Cloud to route paid calls through the authenticated proxy.'
+      ? 'The bundled core is running locally while paid calls use Dhee Cloud credits through the proxy.'
+      : 'Sign in to Dhee Cloud to route paid calls through the authenticated proxy.'
     : 'The bundled core is running locally with the provider settings shown below.';
 
   const renderTierSection = (
@@ -571,7 +571,7 @@ export default function SettingsPanel({
           >
             <span className={styles.tabLabel}>Connection</span>
             <span className={styles.tabDescription}>
-              Local providers or Kshana Cloud credits
+              Local providers or Dhee Cloud credits
             </span>
           </button>
           <button
@@ -723,7 +723,7 @@ export default function SettingsPanel({
                 <div className={styles.sectionHeader}>
                   <h3>Diagnostics</h3>
                   <p>
-                    Share Kshana&apos;s logs with support to debug issues. The
+                    Share Dhee&apos;s logs with support to debug issues. The
                     logs include core runner output, ComfyUI debug
                     breadcrumbs, and the desktop session transcript — they
                     do not contain your project assets.
@@ -791,7 +791,7 @@ export default function SettingsPanel({
               <>
                 <div className={styles.sectionHeader}>
                   <h3>Connection</h3>
-                  <p>Choose BYO keys or Kshana Cloud credits for paid calls.</p>
+                  <p>Choose BYO keys or Dhee Cloud credits for paid calls.</p>
                 </div>
 
                 <div className={styles.statusCard}>
@@ -821,7 +821,7 @@ export default function SettingsPanel({
                       className={styles.checkboxLabel}
                       title={
                         !account
-                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          ? 'Sign in to Dhee Cloud to enable Cloud mode'
                           : undefined
                       }
                     >
@@ -836,7 +836,7 @@ export default function SettingsPanel({
                           )
                         }
                       />
-                      Use Kshana Cloud for ComfyUI
+                      Use Dhee Cloud for ComfyUI
                     </label>
                     {!account ? (
                       <button
@@ -851,7 +851,7 @@ export default function SettingsPanel({
                   </div>
                   <p className={styles.infoText}>
                     {isComfyCloudMode
-                      ? 'Image / video jobs run on Kshana Cloud (uses credits).'
+                      ? 'Image / video jobs run on Dhee Cloud (uses credits).'
                       : 'Image / video jobs run on the ComfyUI server below.'}
                   </p>
 
@@ -898,7 +898,7 @@ export default function SettingsPanel({
                       className={styles.checkboxLabel}
                       title={
                         !account
-                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          ? 'Sign in to Dhee Cloud to enable Cloud mode'
                           : undefined
                       }
                     >
@@ -913,7 +913,7 @@ export default function SettingsPanel({
                           )
                         }
                       />
-                      Use Kshana Cloud for LLM
+                      Use Dhee Cloud for LLM
                     </label>
                     {!account ? (
                       <button
@@ -931,7 +931,7 @@ export default function SettingsPanel({
                   ) : null}
                   <p className={styles.infoText}>
                     {isLlmCloudMode
-                      ? 'Chat / planning calls go through the Kshana Cloud proxy (uses credits).'
+                      ? 'Chat / planning calls go through the Dhee Cloud proxy (uses credits).'
                       : 'Chat / planning calls go to the LLM provider configured below.'}
                   </p>
 
@@ -1088,7 +1088,7 @@ export default function SettingsPanel({
                       className={styles.checkboxLabel}
                       title={
                         !account
-                          ? 'Sign in to Kshana Cloud to enable Cloud mode'
+                          ? 'Sign in to Dhee Cloud to enable Cloud mode'
                           : undefined
                       }
                     >
@@ -1103,7 +1103,7 @@ export default function SettingsPanel({
                           )
                         }
                       />
-                      Use Kshana Cloud for VLM
+                      Use Dhee Cloud for VLM
                     </label>
                     {!account ? (
                       <button
@@ -1119,7 +1119,7 @@ export default function SettingsPanel({
 
                   {isVlmCloudMode ? (
                     <p className={styles.infoText}>
-                      VLM routes through the Kshana Cloud proxy (uses the
+                      VLM routes through the Dhee Cloud proxy (uses the
                       desktop token). Model selection is managed by the
                       cloud — no configuration needed.
                     </p>

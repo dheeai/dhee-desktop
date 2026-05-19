@@ -297,6 +297,28 @@ export default function ChatPanelEmbedded() {
     void session.refreshHistory();
   }, [session.sessionId, session.refreshHistory]);
 
+  // When the backend session is REPLACED (e.g., a "New chat" / new
+  // project create called `clearChatHistory`, which mints a fresh
+  // sessionId and wipes the on-disk JSONL), wipe the local message
+  // state so the previous session's bubbles don't visually leak into
+  // the new conversation. Without this, NewProjectDialog's chat reset
+  // would clear the server-side history but the renderer would keep
+  // rendering the old bubbles until next reload (the 2026-05-19
+  // Village → Soft Seinen visible-carryover bug).
+  //
+  // Tracked via a ref so the FIRST sessionId assignment (null → "abc")
+  // doesn't trigger a reset — there's nothing to clear at that point.
+  const previousSessionIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const current = session.sessionId;
+    const prev = previousSessionIdRef.current;
+    if (prev && current && prev !== current) {
+      setMessages([]);
+      setContextUsage(null);
+    }
+    previousSessionIdRef.current = current;
+  }, [session.sessionId]);
+
   // ── Resume hydration ──────────────────────────────────────────────
   // When `session.history` is set (either from initial resume or from
   // a `refreshHistory()` call above), translate it into local

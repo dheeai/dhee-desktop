@@ -19,6 +19,7 @@ import ffmpeg from '@ts-ffmpeg/fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { normalizePathForFFmpeg } from './utils/pathNormalizer';
+import { ensureNewProjectParentExists } from './utils/newProjectParent';
 import {
   configureAudioWaveformExtractor,
   getAudioWaveform,
@@ -425,6 +426,19 @@ ipcMain.handle(
 );
 
 // Project / File System IPC handlers
+// New-Project default-workspace handler.
+//
+// Returns `<home>/dhee-studios` — the suggested parent folder for new
+// projects when the user has not yet picked one. The renderer pairs
+// this with its own localStorage-backed remembrance of the last
+// chosen folder (see `renderer/utils/workspacePathDefaults.ts`); this
+// IPC is consulted only on first-ever open, or when the persisted
+// value is unreadable. Does not create the folder — the existing
+// `project:create-folder` IPC mkdirs recursively on submit.
+ipcMain.handle('project:get-default-workspace-path', async () => {
+  return path.join(app.getPath('home'), 'dhee-studios');
+});
+
 ipcMain.handle('project:select-directory', async () => {
   if (!mainWindow) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
@@ -1477,6 +1491,16 @@ ipcMain.handle(
           'Invalid project folder name.',
         );
       }
+      // The renderer now defaults the Location field to
+      // `<home>/dhee-studios`, which usually does NOT exist yet on a
+      // fresh install. `assertCanonicalProjectContainment` (below) calls
+      // `fs.realpath` on the active project root and throws
+      // `PROJECT_ROOT_NOT_SET` when it's missing — blocking the create
+      // with a confusing error. Mkdir-ing the parent here is safe:
+      // we've already verified `absoluteBase` is absolute and
+      // `relativePath` is a safe single segment, so the renderer
+      // can't trick us into materializing arbitrary paths.
+      await ensureNewProjectParentExists(absoluteBase);
       activeProjectRoot = absoluteBase;
     } else {
       activeProjectRoot = resolveBootstrapValidationRoot(
