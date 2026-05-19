@@ -4,12 +4,12 @@ This document explains how to create releases for Dhee Desktop using GitHub Acti
 
 ## Overview
 
-When you push a version tag, GitHub Actions automatically:
+When you push a `studio-v*` source tag, GitHub Actions automatically:
 1. Checks out the code
 2. Installs dependencies (including dhee-core)
 3. Builds the Electron app
 4. Creates DMG installers for Mac (arm64 + x64)
-5. Publishes to GitHub Releases
+5. Publishes to GitHub Releases in `dheeai/dhee-studio`
 
 ## Quick Start
 
@@ -20,9 +20,9 @@ When you push a version tag, GitHub Actions automatically:
 git checkout main
 git pull origin main
 
-# 2. Create and push a version tag
-git tag v1.0.0
-git push origin v1.0.0
+# 2. Create and push a studio source tag
+git tag studio-v1.0.0
+git push origin studio-v1.0.0
 
 # 3. Wait 5-10 minutes for the build to complete
 # Check progress: https://github.com/dheeai/dhee-desktop/actions
@@ -30,12 +30,16 @@ git push origin v1.0.0
 
 ## Tag Format
 
-### Standard Version Tag
+### Studio Release Source Tag
 ```
-v1.0.0
-v1.0.1
-v2.0.0
+studio-v1.0.0
+studio-v1.0.1
+studio-v2.0.0
 ```
+
+Electron Builder publishes the public GitHub release using the app version
+from `package.json`, so `studio-v1.0.0` creates the public release
+`dheeai/dhee-studio/releases/tag/v1.0.0`.
 
 ## Complete Release Process
 
@@ -69,8 +73,8 @@ git push origin main
 ### Step 3: Create and Push Tag
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag studio-v1.0.0
+git push origin studio-v1.0.0
 ```
 
 ### Step 4: Monitor Build
@@ -82,7 +86,7 @@ git push origin v1.0.0
 ### Step 5: Download Release
 
 Once complete, the release will be available at:
-- https://github.com/dheeai/dhee-desktop/releases
+- https://github.com/dheeai/dhee-studio/releases
 
 Download the DMG files:
 - `Dhee-<version>-arm64.dmg` (Apple Silicon)
@@ -101,9 +105,9 @@ After each release, the build also publishes **fixed-name copies** (via `afterAl
 
 Example URLs (after the next successful tagged release):
 
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-arm64.dmg`
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-x64.dmg`
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-windows-x64-setup.exe`
+- `https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-arm64.dmg`
+- `https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-x64.dmg`
+- `https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-windows-x64-setup.exe`
 
 Versioned originals (for support and reproducibility) remain on the same release as today.
 
@@ -111,12 +115,12 @@ The marketing site (`dhee-website`) reads these via environment variables. See t
 
 ### Verify stable assets after a release
 
-Replace `TAG` with your tag (for example `v1.1.4`) once the workflow has finished:
+Use the `dhee-studio` latest URLs once the workflow has finished:
 
 ```bash
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-arm64.dmg" | head -n 5
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-x64.dmg" | head -n 5
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-windows-x64-setup.exe" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-arm64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-x64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-windows-x64-setup.exe" | head -n 5
 ```
 
 You should see `HTTP/2 302` (or `301`) with a `location:` header pointing at an object URL or the tagged release asset. If you get `404`, the stable files were not attached—check the Actions logs for the `afterAllArtifactBuild` step.
@@ -143,7 +147,7 @@ The workflow builds:
 
 ### Workflow Not Running?
 
-- **Check tag format**: Must match `v*.*.*` pattern
+- **Check tag format**: Must match the `studio-v*` workflow trigger
 - **Check Actions tab**: Look for any workflow errors
 - **Verify tag was pushed**: `git ls-remote --tags origin`
 
@@ -171,18 +175,18 @@ git tag
 
 ### Delete a Tag (Local)
 ```bash
-git tag -d v1.0.0
+git tag -d studio-v1.0.0
 ```
 
 ### Delete a Tag (Remote)
 ```bash
-git push origin :refs/tags/v1.0.0
+git push origin :refs/tags/studio-v1.0.0
 ```
 
 ### Create Tag from Specific Commit
 ```bash
-git tag v1.0.0 <commit-hash>
-git push origin v1.0.0
+git tag studio-v1.0.0 <commit-hash>
+git push origin studio-v1.0.0
 ```
 
 ## Release Checklist
@@ -194,7 +198,7 @@ Before creating a release:
 - [ ] Changes committed and pushed
 - [ ] Correct branch checked out
 - [ ] dhee-core is building successfully
-- [ ] Tag name follows versioning scheme
+- [ ] Tag name follows the `studio-v*` source-tag scheme
 
 ## Workflow Configuration
 
@@ -204,27 +208,27 @@ The workflow file is located at:
 Key settings:
 - **Runner**: `macos-14` (Apple Silicon)
 - **Node.js**: Version 20
-- **Publish**: Automatic via electron-builder
+- **Publish**: Automatic via electron-builder to `dheeai/dhee-studio`
 
 ## Support
 
 For issues or questions:
 - Check [Actions logs](https://github.com/dheeai/dhee-desktop/actions)
-- Review [GitHub Releases](https://github.com/dheeai/dhee-desktop/releases)
+- Review [GitHub Releases](https://github.com/dheeai/dhee-studio/releases)
 - Open an issue on GitHub
 
 ## Examples
 
 ### Release v1.0.0
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag studio-v1.0.0
+git push origin studio-v1.0.0
 ```
 
 ### Release v1.1.0 beta
 ```bash
-git tag v1.1.0-beta
-git push origin v1.1.0-beta
+git tag studio-v1.1.0-beta
+git push origin studio-v1.1.0-beta
 ```
 
 ---
