@@ -6,8 +6,6 @@ import path from 'node:path';
 export interface RuntimeConfig {
   /** Dhee website (Next.js): /auth/desktop, /api/credits/balance, etc. */
   dheeWebsiteUrl?: string;
-  /** Legacy key from older packaged builds */
-  dheeWebsiteUrl?: string;
   /** Generic alias */
   websiteUrl?: string;
   /** Authenticated proxy base URL for OpenRouter and Comfy Cloud metering. */
@@ -20,6 +18,22 @@ export interface RuntimeConfig {
   coreUrl?: string;
   /** Legacy key for core URL from older release pipelines */
   cloudServerUrl?: string;
+  /** PostHog project API key for desktop + embedded core analytics. */
+  posthogApiKey?: string;
+  /** Alias for posthogApiKey. */
+  postHogApiKey?: string;
+  /** Environment-style alias for posthogApiKey. */
+  POSTHOG_API_KEY?: string;
+  /** PostHog ingest host. */
+  posthogHost?: string;
+  /** Alias for posthogHost. */
+  postHogHost?: string;
+  /** Environment-style alias for posthogHost. */
+  POSTHOG_HOST?: string;
+  /** Salt used before hashing local analytics identifiers. */
+  analyticsSalt?: string;
+  /** Environment-style alias for analyticsSalt. */
+  ANALYTICS_SALT?: string;
 }
 
 export interface RuntimeConfigSource {
@@ -69,6 +83,36 @@ export function normalizeServerUrl(value?: string): string | undefined {
   }
 }
 
+function normalizeSecret(value?: string): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+export async function applyRuntimeAnalyticsConfig(
+  source: RuntimeConfigSource,
+): Promise<void> {
+  const parsed = await readRuntimeConfig(source);
+  const posthogApiKey = normalizeSecret(
+    parsed?.posthogApiKey || parsed?.postHogApiKey || parsed?.POSTHOG_API_KEY,
+  );
+  const posthogHost = normalizeServerUrl(
+    parsed?.posthogHost || parsed?.postHogHost || parsed?.POSTHOG_HOST,
+  );
+  const analyticsSalt = normalizeSecret(
+    parsed?.analyticsSalt || parsed?.ANALYTICS_SALT,
+  );
+
+  if (posthogApiKey && !source.env.POSTHOG_API_KEY) {
+    source.env.POSTHOG_API_KEY = posthogApiKey;
+  }
+  if (posthogHost && !source.env.POSTHOG_HOST) {
+    source.env.POSTHOG_HOST = posthogHost;
+  }
+  if (analyticsSalt && !source.env.ANALYTICS_SALT) {
+    source.env.ANALYTICS_SALT = analyticsSalt;
+  }
+}
+
 export async function resolvedheeWebsiteUrl(
   source: RuntimeConfigSource,
 ): Promise<string> {
@@ -76,9 +120,7 @@ export async function resolvedheeWebsiteUrl(
   if (fromEnv) return fromEnv;
   const parsed = await readRuntimeConfig(source);
   const fromFile = normalizeServerUrl(
-    parsed?.dheeWebsiteUrl ||
-      parsed?.dheeWebsiteUrl ||
-      parsed?.websiteUrl,
+    parsed?.dheeWebsiteUrl || parsed?.websiteUrl,
   );
   if (fromFile) return fromFile;
   return 'http://localhost:3000';

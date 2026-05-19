@@ -51,6 +51,11 @@ import {
   startDesktopAnalytics,
   stopDesktopAnalytics,
 } from './analytics';
+import {
+  applyRuntimeAnalyticsConfig as applyRuntimeAnalyticsConfigFromFile,
+  resolvedheeWebsiteUrl as resolveRuntimeDheeWebsiteUrl,
+  type RuntimeConfigSource,
+} from './cloudRuntimeConfig';
 import fileSystemManager from './fileSystemManager';
 import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
@@ -144,81 +149,21 @@ let appUpdateStatus: AppUpdateStatus = {
   checkedAt: Date.now(),
 };
 
-interface RuntimeConfig {
-  /** Dhee website (Next.js): /auth/desktop, proxy routes, billing APIs. */
-  dheeWebsiteUrl?: string;
-  /** Optional PostHog project key for packaged builds. */
-  posthogApiKey?: string;
-  /** Optional PostHog ingest host. Defaults in dhee-core when omitted. */
-  posthogHost?: string;
-  /** Optional salt used before hashing local project paths in analytics. */
-  analyticsSalt?: string;
-}
-
-async function readRuntimeConfig(): Promise<RuntimeConfig | null> {
-  const candidatePaths = app.isPackaged
-    ? [path.join(process.resourcesPath, 'assets', 'runtime-config.json')]
-    : [path.join(__dirname, '../../assets/runtime-config.json')];
-
-  const configs = await Promise.all(
-    candidatePaths.map(async (configPath) => {
-      try {
-        const raw = await fs.readFile(configPath, 'utf-8');
-        const parsed = JSON.parse(raw) as RuntimeConfig;
-        if (parsed && typeof parsed === 'object') {
-          return parsed;
-        }
-      } catch {
-        /* missing or invalid */
-      }
-      return null;
-    }),
-  );
-  return (
-    configs.find((config): config is RuntimeConfig => Boolean(config)) ?? null
-  );
-}
-
-function normalizeServerUrl(value?: string): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  try {
-    const parsed = new URL(trimmed);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return undefined;
-    }
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return undefined;
-  }
+function runtimeConfigSource(): RuntimeConfigSource {
+  return {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    dirname: __dirname,
+    env: process.env,
+  };
 }
 
 async function resolvedheeWebsiteUrl(): Promise<string> {
-  const fromEnv = normalizeServerUrl(process.env.dhee_CLOUD_URL);
-  if (fromEnv) return fromEnv;
-  const parsed = await readRuntimeConfig();
-  const fromFile = normalizeServerUrl(parsed?.dheeWebsiteUrl);
-  if (fromFile) return fromFile;
-  return 'http://localhost:3000';
+  return resolveRuntimeDheeWebsiteUrl(runtimeConfigSource());
 }
 
 async function applyRuntimeAnalyticsConfig(): Promise<void> {
-  const parsed = await readRuntimeConfig();
-  const posthogApiKey = parsed?.posthogApiKey?.trim();
-  const posthogHost = normalizeServerUrl(parsed?.posthogHost);
-  const analyticsSalt = parsed?.analyticsSalt?.trim();
-
-  if (posthogApiKey && !process.env.POSTHOG_API_KEY) {
-    process.env.POSTHOG_API_KEY = posthogApiKey;
-  }
-  if (posthogHost && !process.env.POSTHOG_HOST) {
-    process.env.POSTHOG_HOST = posthogHost;
-  }
-  if (analyticsSalt && !process.env.ANALYTICS_SALT) {
-    process.env.ANALYTICS_SALT = analyticsSalt;
-  }
+  await applyRuntimeAnalyticsConfigFromFile(runtimeConfigSource());
 }
 
 async function resolvedheeWebsitePath(pathname: string): Promise<string> {
