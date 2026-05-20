@@ -191,7 +191,10 @@ export interface KshanaSessionApi {
    * prompt change. Returns `{ ok, invalidated, notFound }` so callers
    * can surface partial-failure (mistyped node ids, etc.) inline.
    */
-  invalidateNodes: (nodeIds: string[]) => Promise<{
+  invalidateNodes: (
+    nodeIds: string[],
+    opts?: { source?: string },
+  ) => Promise<{
     ok: boolean;
     invalidated?: string[];
     notFound?: string[];
@@ -444,9 +447,13 @@ function useCreateKshanaSession(): KshanaSessionApi {
   );
 
   const invalidateNodes = useCallback<KshanaSessionApi['invalidateNodes']>(
-    (nodeIds) =>
+    (nodeIds, opts) =>
       runWithSelfHeal((sessionId) =>
-        window.kshana.invalidateNodes({ sessionId, nodeIds }),
+        window.kshana.invalidateNodes({
+          sessionId,
+          nodeIds,
+          ...(opts?.source ? { source: opts.source } : {}),
+        }),
       ),
     [runWithSelfHeal],
   );

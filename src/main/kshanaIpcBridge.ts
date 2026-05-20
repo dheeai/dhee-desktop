@@ -261,6 +261,7 @@ export function registerKshanaIpcBridge(
         const result = await manager.invalidateNodes(
           req.sessionId,
           req.nodeIds,
+          req.source,
         );
         return {
           ok: true,

@@ -29,6 +29,7 @@ import {
 } from './redoFromStages';
 import { useKshanaSession } from '../../../hooks/useKshanaSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { postChatNotice } from '../../../utils/chatNotices';
 import styles from './RedoFromMenu.module.scss';
 
 type MenuState =
@@ -67,40 +68,57 @@ export default function RedoFromMenu() {
     const stage = state.stage;
     setState({ kind: 'running', stage });
 
+    // Surface the user's intent into the chat window immediately so
+    // there's visible feedback even before pi-agent's first text
+    // chunk lands. The notice is ephemeral (renderer-only, not
+    // persisted to JSONL) — same semantics as the server-side `🛑`
+    // cancel notifications.
+    postChatNotice({
+      level: 'info',
+      message: `↻ Redoing from "${stage.label}" — invalidating downstream nodes…`,
+    });
+
     // Read project.json to enumerate the node ids matching the
     // chosen stage's typeIds. The desktop already loads files via
     // window.electron.project.readFile.
     const projectJsonPath = `${projectDirectory}/project.json`;
     const projectJson = await window.electron.project.readFile(projectJsonPath);
     if (!projectJson) {
-      setState({
-        kind: 'error',
-        stage,
-        message: 'Could not read project.json — is the project still selected?',
-      });
+      const msg = 'Could not read project.json — is the project still selected?';
+      postChatNotice({ level: 'error', message: `↻ Redo failed: ${msg}` });
+      setState({ kind: 'error', stage, message: msg });
       return;
     }
     const ids = resolveNodeIdsForTypeIds(projectJson, stage.typeIds);
     if (ids.length === 0) {
-      setState({
-        kind: 'error',
-        stage,
-        message:
-          'Nothing to redo at this stage yet — it hasn\'t produced any output. ' +
-          'Pick a later stage, or dispatch the pipeline first.',
-      });
+      const msg =
+        'Nothing to redo at this stage yet — it hasn\'t produced any output. ' +
+        'Pick a later stage, or dispatch the pipeline first.';
+      postChatNotice({ level: 'warning', message: `↻ Redo skipped: ${msg}` });
+      setState({ kind: 'error', stage, message: msg });
       return;
     }
 
-    const result = await session.invalidateNodes(ids);
+    // source='redo_from_menu' tells kshana-core to SKIP emitting the
+    // supervisor `user_invalidate` event. Without that skip, pi-agent
+    // receives a "DO NOT auto-dispatch" instruction in the same turn
+    // as the runTask we send next, and the dispatch silently fails.
+    const result = await session.invalidateNodes(ids, {
+      source: 'redo_from_menu',
+    });
     if (!result.ok) {
-      setState({
-        kind: 'error',
-        stage,
-        message: result.error ?? 'Invalidation failed (no details from server).',
-      });
+      const msg = result.error ?? 'Invalidation failed (no details from server).';
+      postChatNotice({ level: 'error', message: `↻ Redo failed: ${msg}` });
+      setState({ kind: 'error', stage, message: msg });
       return;
     }
+    const invalidatedCount = result.invalidated?.length ?? ids.length;
+    postChatNotice({
+      level: 'info',
+      message:
+        `↻ ${invalidatedCount} node${invalidatedCount === 1 ? '' : 's'} marked pending. ` +
+        'Dispatching the pipeline to regenerate.',
+    });
 
     // Redo is atomic — the user already confirmed in the modal. Dispatch
     // the continuation run directly. Previously we asked a second
@@ -118,19 +136,38 @@ export default function RedoFromMenu() {
       'node to the end — DO NOT skip the call even if status appears complete, ' +
       'because invalidation just flipped node(s) back to pending. Stream progress ' +
       'as nodes finish.';
-    try {
-      await session.runTask(task);
-      setState({ kind: 'closed' });
-    } catch (err) {
-      setState({
-        kind: 'error',
-        stage,
-        message:
+
+    // Close the dialog AS SOON AS the dispatch is kicked off, NOT after
+    // the full pi-agent turn finishes. session.runTask() resolves only
+    // when the agent's entire conversation completes — invalidate +
+    // dispatch + status check + the dispatched kshana_run_to streaming
+    // its 70+ nodes back. Waiting on that left the dialog stuck on
+    // "Working…" for minutes while the run actually proceeded in the
+    // chat panel. The chat already surfaces every step (notices +
+    // tool cards + progress chunks); the dialog has no additional
+    // signal to add. Errors during the run still land in the chat as
+    // a notice via the .catch below.
+    void session.runTask(task).then(
+      (result) => {
+        if (!result.ok) {
+          postChatNotice({
+            level: 'error',
+            message: `↻ Redo dispatch failed: ${result.error ?? 'unknown error'}`,
+          });
+        }
+      },
+      (err) => {
+        const msg =
           (err instanceof Error ? err.message : String(err)) ||
           'Could not start the run after invalidation. ' +
-          'Nodes are marked pending — you can dispatch manually from chat.',
-      });
-    }
+            'Nodes are marked pending — you can dispatch manually from chat.';
+        postChatNotice({
+          level: 'error',
+          message: `↻ Redo dispatch failed: ${msg}`,
+        });
+      },
+    );
+    setState({ kind: 'closed' });
   }, [state, projectDirectory, session]);
 
   const onCancel = useCallback(() => setState({ kind: 'closed' }), []);

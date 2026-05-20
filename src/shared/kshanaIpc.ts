@@ -216,6 +216,15 @@ export interface RunnerCancelResponse {
 
 export interface RunnerStatusResponse {
   active: boolean;
+  /**
+   * True between the moment cancel() is called on the runner and the
+   * moment the executor returns. Surfaces "Stopping…" to the desktop
+   * Stop/Resume button for cancels initiated by ANY path (user click,
+   * pi-agent's kshana_task_cancel, programmatic replace, etc.) —
+   * previously only user-click cancels showed "Stopping…" because
+   * the local pendingCancel flag was only set in handleCancel().
+   */
+  cancelling?: boolean;
   taskId?: string;
   kind?: string;
   projectName?: string;
@@ -312,6 +321,20 @@ export interface DeleteSessionRequest {
 export interface InvalidateNodesRequest {
   sessionId: string;
   nodeIds: string[];
+  /**
+   * Free-form origin tag forwarded to the kshana-core supervisor event.
+   * Two well-known values today:
+   *   - `'redo_from_menu'` — the desktop's "Redo from…" UI initiated
+   *     this. Skip the supervisor `user_invalidate` event entirely,
+   *     because the renderer is about to issue a runTask immediately
+   *     and we don't want pi-agent to receive a competing
+   *     "DO NOT auto-dispatch" instruction in the same turn.
+   *   - `'prompts_tab_save'` — user saved a per-shot prompt edit;
+   *     they may NOT want to resume yet. Default behaviour applies
+   *     (pi-agent acks and waits).
+   * Unset / unknown values fall through to default behaviour.
+   */
+  source?: string;
 }
 
 export interface InvalidateNodesResponse {

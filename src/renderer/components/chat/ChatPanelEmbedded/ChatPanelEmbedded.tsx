@@ -56,6 +56,7 @@ import {
   WIZARD_DEFAULT_DURATION_SECONDS,
 } from './wizardCatalog';
 import { loadPersistedProjectSetup } from './loadPersistedProjectSetup';
+import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
 import {
   classifyProjectState,
   type ProjectLifecycleState,
@@ -447,6 +448,15 @@ export default function ChatPanelEmbedded() {
   const [projectState, setProjectState] = useState<ProjectLifecycleState | null>(
     null,
   );
+  // Bump to force a re-probe of project.json after a kshana_* tool
+  // mutates the lifecycle-relevant fields (style/templateId/duration/
+  // goal.status). Without this, projectState gets stuck at whatever
+  // the probe saw on initial mount — e.g. if the New Project Dialog
+  // wrote an empty project.json and kshana_new filled it in later,
+  // the probe never re-sees the now-configured state, ProjectRunButton
+  // stays hidden, and the user has no run/resume CTA. See
+  // toolDidMutateLifecycle() below for the tool allowlist.
+  const [probeNonce, setProbeNonce] = useState(0);
   // Local "I clicked stop, waiting for the abort to land" flag. The
   // cancel signal takes a beat to propagate through pi-agent → the
   // executor → ComfyUI / LLM clients. Without immediate visual
@@ -507,11 +517,22 @@ export default function ChatPanelEmbedded() {
     if (!session.sessionId) return;
     const mainId = session.sessionId;
     const unsubscribe = session.subscribe('*', (event: KshanaEvent) => {
-      // Process events from EITHER the main session (user chat) or
-      // the background-run session — they merge into one
-      // chronological feed in the chat. Anything from another
-      // session (none right now, but defend anyway) is ignored.
-      if (event.sessionId !== mainId && event.sessionId !== bgSessionId) {
+      // Accept the main session — and any event without an
+      // explicit sessionId (the BackgroundTaskRunner detaches from
+      // the agent's tool-call loop and historically routed progress
+      // through `backgroundEvents`, whose payloads sometimes carry
+      // no/different sessionId). Previously this filter also accepted
+      // `bgSessionId`, but per the architecture comment above
+      // (`pi-agent on the MAIN session calls the dispatch tool,
+      // returns immediately, and the runner's progress events flow
+      // back through the same session id`), the bg-id branch is now
+      // legacy and was silently dropping pi-agent's autonomous-mode
+      // commentary live (visible only after remount via JSONL
+      // hydration). Permissive filter — match anything for the main
+      // session OR with an unset session id; reject only events
+      // explicitly tagged for a different session.
+      const sid = event.sessionId;
+      if (sid && sid !== mainId && sid !== bgSessionId) {
         return;
       }
       // The header Stop button is no longer driven by tool-name
@@ -529,10 +550,36 @@ export default function ChatPanelEmbedded() {
         streamingMsgIdRef,
         setContextUsage,
         toolNameByCallIdRef,
+        setProbeNonce,
       );
     });
     return unsubscribe;
   }, [session.sessionId, session.subscribe, bgSessionId]);
+
+  // Renderer-side chat-notice bus: lets sibling components (Redo
+  // menu, settings, future per-shot edit flow…) post an ephemeral
+  // chat-window status row without going through pi-agent or the
+  // IPC event stream. Notices render as 'system' rows alongside the
+  // server-side `notification` events from `🛑 stop` etc. They are
+  // NOT persisted to JSONL — on remount they vanish, same as the
+  // server-side ephemeral notifications.
+  useEffect(() => {
+    const unsubscribe = subscribeChatNotices((notice) => {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text:
+            notice.level === 'info'
+              ? notice.message
+              : `[${notice.level}] ${notice.message}`,
+          notificationLevel: notice.level,
+        },
+      ]);
+    });
+    return unsubscribe;
+  }, []);
 
   // Poll runnerStatus to drive `runnerActive`. The runner emits no
   // push events to the renderer today (only `runnerStatus` /
@@ -544,7 +591,20 @@ export default function ChatPanelEmbedded() {
     const tick = async () => {
       try {
         const status = await window.kshana.runnerStatus();
-        if (!cancelled) setRunnerActive(!!status?.active);
+        if (cancelled) return;
+        setRunnerActive(!!status?.active);
+        // Mirror server-side `cancelling` into local pendingCancel.
+        // This is what makes pi-agent's `kshana_task_cancel` (and any
+        // other non-UI cancel path) flip the button to "Stopping…"
+        // — previously pendingCancel was only set in handleCancel(),
+        // so an agent-initiated cancel left the button on "Stop"
+        // for the entire wind-down. We only PROMOTE here (never
+        // demote): the existing effect at line ~613 that clears
+        // pendingCancel once both lanes go idle is still the only
+        // path that flips it back to false, so we don't race.
+        if (status?.cancelling) {
+          setPendingCancel((prev) => (prev ? prev : true));
+        }
       } catch {
         if (!cancelled) setRunnerActive(false);
       }
@@ -569,6 +629,92 @@ export default function ChatPanelEmbedded() {
       setPendingCancel(false);
     }
   }, [runnerActive, pendingCancel, session.status]);
+
+  // Periodic chat notice while cancel is pending. LLM and ComfyUI
+  // calls don't always honor mid-stream aborts (the provider may
+  // ignore client disconnects, or the request is already buffered on
+  // the wire), so a Stop click can sit at "Stopping…" for 30–90s
+  // while the in-flight call returns. Without status updates the user
+  // is left guessing whether the click was registered at all. Every
+  // 15s we report which lane is still busy and surface the last
+  // observable activity (most recent progress chunk or in-progress
+  // tool name) so the user can see what specifically is blocking the
+  // cancel — e.g. "scene expansion LLM call" vs "Klein image render".
+  //
+  // First post fires at 15s (not on click) so quick cancels that
+  // finish in 1–2s stay silent. The notice channel is the ephemeral
+  // chat-notice bus, so reload clears the history with no persistence.
+  const cancelStatusRef = useRef<{
+    runnerActive: boolean;
+    chatBusy: boolean;
+    messages: ChatMessage[];
+  }>({
+    runnerActive: false,
+    chatBusy: false,
+    messages: [],
+  });
+  // Keep the ref synced with current state on every render so the
+  // interval callback (which captures the ref, not the state) reads
+  // fresh values without us having to recreate the interval each
+  // time runnerActive / session.status / messages change.
+  cancelStatusRef.current = {
+    runnerActive,
+    chatBusy: session.status === 'running',
+    messages,
+  };
+  useEffect(() => {
+    if (!pendingCancel) return;
+    const startedAt = Date.now();
+    const handle = setInterval(() => {
+      const state = cancelStatusRef.current;
+      if (!state.runnerActive && !state.chatBusy) return; // clearing imminent — skip
+      const lanes: string[] = [];
+      if (state.runnerActive) lanes.push('the pipeline runner');
+      if (state.chatBusy) lanes.push('the chat session');
+      const lanesText =
+        lanes.length === 2
+          ? 'the pipeline runner and the chat session'
+          : (lanes[0] ?? 'in-flight work');
+      // Most recent progress chunk text is the strongest signal of
+      // what the runner was last seen doing (e.g. "Expanded
+      // Characters: …", "Generating image for shot 3"). Walk back
+      // a small window so we don't scan the entire history.
+      const recentProgress = state.messages
+        .slice(-30)
+        .reverse()
+        .find(
+          (m) =>
+            m.role === 'progress' &&
+            ((m.progressText && m.progressText.trim()) ||
+              (m.text && m.text.trim())),
+        );
+      const lastObserved = recentProgress
+        ? ((recentProgress.progressText ?? recentProgress.text ?? '')
+            .trim()
+            .slice(0, 140))
+        : '';
+      // Fallback: name the in-progress tool card (usually
+      // kshana_run_to wrapping the whole pipeline).
+      const inProgressTool = state.messages
+        .slice(-10)
+        .reverse()
+        .find(
+          (m) => m.role === 'tool' && m.toolStatus === 'in_progress',
+        );
+      let detail = '';
+      if (lastObserved) {
+        detail = ` Last observed: "${lastObserved}".`;
+      } else if (inProgressTool?.toolName) {
+        detail = ` In-progress tool: \`${inProgressTool.toolName}\`.`;
+      }
+      const elapsedSec = Math.round((Date.now() - startedAt) / 1000);
+      postChatNotice({
+        level: 'info',
+        message: `Still cancelling (${elapsedSec}s). Waiting for ${lanesText} to release the lock.${detail} Cancel only fires at safe checkpoints between LLM/ComfyUI calls — mid-stream aborts are not always honored upstream. Typical wait: 30–90s.`,
+      });
+    }, 15000);
+    return () => clearInterval(handle);
+  }, [pendingCancel]);
 
   // (was: bg-session teardown on project switch — no longer needed
   // since the BackgroundTaskRunner singleton handles task lifecycle
@@ -605,14 +751,23 @@ export default function ChatPanelEmbedded() {
   // Compute a friendly project label for the header.
   const headerProjectName = projectName?.trim() || 'No project open';
 
-  // Probe project.json to decide whether this project still needs the
-  // setup wizard. Runs every time the user opens a different project.
-  // Also classifies the project's lifecycle state (fresh / in_progress /
-  // completed) so the CTA panel can show the right next-step prompt.
+  // Project-switch reset: clears probe-derived state the moment the
+  // user opens a different project, so a stale 'in_progress' from the
+  // previous project doesn't flash before the new probe lands.
+  // Deliberately separated from the probe effect below so that a
+  // probeNonce bump (re-probe on the SAME project) doesn't flicker the
+  // button to nothing for a tick.
   useEffect(() => {
     setSetupProbeCompleted(false);
     setIsSetupConfigured(false);
     setProjectState(null);
+  }, [projectDirectory]);
+
+  // Probe project.json to decide whether this project still needs the
+  // setup wizard. Runs every time the user opens a different project,
+  // AND whenever `probeNonce` is bumped by a tool result that mutated
+  // the project's lifecycle-relevant fields.
+  useEffect(() => {
     if (!projectDirectory) return;
     let cancelled = false;
     const reader = {
@@ -642,7 +797,7 @@ export default function ChatPanelEmbedded() {
     return () => {
       cancelled = true;
     };
-  }, [projectDirectory]);
+  }, [projectDirectory, probeNonce]);
 
   // Click handler for any CTA action: dispatch the pre-baked task as
   // a chat message so it's visible in the user's history (matching
@@ -1661,12 +1816,28 @@ function MarkdownContent({ text }: { text: string }) {
   );
 }
 
+/**
+ * Tools whose successful completion can change the project's lifecycle
+ * classification (fresh / in_progress / completed). When any of these
+ * finishes the chat panel bumps `probeNonce` so the cached
+ * `projectState` re-syncs from disk — closing the race where the
+ * initial probe ran before kshana_new had written style/templateId/
+ * duration into project.json, leaving the run/resume button hidden.
+ */
+const LIFECYCLE_MUTATING_TOOLS = new Set([
+  'kshana_new',
+  'kshana_setup_project',
+  'kshana_run_to',
+  'kshana_reset',
+]);
+
 function handleEvent(
   event: KshanaEvent,
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   streamingMsgIdRef: React.RefObject<string | null>,
   setContextUsage: React.Dispatch<React.SetStateAction<ContextUsage | null>>,
   toolNameByCallIdRef: React.RefObject<Map<string, string>>,
+  setProbeNonce: React.Dispatch<React.SetStateAction<number>>,
 ): void {
   switch (event.eventName) {
     case 'tool_call': {
@@ -1721,6 +1892,16 @@ function handleEvent(
             : m,
         ),
       );
+      // If this tool may have mutated project.json's lifecycle fields,
+      // ask the chat panel to re-probe. Lookup MUST happen BEFORE the
+      // delete below — once the entry is dropped from the map the tool
+      // name is gone.
+      if (data.toolCallId && !data.isError) {
+        const toolName = toolNameByCallIdRef.current?.get(data.toolCallId);
+        if (toolName && LIFECYCLE_MUTATING_TOOLS.has(toolName)) {
+          setProbeNonce((n) => n + 1);
+        }
+      }
       // Tool is done — drop the toolName entry to keep the map small.
       if (data.toolCallId) {
         toolNameByCallIdRef.current?.delete(data.toolCallId);

@@ -78,7 +78,7 @@ export const REDO_FROM_STAGES: RedoFromStage[] = [
   },
   {
     key: 'shot_compositions',
-    label: 'Shot compositions',
+    label: 'Shot image prompts',
     description: 'Rewrite every shot\'s image-generation prompt.',
     typeIds: ['shot_image_prompt'],
   },

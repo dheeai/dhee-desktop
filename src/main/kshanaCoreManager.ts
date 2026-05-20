@@ -234,6 +234,7 @@ type RunnersModule = {
       spec: { kind: string; projectName: string; sessionId: string };
       startedAt: number;
     };
+    isCancelling: () => boolean;
   };
 };
 
@@ -1054,6 +1055,7 @@ export class KshanaCoreManager {
   /** Snapshot of the runner's current state (or `{ active: false }`). */
   async getBackgroundTaskStatus(): Promise<{
     active: boolean;
+    cancelling?: boolean;
     taskId?: string;
     kind?: string;
     projectName?: string;
@@ -1061,10 +1063,12 @@ export class KshanaCoreManager {
     sessionId?: string;
   }> {
     const mod = await loadRunnersModule();
-    const active = mod.getBackgroundTaskRunner().getActive();
+    const runner = mod.getBackgroundTaskRunner();
+    const active = runner.getActive();
     if (!active) return { active: false };
     return {
       active: true,
+      cancelling: runner.isCancelling(),
       taskId: active.id,
       kind: active.spec.kind,
       projectName: active.spec.projectName,
@@ -1107,6 +1111,7 @@ export class KshanaCoreManager {
   async invalidateNodes(
     sessionId: string,
     nodeIds: string[],
+    source?: string,
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
     if (!this.cm) throw new Error('KshanaCoreManager not started');
     return (
@@ -1114,9 +1119,10 @@ export class KshanaCoreManager {
         invalidateNodes(
           s: string,
           ids: string[],
+          src?: string,
         ): Promise<{ invalidated: string[]; notFound: string[] }>;
       }
-    ).invalidateNodes(sessionId, nodeIds);
+    ).invalidateNodes(sessionId, nodeIds, source);
   }
 
   setAutonomousMode(sessionId: string, enabled: boolean): void {
