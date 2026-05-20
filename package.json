@@ -327,6 +327,7 @@
       ".dhee-core-version.json"
     ],
     "mac": {
+      "icon": "assets/icon.icns",
       "notarize": false,
       "target": {
         "target": "default",
@@ -374,6 +375,7 @@
       "createStartMenuShortcut": true
     },
     "linux": {
+      "icon": "assets/icons",
       "target": [
         "AppImage"
       ],

@@ -3359,11 +3359,19 @@ const createWindow = async () => {
     return path.join(RESOURCES_PATH, ...paths);
   };
 
+  const getWindowIconPath = (): string => {
+    // Use 512px PNG for HiDPI taskbar/titlebar; icon.ico (also 512-capable) is for installers/shortcuts.
+    if (process.platform === 'win32' || process.platform === 'linux') {
+      return getAssetPath('icons', '512x512.png');
+    }
+    return getAssetPath('icon.png');
+  };
+
   mainWindow = new BrowserWindow({
     show: false,
     width: 1024,
     height: 728,
-    icon: getAssetPath('icon.png'),
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
