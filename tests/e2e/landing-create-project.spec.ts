@@ -3,7 +3,7 @@
  *
  * The dialog probes existing-project state via `project.checkFileExists`
  * twice (once for the parent workspace, once for the target subdir),
- * each checking both `project.json` and `.kshana/agent/project.json`.
+ * each checking both `project.json` and `.dhee/agent/project.json`.
  * Tests seed `checkFileExists` to false by default so the create path
  * proceeds; the duplicate-name test seeds it to true.
  */
@@ -37,7 +37,7 @@ test.describe('Feature: Create new project', () => {
         rules: [],
       });
       await page.evaluate(() => {
-        window.__kshanaTest!.setBridgeReturn(
+        window.__dheeTest!.setBridgeReturn(
           'project.checkFileExists',
           // Path-aware: anything ending in project.json doesn't exist
           // (so the new-project probes pass); other paths do (so
@@ -63,14 +63,14 @@ test.describe('Feature: Create new project', () => {
           () =>
             page.evaluate(
               () =>
-                window.__kshanaTest!.getCalls('project.createFolder').length,
+                window.__dheeTest!.getCalls('project.createFolder').length,
             ),
           { timeout: 15_000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const createFolderCalls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.createFolder'),
+        window.__dheeTest!.getCalls('project.createFolder'),
       );
       const firstArgs = createFolderCalls[0].args as {
         parent: string;
@@ -107,12 +107,12 @@ test.describe('Feature: Create new project', () => {
 
       // And — createFolder is NOT called.
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.createFolder'),
+        window.__dheeTest!.getCalls('project.createFolder'),
       );
       expect(calls).toHaveLength(0);
     });
 
-    test('When the user picks a parent that is already a Kshana project, Then the duplicate-location error renders and createFolder is not called', async ({
+    test('When the user picks a parent that is already a dhee project, Then the duplicate-location error renders and createFolder is not called', async ({
       page,
       bootInline,
     }) => {
@@ -138,13 +138,13 @@ test.describe('Feature: Create new project', () => {
       // Then — the parent-is-already-a-project error renders.
       await expect(
         page.getByText(
-          /Selected location is already a Kshana project\. Choose a parent folder instead\./i,
+          /Selected location is already a dhee project\. Choose a parent folder instead\./i,
         ),
       ).toBeVisible();
 
       // And — createFolder is NOT called.
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.createFolder'),
+        window.__dheeTest!.getCalls('project.createFolder'),
       );
       expect(calls).toHaveLength(0);
     });

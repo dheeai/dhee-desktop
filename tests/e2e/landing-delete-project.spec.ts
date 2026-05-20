@@ -8,7 +8,7 @@
 import { test, expect } from './fixtures';
 
 const RECENTS = [
-  { name: 'noir', path: '/tmp/noir.kshana', lastOpened: 1700000000000 },
+  { name: 'noir', path: '/tmp/noir.dhee', lastOpened: 1700000000000 },
 ];
 
 test.describe('Feature: Delete a recent project', () => {
@@ -66,16 +66,16 @@ test.describe('Feature: Delete a recent project', () => {
           () =>
             page.evaluate(
               () =>
-                window.__kshanaTest!.getCalls('project.deleteProject').length,
+                window.__dheeTest!.getCalls('project.deleteProject').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.deleteProject'),
+        window.__dheeTest!.getCalls('project.deleteProject'),
       );
-      expect(calls[0].args).toBe('/tmp/noir.kshana');
+      expect(calls[0].args).toBe('/tmp/noir.dhee');
     });
 
     test('When the user cancels the delete, Then project.deleteProject is not called and the dialog closes', async ({
@@ -106,7 +106,7 @@ test.describe('Feature: Delete a recent project', () => {
       ).toHaveCount(0);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.deleteProject'),
+        window.__dheeTest!.getCalls('project.deleteProject'),
       );
       expect(calls).toHaveLength(0);
     });

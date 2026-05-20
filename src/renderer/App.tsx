@@ -4,7 +4,7 @@ import { ProjectProvider } from './contexts/ProjectContext';
 import { AgentProvider } from './contexts/AgentContext';
 import { AppSettingsProvider } from './contexts/AppSettingsContext';
 import { ChatQuestionsProvider } from './contexts/ChatQuestionsContext';
-import { KshanaSessionProvider } from './hooks/useKshanaSession';
+import { DheeSessionProvider } from './hooks/useDheeSession';
 import LandingScreen from './components/landing/LandingScreen/LandingScreen';
 import WorkspaceLayout from './components/layout/WorkspaceLayout/WorkspaceLayout';
 import ErrorBoundary from './components/ErrorBoundary';
@@ -24,7 +24,7 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AppSettingsProvider>
-        <KshanaSessionProvider>
+        <DheeSessionProvider>
           <WorkspaceProvider>
             <ProjectProvider>
               <TimelineProvider>
@@ -36,7 +36,7 @@ export default function App() {
               </TimelineProvider>
             </ProjectProvider>
           </WorkspaceProvider>
-        </KshanaSessionProvider>
+        </DheeSessionProvider>
       </AppSettingsProvider>
     </ErrorBoundary>
   );

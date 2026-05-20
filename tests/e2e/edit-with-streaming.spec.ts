@@ -61,7 +61,7 @@ test('streaming reasoning during edit: partial bubble persists, final response i
 
   // Bridge call shape.
   const calls = await page.evaluate(() =>
-    window.__kshanaTest!.getCalls('runTask'),
+    window.__dheeTest!.getCalls('runTask'),
   );
   expect(calls).toHaveLength(2);
   expect((calls[1].args as { task: string }).task).toBe(

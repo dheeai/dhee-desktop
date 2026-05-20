@@ -1,6 +1,6 @@
 /**
  * Project Context
- * React context for managing Kshana project state
+ * React context for managing dhee project state
  */
 
 import {
@@ -14,10 +14,10 @@ import {
   type ReactNode,
 } from 'react';
 import type {
-  KshanaManifest,
+  dheeManifest,
   AgentProjectFile,
   AssetManifest,
-  KshanaTimelineState,
+  dheeTimelineState,
   ContextIndex,
   WorkflowPhase,
   ItemApprovalStatus,
@@ -25,9 +25,9 @@ import type {
   SettingData,
   SceneRef,
   AssetInfo,
-} from '../types/kshana';
-import type { SceneVersions } from '../types/kshana/timeline';
-import { DEFAULT_TIMELINE_STATE } from '../types/kshana';
+} from '../types/dhee';
+import type { SceneVersions } from '../types/dhee/timeline';
+import { DEFAULT_TIMELINE_STATE } from '../types/dhee';
 import { projectService } from '../services/project';
 import { ensureProjectThumbnailFromManifest } from '../services/project/projectThumbnail';
 import {
@@ -52,7 +52,7 @@ interface ProjectState {
   error: string | null;
 
   /** Root project manifest */
-  manifest: KshanaManifest | null;
+  manifest: dheeManifest | null;
 
   /** Agent project state */
   agentState: AgentProjectFile | null;
@@ -61,7 +61,7 @@ interface ProjectState {
   assetManifest: AssetManifest | null;
 
   /** Timeline state */
-  timelineState: KshanaTimelineState;
+  timelineState: dheeTimelineState;
 
   /** Context index */
   contextIndex: ContextIndex | null;
@@ -95,7 +95,7 @@ interface ProjectActions {
   ) => Promise<void>;
 
   /** Save timeline state */
-  saveTimelineState: (state: KshanaTimelineState) => Promise<void>;
+  saveTimelineState: (state: dheeTimelineState) => Promise<void>;
 
   /** Update playhead position */
   updatePlayhead: (seconds: number) => void;
@@ -111,31 +111,31 @@ interface ProjectActions {
   ) => void;
 
   /** Update timeline markers */
-  updateMarkers: (markers: KshanaTimelineState['markers']) => void;
+  updateMarkers: (markers: dheeTimelineState['markers']) => void;
 
   /** Update imported clips */
   updateImportedClips: (
-    importedClips: KshanaTimelineState['imported_clips'],
+    importedClips: dheeTimelineState['imported_clips'],
   ) => void;
 
   /** Update per-image timeline timing overrides */
   updateImageTimingOverrides: (
-    overrides: KshanaTimelineState['image_timing_overrides'],
+    overrides: dheeTimelineState['image_timing_overrides'],
   ) => void;
 
   /** Update per-infographic timeline timing overrides */
   updateInfographicTimingOverrides: (
-    overrides: KshanaTimelineState['infographic_timing_overrides'],
+    overrides: dheeTimelineState['infographic_timing_overrides'],
   ) => void;
 
   /** Update per-video split overrides */
   updateVideoSplitOverrides: (
-    overrides: KshanaTimelineState['video_split_overrides'],
+    overrides: dheeTimelineState['video_split_overrides'],
   ) => void;
 
   /** Update per-segment timing overrides */
   updateSegmentTimingOverrides: (
-    overrides: KshanaTimelineState['segment_timing_overrides'],
+    overrides: dheeTimelineState['segment_timing_overrides'],
   ) => void;
 
   /** Add an asset to the asset manifest */
@@ -897,7 +897,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
   // Save timeline state
   const saveTimelineState = useCallback(
-    async (timelineState: KshanaTimelineState) => {
+    async (timelineState: dheeTimelineState) => {
       await projectService.saveTimelineState(timelineState);
       // Don't update state here - it's already current when called from auto-save
       // This prevents infinite loops in the auto-save effect
@@ -960,7 +960,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
   // Update markers
   const updateMarkers = useCallback(
-    (markers: KshanaTimelineState['markers']) => {
+    (markers: dheeTimelineState['markers']) => {
       setState((prev) => ({
         ...prev,
         timelineState: { ...prev.timelineState, markers },
@@ -971,7 +971,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
 
   // Update imported clips
   const updateImportedClips = useCallback(
-    (importedClips: KshanaTimelineState['imported_clips']) => {
+    (importedClips: dheeTimelineState['imported_clips']) => {
       setState((prev) => ({
         ...prev,
         timelineState: { ...prev.timelineState, imported_clips: importedClips },
@@ -981,7 +981,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   );
 
   const updateImageTimingOverrides = useCallback(
-    (overrides: KshanaTimelineState['image_timing_overrides']) => {
+    (overrides: dheeTimelineState['image_timing_overrides']) => {
       setState((prev) => ({
         ...prev,
         timelineState: {
@@ -994,7 +994,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   );
 
   const updateInfographicTimingOverrides = useCallback(
-    (overrides: KshanaTimelineState['infographic_timing_overrides']) => {
+    (overrides: dheeTimelineState['infographic_timing_overrides']) => {
       setState((prev) => ({
         ...prev,
         timelineState: {
@@ -1007,7 +1007,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   );
 
   const updateVideoSplitOverrides = useCallback(
-    (overrides: KshanaTimelineState['video_split_overrides']) => {
+    (overrides: dheeTimelineState['video_split_overrides']) => {
       setState((prev) => ({
         ...prev,
         timelineState: {
@@ -1020,7 +1020,7 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
   );
 
   const updateSegmentTimingOverrides = useCallback(
-    (overrides: KshanaTimelineState['segment_timing_overrides']) => {
+    (overrides: dheeTimelineState['segment_timing_overrides']) => {
       setState((prev) => ({
         ...prev,
         timelineState: {
@@ -1339,7 +1339,7 @@ export function useProjectCharacters(): CharacterData[] {
  * Hook to get timeline state
  */
 export function useProjectTimeline(): {
-  timelineState: KshanaTimelineState;
+  timelineState: dheeTimelineState;
   updatePlayhead: (seconds: number) => void;
   updateZoom: (level: number) => void;
   setActiveVersion: (

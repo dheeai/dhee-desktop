@@ -1,7 +1,7 @@
 /**
- * Agent Project File (.kshana/agent/project.json)
- * Location: <ProjectName>/.kshana/agent/project.json
- * Owner: Agent (kshana-core)
+ * Agent Project File (.dhee/agent/project.json)
+ * Location: <ProjectName>/.dhee/agent/project.json
+ * Owner: Agent (dhee-core)
  * Purpose: Central registry for workflow state, per-entity indexes, and approval metadata
  */
 

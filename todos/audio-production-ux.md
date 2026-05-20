@@ -11,7 +11,7 @@ This is the single largest perceived-quality gap in user-facing terms.
 Every consumer competitor (Pika, Runway, Descript, ElevenLabs Studio)
 ships TTS. A silent demo loses the room.
 
-The kshana-ink `MultiShotMotionPrompt` schema already has dialogue fields
+The dhee-ink `MultiShotMotionPrompt` schema already has dialogue fields
 that the engine does not consume and the desktop has no UI to drive.
 
 ## Evidence
@@ -20,7 +20,7 @@ that the engine does not consume and the desktop has no UI to drive.
   already shipped.
 - `src/renderer/components/preview/TimelinePanel/AudioImportModal.tsx` —
   imports existing audio files only; no generation.
-- `kshana-ink/future-features.md` lists "AI Voice & Audio Pipeline" as
+- `dhee-ink/future-features.md` lists "AI Voice & Audio Pipeline" as
   the #1 missing feature with ElevenLabs / Google TTS / OpenAI TTS
   named as candidates.
 - The prompt-overlay ASS export
@@ -42,7 +42,7 @@ that the engine does not consume and the desktop has no UI to drive.
 - The new audio is **regeneratable** through the same redo pattern
   shots use today (`ShotRegenerateModal` analog for narration).
 
-This is dependent on kshana-ink shipping an `AudioProvider` interface
+This is dependent on dhee-ink shipping an `AudioProvider` interface
 (`generateNarration` / `generateMusic` / `generateSFX`); coordinate
 with the core team. Desktop work begins once the engine surface exists.
 

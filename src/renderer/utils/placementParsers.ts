@@ -22,7 +22,7 @@ export interface ParsedVideoPlacement {
   videoType: 'cinematic_realism' | 'stock_footage' | 'motion_graphics';
   prompt: string;
   duration: number; // Calculated from timestamps
-  filename?: string; // Optional, for backward compatibility with kshana-core
+  filename?: string; // Optional, for backward compatibility with dhee-core
 }
 
 export interface ParsedInfographicPlacement {

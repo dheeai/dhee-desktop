@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { app } from 'electron';
 import Store from 'electron-store';
 import type { AccountInfo } from '../shared/settingsTypes';
-import type { KshanaCoreManager } from './kshanaCoreManager';
+import type { dheeCoreManager } from './dheeCoreManager';
 
 interface AnalyticsStore {
   installId?: string;
@@ -10,14 +10,14 @@ interface AnalyticsStore {
 }
 
 interface DesktopAnalyticsRuntime {
-  manager: KshanaCoreManager;
+  manager: dheeCoreManager;
   account?: AccountInfo | null;
 }
 
 const HEARTBEAT_INTERVAL_MS = 60_000;
 
 const analyticsStore = new Store<AnalyticsStore>({
-  name: 'kshana-analytics',
+  name: 'dhee-analytics',
   defaults: {},
   clearInvalidConfig: true,
 });
@@ -99,7 +99,7 @@ export function startDesktopAnalytics(runtime: DesktopAnalyticsRuntime): void {
   activeInstallId = installId;
 }
 
-export function captureDesktopAuthStarted(manager: KshanaCoreManager): void {
+export function captureDesktopAuthStarted(manager: dheeCoreManager): void {
   manager.captureAnalyticsEvent('desktop_auth_started', {
     ...baseProperties(),
     auth_surface: 'desktop_main',
@@ -107,7 +107,7 @@ export function captureDesktopAuthStarted(manager: KshanaCoreManager): void {
 }
 
 export function identifyDesktopUser(
-  manager: KshanaCoreManager,
+  manager: dheeCoreManager,
   userId: string,
 ): void {
   const installId = activeInstallId ?? getOrCreateInstallId();
@@ -115,12 +115,12 @@ export function identifyDesktopUser(
   manager.setAnalyticsIdentity({ installId, userId });
 }
 
-export function resetDesktopAnalyticsIdentity(manager: KshanaCoreManager): void {
+export function resetDesktopAnalyticsIdentity(manager: dheeCoreManager): void {
   const installId = activeInstallId ?? getOrCreateInstallId();
   manager.setAnalyticsIdentity({ installId });
 }
 
-export function stopDesktopAnalytics(manager: KshanaCoreManager): void {
+export function stopDesktopAnalytics(manager: dheeCoreManager): void {
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
     heartbeatInterval = null;

@@ -66,7 +66,7 @@ const defaults: AppSettings = {
 };
 
 const store = new Store<AppSettings>({
-  name: 'kshana-settings',
+  name: 'dhee-settings',
   defaults,
   clearInvalidConfig: true,
 });

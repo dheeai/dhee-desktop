@@ -1,5 +1,5 @@
 /**
- * Types for Kshana Project State (.kshana/project.json)
+ * Types for dhee Project State (.dhee/project.json)
  * Mirrors the backend data structures
  */
 

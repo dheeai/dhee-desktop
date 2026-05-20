@@ -1,7 +1,7 @@
 {
   "project": {
     "name": "noir",
-    "directory": "/tmp/noir.kshana"
+    "directory": "/tmp/noir.dhee"
   },
   "rules": [
     {
@@ -27,7 +27,7 @@
           "event": "media_generated",
           "data": {
             "kind": "video",
-            "path": "/tmp/noir.kshana/.kshana/cache/s1_shot_1.mp4",
+            "path": "/tmp/noir.dhee/.dhee/cache/s1_shot_1.mp4",
             "project": "noir"
           }
         },
@@ -58,7 +58,7 @@
           "event": "media_generated",
           "data": {
             "kind": "image",
-            "path": "/tmp/noir.kshana/.kshana/cache/storyboard.png",
+            "path": "/tmp/noir.dhee/.dhee/cache/storyboard.png",
             "project": "noir"
           }
         },
@@ -67,7 +67,7 @@
           "event": "media_generated",
           "data": {
             "kind": "video",
-            "path": "/tmp/noir.kshana/.kshana/cache/scene1_render.mp4",
+            "path": "/tmp/noir.dhee/.dhee/cache/scene1_render.mp4",
             "project": "noir"
           }
         },

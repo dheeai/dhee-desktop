@@ -6,7 +6,7 @@ interface AccountStore {
 }
 
 const accountStore = new Store<AccountStore>({
-  name: 'kshana-account',
+  name: 'dhee-account',
   defaults: {
     account: null,
   },
@@ -25,7 +25,7 @@ export function clearAccount(): void {
 }
 
 export async function refreshBalance(
-  kshanaWebsiteUrl: string,
+  dheeWebsiteUrl: string,
 ): Promise<{
   status: 'ok' | 'expired' | 'error';
   balance: number | null;
@@ -37,7 +37,7 @@ export async function refreshBalance(
 
   try {
     // eslint-disable-next-line compat/compat
-    const res = await fetch(`${kshanaWebsiteUrl}/api/credits/balance`, {
+    const res = await fetch(`${dheeWebsiteUrl}/api/credits/balance`, {
       headers: { Authorization: `Bearer ${account.token}` },
     });
     if (res.status === 401) {

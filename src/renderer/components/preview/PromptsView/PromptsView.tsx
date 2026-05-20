@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Pencil } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAgent } from '../../../contexts/AgentContext';
-import { useKshanaSession } from '../../../hooks/useKshanaSession';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import { savePromptEdit, type PromptKind } from './savePromptEdit';
 import AssetRegenerateButton, {
   type AssetRegenerateFrame,
@@ -515,9 +515,9 @@ function extractShotAssets(
 export default function PromptsView() {
   const { projectName, projectDirectory } = useWorkspace();
   const agent = useAgent();
-  const session = useKshanaSession();
+  const session = useDheeSession();
 
-  // Surgical-regen IPC (window.kshana.redoNode → ConversationManager.redoNode)
+  // Surgical-regen IPC (window.dhee.redoNode → ConversationManager.redoNode)
   // requires session.agent to be configured on the kshana-core side. That
   // configuration happens via focusProject(name, dir). ChatPanelEmbedded
   // calls it when chat mounts, but a user who jumps straight to the Prompts

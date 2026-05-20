@@ -3,7 +3,7 @@
  *
  * ChatPanelEmbedded shows a Cancel button whenever `session.status
  * === 'running'` (i.e. `isRunning` is true). Clicking it calls
- * `session.cancel()` → `window.kshana.cancelTask`. The fake bridge
+ * `session.cancel()` → `window.dhee.cancelTask`. The fake bridge
  * records the call and returns `{ cancelled: true }`.
  *
  * The test uses `cancel-test.json` whose last scripted event fires at
@@ -39,7 +39,7 @@ test.describe('Feature: Cancel running task', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('cancelTask').length,
+              () => window.__dheeTest!.getCalls('cancelTask').length,
             ),
           { timeout: 5_000 },
         )

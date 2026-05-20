@@ -8,10 +8,10 @@ import { useProject } from '../contexts/ProjectContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useTranscript } from './useTranscript';
 import { useWordCaptions } from './useWordCaptions';
-import type { AssetInfo } from '../types/kshana/assetManifest';
-import type { SceneVersions } from '../types/kshana/timeline';
+import type { AssetInfo } from '../types/dhee/assetManifest';
+import type { SceneVersions } from '../types/dhee/timeline';
 import type { TextOverlayCue } from '../types/captions';
-import { PROJECT_PATHS } from '../types/kshana';
+import { PROJECT_PATHS } from '../types/dhee';
 import type { FileNode } from '../../shared/fileSystemTypes';
 import {
   applySegmentTimingOverridesToItems,

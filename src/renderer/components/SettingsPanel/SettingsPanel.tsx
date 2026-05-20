@@ -645,7 +645,7 @@ export default function SettingsPanel({
                   supervisor toggle — disabled here when supervisor
                   is off, mirroring the chat-header quick-toggle.
                   Saves immediately on click via onSaveConnection so
-                  the runtime fan-out (main.ts → kshanaCoreManager →
+                  the runtime fan-out (main.ts → dheeCoreManager →
                   oversightState) fires.
                 */}
                 <div className={styles.sectionHeader} style={{ marginTop: 24 }}>
@@ -798,14 +798,12 @@ export default function SettingsPanel({
                   <div className={styles.statusTopRow}>
                     <div>
                       <div className={styles.statusHeader}>
-                        Connection Status
+                      Status
                       </div>
                       <div className={styles.statusHeadline}>
                         {statusHeadline}
                       </div>
-                      <p className={styles.statusSupportText}>
-                        {statusSupportText}
-                      </p>
+                    
                     </div>
                     <div className={`${styles.statusBadge} ${statusBadgeClass}`}>
                       <span className={styles.statusDot} />
@@ -1219,7 +1217,7 @@ export default function SettingsPanel({
                       )}
                       <p className={styles.infoText}>
                         Empty fields fall through to <code>VLM_*</code> env
-                        from the kshana-core <code>.env</code> file (dev mode).
+                        from the engine <code>.env</code> in your <code>dhee-core</code> checkout (dev mode).
                       </p>
                     </>
                   )}

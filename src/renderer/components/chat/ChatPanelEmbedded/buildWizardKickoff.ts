@@ -20,13 +20,13 @@ export function buildWizardKickoff(
   }
 
   const lines = [
-    `Create a new kshana project named "${args.projectName}" in the existing folder ${args.projectDir}.`,
+    `Create a new dhee project named "${args.projectName}" in the existing folder ${args.projectDir}.`,
     `Use the ${args.templateId} template with ${args.style} style for ${args.duration} seconds.`,
     '',
     'Story:',
     trimmedStory,
     '',
-    'Pass the absolute folder path as `existingDir` to kshana_new so the project is created in place rather than under the default projects directory.',
+    'Pass the absolute folder path as `existingDir` to dhee_new so the project is created in place rather than under the default projects directory.',
   ];
 
   return { message: lines.join('\n') };

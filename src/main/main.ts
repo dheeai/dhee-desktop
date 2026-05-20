@@ -35,8 +35,8 @@ import {
 } from './utils/projectFileOpGuard';
 import MenuBuilder from './menu';
 import { resolveHtmlPath } from './util';
-import { KshanaCoreManager } from './kshanaCoreManager';
-import { registerKshanaIpcBridge } from './kshanaIpcBridge';
+import { dheeCoreManager as DheeCoreManager } from './dheeCoreManager';
+import { registerdheeIpcBridge } from './dheeIpcBridge';
 import { parseDesktopAuthToken } from './desktopAuthToken';
 import {
   clearAccount,
@@ -52,6 +52,11 @@ import {
   startDesktopAnalytics,
   stopDesktopAnalytics,
 } from './analytics';
+import {
+  applyRuntimeAnalyticsConfig as applyRuntimeAnalyticsConfigFromFile,
+  resolvedheeWebsiteUrl as resolveRuntimeDheeWebsiteUrl,
+  type RuntimeConfigSource,
+} from './cloudRuntimeConfig';
 import fileSystemManager from './fileSystemManager';
 import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
@@ -98,25 +103,25 @@ interface AppUpdateStatus {
 }
 
 if (app.isPackaged) {
-  process.env.KSHANA_PACKAGED = '1';
+  process.env.dhee_PACKAGED = '1';
 }
 
-// Point kshana-core's loggers at our app data dir so packaged users
+// Point dhee-core's loggers at our app data dir so packaged users
 // get logs in a real writable location (not inside the read-only .app
 // bundle). DesktopLogger already writes its UI/phase/workflow logs
 // here; consolidating means one folder for the user to share with
-// support. getLogsDir() in kshana-core consumes this env var lazily,
+// support. getLogsDir() in dhee-core consumes this env var lazily,
 // so it must be set before any logger writes — module top-level is
-// safe because kshana-core isn't imported until later in this file.
-if (!process.env.KSHANA_LOGS_DIR) {
-  process.env.KSHANA_LOGS_DIR = path.join(app.getPath('userData'), 'logs');
+// safe because dhee-core isn't imported until later in this file.
+if (!process.env.dhee_LOGS_DIR) {
+  process.env.dhee_LOGS_DIR = path.join(app.getPath('userData'), 'logs');
 }
 
-// Point kshana-core at the bundled ffmpeg/ffprobe binaries. Packaged
+// Point dhee-core at the bundled ffmpeg/ffprobe binaries. Packaged
 // macOS GUI apps don't inherit the user's shell $PATH, and Windows
-// users may not have ffmpeg installed at all — so kshana-core's
+// users may not have ffmpeg installed at all — so dhee-core's
 // `spawn('ffmpeg')` calls would fail with ENOENT in the wild. We set
-// these env vars before kshana-core loads so its FFmpegAssembler,
+// these env vars before dhee-core loads so its FFmpegAssembler,
 // keyframeExtractor, and InputProcessor pick up the bundled binaries.
 {
   let bundledFfmpeg = ffmpegInstaller.path;
@@ -125,18 +130,18 @@ if (!process.env.KSHANA_LOGS_DIR) {
     bundledFfmpeg = bundledFfmpeg.replace('app.asar', 'app.asar.unpacked');
     bundledFfprobe = bundledFfprobe.replace('app.asar', 'app.asar.unpacked');
   }
-  if (!process.env.KSHANA_FFMPEG_PATH) {
-    process.env.KSHANA_FFMPEG_PATH = bundledFfmpeg;
+  if (!process.env.dhee_FFMPEG_PATH) {
+    process.env.dhee_FFMPEG_PATH = bundledFfmpeg;
   }
-  if (!process.env.KSHANA_FFPROBE_PATH) {
-    process.env.KSHANA_FFPROBE_PATH = bundledFfprobe;
+  if (!process.env.dhee_FFPROBE_PATH) {
+    process.env.dhee_FFPROBE_PATH = bundledFfprobe;
   }
 }
 
 let mainWindow: BrowserWindow | null = null;
 let authWindow: BrowserWindow | null = null;
 let pendingDesktopAuthState: string | null = null;
-let kshanaCoreManager: KshanaCoreManager;
+let dheeCoreManager: DheeCoreManager;
 let lastAccountAuthStatus: 'idle' | 'waiting' | 'expired' | 'error' = 'idle';
 let appUpdateStatus: AppUpdateStatus = {
   phase: 'idle',
@@ -145,85 +150,25 @@ let appUpdateStatus: AppUpdateStatus = {
   checkedAt: Date.now(),
 };
 
-interface RuntimeConfig {
-  /** Kshana website (Next.js): /auth/desktop, proxy routes, billing APIs. */
-  kshanaWebsiteUrl?: string;
-  /** Optional PostHog project key for packaged builds. */
-  posthogApiKey?: string;
-  /** Optional PostHog ingest host. Defaults in kshana-core when omitted. */
-  posthogHost?: string;
-  /** Optional salt used before hashing local project paths in analytics. */
-  analyticsSalt?: string;
+function runtimeConfigSource(): RuntimeConfigSource {
+  return {
+    isPackaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    dirname: __dirname,
+    env: process.env,
+  };
 }
 
-async function readRuntimeConfig(): Promise<RuntimeConfig | null> {
-  const candidatePaths = app.isPackaged
-    ? [path.join(process.resourcesPath, 'assets', 'runtime-config.json')]
-    : [path.join(__dirname, '../../assets/runtime-config.json')];
-
-  const configs = await Promise.all(
-    candidatePaths.map(async (configPath) => {
-      try {
-        const raw = await fs.readFile(configPath, 'utf-8');
-        const parsed = JSON.parse(raw) as RuntimeConfig;
-        if (parsed && typeof parsed === 'object') {
-          return parsed;
-        }
-      } catch {
-        /* missing or invalid */
-      }
-      return null;
-    }),
-  );
-  return (
-    configs.find((config): config is RuntimeConfig => Boolean(config)) ?? null
-  );
-}
-
-function normalizeServerUrl(value?: string): string | undefined {
-  if (!value) return undefined;
-  const trimmed = value.trim();
-  if (!trimmed) return undefined;
-
-  try {
-    const parsed = new URL(trimmed);
-    if (!['http:', 'https:'].includes(parsed.protocol)) {
-      return undefined;
-    }
-    return parsed.toString().replace(/\/$/, '');
-  } catch {
-    return undefined;
-  }
-}
-
-async function resolveKshanaWebsiteUrl(): Promise<string> {
-  const fromEnv = normalizeServerUrl(process.env.KSHANA_CLOUD_URL);
-  if (fromEnv) return fromEnv;
-  const parsed = await readRuntimeConfig();
-  const fromFile = normalizeServerUrl(parsed?.kshanaWebsiteUrl);
-  if (fromFile) return fromFile;
-  return 'http://localhost:3000';
+async function resolvedheeWebsiteUrl(): Promise<string> {
+  return resolveRuntimeDheeWebsiteUrl(runtimeConfigSource());
 }
 
 async function applyRuntimeAnalyticsConfig(): Promise<void> {
-  const parsed = await readRuntimeConfig();
-  const posthogApiKey = parsed?.posthogApiKey?.trim();
-  const posthogHost = normalizeServerUrl(parsed?.posthogHost);
-  const analyticsSalt = parsed?.analyticsSalt?.trim();
-
-  if (posthogApiKey && !process.env.POSTHOG_API_KEY) {
-    process.env.POSTHOG_API_KEY = posthogApiKey;
-  }
-  if (posthogHost && !process.env.POSTHOG_HOST) {
-    process.env.POSTHOG_HOST = posthogHost;
-  }
-  if (analyticsSalt && !process.env.ANALYTICS_SALT) {
-    process.env.ANALYTICS_SALT = analyticsSalt;
-  }
+  await applyRuntimeAnalyticsConfigFromFile(runtimeConfigSource());
 }
 
-async function resolveKshanaWebsitePath(pathname: string): Promise<string> {
-  const websiteBase = await resolveKshanaWebsiteUrl();
+async function resolvedheeWebsitePath(pathname: string): Promise<string> {
+  const websiteBase = await resolvedheeWebsiteUrl();
   return `${websiteBase}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
@@ -243,7 +188,7 @@ async function getCloudAuthRuntime(settings: AppSettings) {
   if (!account?.token) return null;
   if (!parseDesktopAuthToken(account.token)) return null;
   return {
-    websiteUrl: await resolveKshanaWebsiteUrl(),
+    websiteUrl: await resolvedheeWebsiteUrl(),
     desktopToken: account.token,
   };
 }
@@ -395,16 +340,16 @@ ipcMain.handle(
   async (_event, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const updated = updateSettings(patch);
     try {
-      await kshanaCoreManager.restart(
+      await dheeCoreManager.restart(
         updated,
         await getCloudAuthRuntime(updated),
       );
       if (mainWindow) {
-        registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+        registerdheeIpcBridge(dheeCoreManager, mainWindow);
       }
     } catch (error) {
       log.error(
-        `Failed to restart embedded kshana after settings update: ${(error as Error).message}`,
+        `Failed to restart embedded engine after settings update: ${(error as Error).message}`,
       );
     }
     if (mainWindow) {
@@ -413,13 +358,13 @@ ipcMain.handle(
     // Push oversight changes into core's process-wide `oversightState`.
     // Both the SettingsPanel and the chat-header quick-toggles flow
     // through here, so this is the single fan-out point for the two
-    // global flags. The kshanaCoreManager wrappers no-op if core
+    // global flags. The dheeCoreManager wrappers no-op if core
     // isn't started yet (lifecycle race during boot).
     if (typeof patch.piOversight === 'boolean') {
-      kshanaCoreManager.setPiOversight('', patch.piOversight);
+      dheeCoreManager.setPiOversight('', patch.piOversight);
     }
     if (typeof patch.vlmJudge === 'boolean') {
-      kshanaCoreManager.setVlmJudge('', patch.vlmJudge);
+      dheeCoreManager.setVlmJudge('', patch.vlmJudge);
     }
     return updated;
   },
@@ -687,7 +632,7 @@ ipcMain.handle(
     const now = Date.now();
     const ttlMs = 1000;
 
-    const cached = (globalThis as any).__kshanaReadTreeCache?.get?.(
+    const cached = (globalThis as any).__dheeReadTreeCache?.get?.(
       cacheKey,
     ) as { value: unknown; expiresAt: number } | undefined;
     if (cached && cached.expiresAt > now) {
@@ -695,11 +640,11 @@ ipcMain.handle(
     }
 
     const inflightMap: Map<string, Promise<unknown>> = (globalThis as any)
-      .__kshanaReadTreeInflight ??
-    ((globalThis as any).__kshanaReadTreeInflight = new Map());
+      .__dheeReadTreeInflight ??
+    ((globalThis as any).__dheeReadTreeInflight = new Map());
     const cacheMap: Map<string, { value: unknown; expiresAt: number }> =
-      (globalThis as any).__kshanaReadTreeCache ??
-      ((globalThis as any).__kshanaReadTreeCache = new Map());
+      (globalThis as any).__dheeReadTreeCache ??
+      ((globalThis as any).__dheeReadTreeCache = new Map());
 
     const inflight = inflightMap.get(cacheKey);
     if (inflight) {
@@ -753,7 +698,7 @@ ipcMain.handle(
   async (_event, projectDirectory: string) => {
     const manifestPath = path.join(
       projectDirectory,
-      '.kshana',
+      '.dhee',
       'agent',
       'manifest.json',
     );
@@ -798,7 +743,7 @@ ipcMain.on(
     if (data.projectDirectory) {
       const manifestPath = path.join(
         data.projectDirectory,
-        '.kshana',
+        '.dhee',
         'agent',
         'manifest.json',
       );
@@ -851,14 +796,14 @@ ipcMain.handle(
 
 ipcMain.handle('project:get-resources-path', async () => {
   // Get the path to resources (where test_image and test_video are packaged)
-  // In development: __dirname/../../ (points to kshana-desktop directory)
+  // In development: __dirname/../../ (points to dhee-desktop directory)
   // In packaged: process.resourcesPath (where extraResources are placed)
   if (app.isPackaged) {
     // In production, extraResources are placed in process.resourcesPath
     return process.resourcesPath;
   }
-  // In development, __dirname is dist/main, so ../../ gives us kshana-desktop
-  // test_image and test_video are in kshana-desktop directory
+  // In development, __dirname is dist/main, so ../../ gives us dhee-desktop
+  // test_image and test_video are in dhee-desktop directory
   const devPath = path.join(__dirname, '../../');
   return path.resolve(devPath);
 });
@@ -968,8 +913,8 @@ ipcMain.handle(
     const ttlMs = 750;
 
     const cacheMap: Map<string, { value: boolean; expiresAt: number }> =
-      (globalThis as any).__kshanaExistsCache ??
-      ((globalThis as any).__kshanaExistsCache = new Map());
+      (globalThis as any).__dheeExistsCache ??
+      ((globalThis as any).__dheeExistsCache = new Map());
     const cached = cacheMap.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       return cached.value;
@@ -1025,7 +970,7 @@ ipcMain.handle(
     _event,
     projectDir: string,
   ): Promise<Array<{ path: string; content: string; isBinary: boolean }>> => {
-    const kshanaDir = path.join(projectDir, '.kshana');
+    const dheeDir = path.join(projectDir, '.dhee');
     const results: Array<{ path: string; content: string; isBinary: boolean }> =
       [];
     const TEXT_EXTS = new Set([
@@ -1089,13 +1034,13 @@ ipcMain.handle(
     }
 
     try {
-      await walk(kshanaDir);
+      await walk(dheeDir);
     } catch {
-      // .kshana directory might not exist yet
+      // .dhee directory might not exist yet
     }
 
     log.info(
-      `[project:read-all-files] Read ${results.length} text files from ${kshanaDir} ` +
+      `[project:read-all-files] Read ${results.length} text files from ${dheeDir} ` +
         `(skipped non-text: ${skippedNonText}, skipped oversized: ${skippedOversized})`,
     );
     return results;
@@ -1677,8 +1622,8 @@ ipcMain.handle(
 );
 
 // ─── Diagnostics: logs reveal + zip export ───────────────────────────
-// Lets a user emailing support open or bundle the kshana-core +
-// DesktopLogger output. Both target the dir set by KSHANA_LOGS_DIR
+// Lets a user emailing support open or bundle the dhee-core +
+// DesktopLogger output. Both target the dir set by dhee_LOGS_DIR
 // (see top of file).
 ipcMain.handle('logs:get-dir', async (): Promise<string> => {
   return getLogsDirAbs();
@@ -1732,7 +1677,7 @@ ipcMain.handle('project:save-video-file', async () => {
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
   const result = await dialog.showSaveDialog(mainWindow, {
     title: 'Save Video',
-    defaultPath: `kshana-timeline-${timestamp}.mp4`,
+    defaultPath: `dhee-timeline-${timestamp}.mp4`,
     filters: [
       {
         name: 'Video Files',
@@ -1821,8 +1766,8 @@ configureAudioWaveformExtractor(ffmpegPath);
 log.info('[FFmpeg] Paths configured:', {
   ffmpeg: ffmpegPath,
   ffprobe: ffprobePath,
-  kshanaCoreFfmpeg: process.env.KSHANA_FFMPEG_PATH,
-  kshanaCoreFfprobe: process.env.KSHANA_FFPROBE_PATH,
+  dheeCoreFfmpeg: process.env.dhee_FFMPEG_PATH,
+  dheeCoreFfprobe: process.env.dhee_FFPROBE_PATH,
 });
 
 interface TimelineItem {
@@ -1863,7 +1808,7 @@ interface RenderResolution {
   height: number;
 }
 
-const VIDEO_WATERMARK_TEXT = 'kshana';
+const VIDEO_WATERMARK_TEXT = 'dhee';
 const VIDEO_WATERMARK_FONT_SIZE = 54;
 const VIDEO_WATERMARK_MARGIN_X = 48;
 const VIDEO_WATERMARK_MARGIN_Y = 28;
@@ -2005,7 +1950,7 @@ async function getProjectRenderResolution(
   projectDirectory: string,
 ): Promise<RenderResolution> {
   const fallback = { width: 1920, height: 1080 };
-  const manifestPath = path.join(projectDirectory, 'kshana.json');
+  const manifestPath = path.join(projectDirectory, 'dhee.json');
 
   try {
     const manifestContent = await fs.readFile(manifestPath, 'utf-8');
@@ -2324,7 +2269,7 @@ ipcMain.handle(
       return { success: false, error: 'No timeline items to compose' };
     }
 
-    const tempDir = path.join(projectDirectory, '.kshana', 'temp');
+    const tempDir = path.join(projectDirectory, '.dhee', 'temp');
     await fs.mkdir(tempDir, { recursive: true });
     console.log('[VideoComposition] Temp directory:', tempDir);
     const renderResolution = exportOptions
@@ -3108,7 +3053,7 @@ fileSystemManager.on('file-change', (event: FileChangeEvent) => {
 
   mainWindow.webContents.send('project:file-changed', normalizedEvent);
 
-  if (normalizedPath.endsWith('.kshana/agent/manifest.json')) {
+  if (normalizedPath.endsWith('.dhee/agent/manifest.json')) {
     mainWindow.webContents.send('project:manifest-written', {
       path: normalizedPath,
       at: Date.now(),
@@ -3438,11 +3383,19 @@ const createWindow = async () => {
     return path.join(RESOURCES_PATH, ...paths);
   };
 
+  const getWindowIconPath = (): string => {
+    // Use 512px PNG for HiDPI taskbar/titlebar; icon.ico (also 512-capable) is for installers/shortcuts.
+    if (process.platform === 'win32' || process.platform === 'linux') {
+      return getAssetPath('icons', '512x512.png');
+    }
+    return getAssetPath('icon.png');
+  };
+
   mainWindow = new BrowserWindow({
     show: false,
     width: 1024,
     height: 728,
-    icon: getAssetPath('icon.png'),
+    icon: getWindowIconPath(),
     webPreferences: {
       preload: app.isPackaged
         ? path.join(__dirname, 'preload.js')
@@ -3573,18 +3526,18 @@ app.on('window-all-closed', () => {
   }
 });
 
-// Embedded kshana-ink runtime — replaces the spawn+WS local backend.
-// Renderer talks to this via window.kshana (registerKshanaIpcBridge
+// Embedded dhee-ink runtime — replaces the spawn+WS local backend.
+// Renderer talks to this via window.dhee (registerdheeIpcBridge
 // below registers the ipcMain handlers + sets up event forwarding).
-kshanaCoreManager = new KshanaCoreManager();
+dheeCoreManager = new DheeCoreManager();
 
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
-  stopDesktopAnalytics(kshanaCoreManager);
+  stopDesktopAnalytics(dheeCoreManager);
   try {
-    kshanaCoreManager.stop();
+    dheeCoreManager.stop();
   } catch (error) {
-    log.error(`Failed to stop embedded kshana: ${(error as Error).message}`);
+    log.error(`Failed to stop embedded engine: ${(error as Error).message}`);
   }
 });
 
@@ -3593,40 +3546,40 @@ const bootstrapBackend = async () => {
     await applyRuntimeAnalyticsConfig();
     const settings = getSettings();
     log.info(
-      `[EmbeddedKshana] Bootstrap starting packaged=${app.isPackaged} cwd=${process.cwd()}`,
+      `[EmbeddedDhee] Bootstrap starting packaged=${app.isPackaged} cwd=${process.cwd()}`,
     );
     log.info(
-      `[EmbeddedKshana] Settings provider=${settings.llmProvider} backendMode=${settings.backendMode} projectDir=${settings.projectDir || '(unset)'}`,
+      `[EmbeddedDhee] Settings provider=${settings.llmProvider} backendMode=${settings.backendMode} projectDir=${settings.projectDir || '(unset)'}`,
     );
-    // Tell kshana-ink we're inside the packaged Electron build so its
-    // path defaults flip from REPO_ROOT (dev) to ~/Kshana (user data
-    // dir). Must be set BEFORE kshanaCoreManager.start, which calls
+    // Tell dhee-ink we're inside the packaged Electron build so its
+    // path defaults flip from REPO_ROOT (dev) to ~/dhee (user data
+    // dir). Must be set BEFORE dheeCoreManager.start, which calls
     // loadDevEnv → getProjectsDir() to decide where to chdir.
     if (app.isPackaged) {
-      process.env.KSHANA_PACKAGED = '1';
-      log.info('[EmbeddedKshana] Set KSHANA_PACKAGED=1');
+      process.env.dhee_PACKAGED = '1';
+      log.info('[EmbeddedDhee] Set dhee_PACKAGED=1');
     }
-    // Embedded kshana-ink — the only backend path. Starts synchronously
+    // Embedded dhee-ink — the only backend path. Starts synchronously
     // (in-process), so the IPC bridge can register immediately and the
-    // renderer's window.kshana.* calls can land.
-    await kshanaCoreManager.start(
+    // renderer's window.dhee.* calls can land.
+    await dheeCoreManager.start(
       settings,
       await getCloudAuthRuntime(settings),
     );
-    log.info('[EmbeddedKshana] Manager started');
+    log.info('[EmbeddedDhee] Manager started');
     startDesktopAnalytics({
-      manager: kshanaCoreManager,
+      manager: dheeCoreManager,
       account: getAccount(),
     });
     if (mainWindow) {
-      registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
-      log.info('[EmbeddedKshana] IPC bridge registered');
+      registerdheeIpcBridge(dheeCoreManager, mainWindow);
+      log.info('[EmbeddedDhee] IPC bridge registered');
     } else {
-      log.warn('[EmbeddedKshana] Manager started but mainWindow is missing');
+      log.warn('[EmbeddedDhee] Manager started but mainWindow is missing');
     }
   } catch (error) {
     log.error(
-      `Failed to start embedded kshana: ${(error as Error).message}\n${
+      `Failed to start embedded engine: ${(error as Error).message}\n${
         (error as Error).stack
       }`,
     );
@@ -3648,7 +3601,9 @@ if (!app.requestSingleInstanceLock()) {
   app.quit();
 } else {
   app.on('second-instance', (_event, argv) => {
-    const deepLink = argv.find((arg) => arg.startsWith('kshana://'));
+    const deepLink = argv.find(
+      (arg) => arg.startsWith('dhee://') || arg.startsWith('dhee://'),
+    );
     if (deepLink) {
       handleDeepLink(deepLink);
     }
@@ -3659,8 +3614,11 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 
-if (!app.isDefaultProtocolClient('kshana')) {
-  app.setAsDefaultProtocolClient('kshana');
+if (!app.isDefaultProtocolClient('dhee')) {
+  app.setAsDefaultProtocolClient('dhee');
+}
+if (!app.isDefaultProtocolClient('dhee')) {
+  app.setAsDefaultProtocolClient('dhee');
 }
 
 async function restartEmbeddedAfterAccountChange(
@@ -3668,16 +3626,16 @@ async function restartEmbeddedAfterAccountChange(
 ): Promise<void> {
   try {
     const settings = getSettings();
-    await kshanaCoreManager.restart(
+    await dheeCoreManager.restart(
       settings,
       await getCloudAuthRuntime(settings),
     );
     if (mainWindow) {
-      registerKshanaIpcBridge(kshanaCoreManager, mainWindow);
+      registerdheeIpcBridge(dheeCoreManager, mainWindow);
     }
   } catch (error) {
     log.error(
-      `[Account] Embedded kshana restart failed after ${reason}: ${(error as Error).message}`,
+      `[Account] Embedded dhee restart failed after ${reason}: ${(error as Error).message}`,
     );
   }
 }
@@ -3702,7 +3660,7 @@ async function validateStoredDesktopAccountOnStartup(): Promise<void> {
   // user's persisted choice on every restart. Sign-in deep-link sets
   // cloud once on first sign-in; if the user later flips to local in
   // Settings, that choice should survive subsequent launches.
-  const result = await refreshBalance(await resolveKshanaWebsiteUrl());
+  const result = await refreshBalance(await resolvedheeWebsiteUrl());
   if (result.status === 'expired') {
     updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
     lastAccountAuthStatus = 'expired';
@@ -3765,9 +3723,9 @@ async function handleDeepLink(url: string): Promise<void> {
       credits: 0,
       token,
     });
-    identifyDesktopUser(kshanaCoreManager, payload.sub);
+    identifyDesktopUser(dheeCoreManager, payload.sub);
 
-    await refreshBalance(await resolveKshanaWebsiteUrl());
+    await refreshBalance(await resolvedheeWebsiteUrl());
     // First sign-in defaults BOTH lanes to cloud — matches the
     // pre-split single-toggle behavior. Users can flip ComfyUI back
     // to local in Settings without affecting LLM (or vice versa);
@@ -3808,7 +3766,7 @@ async function openDesktopAuthWindow(url: string): Promise<void> {
     resizable: true,
     minimizable: true,
     maximizable: false,
-    title: 'Sign in to Kshana Desktop',
+    title: 'Sign in to Dhee Desktop',
     backgroundColor: '#030508',
     webPreferences: {
       sandbox: false,
@@ -3816,7 +3774,7 @@ async function openDesktopAuthWindow(url: string): Promise<void> {
   });
 
   authWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    if (navigationUrl.startsWith('kshana://')) {
+    if (navigationUrl.startsWith('dhee://') || navigationUrl.startsWith('dhee://')) {
       event.preventDefault();
       handleDeepLink(navigationUrl);
       authWindow?.close();
@@ -3825,7 +3783,7 @@ async function openDesktopAuthWindow(url: string): Promise<void> {
 
   authWindow.webContents.setWindowOpenHandler((edata) => {
     // Keep OAuth flows inside the window when possible.
-    if (edata.url.startsWith('kshana://')) {
+    if (edata.url.startsWith('dhee://') || edata.url.startsWith('dhee://')) {
       handleDeepLink(edata.url);
       authWindow?.close();
       return { action: 'deny' };
@@ -3861,8 +3819,8 @@ ipcMain.handle('account:sign-in', async () => {
   const state = randomUUID();
   pendingDesktopAuthState = state;
   lastAccountAuthStatus = 'waiting';
-  captureDesktopAuthStarted(kshanaCoreManager);
-  const url = await resolveKshanaWebsitePath(
+  captureDesktopAuthStarted(dheeCoreManager);
+  const url = await resolvedheeWebsitePath(
     `/auth/desktop?state=${encodeURIComponent(state)}`,
   );
   // Prefer system browser for desktop deep-link prompt UX.
@@ -3882,7 +3840,7 @@ ipcMain.handle('account:sign-out', async () => {
   updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
   pendingDesktopAuthState = null;
   lastAccountAuthStatus = 'idle';
-  resetDesktopAnalyticsIdentity(kshanaCoreManager);
+  resetDesktopAnalyticsIdentity(dheeCoreManager);
   await restartEmbeddedAfterAccountChange('sign-out');
   mainWindow?.webContents.send('settings:updated', getSettings());
   broadcastAccountChanged();
@@ -3890,7 +3848,7 @@ ipcMain.handle('account:sign-out', async () => {
 });
 
 ipcMain.handle('account:refresh-balance', async () => {
-  const result = await refreshBalance(await resolveKshanaWebsiteUrl());
+  const result = await refreshBalance(await resolvedheeWebsiteUrl());
   if (result.status === 'expired') {
     updateSettings({ backendMode: 'local', llmBackend: 'local', comfyBackend: 'local', vlmBackend: 'local' });
     lastAccountAuthStatus = 'expired';
@@ -3905,11 +3863,11 @@ ipcMain.handle('account:refresh-balance', async () => {
 });
 
 ipcMain.handle('account:get-billing-url', async () => {
-  return resolveKshanaWebsitePath('/billing');
+  return resolvedheeWebsitePath('/billing');
 });
 
 ipcMain.handle('account:open-billing', async () => {
-  const url = await resolveKshanaWebsitePath('/billing');
+  const url = await resolvedheeWebsitePath('/billing');
   await shell.openExternal(url);
   return { opened: true, url };
 });

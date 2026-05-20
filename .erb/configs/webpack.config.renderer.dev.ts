@@ -162,7 +162,7 @@ const configuration: Configuration = {
      */
     new webpack.EnvironmentPlugin({
       NODE_ENV: 'development',
-      KSHANA_TEST_BRIDGE: '0',
+      dhee_TEST_BRIDGE: '0',
     }),
 
     new webpack.LoaderOptionsPlugin({
@@ -203,10 +203,10 @@ const configuration: Configuration = {
       verbose: true,
     },
     setupMiddlewares(middlewares: WebpackDevServer.Middleware[]) {
-      // KSHANA_TEST_BRIDGE=1 ⇒ Layer-2 e2e mode: serve only the renderer
+      // dhee_TEST_BRIDGE=1 ⇒ Layer-2 e2e mode: serve only the renderer
       // bundle (no preload, no Electron main). The renderer entry installs
-      // an in-process fake `window.kshana` / `window.electron` instead.
-      if (process.env.KSHANA_TEST_BRIDGE === '1') {
+      // an in-process fake `window.dhee` / `window.electron` instead.
+      if (process.env.dhee_TEST_BRIDGE === '1') {
         console.log(
           '[test-bridge] renderer-only dev server (no preload, no Electron)',
         );

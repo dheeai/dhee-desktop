@@ -1,6 +1,6 @@
 /**
  * ChatPanelEmbedded — chat UI built directly on the typed
- * `window.kshana.*` IPC surface (via `useKshanaSession`).
+ * `window.dhee.*` IPC surface (via `useDheeSession`).
  *
  * Display rules:
  *   - User messages: right-aligned bubble.
@@ -35,12 +35,12 @@ import {
 import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
-import { useKshanaSession } from '../../../hooks/useKshanaSession';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
-import type { KshanaEvent } from '../../../../shared/kshanaIpc';
+import type { dheeEvent } from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import ProjectSetupPanel, {
   type SetupPanelMode,
@@ -86,7 +86,7 @@ interface ChatMessage {
   toolArgsSummary?: string;
   /**
    * For role='progress' rows: the toolCallId of the originating tool
-   * (e.g. kshana_run_to). One row per stream_chunk event so each
+   * (e.g. dhee_run_to). One row per stream_chunk event so each
    * `[info] [N/M] Working on…` line is its own discrete block in the
    * chat — easier to scan than the previous "all concatenated into
    * one giant <pre> blob" rendering.
@@ -137,7 +137,7 @@ function newMessageId(): string {
 }
 
 /**
- * How often to poll `window.kshana.runnerStatus()` for the active
+ * How often to poll `window.dhee.runnerStatus()` for the active
  * task. The runner is the single source of truth for whether a long
  * pipeline is in flight; this poll interval bounds how quickly the
  * header Stop button appears/disappears in response to runner state
@@ -271,7 +271,7 @@ function summarizeArgs(args: unknown): string {
 }
 
 export default function ChatPanelEmbedded() {
-  const session = useKshanaSession();
+  const session = useDheeSession();
   const { projectName, projectDirectory } = useWorkspace();
   const agent = useAgent();
   const chatQuestions = useChatQuestions();
@@ -289,7 +289,7 @@ export default function ChatPanelEmbedded() {
   // ── Re-hydrate on every mount ─────────────────────────────────────
   // When the user navigates away (e.g. to Settings) and comes back,
   // this component is fully unmounted — `messages` state is lost. The
-  // KshanaSessionProvider stays alive at app root so the session id
+  // DheeSessionProvider stays alive at app root so the session id
   // survives, but its `history` snapshot was already consumed by the
   // previous mount. Refetch from disk (the source of truth) on every
   // mount; the hydration effect below then re-seeds the panel.
@@ -398,7 +398,7 @@ export default function ChatPanelEmbedded() {
   // Auto-spawns when the user opens an unconfigured project. Collects
   // style → duration → story; on confirm, calls session.configureProject
   // (persists template/style/duration into project.json) then runs a
-  // kickoff task that pi-agent routes to `kshana_new` with `existingDir`.
+  // kickoff task that pi-agent routes to `dhee_new` with `existingDir`.
   // Surface system-style receipts pushed by other panels (e.g., the
   // Prompts tab's edit-and-invalidate flow) into the chat history. The
   // text is UI-only — the agent doesn't read it; on-disk state already
@@ -452,7 +452,7 @@ export default function ChatPanelEmbedded() {
   // mutates the lifecycle-relevant fields (style/templateId/duration/
   // goal.status). Without this, projectState gets stuck at whatever
   // the probe saw on initial mount — e.g. if the New Project Dialog
-  // wrote an empty project.json and kshana_new filled it in later,
+  // wrote an empty project.json and dhee_new filled it in later,
   // the probe never re-sees the now-configured state, ProjectRunButton
   // stays hidden, and the user has no run/resume CTA. See
   // toolDidMutateLifecycle() below for the tool allowlist.
@@ -466,8 +466,8 @@ export default function ChatPanelEmbedded() {
 
   // ── Background task runner integration ───────────────────────────
   //
-  // kshana_run_to (and the upcoming kshana_regen / render_scene_bundle
-  // dispatch tools) are now non-blocking on the kshana-core side —
+  // dhee_run_to (and the upcoming dhee_regen / render_scene_bundle
+  // dispatch tools) are now non-blocking on the dhee-core side —
   // every call goes through the BackgroundTaskRunner singleton which
   // detaches execution from the agent's tool-call loop. The renderer
   // doesn't need a separate session anymore: pi-agent on the MAIN
@@ -480,7 +480,7 @@ export default function ChatPanelEmbedded() {
   // route key for cancel.
   const [bgSessionId, setBgSessionId] = useState<string | null>(null);
   // Whether the BackgroundTaskRunner reports an active task. Polled
-  // from `window.kshana.runnerStatus()` — see the effect below. This
+  // from `window.dhee.runnerStatus()` — see the effect below. This
   // is the SINGLE source of truth for the header Stop button, so the
   // button reflects reality regardless of which tool pi-agent fired
   // to start the run.
@@ -505,7 +505,7 @@ export default function ChatPanelEmbedded() {
   const streamingMsgIdRef = useRef<string | null>(null);
   // toolCallId → toolName lookup, populated on tool_call and cleared
   // on tool_result. We use it in the stream_chunk handler to filter:
-  // only the long-running kshana_* tools (kshana_run_to in
+  // only the long-running dhee_* tools (dhee_run_to in
   // particular) surface their per-line progress in the chat. Internal
   // pi-agent tool output (bash, read, edit, grep …) gets dropped so
   // the chat doesn't get flooded with file listings and grep
@@ -516,7 +516,7 @@ export default function ChatPanelEmbedded() {
   useEffect(() => {
     if (!session.sessionId) return;
     const mainId = session.sessionId;
-    const unsubscribe = session.subscribe('*', (event: KshanaEvent) => {
+    const unsubscribe = session.subscribe('*', (event: dheeEvent) => {
       // Accept the main session — and any event without an
       // explicit sessionId (the BackgroundTaskRunner detaches from
       // the agent's tool-call loop and historically routed progress
@@ -537,7 +537,7 @@ export default function ChatPanelEmbedded() {
       }
       // The header Stop button is no longer driven by tool-name
       // sniffing here. The previous tool-name allowlist
-      // (`LONG_RUNNING_KSHANA_TOOLS`) only flipped on for THREE
+      // (`LONG_RUNNING_dhee_TOOLS`) only flipped on for THREE
       // hard-coded names — any other path pi-agent took to
       // generate a project left the button hidden for the entire
       // run. Now `runnerStatus()` (polled below) is the single
@@ -590,11 +590,11 @@ export default function ChatPanelEmbedded() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const status = await window.kshana.runnerStatus();
+        const status = await window.dhee.runnerStatus();
         if (cancelled) return;
         setRunnerActive(!!status?.active);
         // Mirror server-side `cancelling` into local pendingCancel.
-        // This is what makes pi-agent's `kshana_task_cancel` (and any
+        // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"
         // — previously pendingCancel was only set in handleCancel(),
         // so an agent-initiated cancel left the button on "Stop"
@@ -694,7 +694,7 @@ export default function ChatPanelEmbedded() {
             .slice(0, 140))
         : '';
       // Fallback: name the in-progress tool card (usually
-      // kshana_run_to wrapping the whole pipeline).
+      // dhee_run_to wrapping the whole pipeline).
       const inProgressTool = state.messages
         .slice(-10)
         .reverse()
@@ -724,7 +724,7 @@ export default function ChatPanelEmbedded() {
     if (!session.sessionId || !projectName) return;
     // Pass the absolute project directory so the embedded core
     // looks in the same parent the user opened from — even when
-    // that's outside the kshana-ink package's default getProjectsDir().
+    // that's outside the dhee-ink package's default getProjectsDir().
     session.focusProject(projectName, projectDirectory ?? undefined).catch(() => {});
   }, [session.sessionId, projectName, projectDirectory, session.focusProject]);
 
@@ -904,10 +904,10 @@ export default function ChatPanelEmbedded() {
     }
 
     // Build the kickoff and dispatch as a chat task; pi-agent will
-    // route this to kshana_new with `existingDir` set to the
+    // route this to dhee_new with `existingDir` set to the
     // pre-created folder.
     const projectDirName =
-      projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') ||
+      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') ||
       projectName ||
       'project';
     const { message } = buildWizardKickoff({
@@ -1078,7 +1078,7 @@ export default function ChatPanelEmbedded() {
   const handleCancel = useCallback(async () => {
     // Stop kills BOTH execution lanes:
     //   1. BackgroundTaskRunner (long pipeline tasks dispatched via
-    //      kshana_run_to) — runnerCancel aborts the in-flight task and
+    //      dhee_run_to) — runnerCancel aborts the in-flight task and
     //      emits a 'cancelled' event back to the originating session.
     //   2. The pi-agent chat session itself — when pi is mid-reply
     //      (looping bash, edits, etc.) the user expects Stop to halt
@@ -1088,14 +1088,14 @@ export default function ChatPanelEmbedded() {
     // optimistic spinner on; the runnerActive poll will reset it.
     setPendingCancel(true);
     await Promise.all([
-      window.kshana.runnerCancel().catch(() => undefined),
+      window.dhee.runnerCancel().catch(() => undefined),
       session.cancel().catch(() => undefined),
     ]);
   }, [session]);
 
   // Build the "resume the pipeline" task and run it on the MAIN
-  // session. kshana-core's pi-agent will receive it, call
-  // kshana_run_to, which now dispatches to the BackgroundTaskRunner
+  // session. dhee-core's pi-agent will receive it, call
+  // dhee_run_to, which now dispatches to the BackgroundTaskRunner
   // and returns immediately — keeping this chat session free for
   // follow-up questions while the run streams progress in parallel.
   // (Was a separate bg session in an earlier iteration; the runner
@@ -1105,11 +1105,11 @@ export default function ChatPanelEmbedded() {
     setBgSessionId(session.sessionId);
 
     const projectDirName =
-      projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') ||
+      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') ||
       projectName ||
       'project';
     const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
-    const task = `Continue running the kshana pipeline for ${params} all the way to completion. Use kshana_run_to with no stage so it runs to the end. Stream progress as nodes finish.`;
+    const task = `Continue running the dhee pipeline for ${params} all the way to completion. Use dhee_run_to with no stage so it runs to the end. Stream progress as nodes finish.`;
 
     setMessages((prev) => [
       ...prev,
@@ -1180,7 +1180,7 @@ export default function ChatPanelEmbedded() {
           ? 'ready'
           : 'idle';
   // Header text label needs to match dotStatus, not session.status.
-  // Otherwise: pi-agent dispatches a long pipeline via kshana_run_to,
+  // Otherwise: pi-agent dispatches a long pipeline via dhee_run_to,
   // pi.session.status flips back to 'idle' once the tool returns
   // (because the runner now drives the work), but the dot is still
   // green from runnerActive — so the badge said "Idle" while the
@@ -1684,7 +1684,7 @@ function MessageRow({
 }) {
   if (m.role === 'tool') {
     // Compact one-liner: glyph + monospaced tool name + faint args.
-    // Per-line progress for long-running tools (e.g. kshana_run_to)
+    // Per-line progress for long-running tools (e.g. dhee_run_to)
     // streams in as separate `progress` rows, one per chunk —
     // rendered just below this row by the parent message list.
     return (
@@ -1821,18 +1821,18 @@ function MarkdownContent({ text }: { text: string }) {
  * classification (fresh / in_progress / completed). When any of these
  * finishes the chat panel bumps `probeNonce` so the cached
  * `projectState` re-syncs from disk — closing the race where the
- * initial probe ran before kshana_new had written style/templateId/
+ * initial probe ran before dhee_new had written style/templateId/
  * duration into project.json, leaving the run/resume button hidden.
  */
 const LIFECYCLE_MUTATING_TOOLS = new Set([
-  'kshana_new',
-  'kshana_setup_project',
-  'kshana_run_to',
-  'kshana_reset',
+  'dhee_new',
+  'dhee_setup_project',
+  'dhee_run_to',
+  'dhee_reset',
 ]);
 
 function handleEvent(
-  event: KshanaEvent,
+  event: dheeEvent,
   setMessages: React.Dispatch<React.SetStateAction<ChatMessage[]>>,
   streamingMsgIdRef: React.RefObject<string | null>,
   setContextUsage: React.Dispatch<React.SetStateAction<ContextUsage | null>>,
@@ -1912,7 +1912,7 @@ function handleEvent(
       const data = event.data as { content?: string; done?: boolean; toolCallId?: string };
       // tool_streaming events also use this channel — they include a
       // toolCallId. Each chunk gets its OWN row so the long
-      // kshana_run_to log doesn't become one unreadable concatenated
+      // dhee_run_to log doesn't become one unreadable concatenated
       // blob. The originating tool card stays compact at the top of
       // the run; the per-line rows stream in below it (and naturally
       // interleave with any user chat that comes in mid-run).
@@ -1964,7 +1964,7 @@ function handleEvent(
           // Substitute the cleaned chunk for downstream processing.
           (data as { content?: string }).content = remainder;
         }
-        // Filter: only kshana_* tools (kshana_run_to, kshana_render_*)
+        // Filter: only kshana_* tools (dhee_run_to, kshana_render_*)
         // surface their per-line progress in the chat. Internal
         // pi-agent tool output (bash listings, file reads, grep
         // results, …) gets dropped — without this filter the chat
@@ -1972,7 +1972,7 @@ function handleEvent(
         const parentToolName = toolNameByCallIdRef.current?.get(
           data.toolCallId,
         );
-        if (!parentToolName || !parentToolName.startsWith('kshana_')) {
+        if (!parentToolName || !parentToolName.startsWith('dhee_')) {
           return;
         }
         const chunk = data.content ?? '';

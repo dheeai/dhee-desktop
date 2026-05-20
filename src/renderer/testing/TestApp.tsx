@@ -1,5 +1,5 @@
 /**
- * Test entry component. Used in place of <App /> when KSHANA_TEST_BRIDGE=1.
+ * Test entry component. Used in place of <App /> when dhee_TEST_BRIDGE=1.
  *
  * Switches on `scenario.surface` (set via the test bridge):
  *
@@ -45,7 +45,7 @@ function ProjectBootstrap({
   useEffect(() => {
     let cancelled = false;
     const tryOpen = () => {
-      const p = window.__kshanaTest?.getProject();
+      const p = window.__dheeTest?.getProject();
       if (!p?.directory || cancelled) return;
       openProject(p.directory).catch((err: Error) => {
         if (!cancelled) setError(err.message);
@@ -53,7 +53,7 @@ function ProjectBootstrap({
     };
     tryOpen();
     const interval = setInterval(() => {
-      const p = window.__kshanaTest?.getProject();
+      const p = window.__dheeTest?.getProject();
       if (p?.directory) {
         tryOpen();
         clearInterval(interval);
@@ -148,7 +148,7 @@ export default function TestApp() {
   // Surface decision is made once on mount; tests pre-seed the scenario
   // via initScript so it's already loaded.
   const surface: ScenarioSurface =
-    window.__kshanaTest?.getSurface() ?? 'chat';
+    window.__dheeTest?.getSurface() ?? 'chat';
 
   switch (surface) {
     case 'landing':

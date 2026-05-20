@@ -1,20 +1,20 @@
 /**
  * Layer-2 e2e test bridge.
  *
- * Installs in-memory fakes for `window.kshana` and a minimal
+ * Installs in-memory fakes for `window.dhee` and a minimal
  * `window.electron` so the renderer can run in a plain browser
- * (no Electron, no preload, no kshana-ink) for fast Playwright tests.
+ * (no Electron, no preload, no dhee-ink) for fast Playwright tests.
  *
- * Driven by JSON scenarios loaded via `window.__kshanaTest.loadScenario`.
+ * Driven by JSON scenarios loaded via `window.__dheeTest.loadScenario`.
  * A scenario maps incoming bridge calls to scripted streaming events
- * — same wire shape kshana-ink emits, so the chat UI's event handlers
+ * — same wire shape dhee-ink emits, so the chat UI's event handlers
  * don't know the difference.
  *
- * Imported by `index.tsx` only when `process.env.KSHANA_TEST_BRIDGE === '1'`.
+ * Imported by `index.tsx` only when `process.env.dhee_TEST_BRIDGE === '1'`.
  */
 import type {
-  KshanaEvent,
-  KshanaEventName,
+  dheeEvent,
+  dheeEventName,
   CreateSessionResponse,
   ConfigureProjectRequest,
   OkResponse,
@@ -26,7 +26,7 @@ import type {
   FocusProjectRequest,
   SetAutonomousRequest,
   DeleteSessionRequest,
-} from '../../shared/kshanaIpc';
+} from '../../shared/dheeIpc';
 
 // ── Scenario shape ───────────────────────────────────────────────────
 
@@ -39,7 +39,7 @@ export type ScenarioChannel =
 export interface ScenarioEmit {
   /** Delay in ms before this event fires, relative to the rule trigger. */
   after?: number;
-  event: KshanaEventName;
+  event: dheeEventName;
   data: unknown;
 }
 
@@ -88,7 +88,7 @@ export interface Scenario {
   rules: ScenarioRule[];
 }
 
-// ── Test API exposed on window.__kshanaTest ──────────────────────────
+// ── Test API exposed on window.__dheeTest ──────────────────────────
 
 interface RecordedCall {
   channel: string;
@@ -96,13 +96,13 @@ interface RecordedCall {
   at: number;
 }
 
-export interface KshanaTestApi {
+export interface dheeTestApi {
   loadScenario(scenario: Scenario): void;
   /** Pick a scenario from the bundled catalog by name. */
   loadScenarioByName(name: string): boolean;
   /** All scenarios available in the bundled catalog. */
   listScenarios(): string[];
-  emit(eventName: KshanaEventName, data: unknown): void;
+  emit(eventName: dheeEventName, data: unknown): void;
   getCalls(channel?: string): RecordedCall[];
   getProject(): { name: string | null; directory: string | null };
   /** Which surface the scenario asked for. Read by TestApp on mount. */
@@ -127,8 +127,8 @@ export interface KshanaTestApi {
 // ── Internal state ───────────────────────────────────────────────────
 
 interface ListenerSlot {
-  eventName: KshanaEventName | '*';
-  cb: (event: KshanaEvent) => void;
+  eventName: dheeEventName | '*';
+  cb: (event: dheeEvent) => void;
   active: boolean;
 }
 
@@ -201,8 +201,8 @@ function record(channel: string, args: unknown): void {
   state.calls.push({ channel, args, at: Date.now() });
 }
 
-function emitEvent(eventName: KshanaEventName, data: unknown): void {
-  const event: KshanaEvent = {
+function emitEvent(eventName: dheeEventName, data: unknown): void {
+  const event: dheeEvent = {
     eventName,
     sessionId: state.sessionId,
     data,
@@ -237,7 +237,7 @@ function applyMatchingRules(channel: ScenarioChannel, payloadText: string): void
  * scripted emits for any matching rule on the given channel — i.e. when
  * the last event for this turn has fired. This lets the fake `runTask`
  * stay pending for the duration of the streaming window, mirroring real
- * kshana-ink behavior so `useKshanaSession.status` correctly transitions
+ * dhee-ink behavior so `useDheeSession.status` correctly transitions
  * idle → running → idle around the playback.
  *
  * If no rule matches, resolves immediately.
@@ -268,9 +268,9 @@ function whenLastEventFires(
   });
 }
 
-// ── Fake kshana bridge ───────────────────────────────────────────────
+// ── Fake dhee bridge ───────────────────────────────────────────────
 
-const fakeKshana = {
+const fakedhee = {
   createSession(): Promise<CreateSessionResponse> {
     record('createSession', undefined);
     return Promise.resolve({ sessionId: state.sessionId });
@@ -316,8 +316,8 @@ const fakeKshana = {
     return Promise.resolve({ ok: true });
   },
   on(
-    eventName: KshanaEventName | '*',
-    cb: (event: KshanaEvent) => void,
+    eventName: dheeEventName | '*',
+    cb: (event: dheeEvent) => void,
   ): () => void {
     const slot: ListenerSlot = { eventName, cb, active: true };
     state.listeners.push(slot);
@@ -418,7 +418,7 @@ const fakeElectron = {
       return Promise.resolve(
         bridgeReturn('project.readTree', {
           name: 'fake-project',
-          path: state.project.directory ?? '/tmp/fake-project.kshana',
+          path: state.project.directory ?? '/tmp/fake-project.dhee',
           type: 'directory' as const,
           children: [],
         }, [p]),
@@ -603,7 +603,7 @@ const fakeElectron = {
 
 // ── Test API ─────────────────────────────────────────────────────────
 
-const testApi: KshanaTestApi = {
+const testApi: dheeTestApi = {
   loadScenario(scenario: Scenario): void {
     state.scenario = scenario;
     if (scenario.project) {
@@ -611,7 +611,7 @@ const testApi: KshanaTestApi = {
         name: scenario.project.name,
         directory:
           scenario.project.directory ??
-          `/tmp/${scenario.project.name}.kshana`,
+          `/tmp/${scenario.project.name}.dhee`,
       };
     }
     if (scenario.bridgeReturns) {
@@ -633,7 +633,7 @@ const testApi: KshanaTestApi = {
     const { listScenarioNames } = require('./scenarioCatalog');
     return listScenarioNames();
   },
-  emit(eventName: KshanaEventName, data: unknown): void {
+  emit(eventName: dheeEventName, data: unknown): void {
     emitEvent(eventName, data);
   },
   getCalls(channel?: string): RecordedCall[] {
@@ -669,13 +669,13 @@ const testApi: KshanaTestApi = {
 
 declare global {
   interface Window {
-    __kshanaTest?: KshanaTestApi;
+    __dheeTest?: dheeTestApi;
   }
 }
 
-(window as unknown as Record<string, unknown>).kshana = fakeKshana;
+(window as unknown as Record<string, unknown>).dhee = fakedhee;
 (window as unknown as Record<string, unknown>).electron = fakeElectron;
-window.__kshanaTest = testApi;
+window.__dheeTest = testApi;
 
 // Resolve scenario in priority order:
 //   1. Playwright initScript pre-seed (`__pendingScenario`)
@@ -700,4 +700,4 @@ if (pending) {
 }
 
 // eslint-disable-next-line no-console
-console.log('[test-bridge] installed fake window.kshana + window.electron');
+console.log('[test-bridge] installed fake window.dhee + window.electron');

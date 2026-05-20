@@ -2,7 +2,7 @@
  * Wave 3 — ComfyUI URL configuration on the Settings → Connection tab.
  *
  * ComfyUI cloud (`comfyCloudApiKey`, `https://cloud.comfy.org`) is a
- * separate concept from kshana-core cloud (which is descoped).
+ * separate concept from dhee-core cloud (which is descoped).
  * These tests pin that ComfyUI URL handling still works.
  */
 import { test, expect } from './fixtures';
@@ -39,14 +39,14 @@ test.describe('Feature: ComfyUI URL configuration', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('settings.update').length,
+              () => window.__dheeTest!.getCalls('settings.update').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('settings.update'),
+        window.__dheeTest!.getCalls('settings.update'),
       );
       const patch = calls[calls.length - 1].args as {
         comfyuiUrl?: string;
@@ -95,14 +95,14 @@ test.describe('Feature: ComfyUI URL configuration', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('settings.update').length,
+              () => window.__dheeTest!.getCalls('settings.update').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('settings.update'),
+        window.__dheeTest!.getCalls('settings.update'),
       );
       const patch = calls[calls.length - 1].args as {
         comfyuiUrl?: string;
@@ -136,14 +136,14 @@ test.describe('Feature: ComfyUI URL configuration', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('settings.update').length,
+              () => window.__dheeTest!.getCalls('settings.update').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('settings.update'),
+        window.__dheeTest!.getCalls('settings.update'),
       );
       const patch = calls[calls.length - 1].args as {
         comfyCloudApiKey?: string;

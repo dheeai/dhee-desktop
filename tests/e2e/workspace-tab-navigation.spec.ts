@@ -16,7 +16,7 @@ test.describe('Feature: Preview-panel tab navigation', () => {
       // Given
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
@@ -37,7 +37,7 @@ test.describe('Feature: Preview-panel tab navigation', () => {
       // Given
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 

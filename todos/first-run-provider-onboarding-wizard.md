@@ -18,12 +18,12 @@ call. There is no error splash that says "you need to configure a
 provider before you can generate." There is just a stuck job.
 
 This is the single largest first-run friction we have. Every potential
-buyer who installs Kshana and doesn't already use ComfyUI quits in the
+buyer who installs dhee and doesn't already use ComfyUI quits in the
 first 10 minutes.
 
 ## Evidence
 
-- README *"Prerequisites"*: Node.js 20+, npm, sibling `kshana-core`,
+- README *"Prerequisites"*: Node.js 20+, npm, sibling `dhee-core`,
   ComfyUI, LM Studio / Gemini / OpenAI credentials. The README knows
   this. The app does not.
 - `src/renderer/components/SettingsPanel/SettingsPanel.tsx` — Settings
@@ -42,10 +42,10 @@ first 10 minutes.
   enabled.
 - Wizard probes: is ComfyUI reachable? Is an LLM provider configured?
   For each missing piece, show actionable copy:
-  - "Kshana generates images and videos through ComfyUI. Pick one:
+  - "dhee generates images and videos through ComfyUI. Pick one:
     [Connect to running local ComfyUI] [Use cloud ComfyUI URL] [Skip
     for now and use Gemini-only mode]."
-  - "Kshana writes screenplays through an LLM. Pick one: [LM Studio
+  - "dhee writes screenplays through an LLM. Pick one: [LM Studio
     on this machine] [Gemini API] [OpenAI-compatible URL] [xAI Grok]
     [OpenRouter]."
 - Each pick has a one-line "what this costs" hint

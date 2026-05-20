@@ -1,7 +1,7 @@
 import React, { useMemo } from 'react';
 import { FileImage, FileVideo } from 'lucide-react';
 import { useProject } from '../../../contexts/ProjectContext';
-import type { SceneVersions } from '../../../types/kshana/timeline';
+import type { SceneVersions } from '../../../types/dhee/timeline';
 import type { TimelineItem } from '../../../hooks/useTimelineData';
 import styles from './VersionSelector.module.scss';
 

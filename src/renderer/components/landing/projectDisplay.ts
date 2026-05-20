@@ -32,7 +32,7 @@ export function shortenPath(filePath: string): string {
 export function getProjectNameFromPath(projectPath: string): string {
   const parts = projectPath.replace(/\\/g, '/').split('/').filter(Boolean);
   const leaf = parts[parts.length - 1] || projectPath;
-  return leaf.replace(/\.kshana$/i, '') || leaf;
+  return leaf.replace(/\.dhee$/i, '') || leaf;
 }
 
 export function sortRecentProjects(projects: RecentProject[]): RecentProject[] {

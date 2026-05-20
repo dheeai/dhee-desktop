@@ -191,7 +191,7 @@ backend-build/*.egg-info/
 backend-build/.installed.cfg
 backend-build/*.egg
 backend-build/MANIFEST
-backend-build/kshana/
+backend-build/dhee/
 backend-build/build-artifacts/
 backend-build/dist/
 *.pyc
@@ -286,10 +286,10 @@ venv.bak/
 .erb/node_modules → release/app/node_modules
 src/node_modules  → release/app/node_modules
 
-.kshana
+.dhee
 
-# kshana-core version tracking (generated file)
-release/app/.kshana-core-version.json
+# dhee-core version tracking (generated file)
+release/app/.dhee-core-version.json
 
 # Playwright e2e output
 playwright-report/

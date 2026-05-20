@@ -1,13 +1,13 @@
 @import '../../../styles/tokens';
 @import '../../../styles/mixins';
 
-@keyframes kshana-spin {
+@keyframes dhee-spin {
   from { transform: rotate(0deg); }
   to   { transform: rotate(360deg); }
 }
 
 .spinning {
-  animation: kshana-spin 800ms linear infinite;
+  animation: dhee-spin 800ms linear infinite;
 }
 
 // ── Root ────────────────────────────────────────────────────────────────────

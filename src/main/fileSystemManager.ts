@@ -175,7 +175,7 @@ export class FileSystemManager extends EventEmitter {
     // Trailing-edge debounce with NO reset. Earlier this branch
     // `clearTimeout`-ed the existing timer on every new event, which
     // turned the 200 ms debounce into "wait until writes stop" — and
-    // a kshana_run_to streams writes for 10+ minutes straight, so the
+    // a dhee_run_to streams writes for 10+ minutes straight, so the
     // flush never happened during a run. The PromptsView panel
     // therefore stayed frozen for the whole pipeline. By only
     // ARMING the timer when it's not already running, we guarantee
@@ -383,7 +383,7 @@ export class FileSystemManager extends EventEmitter {
       ignored: IGNORED_PATTERNS,
       persistent: true,
       ignoreInitial: true,
-      depth: 5, // Ensure .kshana/agent/content and .kshana/agent/{image,video}-placements are watched
+      depth: 5, // Ensure .dhee/agent/content and .dhee/agent/{image,video}-placements are watched
       awaitWriteFinish: {
         stabilityThreshold: 200,
         pollInterval: 100,

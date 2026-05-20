@@ -73,7 +73,7 @@ test.describe('Feature: Storyboard view', () => {
       // Given
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
@@ -101,7 +101,7 @@ test.describe('Feature: Storyboard view', () => {
       // Given — seed project.json so ProjectContext.scenes is non-empty
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
         fileReturns: { 'project.json': minimalProjectJson },
       });

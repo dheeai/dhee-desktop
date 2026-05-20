@@ -1,8 +1,8 @@
 /**
- * Kshana Project Directory Types
- * Re-exports all types from the kshana/ folder
+ * dhee Project Directory Types
+ * Re-exports all types from the dhee/ folder
  *
- * Based on Kshana Project Directory Specification v1.0 (December 12, 2025)
+ * Based on dhee Project Directory Specification v1.0 (December 12, 2025)
  */
 
 // Common types and enums
@@ -17,9 +17,9 @@ export type {
 
 export { SCHEMA_VERSION, AGENT_PROJECT_VERSION } from './common';
 
-// Root manifest (kshana.json)
+// Root manifest (dhee.json)
 export type {
-  KshanaManifest,
+  dheeManifest,
   ProjectSettings,
   ProjectResolution,
 } from './manifest';
@@ -40,7 +40,7 @@ export {
   createDefaultSceneRef,
 } from './entities';
 
-// Agent project file (.kshana/agent/project.json)
+// Agent project file (.dhee/agent/project.json)
 export type {
   AgentProjectFile,
   PhaseInfo,
@@ -57,7 +57,7 @@ export {
   createDefaultAgentProject,
 } from './agentProject';
 
-// Asset manifest (.kshana/agent/manifest.json)
+// Asset manifest (.dhee/agent/manifest.json)
 export type { AssetManifest, AssetInfo, AssetType } from './assetManifest';
 
 export {
@@ -68,10 +68,10 @@ export {
   getLatestAsset,
 } from './assetManifest';
 
-// Timeline state (.kshana/ui/timeline.json)
+// Timeline state (.dhee/ui/timeline.json)
 export type {
-  TimelineState as KshanaTimelineState,
-  TimelineMarker as KshanaTimelineMarker,
+  TimelineState as dheeTimelineState,
+  TimelineMarker as dheeTimelineMarker,
   ImportedClip,
   ClipTrim,
   MarkerStatus,
@@ -87,7 +87,7 @@ export {
   getActiveVersion,
 } from './timeline';
 
-// Context index (.kshana/context/index.json)
+// Context index (.dhee/context/index.json)
 export type { ContextIndex, StoredContextMeta } from './context';
 
 export {
@@ -102,20 +102,20 @@ export {
 /**
  * Complete project data structure for loading/saving
  */
-export interface KshanaProject {
-  /** Root manifest (kshana.json) */
-  manifest: import('./manifest').KshanaManifest;
+export interface dheeProject {
+  /** Root manifest (dhee.json) */
+  manifest: import('./manifest').dheeManifest;
 
-  /** Agent project state (.kshana/agent/project.json) */
+  /** Agent project state (.dhee/agent/project.json) */
   agentState: import('./agentProject').AgentProjectFile;
 
-  /** Asset manifest (.kshana/agent/manifest.json) */
+  /** Asset manifest (.dhee/agent/manifest.json) */
   assetManifest: import('./assetManifest').AssetManifest;
 
-  /** Timeline state (.kshana/ui/timeline.json) */
+  /** Timeline state (.dhee/ui/timeline.json) */
   timelineState: import('./timeline').TimelineState;
 
-  /** Context index (.kshana/context/index.json) */
+  /** Context index (.dhee/context/index.json) */
   contextIndex: import('./context').ContextIndex;
 }
 
@@ -126,7 +126,7 @@ export const PROJECT_PATHS = {
   ROOT_MANIFEST: 'project.json',
   VIDEOS_IMPORTED: 'videos/imported',
   EXPORTS: 'exports',
-  KSHANA_DIR: '.kshana',
+  dhee_DIR: '.dhee',
   AGENT_DIR: '',
   AGENT_PROJECT: 'project.json',
   AGENT_MANIFEST: 'assets/manifest.json',

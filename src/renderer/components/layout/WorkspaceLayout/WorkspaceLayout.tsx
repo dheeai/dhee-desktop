@@ -8,7 +8,7 @@ import {
 import { ArrowLeft, MessageSquare } from 'lucide-react';
 import PreviewPanel from '../../preview/PreviewPanel/PreviewPanel';
 // Embedded mode (default since the main process now boots
-// kshana-ink in-process). Legacy WS-backed ChatPanel stays in tree
+// dhee-ink in-process). Legacy WS-backed ChatPanel stays in tree
 // at ../../chat/ChatPanel/ChatPanel until a follow-up cleanup deletes
 // it. To roll back, swap the line below to the old import.
 import ChatPanel from '../../chat/ChatPanelEmbedded/ChatPanelEmbedded';
@@ -33,7 +33,7 @@ function getProjectDisplayName(
     return null;
   }
 
-  return folderName.replace(/\.kshana$/i, '');
+  return folderName.replace(/\.dhee$/i, '');
 }
 
 /**
@@ -56,7 +56,7 @@ export default function WorkspaceLayout() {
     let cancelled = false;
     const tick = async () => {
       try {
-        const status = await window.kshana.runnerStatus();
+        const status = await window.dhee.runnerStatus();
         if (!cancelled) setRunnerActive(!!status?.active);
       } catch {
         if (!cancelled) setRunnerActive(false);
@@ -80,7 +80,7 @@ export default function WorkspaceLayout() {
       );
       if (!ok) return;
       try {
-        await window.kshana.runnerCancel();
+        await window.dhee.runnerCancel();
       } catch {
         /* best-effort — we still want to navigate even if the cancel RPC fails */
       }

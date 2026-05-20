@@ -1,6 +1,6 @@
-import type { AssetInfo, AssetManifest } from '../../types/kshana';
+import type { AssetInfo, AssetManifest } from '../../types/dhee';
 
-const PROJECT_THUMBNAIL_DIR = '.kshana/ui';
+const PROJECT_THUMBNAIL_DIR = '.dhee/ui';
 const PROJECT_THUMBNAIL_FILE_BASENAME = 'thumbnail';
 const SUPPORTED_THUMBNAIL_EXTENSIONS = new Set([
   '.jpg',

@@ -12,7 +12,7 @@ path to:
 4. Either approve, regenerate with feedback, or override and continue.
 
 Power users want this seam (so they can intervene before GPU is burned
-on downstream artifacts). Today they have to use kshana-ink CLI scripts
+on downstream artifacts). Today they have to use dhee-ink CLI scripts
 (`pnpm run-to <stage>`, `pnpm regen`, `pnpm override`) — i.e. they have
 to drop out of the desktop entirely to get the review path the desktop
 should provide natively.
@@ -22,17 +22,17 @@ finish, then redo. That's not the same as gating before generation.
 
 ## Evidence
 
-- `kshana-ink/todos/approval-gates.md` — the upstream feature spec.
+- `dhee-ink/todos/approval-gates.md` — the upstream feature spec.
   Defines `ReviewCriterion`, `ReviewConfig`, per-artifact criteria for
   character / setting / screenplay / shot / final-assembly. Unbuilt.
-- `kshana-ink/src/core/planner/types.ts:425` — `onApprovalNeeded`
+- `dhee-ink/src/core/planner/types.ts:425` — `onApprovalNeeded`
   callback declared but **dead** (zero implementations). Already
   marked `@deprecated DELETE` in the cleanup todo. The new approval-
   gates feature will introduce its own callback shape, not revive
   this one.
 - `src/renderer/components/preview/TimelinePanel/ShotRegenerateModal.tsx` —
   the closest existing modal pattern. Reuse the visual language.
-- `kshana-ink/src/server/agentRoutes.ts` — REST endpoints for
+- `dhee-ink/src/server/agentRoutes.ts` — REST endpoints for
   `run-to`, `regen`, `override`. The CLI uses these; the desktop
   could too.
 
@@ -51,21 +51,21 @@ finish, then redo. That's not the same as gating before generation.
   - Optional LLM self-review results pre-filled (if enabled).
   - Buttons: Approve, Regenerate (with feedback box), Override
     (pick a file or paste content).
-- Wired through to kshana-ink's `run-to` / `regen` / `override`
+- Wired through to dhee-ink's `run-to` / `regen` / `override`
   endpoints — desktop is a UI on top of the existing CLI surface.
 - The criteria themselves come from the template's `reviewConfig`
   (per the upstream spec) — desktop renders, doesn't define.
 
 ## Dependency
 
-This is **blocked** on `kshana-ink/todos/approval-gates.md`:
+This is **blocked** on `dhee-ink/todos/approval-gates.md`:
 - `ArtifactTypeDefinition.reviewConfig` field added to template types.
 - Each template (narrative / documentary / short / infomercial /
   graphic-novel) defines its review criteria.
 - ExecutorAgent integration (the new `onApprovalNeeded` flow with
   criteria + self-review).
 
-Coordinate with the kshana-ink team. Desktop work begins once the
+Coordinate with the dhee-ink team. Desktop work begins once the
 engine surface lands.
 
 ## Out of scope

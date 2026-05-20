@@ -20,7 +20,7 @@ test.describe('Harness: scenario surface switch', () => {
 
       // Then — Landing-specific UI is present, chat input is not.
       await expect(
-        page.getByRole('heading', { name: /Kshana Desktop/i }),
+        page.getByRole('heading', { name: /dhee Desktop/i }),
       ).toBeVisible();
       await expect(
         page.getByPlaceholder(/Type a task and press send/i),
@@ -28,7 +28,7 @@ test.describe('Harness: scenario surface switch', () => {
 
       // And — getSurface() reports the configured surface.
       const surface = await page.evaluate(() =>
-        window.__kshanaTest?.getSurface(),
+        window.__dheeTest?.getSurface(),
       );
       expect(surface).toBe('landing');
     });
@@ -44,7 +44,7 @@ test.describe('Harness: scenario surface switch', () => {
 
       // Then
       const surface = await page.evaluate(() =>
-        window.__kshanaTest?.getSurface(),
+        window.__dheeTest?.getSurface(),
       );
       expect(surface).toBe('chat');
     });
@@ -60,8 +60,8 @@ test.describe('Harness: bridge return seeding', () => {
       // Given — boot landing surface with a seeded recent list.
       await bootInline({ surface: 'landing', rules: [] });
       await page.evaluate(() => {
-        window.__kshanaTest!.setBridgeReturn('project.getRecent', [
-          { name: 'noir', path: '/tmp/noir.kshana', lastOpened: 1 },
+        window.__dheeTest!.setBridgeReturn('project.getRecent', [
+          { name: 'noir', path: '/tmp/noir.dhee', lastOpened: 1 },
         ]);
       });
 
@@ -72,12 +72,12 @@ test.describe('Harness: bridge return seeding', () => {
 
       // Then
       expect(recent).toEqual([
-        { name: 'noir', path: '/tmp/noir.kshana', lastOpened: 1 },
+        { name: 'noir', path: '/tmp/noir.dhee', lastOpened: 1 },
       ]);
 
       // And — the call is recorded.
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('project.getRecent'),
+        window.__dheeTest!.getCalls('project.getRecent'),
       );
       expect(calls.length).toBeGreaterThanOrEqual(1);
     });
@@ -102,7 +102,7 @@ test.describe('Harness: electron event emission', () => {
 
       // When
       await page.evaluate(() => {
-        window.__kshanaTest!.emitElectron('backend:state', {
+        window.__dheeTest!.emitElectron('backend:state', {
           status: 'ready',
           serverUrl: 'http://localhost:8001',
         });

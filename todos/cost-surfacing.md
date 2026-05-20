@@ -2,7 +2,7 @@
 
 ## Problem
 
-`kshana-ink`'s `LLMLogger` tracks tokens and cost per call. The desktop's
+`dhee-ink`'s `LLMLogger` tracks tokens and cost per call. The desktop's
 `AccountTab` shows total cloud balance. Per-shot, per-regenerate, and
 per-project cost is not surfaced anywhere visible during the action.
 Users learn the cost of regenerating shot 7 by watching their balance
@@ -14,13 +14,13 @@ better decisions; users who can't, regenerate too little.
 
 ## Evidence
 
-- `kshana-ink/src/core/llm/LLMLogger.ts` — already tracks token+cost.
+- `dhee-ink/src/core/llm/LLMLogger.ts` — already tracks token+cost.
 - `src/renderer/components/SettingsPanel/AccountTab.tsx` — surfaces
   total balance only.
 - `src/renderer/components/preview/TimelinePanel/ShotRegenerateModal.tsx` —
   the regenerate confirmation dialog. No cost line.
 - `src/renderer/components/chat/ToolCallCard` — tool call cards show
-  the workflow name and progress bar (per kshana-ink feature list).
+  the workflow name and progress bar (per dhee-ink feature list).
   No cost.
 
 ## Done means
@@ -50,6 +50,6 @@ Medium — ~2 weeks. The plumbing exists in core; the desktop work is
 threading per-call cost through the tool-call event stream and into
 the cards / modal / header.
 
-Coordinate with kshana-ink team on the event shape: `LLMLogger` is the
+Coordinate with dhee-ink team on the event shape: `LLMLogger` is the
 source of truth, but the ConversationManager event bus needs to forward
 per-call cost so the renderer can show it without polling.

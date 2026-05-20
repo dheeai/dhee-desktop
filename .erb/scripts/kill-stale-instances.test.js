@@ -2,7 +2,7 @@
 const { describe, expect, it } = require('@jest/globals');
 const { isStaleCommand, COMMAND_PATTERNS } = require('./kill-stale-instances');
 
-const PROJECT_ROOT = '/Users/ganaraj/Projects/kshana-desktop';
+const PROJECT_ROOT = '/Users/ganaraj/Projects/dhee-desktop';
 
 describe('isStaleCommand', () => {
   it('returns false when command is empty or undefined', () => {
@@ -62,10 +62,10 @@ describe('isStaleCommand', () => {
 
   it('matches the electronmon-spawned electron process by its ps title even without a path', () => {
     // ps -o command= renders this electron process as just
-    // "kshana-desktop - electronmon" — no path. But the title is
+    // "dhee-desktop - electronmon" — no path. But the title is
     // unique to this app's dev runs (it's a concat of the package
     // name and the command), so we match it unconditionally.
-    const cmd = 'kshana-desktop - electronmon  ';
+    const cmd = 'dhee-desktop - electronmon  ';
     expect(isStaleCommand(cmd, PROJECT_ROOT)).toBe(true);
     // Path scoping is irrelevant for the title-only match.
     expect(isStaleCommand(cmd, '/some/other/path')).toBe(true);
@@ -83,17 +83,17 @@ describe('isStaleCommand', () => {
   });
 
   it('does NOT match an electron process from a different project', () => {
-    // Critical safety check — running `pnpm start` in kshana-desktop
+    // Critical safety check — running `pnpm start` in dhee-desktop
     // must not nuke an unrelated Electron app.
     const otherProject = '/Users/ganaraj/Projects/some-other-electron-app';
     const cmd = `${otherProject}/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron`;
     expect(isStaleCommand(cmd, PROJECT_ROOT)).toBe(false);
   });
 
-  it('does NOT match the installed Kshana.app from /Applications', () => {
+  it('does NOT match the installed dhee.app from /Applications', () => {
     // Packaged app installs land under /Applications and don't
     // include the dev project path. Those should remain untouched.
-    const cmd = '/Applications/Kshana.app/Contents/MacOS/Kshana --some-flag';
+    const cmd = '/Applications/dhee.app/Contents/MacOS/dhee --some-flag';
     expect(isStaleCommand(cmd, PROJECT_ROOT)).toBe(false);
   });
 

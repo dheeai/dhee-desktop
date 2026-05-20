@@ -8,7 +8,7 @@
  * that single-shot edits should go through the chat agent.
  *
  * Actual invalidation goes through the existing
- * `useKshanaSession().invalidateNodes(ids)` IPC — same mechanism the
+ * `useDheeSession().invalidateNodes(ids)` IPC — same mechanism the
  * chat-driven `/reset` slash command uses. The cascade walks
  * `dependents` server-side via `applyInvalidation`, so we just need
  * to enumerate the top-level node ids matching the chosen stage's
@@ -27,7 +27,7 @@ import {
   resolveNodeIdsForTypeIds,
   type RedoFromStage,
 } from './redoFromStages';
-import { useKshanaSession } from '../../../hooks/useKshanaSession';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { postChatNotice } from '../../../utils/chatNotices';
 import styles from './RedoFromMenu.module.scss';
@@ -41,7 +41,7 @@ type MenuState =
 
 export default function RedoFromMenu() {
   const { projectDirectory } = useWorkspace();
-  const session = useKshanaSession();
+  const session = useDheeSession();
   const [state, setState] = useState<MenuState>({ kind: 'closed' });
   const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -132,7 +132,7 @@ export default function RedoFromMenu() {
     const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
     const task =
       `Continue running the kshana pipeline for ${params} all the way to ` +
-      'completion. Call kshana_run_to with no stage so it runs every pending ' +
+      'completion. Call dhee_run_to with no stage so it runs every pending ' +
       'node to the end — DO NOT skip the call even if status appears complete, ' +
       'because invalidation just flipped node(s) back to pending. Stream progress ' +
       'as nodes finish.';
@@ -140,7 +140,7 @@ export default function RedoFromMenu() {
     // Close the dialog AS SOON AS the dispatch is kicked off, NOT after
     // the full pi-agent turn finishes. session.runTask() resolves only
     // when the agent's entire conversation completes — invalidate +
-    // dispatch + status check + the dispatched kshana_run_to streaming
+    // dispatch + status check + the dispatched dhee_run_to streaming
     // its 70+ nodes back. Waiting on that left the dialog stuck on
     // "Working…" for minutes while the run actually proceeded in the
     // chat panel. The chat already surfaces every step (notices +

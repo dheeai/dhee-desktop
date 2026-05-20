@@ -22,7 +22,7 @@ import type { ProjectLifecycleState } from './classifyProjectState';
 interface ProjectRunButtonProps {
   /** Lifecycle classification (`null` while the probe is in flight). */
   projectState: ProjectLifecycleState | null;
-  /** Whether the kshana session is actively executing a task. */
+  /** Whether the dhee session is actively executing a task. */
   running: boolean;
   /** Whether the chat session is ready (sessionId issued, not connecting). */
   ready: boolean;
@@ -33,7 +33,7 @@ interface ProjectRunButtonProps {
    * shows "Stopping…" on both.
    */
   pendingCancel: boolean;
-  /** Fires "kshana_run_to project=… projectDir=…" through the chat. */
+  /** Fires "dhee_run_to project=… projectDir=…" through the chat. */
   onStart: () => void;
   /** Sends a cancel request. The button immediately flips to
    *  Stopping… until `running` returns false. */
@@ -88,7 +88,7 @@ export default function ProjectRunButton({
         }}
       >
         {stopping ? (
-          <Loader2 size={13} className="kshana-spin" />
+          <Loader2 size={13} className="dhee-spin" />
         ) : (
           <Square size={11} fill="currentColor" strokeWidth={0} />
         )}

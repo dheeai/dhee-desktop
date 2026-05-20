@@ -25,7 +25,7 @@ test('chat: requesting s1 shot 1 renders tool card + image', async ({
   await expect(generatedImg).toHaveCount(1);
   await expect(generatedImg).toHaveAttribute(
     'src',
-    'file:///tmp/noir.kshana/.kshana/cache/s1_shot_1.png',
+    'file:///tmp/noir.dhee/.dhee/cache/s1_shot_1.png',
   );
 
   // The assistant follow-up text renders (markdown'd to <strong>).
@@ -34,7 +34,7 @@ test('chat: requesting s1 shot 1 renders tool card + image', async ({
 
   // And runTask was actually called via the bridge.
   const runTaskCalls = await page.evaluate(() =>
-    window.__kshanaTest!.getCalls('runTask'),
+    window.__dheeTest!.getCalls('runTask'),
   );
   expect(runTaskCalls).toHaveLength(1);
   expect((runTaskCalls[0].args as { task: string }).task).toBe(

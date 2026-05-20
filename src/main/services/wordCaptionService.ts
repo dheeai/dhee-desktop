@@ -54,7 +54,7 @@ interface TranscriptionItemLike {
 const AUDIO_EXTENSIONS = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'];
 const DEFAULT_MODEL = 'tiny.en';
 const DEFAULT_WHISPER_CPP_VERSION = '1.5.5';
-const WORD_CAPTIONS_PATH = '.kshana/agent/content/word-captions.json';
+const WORD_CAPTIONS_PATH = '.dhee/agent/content/word-captions.json';
 const DEFAULT_MODEL_FILENAME = `ggml-${DEFAULT_MODEL}.bin`;
 const BUNDLED_MODEL_DIR = 'whisper-models';
 const BUNDLED_RUNTIME_DIR = 'whisper-runtime';
@@ -303,11 +303,11 @@ async function getWhisperOutputBaseCandidates(
 ): Promise<WhisperTempLocation[]> {
   const projectTempDir = path.join(
     projectDirectory,
-    '.kshana',
+    '.dhee',
     'temp',
     'captions',
   );
-  const systemTempDir = path.join(app.getPath('temp'), 'kshana', 'captions');
+  const systemTempDir = path.join(app.getPath('temp'), 'dhee', 'captions');
   const userDataTempDir = path.join(
     app.getPath('userData'),
     'temp',
@@ -676,7 +676,7 @@ async function getAudioDurationSeconds(audioPath: string): Promise<number> {
 async function pickLongestAudio(
   projectDirectory: string,
 ): Promise<string | null> {
-  const audioDir = path.join(projectDirectory, '.kshana', 'agent', 'audio');
+  const audioDir = path.join(projectDirectory, '.dhee', 'agent', 'audio');
   let entries: string[] = [];
   try {
     entries = await fs.readdir(audioDir);

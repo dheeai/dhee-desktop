@@ -8,18 +8,18 @@ import {
 describe('remotionNodePath', () => {
   it('normalizes app.asar path segments to app.asar.unpacked', () => {
     const normalized = normalizeNodePathEntry(
-      '/Applications/Kshana.app/Contents/Resources/app.asar/node_modules',
+      '/Applications/dhee.app/Contents/Resources/app.asar/node_modules',
       '/',
     );
     expect(normalized).toContain(
-      '/Applications/Kshana.app/Contents/Resources/app.asar.unpacked/node_modules',
+      '/Applications/dhee.app/Contents/Resources/app.asar.unpacked/node_modules',
     );
   });
 
   it('builds deterministic NODE_PATH, preferring unpacked and keeping packaged fallback', () => {
-    const resourcesPath = '/Applications/Kshana.app/Contents/Resources';
+    const resourcesPath = '/Applications/dhee.app/Contents/Resources';
     const rawNodePath = [
-      '/Applications/Kshana.app/Contents/Resources/app.asar/node_modules',
+      '/Applications/dhee.app/Contents/Resources/app.asar/node_modules',
       '/tmp/custom-node-modules',
     ].join(path.delimiter);
 

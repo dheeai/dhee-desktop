@@ -25,20 +25,20 @@ test.describe('Feature: Manifest watch reaction', () => {
       });
       await bootInline({
         surface: 'workspace',
-        project: { name: 'noir', directory: '/tmp/noir.kshana' },
+        project: { name: 'noir', directory: '/tmp/noir.dhee' },
         rules: [],
       });
 
       // Record baseline readFile call count (project load may already
       // have triggered some reads).
       const baseline = await page.evaluate(
-        () => window.__kshanaTest!.getCalls('project.readFile').length,
+        () => window.__dheeTest!.getCalls('project.readFile').length,
       );
 
       // When — emit manifest-written for the assets manifest path
       await page.evaluate(() => {
-        window.__kshanaTest!.emitElectron('project:manifest-written', {
-          path: '/tmp/noir.kshana/assets/manifest.json',
+        window.__dheeTest!.emitElectron('project:manifest-written', {
+          path: '/tmp/noir.dhee/assets/manifest.json',
         });
       });
 
@@ -47,7 +47,7 @@ test.describe('Feature: Manifest watch reaction', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('project.readFile').length,
+              () => window.__dheeTest!.getCalls('project.readFile').length,
             ),
           { timeout: 5_000 },
         )

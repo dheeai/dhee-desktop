@@ -41,7 +41,7 @@ export function initUILog(): void {
   try {
     ensureLogDir();
     const header = `════════════════════════════════════════════════════════════════════════════════
- KSHANA DESKTOP SESSION LOG
+ dhee DESKTOP SESSION LOG
  Started: ${new Date().toISOString()}
 ════════════════════════════════════════════════════════════════════════════════
 `;

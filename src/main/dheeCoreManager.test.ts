@@ -1,5 +1,5 @@
 /**
- * Tests for `KshanaCoreManager` — the main-process owner of the
+ * Tests for `dheeCoreManager` — the main-process owner of the
  * embedded `ConversationManager`.
  *
  * Goal: verify the manager translates AppSettings into env vars
@@ -7,7 +7,7 @@
  * ConversationEvents callback to the supplied event sink, and cleans
  * up correctly on stop()/restart().
  *
- * Strategy: mock `kshana-ink/manager` with a fake ConversationManager
+ * Strategy: mock `dhee-ink/manager` with a fake ConversationManager
  * whose runTask synchronously invokes provided ConversationEvents
  * callbacks. The mock records construction order so we can assert
  * env vars were set before the constructor ran.
@@ -36,7 +36,7 @@ class FakeConversationManager {
       LLM_PROVIDER: process.env['LLM_PROVIDER'],
       OPENAI_API_KEY: process.env['OPENAI_API_KEY'],
       COMFYUI_BASE_URL: process.env['COMFYUI_BASE_URL'],
-      KSHANA_PROJECT_DIR: process.env['KSHANA_PROJECT_DIR'],
+      dhee_PROJECT_DIR: process.env['dhee_PROJECT_DIR'],
     });
     mockState.lastInstance = this;
   }
@@ -62,7 +62,7 @@ class FakeConversationManager {
       onAgentText?: (sessionId: string, text: string, isFinal: boolean) => void;
     },
   ) {
-    events?.onToolCall?.('s-1', 'tc-1', 'kshana_run_to', { project: 'p1' });
+    events?.onToolCall?.('s-1', 'tc-1', 'dhee_run_to', { project: 'p1' });
     events?.onAgentText?.('s-1', 'done', true);
     return { status: 'completed' as const, output: 'done', todos: [] };
   }
@@ -95,12 +95,12 @@ jest.mock('electron', () => ({
 
 // Imported AFTER the jest.mock calls so the mock binds.
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { KshanaCoreManager, __setManagerLoader } = require('./kshanaCoreManager') as typeof import('./kshanaCoreManager');
+const { dheeCoreManager, __setManagerLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
 
 // Inject the FakeConversationManager via the loader seam — production code
 // uses a `webpackIgnore` dynamic import to load the real ESM bundle;
 // tests bypass that by substituting the loader.
-// FakeConversationManager only implements the surface KshanaCoreManager
+// FakeConversationManager only implements the surface dheeCoreManager
 // calls. Cast through `unknown` to skip TS structural checks against
 // the real ConversationManager class — the production facade only
 // touches the methods the fake provides.
@@ -176,14 +176,14 @@ beforeEach(() => {
   delete process.env['OPENAI_API_KEY'];
   delete process.env['OPENAI_BASE_URL'];
   delete process.env['OPENAI_MODEL'];
-  delete process.env['KSHANA_CLOUD'];
-  delete process.env['KSHANA_CLOUD_URL'];
+  delete process.env['dhee_CLOUD'];
+  delete process.env['dhee_CLOUD_URL'];
   delete process.env['LLM_CONTEXT_TOKENS'];
   delete process.env['COMFY_MODE'];
   delete process.env['COMFY_CLOUD_API_KEY'];
   delete process.env['COMFYUI_BASE_URL'];
   delete process.env['COMFYUI_TIMEOUT'];
-  delete process.env['KSHANA_PROJECT_DIR'];
+  delete process.env['dhee_PROJECT_DIR'];
   delete process.env['GOOGLE_API_KEY'];
   delete process.env['GEMINI_MODEL'];
   delete process.env['VLM_PROVIDER'];
@@ -201,9 +201,9 @@ beforeEach(() => {
   }
 });
 
-describe('KshanaCoreManager', () => {
+describe('dheeCoreManager', () => {
   it('start() writes LLM_PROVIDER and OPENAI_API_KEY to process.env BEFORE constructing ConversationManager', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
 
     expect(mockState.envSnapshots).toHaveLength(1);
@@ -212,14 +212,14 @@ describe('KshanaCoreManager', () => {
   });
 
   // ── Mode-routing tests ──────────────────────────────────────────────
-  // These pin the env shape kshana-core sees for each ComfyUI mode the
+  // These pin the env shape dhee-core sees for each ComfyUI mode the
   // user can be in. Three paths matter:
-  //   1. Kshana Cloud signed in → COMFYUI_BASE_URL=<websiteUrl>/comfy/api
+  //   1. dhee Cloud signed in → COMFYUI_BASE_URL=<websiteUrl>/comfy/api
   //      (covered by the test below).
   //   2. Local ComfyUI, no cloud auth → COMFYUI_BASE_URL=<user's local url>,
   //      COMFY_MODE='local', no COMFY_CLOUD_API_KEY.
   //   3. Direct ComfyUI Cloud (cloud.comfy.org) with the user's own key,
-  //      no Kshana auth → COMFY_MODE='cloud', COMFY_CLOUD_API_KEY=user key.
+  //      no dhee auth → COMFY_MODE='cloud', COMFY_CLOUD_API_KEY=user key.
   //
   // The "wait, why is it hitting localhost:3000" bug we hit in the wild
   // happened because path 1 silently overrides paths 2 and 3 — the user
@@ -227,7 +227,7 @@ describe('KshanaCoreManager', () => {
   // so the override won. These tests document the precedence.
 
   it('local mode: routes COMFYUI_BASE_URL to the user-configured local URL with COMFY_MODE=local', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       comfyuiMode: 'custom',
@@ -239,13 +239,13 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFYUI_BASE_URL']).toBe('http://127.0.0.1:8188');
     // No cloud key should leak into a local-mode start.
     expect(process.env['COMFY_CLOUD_API_KEY']).toBeUndefined();
-    // Kshana Cloud env is absent — no signed-in token in this scenario.
-    expect(process.env['KSHANA_CLOUD']).toBeUndefined();
-    expect(process.env['KSHANA_CLOUD_URL']).toBeUndefined();
+    // dhee Cloud env is absent — no signed-in token in this scenario.
+    expect(process.env['dhee_CLOUD']).toBeUndefined();
+    expect(process.env['dhee_CLOUD_URL']).toBeUndefined();
   });
 
-  it('local mode: COMFYUI_BASE_URL is in process.env BEFORE ConversationManager constructs (env-set order matters for kshana-core caching)', async () => {
-    const mgr = new KshanaCoreManager();
+  it('local mode: COMFYUI_BASE_URL is in process.env BEFORE ConversationManager constructs (env-set order matters for dhee-core caching)', async () => {
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       comfyuiMode: 'custom',
@@ -259,8 +259,8 @@ describe('KshanaCoreManager', () => {
     expect(mockState.envSnapshots[0]?.COMFYUI_BASE_URL).toBe('http://127.0.0.1:8188');
   });
 
-  it('direct cloud mode (no Kshana auth): routes to user-configured cloud.comfy.org with the user-supplied key', async () => {
-    const mgr = new KshanaCoreManager();
+  it('direct cloud mode (no dhee auth): routes to user-configured cloud.comfy.org with the user-supplied key', async () => {
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       comfyuiMode: 'custom',
@@ -271,19 +271,19 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe('https://cloud.comfy.org/api');
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('user-supplied-comfy-key');
-    // Without a cloudAuth runtime, the Kshana Cloud override path
+    // Without a cloudAuth runtime, the dhee Cloud override path
     // must NOT fire — the user's settings win.
-    expect(process.env['KSHANA_CLOUD']).toBeUndefined();
-    expect(process.env['KSHANA_CLOUD_URL']).toBeUndefined();
+    expect(process.env['dhee_CLOUD']).toBeUndefined();
+    expect(process.env['dhee_CLOUD_URL']).toBeUndefined();
   });
 
-  it('Kshana Cloud auth overrides user comfyuiUrl: signed-in token wins over a local-mode setting', async () => {
-    // The user has a local ComfyUI URL configured AND a valid Kshana
+  it('dhee Cloud auth overrides user comfyuiUrl: signed-in token wins over a local-mode setting', async () => {
+    // The user has a local ComfyUI URL configured AND a valid dhee
     // Cloud session. Today the cloud override silently takes
     // precedence — pin that behavior so a future refactor that
     // changes precedence (e.g. respecting comfyuiMode='custom' over
     // cloudAuth) trips this test and prompts a deliberate decision.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -308,8 +308,8 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
   });
 
-  it('Kshana Cloud auth sets ComfyUI proxy env when comfyBackend=cloud (signed-in users get cloud ComfyUI when they opt in)', async () => {
-    const mgr = new KshanaCoreManager();
+  it('dhee Cloud auth sets ComfyUI proxy env when comfyBackend=cloud (signed-in users get cloud ComfyUI when they opt in)', async () => {
+    const mgr = new dheeCoreManager();
     await mgr.start(
       { ...baseSettings, comfyBackend: 'cloud',
   vlmBackend: 'local' as const, backendMode: 'cloud' },
@@ -321,16 +321,16 @@ describe('KshanaCoreManager', () => {
 
     // Cloud-only env: identity + ComfyUI proxy. LLM is intentionally
     // absent — the Settings panel is the canonical LLM source.
-    expect(process.env['KSHANA_CLOUD']).toBe('true');
-    expect(process.env['KSHANA_CLOUD_URL']).toBe('https://desktop.example.test');
+    expect(process.env['dhee_CLOUD']).toBe('true');
+    expect(process.env['dhee_CLOUD_URL']).toBe('https://desktop.example.test');
     expect(process.env['COMFY_MODE']).toBe('cloud');
     expect(process.env['COMFYUI_BASE_URL']).toBe(
       'https://desktop.example.test/comfy/api',
     );
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
     expect(process.env['COMFYUI_TIMEOUT']).toBe('1800');
-    expect(process.env['KSHANA_PROXY_BASE_URL']).toBeUndefined();
-    expect(process.env['KSHANA_CLOUD_TOKEN']).toBeUndefined();
+    expect(process.env['dhee_PROXY_BASE_URL']).toBeUndefined();
+    expect(process.env['dhee_CLOUD_TOKEN']).toBeUndefined();
     expect(process.env['COMFY_CLOUD_AUTH_TOKEN']).toBeUndefined();
   });
 
@@ -340,7 +340,7 @@ describe('KshanaCoreManager', () => {
     // the LLM section. Result: an LM Studio user got their requests
     // sent to cloud. With per-lane gating, llmBackend='local' keeps
     // the user's Settings even while ComfyUI is on cloud.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -379,7 +379,7 @@ describe('KshanaCoreManager', () => {
     // request, because the proxy maps model ids to credit pools
     // and an unknown id produces a billing-side 402 instead of
     // the intended cloud-default model.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -388,7 +388,7 @@ describe('KshanaCoreManager', () => {
         vlmBackend: 'local' as const,
         backendMode: 'cloud',
         llmProvider: 'openai',
-        openaiBaseUrl: 'https://kshana.share.zrok.io',
+        openaiBaseUrl: 'https://dhee.share.zrok.io',
         openaiApiKey: 'should-be-ignored',
         openaiModel: 'Qwen3.5-9B-HighIQ-Heretic',
       },
@@ -408,7 +408,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('llmBackend=local + cloud auth: LLM stays on Settings (signed-in users on Local keep their proxy)', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -437,7 +437,7 @@ describe('KshanaCoreManager', () => {
     // The split-lane scenario the user asked for: route paid LLM
     // through the metered proxy while keeping ComfyUI on a
     // self-hosted GPU.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -469,7 +469,7 @@ describe('KshanaCoreManager', () => {
   it('mixed: llmBackend=local + comfyBackend=cloud — ComfyUI goes to cloud proxy, LLM uses Settings (e.g. LM Studio)', async () => {
     // The reverse split: free LLM on a local model, paid ComfyUI
     // through the metered proxy.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -500,8 +500,8 @@ describe('KshanaCoreManager', () => {
     expect(process.env['COMFY_CLOUD_API_KEY']).toBe('desktop-jwt');
   });
 
-  it('Kshana Cloud auth + Gemini in Settings: LLM stays Gemini', async () => {
-    const mgr = new KshanaCoreManager();
+  it('dhee Cloud auth + Gemini in Settings: LLM stays Gemini', async () => {
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -524,7 +524,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('runTask forwards onToolCall events to the supplied eventCb with the original payload', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     const events: Array<{ eventName: string; sessionId: string; data: unknown }> = [];
@@ -534,11 +534,11 @@ describe('KshanaCoreManager', () => {
     const toolCallEvent = events.find((e) => e.eventName === 'tool_call');
     expect(toolCallEvent).toBeDefined();
     expect(toolCallEvent?.sessionId).toBe('s-1');
-    expect(toolCallEvent?.data).toMatchObject({ toolName: 'kshana_run_to', toolCallId: 'tc-1' });
+    expect(toolCallEvent?.data).toMatchObject({ toolName: 'dhee_run_to', toolCallId: 'tc-1' });
   });
 
   it('runTask forwards onAgentText events as stream chunks', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     const events: Array<{ eventName: string; data: unknown }> = [];
@@ -551,13 +551,13 @@ describe('KshanaCoreManager', () => {
   });
 
   it('cancelTask returns false when the session does not exist', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     expect(mgr.cancelTask('does-not-exist')).toBe(false);
   });
 
   it('redoNode forwards editedPrompt unchanged to the underlying ConversationManager', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     const result = await mgr.redoNode(sessionId, 'shot_image:scene_1_shot_4', {
@@ -570,7 +570,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('restart() calls shutdown() then constructs a fresh ConversationManager', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     expect(mockState.envSnapshots).toHaveLength(1);
     await mgr.restart({ ...baseSettings, llmProvider: 'gemini', googleApiKey: 'g-key' });
@@ -580,7 +580,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('runTask before start() returns an error-shaped result rather than throwing', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     const events: Array<{ eventName: string; data: unknown }> = [];
     const result = await mgr.runTask('any', 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
     expect(result.status).toBe('failed');
@@ -588,7 +588,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('stop() calls shutdown() and subsequent runTask returns failed', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     mgr.stop();
@@ -597,27 +597,27 @@ describe('KshanaCoreManager', () => {
     expect(result.status).toBe('failed');
   });
 
-  it('start() exposes projectsDir via KSHANA_PROJECTS_DIR env (works dev + packaged, no global chdir)', async () => {
-    // kshana-ink's loadProject / projectFileIO / projectExists default
+  it('start() exposes projectsDir via dhee_PROJECTS_DIR env (works dev + packaged, no global chdir)', async () => {
+    // dhee-ink's loadProject / projectFileIO / projectExists default
     // basePath to process.cwd(). We can't chdir process-globally —
-    // kshana-desktop's main process has many `process.cwd()` callers
+    // dhee-desktop's main process has many `process.cwd()` callers
     // that would silently break. Instead we surface the right base
-    // via KSHANA_PROJECTS_DIR; kshana-ink's path defaults read it.
-    delete process.env['KSHANA_PROJECTS_DIR'];
-    const mgr = new KshanaCoreManager();
+    // via dhee_PROJECTS_DIR; dhee-ink's path defaults read it.
+    delete process.env['dhee_PROJECTS_DIR'];
+    const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
-    expect(process.env['KSHANA_PROJECTS_DIR']).toBe(FAKE_PROJECTS_DIR);
+    expect(process.env['dhee_PROJECTS_DIR']).toBe(FAKE_PROJECTS_DIR);
   });
 
   // ── LLM routing/tier env hygiene ────────────────────────────────────
-  // kshana-core/.env can populate LLM_ROUTING_ENABLED + LLM_TIER_*_*
+  // dhee-core/.env can populate LLM_ROUTING_ENABLED + LLM_TIER_*_*
   // env vars before the desktop's applyEnvFromSettings runs. Pre-fix,
   // those vars survived and the LLMRouter / pi-agent silently routed
   // every call to whatever .env said (e.g. openrouter/deepseek),
   // ignoring the Settings panel entirely. Settings is the canonical
   // source — these tests pin that hygiene.
 
-  it('start() clears LLM_ROUTING_ENABLED + LLM_TIER_*_* + LLM_PURPOSE__* leaked from kshana-core/.env when llmUseSameForAllTiers=true', async () => {
+  it('start() clears LLM_ROUTING_ENABLED + LLM_TIER_*_* + LLM_PURPOSE__* leaked from dhee-core/.env when llmUseSameForAllTiers=true', async () => {
     process.env['LLM_ROUTING_ENABLED'] = 'true';
     process.env['LLM_TIER_HEAVY_PROVIDER'] = 'openrouter';
     process.env['LLM_TIER_HEAVY_API_KEY'] = 'sk-or-v1-stale';
@@ -628,7 +628,7 @@ describe('KshanaCoreManager', () => {
     process.env['LLM_TIER_LIGHT_MODEL'] = 'deepseek/deepseek-v4-flash';
     process.env['LLM_PURPOSE__CONTENT__STORY_PROVIDER'] = 'openrouter';
 
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({ ...baseSettings, llmUseSameForAllTiers: true });
 
     expect(process.env['LLM_ROUTING_ENABLED']).toBeUndefined();
@@ -646,7 +646,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('start() with llmUseSameForAllTiers=false writes LLM_ROUTING_ENABLED=true + per-tier env from settings', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       llmUseSameForAllTiers: false,
@@ -704,7 +704,7 @@ describe('KshanaCoreManager', () => {
     // from a tier the user once configured against api.openai.com)
     // hits the cloud proxy, lands in a credit pool the user
     // doesn't have, and returns 402.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -761,14 +761,14 @@ describe('KshanaCoreManager', () => {
 
   // ── VLM (vision judge) env wiring ───────────────────────────────────
   // VLM has its own env block (VLM_PROVIDER / VLM_API_KEY / VLM_MODEL /
-  // VLM_BASE_URL) read by getVLMConfig() in kshana-core. Pre-fix the
+  // VLM_BASE_URL) read by getVLMConfig() in dhee-core. Pre-fix the
   // desktop never set any of these — VLM was effectively dead unless
-  // the user edited kshana-core/.env directly.
+  // the user edited dhee-core/.env directly.
 
   it('GIVEN vlmBackend=cloud + cloud auth + stale vlmModel WHEN start runs THEN cloud proxy URL/token win and settings.vlmModel is ignored', async () => {
     // Same contract as cloud-LLM: in cloud mode the proxy owns
     // model selection, so settings.vlmModel must NOT ride through.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -798,7 +798,7 @@ describe('KshanaCoreManager', () => {
     // The third-lane independence: a user can route paid LLM through
     // the metered cloud proxy while keeping VLM judging on a local
     // self-hosted vision model (e.g. LM Studio with qwen-vl).
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -834,7 +834,7 @@ describe('KshanaCoreManager', () => {
     // Independent-lane split: free local LLM (LM Studio) + VLM
     // judging via cloud. The local lane reads settings; the cloud
     // lane ignores vlmModel and uses the cloud-default sentinel.
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(
       {
         ...baseSettings,
@@ -868,7 +868,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('vlmJudge=true + local LLM: VLM env reflects user Settings (openai-compatible)', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       vlmJudge: true,
@@ -886,7 +886,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('vlmJudge=true + local LLM + Gemini VLM: VLM_BASE_URL set to gemini openai-compat endpoint', async () => {
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       vlmJudge: true,
@@ -909,7 +909,7 @@ describe('KshanaCoreManager', () => {
     process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
     process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
 
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       vlmJudge: true,
@@ -933,7 +933,7 @@ describe('KshanaCoreManager', () => {
     process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
     process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
 
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
       vlmJudge: false,
@@ -946,9 +946,9 @@ describe('KshanaCoreManager', () => {
     expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
   });
 
-  it('two consecutive starts while signed in to Kshana Cloud preserve OPENAI_API_KEY from the dev .env fallback', async () => {
+  it('two consecutive starts while signed in to dhee Cloud preserve OPENAI_API_KEY from the dev .env fallback', async () => {
     // Regression: clearCloudProxyEnv used to delete OPENAI_API_KEY
-    // whenever the previous start had set KSHANA_CLOUD='true'. That
+    // whenever the previous start had set dhee_CLOUD='true'. That
     // dated from when cloud auth also rerouted the LLM. After the
     // "Settings is canonical for LLM" fix, cloud auth no longer owns
     // OPENAI_*; deleting them on restart wiped the .env fallback that
@@ -959,7 +959,7 @@ describe('KshanaCoreManager', () => {
       ...baseSettings,
       llmProvider: 'openai',
       openaiApiKey: '', // empty — relying on .env fallback
-      openaiBaseUrl: 'https://kshana.share.zrok.io',
+      openaiBaseUrl: 'https://dhee.share.zrok.io',
       openaiModel: 'Qwen3.6-35B-A3B',
     };
     const cloudAuth = {
@@ -967,7 +967,7 @@ describe('KshanaCoreManager', () => {
       desktopToken: 'desktop-jwt',
     };
 
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(settings, cloudAuth);
     expect(process.env['OPENAI_API_KEY']).toBe('sk-from-dotenv');
 
@@ -978,7 +978,7 @@ describe('KshanaCoreManager', () => {
   });
 
   it('start() does NOT clobber pre-existing process.env values when AppSettings has empty strings', async () => {
-    // Pre-populate the env as kshana-ink/.env would. Setting must
+    // Pre-populate the env as dhee-ink/.env would. Setting must
     // pass through untouched when the matching AppSettings field is
     // empty — otherwise dev users with a working .env get
     // "No API key found" because applyEnvFromSettings overwrites
@@ -992,7 +992,7 @@ describe('KshanaCoreManager', () => {
       openRouterApiKey: '',
     };
 
-    const mgr = new KshanaCoreManager();
+    const mgr = new dheeCoreManager();
     await mgr.start(emptySettings);
 
     expect(process.env['OPENAI_API_KEY']).toBe('sk-from-dotenv');

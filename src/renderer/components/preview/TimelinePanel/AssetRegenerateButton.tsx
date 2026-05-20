@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
 import { RotateCcw } from 'lucide-react';
-import { useKshanaSession } from '../../../hooks/useKshanaSession';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import styles from './AssetRegenerateButton.module.scss';
 
 export type AssetRegenerateScope = 'prompt' | 'image_only';
@@ -40,7 +40,7 @@ export default function AssetRegenerateButton({
   onActionStart,
   onActionResult,
 }: AssetRegenerateButtonProps) {
-  const { sessionId, redoNode } = useKshanaSession();
+  const { sessionId, redoNode } = useDheeSession();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

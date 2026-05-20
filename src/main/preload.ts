@@ -18,15 +18,15 @@ import type {
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 
-// ─── kshana bridge — typed access to the embedded kshana-ink ──────────
+// ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
 // direct main-process IPC layer. Channel + payload shapes live in
-// `src/shared/kshanaIpc.ts`.
+// `src/shared/dheeIpc.ts`.
 import {
-  KSHANA_CHANNELS,
-  KSHANA_EVENT_CHANNEL,
-  type KshanaEvent,
-  type KshanaEventName,
+  dhee_CHANNELS,
+  dhee_EVENT_CHANNEL,
+  type dheeEvent,
+  type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
   type RunnerCancelResponse,
@@ -59,7 +59,7 @@ import {
   type ClearChatHistoryResponse,
   type GetHistoryRequest,
   type GetHistoryResponse,
-} from '../shared/kshanaIpc';
+} from '../shared/dheeIpc';
 
 interface WordTimestamp {
   text: string;
@@ -707,80 +707,80 @@ const accountBridge = {
   },
 };
 
-const kshanaBridge = {
+const dheeBridge = {
   createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.CREATE_SESSION, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.CREATE_SESSION, req);
   },
   configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.CONFIGURE_PROJECT, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.CONFIGURE_PROJECT, req);
   },
   runTask(req: RunTaskRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.RUN_TASK, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.RUN_TASK, req);
   },
   sendResponse(req: SendResponseRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.SEND_RESPONSE, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.SEND_RESPONSE, req);
   },
   cancelTask(req: CancelTaskRequest): Promise<CancelTaskResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.CANCEL_TASK, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.CANCEL_TASK, req);
   },
   redoNode(req: RedoNodeRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.REDO_NODE, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.REDO_NODE, req);
   },
   focusProject(req: FocusProjectRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.FOCUS_PROJECT, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.FOCUS_PROJECT, req);
   },
   setAutonomous(req: SetAutonomousRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.SET_AUTONOMOUS, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.SET_AUTONOMOUS, req);
   },
   setPiOversight(req: SetPiOversightRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.SET_PI_OVERSIGHT, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.SET_PI_OVERSIGHT, req);
   },
   setVlmJudge(req: SetVlmJudgeRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.SET_VLM_JUDGE, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.SET_VLM_JUDGE, req);
   },
   deleteSession(req: DeleteSessionRequest): Promise<OkResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_SESSION, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.DELETE_SESSION, req);
   },
   clearChatHistory(
     req: ClearChatHistoryRequest,
   ): Promise<ClearChatHistoryResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.CLEAR_CHAT_HISTORY, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.CLEAR_CHAT_HISTORY, req);
   },
   getHistory(req: GetHistoryRequest): Promise<GetHistoryResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.GET_HISTORY, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.GET_HISTORY, req);
   },
   runnerCancel(): Promise<RunnerCancelResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_CANCEL);
+    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL);
   },
   runnerStatus(): Promise<RunnerStatusResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.RUNNER_STATUS);
+    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_STATUS);
   },
   invalidateNodes(
     req: InvalidateNodesRequest,
   ): Promise<InvalidateNodesResponse> {
-    return ipcRenderer.invoke(KSHANA_CHANNELS.INVALIDATE_NODES, req);
+    return ipcRenderer.invoke(dhee_CHANNELS.INVALIDATE_NODES, req);
   },
   /**
-   * Custom ComfyUI workflow management. Talks directly to kshana-core's
+   * Custom ComfyUI workflow management. Talks directly to dhee-core's
    * WorkflowModeRegistry via IPC handlers — no HTTP server involved.
    * The conversational add-a-workflow flow goes through pi-agent
    * tools instead; these are for the Settings → Workflows tab.
    */
   workflows: {
     list(req?: ListWorkflowsRequest): Promise<ListWorkflowsResponse> {
-      return ipcRenderer.invoke(KSHANA_CHANNELS.LIST_WORKFLOWS, req);
+      return ipcRenderer.invoke(dhee_CHANNELS.LIST_WORKFLOWS, req);
     },
     get(req: GetWorkflowRequest): Promise<GetWorkflowResponse> {
-      return ipcRenderer.invoke(KSHANA_CHANNELS.GET_WORKFLOW, req);
+      return ipcRenderer.invoke(dhee_CHANNELS.GET_WORKFLOW, req);
     },
     update(req: UpdateWorkflowRequest): Promise<UpdateWorkflowResponse> {
-      return ipcRenderer.invoke(KSHANA_CHANNELS.UPDATE_WORKFLOW, req);
+      return ipcRenderer.invoke(dhee_CHANNELS.UPDATE_WORKFLOW, req);
     },
     delete(req: DeleteWorkflowRequest): Promise<DeleteWorkflowResponse> {
-      return ipcRenderer.invoke(KSHANA_CHANNELS.DELETE_WORKFLOW, req);
+      return ipcRenderer.invoke(dhee_CHANNELS.DELETE_WORKFLOW, req);
     },
     validate(req: ValidateWorkflowRequest): Promise<ValidateWorkflowResponse> {
-      return ipcRenderer.invoke(KSHANA_CHANNELS.VALIDATE_WORKFLOW, req);
+      return ipcRenderer.invoke(dhee_CHANNELS.VALIDATE_WORKFLOW, req);
     },
   },
   /**
@@ -789,23 +789,23 @@ const kshanaBridge = {
    * only fire for matching events. Returns an unsubscribe function.
    */
   on(
-    eventName: KshanaEventName | '*',
-    cb: (event: KshanaEvent) => void,
+    eventName: dheeEventName | '*',
+    cb: (event: dheeEvent) => void,
   ): () => void {
-    const listener = (_event: IpcRendererEvent, payload: KshanaEvent) => {
+    const listener = (_event: IpcRendererEvent, payload: dheeEvent) => {
       if (eventName === '*' || payload.eventName === eventName) {
         cb(payload);
       }
     };
-    ipcRenderer.on(KSHANA_EVENT_CHANNEL, listener);
+    ipcRenderer.on(dhee_EVENT_CHANNEL, listener);
     return () => {
-      ipcRenderer.removeListener(KSHANA_EVENT_CHANNEL, listener);
+      ipcRenderer.removeListener(dhee_EVENT_CHANNEL, listener);
     };
   },
 };
 
-contextBridge.exposeInMainWorld('kshana', kshanaBridge);
-export type KshanaBridge = typeof kshanaBridge;
+contextBridge.exposeInMainWorld('dhee', dheeBridge);
+export type dheeBridge = typeof dheeBridge;
 
 // Diagnostics bridge — surfaced as window.electron.logs in the
 // renderer. Reveal opens the platform file browser at the active log

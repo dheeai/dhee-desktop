@@ -18,7 +18,7 @@ function installBridge(bridge: Partial<WorkflowsBridge>): WorkflowsBridge {
     delete: bridge.delete ?? jest.fn(async () => ({ ok: true })),
     validate: bridge.validate ?? jest.fn(async () => ({ ok: true, valid: true })),
   };
-  Object.defineProperty(window, 'kshana', {
+  Object.defineProperty(window, 'dhee', {
     configurable: true,
     value: { workflows: full },
   });
@@ -45,7 +45,7 @@ const builtIn = {
 
 describe('WorkflowsTab', () => {
   afterEach(() => {
-    Object.defineProperty(window, 'kshana', { configurable: true, value: undefined });
+    Object.defineProperty(window, 'dhee', { configurable: true, value: undefined });
   });
 
   it('shows the empty state when there are no user workflows', async () => {

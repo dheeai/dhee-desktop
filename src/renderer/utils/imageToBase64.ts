@@ -37,7 +37,7 @@ export async function imageToBase64(imagePath: string): Promise<string | null> {
 export function shouldUseBase64(filePath: string): boolean {
   // In test environments (Playwright), file:// URLs can't be loaded by <img>.
   // Use base64 for any local file path so images render reliably in tests.
-  if (typeof window !== 'undefined' && window.__kshanaTest !== undefined) {
+  if (typeof window !== 'undefined' && window.__dheeTest !== undefined) {
     return (
       filePath.startsWith('/') ||
       filePath.startsWith('file://') ||

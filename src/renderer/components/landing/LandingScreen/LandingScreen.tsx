@@ -43,9 +43,9 @@ const Settings = _Settings as unknown as LucideFC;
 const Sparkles = _Sparkles as unknown as LucideFC;
 
 const THUMBNAIL_CANDIDATES = [
-  '.kshana/ui/thumbnail.jpg',
-  '.kshana/ui/thumbnail.png',
-  '.kshana/ui/thumbnail.webp',
+  '.dhee/ui/thumbnail.jpg',
+  '.dhee/ui/thumbnail.png',
+  '.dhee/ui/thumbnail.webp',
   'thumbnail.jpg',
   'thumbnail.png',
   'thumbnail.webp',

@@ -8,13 +8,13 @@ in `package.json` lists ~50 directories that need to ship outside the
 asar, each of which is a native module or a heavy dependency. First-
 launch native rebuilds (`electron-rebuild`) can fail in ways the user
 cannot diagnose — a corrupted `better-sqlite3` or `sharp` build means
-the app silently fails to start kshana-core.
+the app silently fails to start dhee-core.
 
 Symptoms today:
 - Installer size is large enough that download abandonment is a real
   concern for trial users.
 - Native rebuild during `electron-builder build` is brittle — see the
-  `prepare:app-deps` flow that runs `npm pack` on kshana-core, rewrites
+  `prepare:app-deps` flow that runs `npm pack` on dhee-core, rewrites
   `release/app/package.json` to depend on the tarball, then runs a
   full `npm install` in `release/app`. Many failure points; little
   observability.
@@ -24,13 +24,13 @@ Symptoms today:
 ## Evidence
 
 - `package.json` `build.asarUnpack` — ~50 entries, including the
-  entire `kshana-core` tarball, all of Remotion + bundler + webpack,
+  entire `dhee-core` tarball, all of Remotion + bundler + webpack,
   better-sqlite3, sharp, fastify, openai, mapbox, three.js,
   `@react-three/*`, `@remotion/*`, plus `.pnpm/*` for transitive deps.
 - `package.json` scripts:
-  - `verify:kshana-core` — checks sibling repo + writes
-    `.kshana-core-version.json`.
-  - `prepare:app-deps` — `npm pack` on `../kshana-core`, writes
+  - `verify:dhee-core` — checks sibling repo + writes
+    `.dhee-core-version.json`.
+  - `prepare:app-deps` — `npm pack` on `../dhee-core`, writes
     tarball to `release/app/vendor`, rewrites `release/app/package.json`,
     runs production `npm install`.
   - `package:mac` / `package:win` / `package:all` — chain of
@@ -55,8 +55,8 @@ Three reductions, can be tackled independently:
 - Target: cut DMG size by 25–40%.
 
 **Reduction 2 — Replace tarball-pack with a direct build:**
-- `prepare:app-deps` packs and reinstalls `kshana-core` as a tarball
-  to avoid a symlink-in-asar bug. Instead, build kshana-core's
+- `prepare:app-deps` packs and reinstalls `dhee-core` as a tarball
+  to avoid a symlink-in-asar bug. Instead, build dhee-core's
   `dist/` directly and copy it as a sibling under `release/app/dist`,
   with a single `package.json` entry that points at the local path.
 - Reduces install time, removes a npm-pack failure surface, makes the
@@ -77,7 +77,7 @@ Three reductions, can be tackled independently:
 ## Effort
 
 Reduction 1: 1 week of careful trimming + verification.
-Reduction 2: 1 week, depends on kshana-core being directly importable.
+Reduction 2: 1 week, depends on dhee-core being directly importable.
 Reduction 3: 2–3 days.
 
 Order: start with Reduction 1 (easiest, biggest user-visible impact).

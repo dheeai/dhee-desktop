@@ -1,13 +1,13 @@
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
-import type { KshanaSessionApi } from '../../../hooks/useKshanaSession';
+import type { DheeSessionApi } from '../../../hooks/useDheeSession';
 
 // Hoisted mock state so beforeEach can re-shape the session API
-// returned by `useKshanaSession`. Done this way (rather than calling
+// returned by `useDheeSession`. Done this way (rather than calling
 // jest.mock inside each test) so the same module reference satisfies
 // the AssetRegenerateButton import.
-type RedoNodeFn = KshanaSessionApi['redoNode'];
+type RedoNodeFn = DheeSessionApi['redoNode'];
 const sessionMock: {
   sessionId: string | null;
   redoNode: jest.Mock<RedoNodeFn>;
@@ -16,11 +16,11 @@ const sessionMock: {
   redoNode: jest.fn<RedoNodeFn>(),
 };
 
-jest.mock('../../../hooks/useKshanaSession', () => ({
+jest.mock('../../../hooks/useDheeSession', () => ({
   __esModule: true,
-  useKshanaSession: (): Partial<KshanaSessionApi> => ({
+  useDheeSession: (): Partial<DheeSessionApi> => ({
     sessionId: sessionMock.sessionId,
-    redoNode: sessionMock.redoNode as unknown as KshanaSessionApi['redoNode'],
+    redoNode: sessionMock.redoNode as unknown as DheeSessionApi['redoNode'],
   }),
 }));
 

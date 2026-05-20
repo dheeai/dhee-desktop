@@ -63,7 +63,7 @@ test('edit fails then retry succeeds: error renders, recovery succeeds', async (
 
   // Bridge call sequence sanity.
   const calls = await page.evaluate(() =>
-    window.__kshanaTest!.getCalls('runTask'),
+    window.__dheeTest!.getCalls('runTask'),
   );
   expect(calls.map((c) => (c.args as { task: string }).task)).toEqual([
     'show me s1 shot 1',

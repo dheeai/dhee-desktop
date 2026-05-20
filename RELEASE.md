@@ -1,15 +1,15 @@
 # GitHub Releases Guide
 
-This document explains how to create releases for Kshana Desktop using GitHub Actions.
+This document explains how to create releases for Dhee Desktop using GitHub Actions.
 
 ## Overview
 
-When you push a version tag, GitHub Actions automatically:
+When you push a `studio-v*` source tag, GitHub Actions automatically:
 1. Checks out the code
-2. Installs dependencies (including kshana-core)
+2. Installs dependencies (including dhee-core)
 3. Builds the Electron app
 4. Creates DMG installers for Mac (arm64 + x64)
-5. Publishes to GitHub Releases
+5. Publishes to GitHub Releases in `dheeai/dhee-studio`
 
 ## Quick Start
 
@@ -20,22 +20,26 @@ When you push a version tag, GitHub Actions automatically:
 git checkout main
 git pull origin main
 
-# 2. Create and push a version tag
-git tag v1.0.0
-git push origin v1.0.0
+# 2. Create and push a studio source tag
+git tag studio-v1.0.0
+git push origin studio-v1.0.0
 
 # 3. Wait 5-10 minutes for the build to complete
-# Check progress: https://github.com/anveshane/kshana-desktop/actions
+# Check progress: https://github.com/dheeai/dhee-desktop/actions
 ```
 
 ## Tag Format
 
-### Standard Version Tag
+### Studio Release Source Tag
 ```
-v1.0.0
-v1.0.1
-v2.0.0
+studio-v1.0.0
+studio-v1.0.1
+studio-v2.0.0
 ```
+
+Electron Builder publishes the public GitHub release using the app version
+from `package.json`, so `studio-v1.0.0` creates the public release
+`dheeai/dhee-studio/releases/tag/v1.0.0`.
 
 ## Complete Release Process
 
@@ -69,30 +73,63 @@ git push origin main
 ### Step 3: Create and Push Tag
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag studio-v1.0.0
+git push origin studio-v1.0.0
 ```
 
 ### Step 4: Monitor Build
 
-1. Go to [Actions](https://github.com/anveshane/kshana-desktop/actions)
+1. Go to [Actions](https://github.com/dheeai/dhee-desktop/actions)
 2. Find the "Release" workflow run
 3. Wait for it to complete (~5-10 minutes)
 
 ### Step 5: Download Release
 
 Once complete, the release will be available at:
-- https://github.com/anveshane/kshana-desktop/releases
+- https://github.com/dheeai/dhee-studio/releases
 
 Download the DMG files:
-- `Kshana-<version>-arm64.dmg` (Apple Silicon)
-- `Kshana-<version>.dmg` (Intel Mac)
+- `Dhee-<version>-arm64.dmg` (Apple Silicon)
+- `Dhee-<version>-x64.dmg` or `Dhee-<version>.dmg` (Intel Mac, depending on builder output)
+
+### Stable filenames (same URL every release)
+
+After each release, the build also publishes **fixed-name copies** (via `afterAllArtifactBuild` in `package.json`) so you can link to GitHub “Latest” without changing filenames:
+
+| Platform | Stable asset on Latest |
+|----------|-------------------------|
+| macOS Apple Silicon | `Dhee-mac-arm64.dmg` |
+| macOS Intel | `Dhee-mac-x64.dmg` |
+| Windows x64 | `Dhee-windows-x64-setup.exe` |
+| Linux x86_64 | `Dhee-linux-x86_64.AppImage` |
+
+Example URLs (after the next successful tagged release):
+
+- `https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-arm64.dmg`
+- `https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-x64.dmg`
+- `https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-windows-x64-setup.exe`
+
+Versioned originals (for support and reproducibility) remain on the same release as today.
+
+The marketing site (`dhee-website`) reads these via environment variables. See the **Dhee Desktop downloads** section in `dhee-website/.env.example` at the monorepo root and copy those values into production hosting (Vercel, Cloud Run, and so on).
+
+### Verify stable assets after a release
+
+Use the `dhee-studio` latest URLs once the workflow has finished:
+
+```bash
+curl -sI "https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-arm64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-mac-x64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-studio/releases/latest/download/Dhee-windows-x64-setup.exe" | head -n 5
+```
+
+You should see `HTTP/2 302` (or `301`) with a `location:` header pointing at an object URL or the tagged release asset. If you get `404`, the stable files were not attached—check the Actions logs for the `afterAllArtifactBuild` step.
 
 ## What Gets Built
 
 The workflow builds:
 
-1. **kshana-core** (TypeScript backend)
+1. **dhee-core** (TypeScript backend)
    - Built with tsup
    - Bundled into the Electron app
 
@@ -103,13 +140,14 @@ The workflow builds:
 
 3. **Release Assets**
    - Automatically uploaded to GitHub Releases
-   - DMG files for both Mac architectures
+   - DMG files for both Mac architectures (versioned names)
+   - Stable-named duplicates for website / `releases/latest/download/` links (see above)
 
 ## Troubleshooting
 
 ### Workflow Not Running?
 
-- **Check tag format**: Must match `v*.*.*` pattern
+- **Check tag format**: Must match the `studio-v*` workflow trigger
 - **Check Actions tab**: Look for any workflow errors
 - **Verify tag was pushed**: `git ls-remote --tags origin`
 
@@ -117,7 +155,7 @@ The workflow builds:
 
 Common issues:
 - **Missing dependencies**: Check if `npm ci` fails
-- **kshana-core build errors**: Check tsup logs
+- **dhee-core build errors**: Check tsup logs
 - **Electron build errors**: Check electron-builder logs
 
 View detailed logs in the Actions tab.
@@ -137,18 +175,18 @@ git tag
 
 ### Delete a Tag (Local)
 ```bash
-git tag -d v1.0.0
+git tag -d studio-v1.0.0
 ```
 
 ### Delete a Tag (Remote)
 ```bash
-git push origin :refs/tags/v1.0.0
+git push origin :refs/tags/studio-v1.0.0
 ```
 
 ### Create Tag from Specific Commit
 ```bash
-git tag v1.0.0 <commit-hash>
-git push origin v1.0.0
+git tag studio-v1.0.0 <commit-hash>
+git push origin studio-v1.0.0
 ```
 
 ## Release Checklist
@@ -159,8 +197,8 @@ Before creating a release:
 - [ ] Version updated in `package.json` (if needed)
 - [ ] Changes committed and pushed
 - [ ] Correct branch checked out
-- [ ] kshana-core is building successfully
-- [ ] Tag name follows versioning scheme
+- [ ] dhee-core is building successfully
+- [ ] Tag name follows the `studio-v*` source-tag scheme
 
 ## Workflow Configuration
 
@@ -170,27 +208,27 @@ The workflow file is located at:
 Key settings:
 - **Runner**: `macos-14` (Apple Silicon)
 - **Node.js**: Version 20
-- **Publish**: Automatic via electron-builder
+- **Publish**: Automatic via electron-builder to `dheeai/dhee-studio`
 
 ## Support
 
 For issues or questions:
-- Check [Actions logs](https://github.com/anveshane/kshana-desktop/actions)
-- Review [GitHub Releases](https://github.com/anveshane/kshana-desktop/releases)
+- Check [Actions logs](https://github.com/dheeai/dhee-desktop/actions)
+- Review [GitHub Releases](https://github.com/dheeai/dhee-studio/releases)
 - Open an issue on GitHub
 
 ## Examples
 
 ### Release v1.0.0
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
+git tag studio-v1.0.0
+git push origin studio-v1.0.0
 ```
 
 ### Release v1.1.0 beta
 ```bash
-git tag v1.1.0-beta
-git push origin v1.1.0-beta
+git tag studio-v1.1.0-beta
+git push origin studio-v1.1.0-beta
 ```
 
 ---

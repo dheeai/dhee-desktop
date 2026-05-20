@@ -3,7 +3,7 @@ export type BackendMode = 'local' | 'cloud';
 /**
  * One backend lane (LLM or ComfyUI) routing target. The two lanes are
  * independent: a user can keep ComfyUI local while sending paid LLM
- * traffic through the metered Kshana proxy, or vice versa.
+ * traffic through the metered dhee proxy, or vice versa.
  */
 export type BackendLane = 'local' | 'cloud';
 export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
@@ -19,7 +19,7 @@ export type ThemeId =
  * Medium and Light tiers; the Heavy/primary tier still lives as flat fields
  * on AppSettings for backward-compat with persisted settings.
  *
- * Tiers map to LLMRouter purposes in kshana-core/src/core/llm/purposes.ts:
+ * Tiers map to LLMRouter purposes in dhee-core/src/core/llm/purposes.ts:
  *   - Heavy:  long-form prose (story, scenes, shot prompts, motion directives)
  *             AND the pi-agent orchestrator
  *   - Medium: structured JSON (scene breakdowns, prompt refinement, workflow analysis)
@@ -37,7 +37,7 @@ export interface LLMTierConfig {
 }
 
 export interface AccountInfo {
-  /** User ID from Kshana Cloud. */
+  /** User ID from dhee Cloud. */
   userId: string;
   email: string;
   name?: string | null;
@@ -59,14 +59,14 @@ export interface AppSettings {
    * landing screen badges, etc.
    */
   backendMode: BackendMode;
-  /** LLM routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
+  /** LLM routing target. 'cloud' requires a valid dhee Cloud sign-in. */
   llmBackend: BackendLane;
-  /** ComfyUI routing target. 'cloud' requires a valid Kshana Cloud sign-in. */
+  /** ComfyUI routing target. 'cloud' requires a valid dhee Cloud sign-in. */
   comfyBackend: BackendLane;
   /**
    * VLM (vision judge) routing target. Independent of llmBackend —
    * a user can keep LLM on cloud while running a self-hosted vision
-   * model locally, or vice versa. 'cloud' requires a valid Kshana
+   * model locally, or vice versa. 'cloud' requires a valid dhee
    * Cloud sign-in. Only consulted when vlmJudge=true.
    */
   vlmBackend: BackendLane;
@@ -101,7 +101,7 @@ export interface AppSettings {
   /**
    * When true (default), the flat openai/gemini fields above are used for
    * every LLM call (heavy/medium/light). When false, the user supplies
-   * separate Medium and Light tier configs and kshana-core's LLMRouter
+   * separate Medium and Light tier configs and dhee-core's LLMRouter
    * routes per-purpose. The Heavy tier always reads from the flat fields.
    */
   llmUseSameForAllTiers: boolean;
@@ -131,10 +131,10 @@ export interface AppSettings {
   /**
    * VLM (vision judge) provider — independent of the LLM. When
    * llmBackend='cloud' AND vlmJudge=true, VLM auto-routes to the
-   * Kshana Cloud proxy (uses the desktop token); only vlmModel is
+   * dhee Cloud proxy (uses the desktop token); only vlmModel is
    * read in that mode. When llmBackend='local' the user supplies
    * baseUrl / apiKey / model. Empty values fall through to env so
-   * dev users running from a kshana-core checkout with VLM_* in .env
+   * dev users running from a dhee-core checkout with VLM_* in .env
    * still work without UI input.
    */
   vlmProvider: 'openai' | 'gemini';

@@ -93,11 +93,11 @@ function getProductionRemotionDir(): string {
 }
 
 function getDevelopmentRemotionDir(): string {
-  const cwdRemotionPath = path.resolve(process.cwd(), '..', 'kshana-core', 'remotion-infographics');
+  const cwdRemotionPath = path.resolve(process.cwd(), '..', 'dhee-core', 'remotion-infographics');
   const devPaths = [
     cwdRemotionPath,
-    path.join(__dirname, '../../node_modules/kshana-core/remotion-infographics'),
-    path.join(__dirname, '../../kshana-core/remotion-infographics'),
+    path.join(__dirname, '../../node_modules/dhee-core/remotion-infographics'),
+    path.join(__dirname, '../../dhee-core/remotion-infographics'),
     path.join(__dirname, '../../../remotion-infographics'),
   ];
 
@@ -108,7 +108,7 @@ function getDevelopmentRemotionDir(): string {
   }
 
   throw new Error(
-    'remotion-infographics not found in development. Ensure kshana-core is installed and remotion-infographics exists.',
+    'remotion-infographics not found in development. Ensure dhee-core is installed and remotion-infographics exists.',
   );
 }
 
@@ -149,7 +149,7 @@ function getBundledRemotionTemplate(): string {
       process.resourcesPath,
       'app.asar.unpacked',
       'node_modules',
-      'kshana-core',
+      'dhee-core',
       'remotion-infographics',
     ),
     path.join(process.resourcesPath, 'remotion-infographics'),
@@ -281,7 +281,7 @@ function resolveRuntimeNodeModulesDir(): string | null {
 
   const devCandidates = [
     path.resolve(process.cwd(), 'node_modules'),
-    path.resolve(process.cwd(), '..', 'kshana-desktop', 'node_modules'),
+    path.resolve(process.cwd(), '..', 'dhee-desktop', 'node_modules'),
   ];
   for (const candidate of devCandidates) {
     if (fs.existsSync(candidate)) {

@@ -58,14 +58,14 @@ test.describe('Feature: LLM provider switching', () => {
         .poll(
           () =>
             page.evaluate(
-              () => window.__kshanaTest!.getCalls('settings.update').length,
+              () => window.__dheeTest!.getCalls('settings.update').length,
             ),
           { timeout: 5000 },
         )
         .toBeGreaterThanOrEqual(1);
 
       const calls = await page.evaluate(() =>
-        window.__kshanaTest!.getCalls('settings.update'),
+        window.__dheeTest!.getCalls('settings.update'),
       );
       const patch = calls[calls.length - 1].args as {
         llmProvider?: string;
