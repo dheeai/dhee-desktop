@@ -882,33 +882,23 @@ export default function ChatPanelEmbedded() {
     setSetupError(null);
     setIsConfiguringSetup(true);
 
-    // Persist style/duration/template into project.json so re-opening
-    // this project later skips the wizard.
-    const configResult = await session.configureProject({
+    // System-B removal: no longer call session.configureProject (which
+    // persists style/template/duration via the WS configure_project
+    // handler). dhee_new is now the SOLE writer of project.json. The
+    // kickoff message below carries all the metadata the agent needs
+    // to construct the dhee_new call; if dhee_new fails, no project.json
+    // exists — fine, since LLM access is required for anything to
+    // proceed downstream anyway.
+    const projectDirName =
+      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') ||
+      projectName ||
+      'project';
+    const { message } = buildWizardKickoff({
+      projectName: projectDirName,
       projectDir: projectDirectory,
       templateId: selectedTemplateId,
       style: selectedStyleId,
       duration: selectedDuration,
-      // Autonomous mode is no longer surfaced in the UI — every run
-      // is manual / interactive. configure_project still accepts the
-      // flag, so we pass a fixed `false` rather than dropping the
-      // field (keeps the server contract unchanged).
-      autonomousMode: false,
-    });
-    if (!configResult.ok) {
-      setSetupError(
-        `Failed to save setup: ${configResult.error ?? 'unknown error'}`,
-      );
-      setIsConfiguringSetup(false);
-      return;
-    }
-
-    // Build the kickoff and dispatch as a chat task. The agent sees
-    // the story and starts the pipeline; project metadata
-    // (style/template/duration) has already been persisted by the
-    // setup-project IPC above, and the active-project announcement
-    // tells the agent which project it's working on.
-    const { message } = buildWizardKickoff({
       story: trimmedStory,
     });
     if (!message) {

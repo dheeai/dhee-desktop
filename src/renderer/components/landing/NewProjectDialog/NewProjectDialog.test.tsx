@@ -148,14 +148,13 @@ describe('NewProjectDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Project' }));
 
+    // System-B removal: the dialog no longer calls createProject —
+    // it just creates the folder and hands off to openProject. The
+    // wizard panel + dhee_new own project.json writes from here on.
     await waitFor(() => {
-      expect(mockCreateProject).toHaveBeenCalledWith(
-        '/projects/demo',
-        'demo',
-        undefined,
-      );
+      expect(mockOpenProject).toHaveBeenCalledWith('/projects/demo');
     });
-    expect(mockOpenProject).toHaveBeenCalledWith('/projects/demo');
+    expect(mockCreateProject).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -172,14 +171,13 @@ describe('NewProjectDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Project' }));
 
+    // System-B removal: the dialog no longer calls createProject —
+    // it just creates the folder and hands off to openProject. The
+    // wizard panel + dhee_new own project.json writes from here on.
     await waitFor(() => {
-      expect(mockCreateProject).toHaveBeenCalledWith(
-        '/projects/demo',
-        'demo',
-        undefined,
-      );
+      expect(mockOpenProject).toHaveBeenCalledWith('/projects/demo');
     });
-    expect(mockOpenProject).toHaveBeenCalledWith('/projects/demo');
+    expect(mockCreateProject).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
   });
 
@@ -205,11 +203,9 @@ describe('NewProjectDialog', () => {
         intent: 'new_project_parent',
       });
     });
-    expect(mockCreateProject).toHaveBeenCalledWith(
-      '/projects/demo',
-      'demo',
-      'A test project',
-    );
+    // System-B removal: dialog no longer calls projectService.createProject;
+    // the description is captured but not surfaced anywhere downstream yet.
+    expect(mockCreateProject).not.toHaveBeenCalled();
     expect(mockOpenProject).toHaveBeenCalledWith('/projects/demo');
     expect(mockCloseProject).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
@@ -233,11 +229,10 @@ describe('NewProjectDialog', () => {
       expect(screen.getByText('Unable to attach project')).not.toBeNull();
     });
 
-    expect(mockCreateProject).toHaveBeenCalledWith(
-      '/projects/demo',
-      'demo',
-      undefined,
-    );
+    // System-B removal: rollback path uses closeProject when openProject
+    // fails AFTER the folder was created — createProject is no longer
+    // invoked.
+    expect(mockCreateProject).not.toHaveBeenCalled();
     expect(mockOpenProject).toHaveBeenCalledWith('/projects/demo');
     expect(mockCloseProject).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();

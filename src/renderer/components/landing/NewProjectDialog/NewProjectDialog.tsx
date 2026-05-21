@@ -45,11 +45,13 @@ export default function NewProjectDialog({
   isOpen,
   onClose,
 }: NewProjectDialogProps) {
-  const {
-    createProject,
-    closeProject,
-    error: projectError,
-  } = useProject();
+  // System-B removal: NewProjectDialog no longer writes any project
+  // state — it just creates the folder and opens it. The wizard panel
+  // (driven by classifyProjectState === 'fresh') collects template/
+  // style/duration/story, and the agent's `dhee_new` tool writes
+  // project.json. `closeProject` is retained for the rollback path
+  // (close the in-memory uninitialized state on error).
+  const { closeProject, error: projectError } = useProject();
   const { openProject, projectDirectory: previousProjectDirectory } =
     useWorkspace();
   // Optional — the dialog mounts outside a session provider in some
@@ -158,15 +160,14 @@ export default function NewProjectDialog({
       }
 
       projectDirectory = normalizePathValue(createdDirectory);
-
-      const created = await createProject(
-        projectDirectory,
-        trimmedName,
-        trimmedDescription || undefined,
-      );
-      if (!created) {
-        throw new Error(projectError || 'Project creation failed.');
-      }
+      // Description is captured for future use but currently unused —
+      // dhee_new doesn't take a description parameter; the agent
+      // derives one from the story. Suppress unused-var warning.
+      void trimmedDescription;
+      // System-B removal: no projectService.createProject call here.
+      // The folder is created (above), and `openProject(projectDirectory)`
+      // below loads it as an "uninitialized" project. The wizard panel
+      // collects the rest; dhee_new writes project.json.
       didCreateProject = true;
 
       try {
@@ -217,7 +218,6 @@ export default function NewProjectDialog({
       setIsSubmitting(false);
     }
   }, [
-    createProject,
     closeProject,
     description,
     onClose,

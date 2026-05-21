@@ -192,6 +192,11 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           throw new Error('Selected project folder does not exist anymore.');
         }
 
+        // A folder without project.json is no longer an error: the
+        // wizard panel will fire for first-time setup and the agent's
+        // dhee_new tool will write project.json. The renderer never
+        // writes project.json directly (System-B was removed; dhee_new
+        // is the sole writer).
         const hasRootProjectFile =
           await window.electron.project.checkFileExists(
             `${normalizedPath}/project.json`,
@@ -201,8 +206,8 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
             `${normalizedPath}/.dhee/agent/project.json`,
           );
         if (!hasRootProjectFile && !hasLegacyAgentProjectFile) {
-          throw new Error(
-            'Selected folder is not a Dhee project. Expected project.json or .dhee/agent/project.json.',
+          console.info(
+            '[WorkspaceContext] Opening uninitialized folder (no project.json yet) — the wizard will collect setup and dhee_new will populate it.',
           );
         }
 

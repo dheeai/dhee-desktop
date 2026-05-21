@@ -194,6 +194,14 @@ export class ProjectService {
     const doOpen = async (): Promise<ProjectResult<dheeProject>> => {
       try {
         const validation = await this.validateProject(directory);
+        // Tolerate a folder with no project.json: the agent's dhee_new
+        // tool is now the sole writer of project.json (System-B
+        // removal). Until that tool runs, the workspace shows the
+        // wizard panel and the project is "uninitialized" in memory
+        // only — nothing is written to disk by this path.
+        if (!validation.hasAgentState) {
+          return this.buildUninitializedProjectResult(directory);
+        }
         if (!validation.isValid) {
           return {
             success: false,
@@ -203,6 +211,8 @@ export class ProjectService {
 
         const agentState = await this.readAgentState(directory);
         if (!agentState) {
+          // Disk read failure on a folder that DID claim to have
+          // project.json — distinct from the "no file" case above.
           return { success: false, error: 'Failed to read project.json file' };
         }
 
@@ -306,54 +316,40 @@ export class ProjectService {
   }
 
   /**
-   * Creates a new project in the given directory
+   * Build an in-memory "uninitialized" project for a freshly-created
+   * folder that has no project.json yet. The wizard panel (driven by
+   * `classifyProjectState === 'fresh'`) takes it from here; on submit
+   * the agent's `dhee_new` tool writes the canonical project.json.
+   *
+   * Nothing is written to disk from this method. That's the whole
+   * point of the System-B removal — the renderer no longer pre-stubs
+   * project.json with empty fields that would later be overwritten
+   * (or, on a restart-driven re-fire of the dialog, would wipe the
+   * agent's authoritative state).
    */
-  async createProject(
+  private buildUninitializedProjectResult(
     directory: string,
-    name: string,
-    description?: string,
-  ): Promise<ProjectResult<dheeProject>> {
-    try {
-      // Create directory structure
-      await this.createProjectStructure(directory);
+  ): ProjectResult<dheeProject> {
+    const backendProject = createDefaultBackendProject({
+      id: `uninitialized_${Date.now()}`,
+      title: '',
+    });
+    const agentState = backendProjectToDesktopAgentState(backendProject);
+    const manifest = backendProjectToDesktopManifest(backendProject);
+    const assetManifest = backendAssetManifestToDesktop({ assets: [] });
+    const timelineState = { ...DEFAULT_TIMELINE_STATE };
+    const contextIndex = createDefaultContextIndex();
 
-      // Create agent state first (primary source)
-      const projectId = `proj_${Date.now()}`;
-      const backendProject = createDefaultBackendProject({
-        id: projectId,
-        title: name,
-        description,
-      });
-      const agentState = backendProjectToDesktopAgentState(backendProject);
-      await this.writeAgentState(directory, agentState);
-
-      const manifest = backendProjectToDesktopManifest(backendProject);
-
-      // Create asset manifest
-      const assetManifest = backendAssetManifestToDesktop({ assets: [] });
-      await this.writeAssetManifest(directory, assetManifest);
-      const timelineState = { ...DEFAULT_TIMELINE_STATE };
-      await this.writeTimelineState(directory, timelineState);
-      const contextIndex = createDefaultContextIndex();
-      await this.writeContextIndex(directory, contextIndex);
-
-      this.projectDirectory = directory;
-      this.currentBackendProject = backendProject;
-      this.currentProject = {
-        manifest,
-        agentState,
-        assetManifest,
-        timelineState,
-        contextIndex,
-      };
-
-      return { success: true, data: this.currentProject };
-    } catch (error) {
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      };
-    }
+    this.projectDirectory = directory;
+    this.currentBackendProject = backendProject;
+    this.currentProject = {
+      manifest,
+      agentState,
+      assetManifest,
+      timelineState,
+      contextIndex,
+    };
+    return { success: true, data: this.currentProject };
   }
 
   /**

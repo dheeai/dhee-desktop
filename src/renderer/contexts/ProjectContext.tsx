@@ -74,13 +74,6 @@ interface ProjectActions {
   /** Load a project from directory */
   loadProject: (directory: string) => Promise<boolean>;
 
-  /** Create a new project */
-  createProject: (
-    directory: string,
-    name: string,
-    description?: string,
-  ) => Promise<boolean>;
-
   /** Close the current project */
   closeProject: () => void;
 
@@ -803,45 +796,10 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     [],
   );
 
-  // Create new project
-  const createProject = useCallback(
-    async (
-      directory: string,
-      name: string,
-      description?: string,
-    ): Promise<boolean> => {
-      setState((prev) => ({ ...prev, isLoading: true, error: null }));
-
-      const result = await projectService.createProject(
-        directory,
-        name,
-        description,
-      );
-
-      if (result.success) {
-        const project = result.data;
-        setState((prev) => ({
-          ...prev,
-          isLoaded: true,
-          isLoading: false,
-          error: null,
-          manifest: project.manifest,
-          agentState: project.agentState,
-          assetManifest: project.assetManifest,
-          timelineState: project.timelineState,
-          contextIndex: project.contextIndex,
-        }));
-        return true;
-      }
-      setState((prev) => ({
-        ...prev,
-        isLoading: false,
-        error: result.error,
-      }));
-      return false;
-    },
-    [],
-  );
+  // System-B removal: ProjectContext no longer exposes createProject.
+  // NewProjectDialog creates the folder and calls openProject; the
+  // wizard panel collects setup; the agent's dhee_new writes
+  // project.json. Nothing in the renderer touches project.json.
 
   // Close project
   const closeProject = useCallback(() => {
@@ -1245,7 +1203,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       ...state,
       ...computed,
       loadProject,
-      createProject,
       closeProject,
       updatePhase,
       updateSceneApproval,
@@ -1271,7 +1228,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       state,
       computed,
       loadProject,
-      createProject,
       closeProject,
       updatePhase,
       updateSceneApproval,
