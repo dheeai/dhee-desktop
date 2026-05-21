@@ -557,6 +557,15 @@ export default function PromptsView() {
   // executor node goes back to `pending` — without this filter the panel
   // would keep showing the stale prompt text from a prior generation.
   const [completedShots, setCompletedShots] = useState<Set<string>>(new Set());
+  // Same flag for shot_motion_directive:scene_N_shot_M. When the image
+  // prompt for a shot has been freshly regenerated but the motion
+  // directive node is still `pending`, the on-disk motion JSON is from
+  // a prior run — stale. Without this filter the panel would show the
+  // fresh image prompt next to the stale motion directive, which reads
+  // to the user as if the motion directive is being generated twice
+  // (once during shot_image_prompt's run, once when the motion node
+  // itself runs). No tokens are wasted, but the UX is misleading.
+  const [completedMotion, setCompletedMotion] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -635,6 +644,7 @@ export default function PromptsView() {
         const nodes = project.executorState?.nodes ?? {};
         const map = new Map<string, string>();
         const completed = new Set<string>();
+        const motionCompleted = new Set<string>();
         for (const [id, node] of Object.entries(nodes)) {
           if (node.outputPath) {
             map.set(id, `${projectDirectory}/${node.outputPath}`);
@@ -646,18 +656,27 @@ export default function PromptsView() {
           if (m && node.status === 'completed') {
             completed.add(m[1]!);
           }
+          // Parallel set for shot_motion_directive — gated separately so
+          // a freshly-rendered image prompt doesn't get co-displayed with
+          // a stale motion directive when the motion node is still pending.
+          const md = id.match(/^shot_motion_directive:(scene_\d+_shot_\d+)$/);
+          if (md && node.status === 'completed') {
+            motionCompleted.add(md[1]!);
+          }
         }
         const assets = extractShotAssets(nodes);
         if (!cancelled) {
           setRefMap(map);
           setShotAssets(assets);
           setCompletedShots(completed);
+          setCompletedMotion(motionCompleted);
         }
       } catch {
         if (!cancelled) {
           setRefMap(new Map());
           setShotAssets(new Map());
           setCompletedShots(new Set());
+          setCompletedMotion(new Set());
         }
       }
     })();
@@ -707,9 +726,15 @@ export default function PromptsView() {
           if (!completedShots.has(itemId)) continue;
           const promptPath = `${shotsDir}/${file}`;
           const motionPath = `${projectDirectory}/prompts/motion/scene_${scene}_shot_${shot}.json`;
+          // Same staleness check as the image prompt above, but for the
+          // motion directive. When the motion node is still pending, the
+          // file on disk is from a prior run — don't fetch or display it.
+          const shouldReadMotion = completedMotion.has(itemId);
           const [pRaw, mRaw] = await Promise.all([
             window.electron.project.readFile(promptPath).catch(() => null),
-            window.electron.project.readFile(motionPath).catch(() => null),
+            shouldReadMotion
+              ? window.electron.project.readFile(motionPath).catch(() => null)
+              : Promise.resolve(null),
           ]);
           let prompts: ShotPromptFile | null = null;
           let motion: MotionFile | null = null;
@@ -742,7 +767,7 @@ export default function PromptsView() {
     return () => {
       cancelled = true;
     };
-  }, [projectDirectory, refreshTick, completedShots]);
+  }, [projectDirectory, refreshTick, completedShots, completedMotion]);
 
   const resolveRef = useCallback(
     (refId: string): string | null => refMap.get(refId) ?? null,
