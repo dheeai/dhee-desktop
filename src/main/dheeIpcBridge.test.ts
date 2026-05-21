@@ -205,6 +205,44 @@ describe('dheeIpcBridge', () => {
     expect(call?.args).toEqual(['s-1', ['shot_image:scene_1_shot_2']]);
   });
 
+  it('getHistory channel returns the on-disk snapshot for a sessionId', async () => {
+    // Override getSessionHistorySnapshot to return a sample snapshot
+    // for this single test.
+    const sample = {
+      messages: [
+        { id: 'm-1', type: 'user' as const, content: 'hi', timestamp: 1 },
+      ],
+      toolCalls: [],
+      compactionCount: 0,
+    };
+    const manager = {
+      ...fakeManager,
+      getSessionHistorySnapshot: (sessionId: string) => {
+        managerCalls.push({ method: 'getSessionHistorySnapshot', args: [sessionId] });
+        return sample;
+      },
+    };
+    registerdheeIpcBridge(
+      manager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.GET_HISTORY)!;
+    const result = await handler({} as never, { sessionId: 's-1' });
+    expect(result).toEqual({ sessionId: 's-1', history: sample });
+    const call = managerCalls.find((c) => c.method === 'getSessionHistorySnapshot');
+    expect(call?.args).toEqual(['s-1']);
+  });
+
+  it('getHistory returns { history: null } when the on-disk snapshot is empty (avoids re-seeding empty state)', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.GET_HISTORY)!;
+    const result = await handler({} as never, { sessionId: 's-1' });
+    expect(result).toEqual({ sessionId: 's-1', history: null });
+  });
+
   it('invalidateNodes wraps manager errors in { ok: false, error }', async () => {
     registerdheeIpcBridge(
       fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,

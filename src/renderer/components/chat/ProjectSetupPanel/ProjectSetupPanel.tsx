@@ -190,6 +190,19 @@ export default function ProjectSetupPanel({
       if (event.repeat) return;
       // Story step uses a textarea — let the user type freely.
       if (step === 'story') return;
+      // Don't hijack digits when the user is actively typing into a
+      // form control. The duration step in particular has a custom
+      // "seconds" input alongside the preset chips — without this
+      // bail-out, typing "3" to start "300" would fire the "preset
+      // chip 3" handler (2 minutes) instead of landing in the input.
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
       if (event.key < '1' || event.key > '9') return;
 
       const index = Number(event.key) - 1;

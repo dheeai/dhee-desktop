@@ -4,9 +4,12 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import MarkdownEditor from '../MarkdownEditor';
 import {
   groupPlanFiles,
+  isPlanFilePath,
   type PlanCategory,
   type PlanFile as CategorizedPlanFile,
 } from './planFileCategorization';
+import { renderBreakdownAsMarkdown } from './breakdownJsonToMarkdown';
+import { renderFailedAttemptAsMarkdown } from './failedAttemptToMarkdown';
 import styles from './PlansView.module.scss';
 
 interface PlanFile {
@@ -22,8 +25,6 @@ interface PlansViewProps {
   fileToOpen?: string | null;
   onFileOpened?: () => void;
 }
-
-const MARKDOWN_EXTENSION = '.md';
 
 const getRelativeProjectPath = (
   projectDirectory: string,
@@ -87,11 +88,41 @@ export default function PlansView({
         `${projectDirectory}/${plan.path}`,
       );
 
-      if (content !== null) {
-        return content;
+      if (content === null) {
+        return `# ${plan.displayName}\n\nContent not available.`;
       }
 
-      return `# ${plan.displayName}\n\nContent not available.`;
+      // Breakdown JSONs are rendered as markdown for readability.
+      // The MarkdownEditor is locked to preview-only for these files
+      // (saving the rendered markdown back would corrupt the source
+      // JSON — see `readOnly` prop below).
+      if (plan.category === 'breakdowns') {
+        return renderBreakdownAsMarkdown(content);
+      }
+
+      // Failure sidecars: co-read the `.failed.error` companion (if
+      // present) and render both into a single annotated markdown
+      // block with a loud error banner.
+      if (plan.category === 'failures') {
+        const errPath = `${projectDirectory}/${plan.path}.error`;
+        let errorMessage: string | null = null;
+        try {
+          const errContent = await window.electron.project.readFile(errPath);
+          if (errContent !== null) errorMessage = errContent;
+        } catch {
+          // Companion missing or unreadable — render with a generic
+          // "no error recorded" banner. The .failed content is what
+          // the user actually needs to inspect.
+        }
+        return renderFailedAttemptAsMarkdown({
+          failedPath: plan.path,
+          title: plan.displayName,
+          brokenContent: content,
+          errorMessage,
+        });
+      }
+
+      return content;
     },
     [projectDirectory],
   );
@@ -151,13 +182,20 @@ export default function PlansView({
       const snapshot =
         await window.electron.project.readProjectSnapshot(projectDirectory);
       const grouped = groupPlanFiles(Object.keys(snapshot.files));
-      // Order in which sections appear in the sidebar.
+      // Order in which sections appear in the sidebar. Breakdowns sit
+      // between Scenes and Settings — they're per-scene artifacts the
+      // executor produces, so they read naturally after the user's
+      // scene prose. Failures (`.failed` sidecars from validation
+      // rejects) sit at the bottom — they're inspection-only and
+      // surfaced last so they don't crowd the productive sections.
       const SECTION_ORDER: PlanCategory[] = [
         'content',
         'scenes',
+        'breakdowns',
         'settings',
         'characters',
         'other',
+        'failures',
       ];
       const plans: PlanFile[] = SECTION_ORDER.flatMap((cat) =>
         grouped[cat].map(toPlanFile),
@@ -218,22 +256,23 @@ export default function PlansView({
         return;
       }
 
-      const isMarkdownFile = normalizedPath
-        .toLowerCase()
-        .endsWith(MARKDOWN_EXTENSION);
-      const isDirectoryChange =
-        event.type === 'addDir' || event.type === 'unlinkDir';
-
-      if (!isMarkdownFile && !isDirectoryChange) {
-        return;
-      }
-
       const relativePath = getRelativeProjectPath(
         projectDirectory,
         normalizedPath,
       );
+      // Plan-eligible file (any .md or hierarchical scene-breakdown JSON).
+      // Mirrors the filter in groupPlanFiles so the watcher and the
+      // discovery pass agree on what shows up in the Content tab.
+      const isPlanFile = isPlanFilePath(relativePath);
+      const isDirectoryChange =
+        event.type === 'addDir' || event.type === 'unlinkDir';
+
+      if (!isPlanFile && !isDirectoryChange) {
+        return;
+      }
+
       if (
-        isMarkdownFile &&
+        isPlanFile &&
         selectedPlanRef.current &&
         selectedPlanRef.current.path === relativePath &&
         event.type !== 'unlink'
@@ -343,6 +382,8 @@ export default function PlansView({
       scenes: [],
       settings: [],
       characters: [],
+      breakdowns: [],
+      failures: [],
       other: [],
     };
     for (const plan of availablePlans) {
@@ -406,9 +447,11 @@ export default function PlansView({
           <div className={styles.sidebarContent}>
             {renderPlanSection('Content', sectionsByCategory.content)}
             {renderPlanSection('Scenes', sectionsByCategory.scenes)}
+            {renderPlanSection('Scene Breakdown', sectionsByCategory.breakdowns)}
             {renderPlanSection('Settings', sectionsByCategory.settings)}
             {renderPlanSection('Characters', sectionsByCategory.characters)}
             {renderPlanSection('Other', sectionsByCategory.other)}
+            {renderPlanSection('Failures', sectionsByCategory.failures)}
           </div>
         ) : (
           <div className={styles.emptyList}>
@@ -428,12 +471,25 @@ export default function PlansView({
             fileName={selectedPlan.name}
             filePath={getFilePath(selectedPlan)}
             onDirtyChange={setIsEditorDirty}
+            // Breakdown files are JSON on disk; the markdown shown
+            // is a derived view. Locking to read-only prevents the
+            // edit toggle from offering a save that would clobber
+            // the source JSON with the rendered markdown.
+            //
+            // Failure sidecars (`.failed`) are also inspection-only —
+            // editing the rendered markdown would write it back to
+            // `.failed` and overwrite the broken model output that's
+            // the whole reason the file is on disk.
+            readOnly={
+              selectedPlan.category === 'breakdowns' ||
+              selectedPlan.category === 'failures'
+            }
           />
         ) : (
           <div className={styles.placeholder}>
             <FileText size={48} className={styles.placeholderIcon} />
             <p className={styles.placeholderText}>
-              Select a markdown file to preview
+              Select a file to preview
             </p>
           </div>
         )}

@@ -183,16 +183,16 @@ type ManagerModule = {
 let loadManagerModule: () => Promise<ManagerModule> = async () => {
   try {
     log.info(
-      `[DheeCoreManager] Importing ${dhee_CORE_MANAGER_MODULE} via package exports`,
+      `[dheeCoreManager] Importing ${dhee_CORE_MANAGER_MODULE} via package exports`,
     );
     const module = (await import(
       /* webpackIgnore: true */ dhee_CORE_MANAGER_MODULE
     )) as ManagerModule;
-    log.info('[DheeCoreManager] Package export import succeeded');
+    log.info('[dheeCoreManager] Package export import succeeded');
     return module;
   } catch (error) {
     log.error(
-      `[DheeCoreManager] Package export import failed: ${
+      `[dheeCoreManager] Package export import failed: ${
         (error as Error).message
       }\n${(error as Error).stack}`,
     );
@@ -204,18 +204,18 @@ let loadManagerModule: () => Promise<ManagerModule> = async () => {
     const packagedModuleUrl = getPackagedManagerModuleUrl();
     if (!packagedModuleUrl) {
       log.error(
-        '[DheeCoreManager] Cannot resolve packaged fallback manager URL',
+        '[dheeCoreManager] Cannot resolve packaged fallback manager URL',
       );
       throw error;
     }
 
     log.info(
-      `[DheeCoreManager] Importing packaged fallback ${packagedModuleUrl}`,
+      `[dheeCoreManager] Importing packaged fallback ${packagedModuleUrl}`,
     );
     const module = (await import(
       /* webpackIgnore: true */ packagedModuleUrl
     )) as ManagerModule;
-    log.info('[DheeCoreManager] Packaged fallback import succeeded');
+    log.info('[dheeCoreManager] Packaged fallback import succeeded');
     return module;
   }
 };
@@ -240,6 +240,7 @@ type RunnersModule = {
       spec: { kind: string; projectName: string; sessionId: string };
       startedAt: number;
     };
+    isCancelling: () => boolean;
   };
 };
 
@@ -795,10 +796,10 @@ export class dheeCoreManager {
           fs.mkdirSync(userWorkflowsDir, { recursive: true });
         }
         this.managerModule.setUserWorkflowsDir(userWorkflowsDir);
-        log.info(`[DheeCoreManager] User workflows dir: ${userWorkflowsDir}`);
+        log.info(`[dheeCoreManager] User workflows dir: ${userWorkflowsDir}`);
       } catch (err) {
         log.warn(
-          `[DheeCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
+          `[dheeCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
         );
       }
     }
@@ -815,7 +816,7 @@ export class dheeCoreManager {
       this.managerModule.refreshWorkflowRegistry?.();
     } catch (err) {
       log.warn(
-        `[DheeCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
+        `[dheeCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
       );
     }
 
@@ -957,7 +958,7 @@ export class dheeCoreManager {
     try {
       return fn(sessionId);
     } catch (err) {
-      log.warn('[DheeCoreManager] getSessionHistorySnapshot failed:', err);
+      log.warn('[dheeCoreManager] getSessionHistorySnapshot failed:', err);
       return null;
     }
   }
@@ -976,13 +977,13 @@ export class dheeCoreManager {
     try {
       (cm as unknown as { deleteSession?: (id: string) => void }).deleteSession?.(oldSessionId);
     } catch (err) {
-      log.warn('[DheeCoreManager] deleteSession during clearChatHistory failed:', err);
+      log.warn('[dheeCoreManager] deleteSession during clearChatHistory failed:', err);
     }
     // Wipe the JSONL + sessionStore index.
     try {
       this.managerModule?.clearSessionHistory?.(oldSessionId);
     } catch (err) {
-      log.warn('[DheeCoreManager] clearSessionHistory failed:', err);
+      log.warn('[dheeCoreManager] clearSessionHistory failed:', err);
     }
     const fresh = this.createSession(role);
     return { newSessionId: fresh.id };
@@ -1072,6 +1073,7 @@ export class dheeCoreManager {
   /** Snapshot of the runner's current state (or `{ active: false }`). */
   async getBackgroundTaskStatus(): Promise<{
     active: boolean;
+    cancelling?: boolean;
     taskId?: string;
     kind?: string;
     projectName?: string;
@@ -1079,10 +1081,12 @@ export class dheeCoreManager {
     sessionId?: string;
   }> {
     const mod = await loadRunnersModule();
-    const active = mod.getBackgroundTaskRunner().getActive();
+    const runner = mod.getBackgroundTaskRunner();
+    const active = runner.getActive();
     if (!active) return { active: false };
     return {
       active: true,
+      cancelling: runner.isCancelling(),
       taskId: active.id,
       kind: active.spec.kind,
       projectName: active.spec.projectName,
@@ -1125,6 +1129,7 @@ export class dheeCoreManager {
   async invalidateNodes(
     sessionId: string,
     nodeIds: string[],
+    source?: string,
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
     if (!this.cm) throw new Error('dheeCoreManager not started');
     return (
@@ -1132,9 +1137,10 @@ export class dheeCoreManager {
         invalidateNodes(
           s: string,
           ids: string[],
+          src?: string,
         ): Promise<{ invalidated: string[]; notFound: string[] }>;
       }
-    ).invalidateNodes(sessionId, nodeIds);
+    ).invalidateNodes(sessionId, nodeIds, source);
   }
 
   setAutonomousMode(sessionId: string, enabled: boolean): void {

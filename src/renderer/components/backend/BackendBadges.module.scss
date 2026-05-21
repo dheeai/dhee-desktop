@@ -1,0 +1,45 @@
+@import '../../styles/tokens';
+
+.row {
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  flex: 0 0 auto;
+  min-height: 18px;
+  padding: 0 6px;
+  border-radius: $radius-sm;
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.28);
+  background: rgba(var(--color-accent-primary-rgb), 0.1);
+  color: $color-text-primary;
+  font-size: 10px;
+  font-weight: $font-weight-bold;
+  line-height: 1;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.local {
+  border-color: rgba(var(--color-border-strong-rgb), 0.38);
+  background: rgba(var(--color-bg-panel-soft-rgb), 0.22);
+  color: $color-text-secondary;
+}
+
+.cloud {
+  border-color: rgba(var(--color-success-rgb), 0.34);
+  background: rgba(var(--color-success-rgb), 0.14);
+  color: $color-success;
+}

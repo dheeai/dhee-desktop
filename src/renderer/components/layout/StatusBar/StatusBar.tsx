@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
+import BackendBadges from '../../backend/BackendBadges';
 import styles from './StatusBar.module.scss';
 
 const FALLBACK_APP_VERSION = 'v?.?.?';
@@ -33,7 +34,9 @@ export default function StatusBar() {
 
   return (
     <footer className={styles.container}>
-      <div className={styles.left} />
+      <div className={styles.left}>
+        <BackendBadges />
+      </div>
       <div className={styles.right}>
         <span className={styles.version}>{appVersion}</span>
         <button type="button" className={styles.iconButton} title="Help">

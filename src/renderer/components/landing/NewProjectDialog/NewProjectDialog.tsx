@@ -2,6 +2,14 @@ import { useCallback, useEffect, useState } from 'react';
 import { FolderOpen, Plus, X } from 'lucide-react';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useOptionalKshanaSession } from '../../../hooks/useDheeSession';
+import {
+  buildDefaultWorkspaceFolder,
+  readPersistedWorkspacePath,
+  resolveDefaultWorkspacePath,
+  writePersistedWorkspacePath,
+} from '../../../utils/workspacePathDefaults';
+import { shouldResetChatOnProjectChange } from '../../../utils/chatResetOnProjectChange';
 import styles from './NewProjectDialog.module.scss';
 
 const PROJECT_SETUP_STORAGE_KEY = 'dhee.pendingProjectSetup';
@@ -42,7 +50,12 @@ export default function NewProjectDialog({
     closeProject,
     error: projectError,
   } = useProject();
-  const { openProject } = useWorkspace();
+  const { openProject, projectDirectory: previousProjectDirectory } =
+    useWorkspace();
+  // Optional — the dialog mounts outside a session provider in some
+  // test fixtures. When null, the chat-reset side effect is skipped;
+  // production always provides a session.
+  const session = useOptionalKshanaSession();
 
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
@@ -57,7 +70,35 @@ export default function NewProjectDialog({
       setWorkspacePath('');
       setError(null);
       setIsSubmitting(false);
+      return;
     }
+    // Populate the Location field on open so the user doesn't have to
+    // click "Choose Folder" every single time. Order of preference:
+    //   1. Last folder the user picked in a prior session (localStorage)
+    //   2. `<home>/dhee-studios` (resolved by main via IPC)
+    // The lookup is async because we ping main for the home dir; if
+    // anything fails (storage disabled, IPC unavailable) the helper
+    // returns sensible fallbacks rather than throwing.
+    let cancelled = false;
+    (async () => {
+      let homeDefault = '';
+      try {
+        homeDefault = await window.electron.project.getDefaultWorkspacePath();
+      } catch {
+        // Main process not reachable — fall back to a bare folder name.
+      }
+      if (cancelled) return;
+      const stored = readPersistedWorkspacePath(window.localStorage);
+      const fallback = homeDefault || buildDefaultWorkspaceFolder(null);
+      const resolved = resolveDefaultWorkspacePath({
+        storedPath: stored,
+        fallbackDefault: fallback,
+      });
+      setWorkspacePath(resolved);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen]);
 
   const handlePickWorkspace = useCallback(async () => {
@@ -137,6 +178,34 @@ export default function NewProjectDialog({
         // Ignore localStorage availability issues.
       }
 
+      // Remember the workspace PARENT (not the project itself) so the
+      // next "Create New Project" defaults to the same folder. The
+      // helper no-ops if localStorage is dead, so this never blocks
+      // the create flow.
+      writePersistedWorkspacePath(window.localStorage, normalizedWorkspacePath);
+
+      // A NEW project demands a fresh chat session — otherwise pi-agent
+      // treats the first prompt as a continuation of the previous
+      // project's conversation, leaking that project's bubbles + LLM
+      // context into the new one (the 2026-05-19 Village → Soft Seinen
+      // bug). Decision is centralized in `shouldResetChatOnProjectChange`
+      // so the rule for switching/re-open can be tuned in one place.
+      // Failure is non-fatal: if clearChatHistory rejects (backend
+      // down, etc.), the project still opens — the user can clear
+      // chat manually via the "New chat" menu.
+      const shouldReset = shouldResetChatOnProjectChange({
+        intent: 'create',
+        previousProjectDirectory,
+        nextProjectDirectory: projectDirectory,
+      });
+      if (shouldReset && session) {
+        try {
+          await session.clearChatHistory();
+        } catch {
+          // Swallow — chat reset is a polish step, not a blocker.
+        }
+      }
+
       await openProject(projectDirectory);
       onClose();
     } catch (err) {
@@ -153,8 +222,10 @@ export default function NewProjectDialog({
     description,
     onClose,
     openProject,
+    previousProjectDirectory,
     projectError,
     projectName,
+    session,
     workspacePath,
   ]);
 

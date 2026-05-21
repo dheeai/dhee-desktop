@@ -1,0 +1,45 @@
+@use 'sass:color';
+@import '../../../styles/tokens';
+@import '../../../styles/mixins';
+
+.button {
+  @include flex-center;
+  gap: 4px;
+  padding: 2px 6px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: $radius-sm;
+  background-color: rgba(0, 0, 0, 0.55);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background-color $transition-fast, border-color $transition-fast;
+
+  &:hover:not(:disabled) {
+    background-color: rgba(0, 0, 0, 0.8);
+    border-color: rgba(255, 255, 255, 0.5);
+  }
+
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.busy {
+  background-color: rgba(60, 120, 200, 0.7);
+}
+
+.caption {
+  font-size: 10px;
+  letter-spacing: 0.2px;
+}
+
+.spin {
+  animation: assetRegenSpin 1s linear infinite;
+}
+
+@keyframes assetRegenSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}

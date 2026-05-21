@@ -15,8 +15,34 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FileText, Pencil } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAgent } from '../../../contexts/AgentContext';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import { savePromptEdit, type PromptKind } from './savePromptEdit';
+import AssetRegenerateButton, {
+  type AssetRegenerateFrame,
+  type AssetRegenerateScope,
+} from '../../preview/TimelinePanel/AssetRegenerateButton';
 import styles from './PromptsView.module.scss';
+
+/**
+ * Describes the surgical-regen target for one prompt block. When set,
+ * the block renders an AssetRegenerateButton next to the pencil that
+ * fires `redoNode(nodeId, { frame?, scope? })` directly via IPC
+ * (no LLM in the loop). Choice of nodeId depends on what's in the
+ * graph:
+ *   - last_frame with hasLastFrameNode → 'shot_image_last_frame:…'
+ *   - last_frame without split node     → 'shot_image:…' with scope/frame
+ *   - first_frame                       → 'shot_image:…' with scope/frame
+ *   - video                             → 'shot_video:…' (default cascade)
+ */
+interface RegenTarget {
+  nodeId: string;
+  frame?: AssetRegenerateFrame;
+  scope?: AssetRegenerateScope;
+  /** Tooltip + aria label. */
+  label: string;
+  /** Short human description for chat receipts, e.g. "last frame of S1 Shot 2". */
+  whatLabel: string;
+}
 
 interface PromptReference {
   imageNumber: number;
@@ -182,6 +208,8 @@ function PromptBlock({
   resolveRef,
   editable,
   editor,
+  regen,
+  notify,
 }: {
   label: string;
   text: string | undefined;
@@ -194,6 +222,10 @@ function PromptBlock({
    */
   editable?: { scene: number; shot: number; kind: PromptKind };
   editor?: EditCoordinator;
+  /** When supplied, renders a surgical-regen button next to the pencil. */
+  regen?: RegenTarget;
+  /** Routes button start/result messages into the chat panel. */
+  notify?: (text: string) => void;
 }) {
   if (!text) return null;
   const isActive =
@@ -207,6 +239,31 @@ function PromptBlock({
     <div className={styles.promptBlock}>
       <div className={styles.promptLabelRow}>
         <div className={styles.promptLabel}>{label}</div>
+        {regen && !isActive && (
+          <AssetRegenerateButton
+            nodeId={regen.nodeId}
+            label={regen.label}
+            {...(regen.frame ? { frame: regen.frame } : {})}
+            {...(regen.scope ? { scope: regen.scope } : {})}
+            {...(notify
+              ? {
+                  onActionStart: () =>
+                    notify(`⟳ Regenerating ${regen.whatLabel}…`),
+                  onActionResult: (ok: boolean, error?: string) => {
+                    if (ok) {
+                      notify(
+                        `✅ ${regen.whatLabel} regenerated. Downstream assets that consumed it are rebuilding now.`,
+                      );
+                    } else {
+                      notify(
+                        `❌ Regenerate ${regen.whatLabel} failed: ${error ?? 'unknown error'}`,
+                      );
+                    }
+                  },
+                }
+              : {})}
+          />
+        )}
         {editable && editor && !isActive && (
           <button
             type="button"
@@ -291,6 +348,8 @@ function MediaPromptRow({
   projectDirectory,
   editable,
   editor,
+  regen,
+  notify,
 }: {
   label: string;
   mediaPath: string | undefined;
@@ -301,6 +360,8 @@ function MediaPromptRow({
   projectDirectory: string;
   editable?: { scene: number; shot: number; kind: PromptKind };
   editor?: EditCoordinator;
+  regen?: RegenTarget;
+  notify?: (text: string) => void;
 }) {
   if (!text && !mediaPath) return null;
   if (!mediaPath) {
@@ -313,6 +374,8 @@ function MediaPromptRow({
         resolveRef={resolveRef}
         editable={editable}
         editor={editor}
+        regen={regen}
+        notify={notify}
       />
     );
   }
@@ -340,10 +403,39 @@ function MediaPromptRow({
             resolveRef={resolveRef}
             editable={editable}
             editor={editor}
+            regen={regen}
+            notify={notify}
           />
         ) : (
           <div className={styles.promptBlock}>
-            <div className={styles.promptLabel}>{label}</div>
+            <div className={styles.promptLabelRow}>
+              <div className={styles.promptLabel}>{label}</div>
+              {regen && (
+                <AssetRegenerateButton
+                  nodeId={regen.nodeId}
+                  label={regen.label}
+                  {...(regen.frame ? { frame: regen.frame } : {})}
+                  {...(regen.scope ? { scope: regen.scope } : {})}
+                  {...(notify
+                    ? {
+                        onActionStart: () =>
+                          notify(`⟳ Regenerating ${regen.whatLabel}…`),
+                        onActionResult: (ok: boolean, error?: string) => {
+                          if (ok) {
+                            notify(
+                              `✅ ${regen.whatLabel} regenerated. Downstream assets that consumed it are rebuilding now.`,
+                            );
+                          } else {
+                            notify(
+                              `❌ Regenerate ${regen.whatLabel} failed: ${error ?? 'unknown error'}`,
+                            );
+                          }
+                        },
+                      }
+                    : {})}
+                />
+              )}
+            </div>
             <span className={styles.promptText} style={{ opacity: 0.6 }}>
               (no prompt recorded)
             </span>
@@ -421,8 +513,26 @@ function extractShotAssets(
 }
 
 export default function PromptsView() {
-  const { projectDirectory } = useWorkspace();
+  const { projectName, projectDirectory } = useWorkspace();
   const agent = useAgent();
+  const session = useDheeSession();
+
+  // Surgical-regen IPC (window.dhee.redoNode → ConversationManager.redoNode)
+  // requires session.agent to be configured on the kshana-core side. That
+  // configuration happens via focusProject(name, dir). ChatPanelEmbedded
+  // calls it when chat mounts, but a user who jumps straight to the Prompts
+  // tab without opening chat would otherwise hit
+  //   "Session agent not configured. Select a project first."
+  // when clicking a regenerate button. Idempotent: re-focusing the same
+  // project is a no-op.
+  useEffect(() => {
+    if (!session.sessionId || !projectName) return;
+    session
+      .focusProject(projectName, projectDirectory ?? undefined)
+      .catch(() => {
+        /* swallow — the regen button will surface the error if it matters */
+      });
+  }, [session.sessionId, projectName, projectDirectory, session.focusProject]);
   const [shots, setShots] = useState<ShotEntry[]>([]);
   const [refMap, setRefMap] = useState<Map<string, string>>(new Map());
   const [shotAssets, setShotAssets] = useState<Map<string, ShotAssets>>(
@@ -447,6 +557,15 @@ export default function PromptsView() {
   // executor node goes back to `pending` — without this filter the panel
   // would keep showing the stale prompt text from a prior generation.
   const [completedShots, setCompletedShots] = useState<Set<string>>(new Set());
+  // Same flag for shot_motion_directive:scene_N_shot_M. When the image
+  // prompt for a shot has been freshly regenerated but the motion
+  // directive node is still `pending`, the on-disk motion JSON is from
+  // a prior run — stale. Without this filter the panel would show the
+  // fresh image prompt next to the stale motion directive, which reads
+  // to the user as if the motion directive is being generated twice
+  // (once during shot_image_prompt's run, once when the motion node
+  // itself runs). No tokens are wasted, but the UX is misleading.
+  const [completedMotion, setCompletedMotion] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -525,6 +644,7 @@ export default function PromptsView() {
         const nodes = project.executorState?.nodes ?? {};
         const map = new Map<string, string>();
         const completed = new Set<string>();
+        const motionCompleted = new Set<string>();
         for (const [id, node] of Object.entries(nodes)) {
           if (node.outputPath) {
             map.set(id, `${projectDirectory}/${node.outputPath}`);
@@ -536,18 +656,27 @@ export default function PromptsView() {
           if (m && node.status === 'completed') {
             completed.add(m[1]!);
           }
+          // Parallel set for shot_motion_directive — gated separately so
+          // a freshly-rendered image prompt doesn't get co-displayed with
+          // a stale motion directive when the motion node is still pending.
+          const md = id.match(/^shot_motion_directive:(scene_\d+_shot_\d+)$/);
+          if (md && node.status === 'completed') {
+            motionCompleted.add(md[1]!);
+          }
         }
         const assets = extractShotAssets(nodes);
         if (!cancelled) {
           setRefMap(map);
           setShotAssets(assets);
           setCompletedShots(completed);
+          setCompletedMotion(motionCompleted);
         }
       } catch {
         if (!cancelled) {
           setRefMap(new Map());
           setShotAssets(new Map());
           setCompletedShots(new Set());
+          setCompletedMotion(new Set());
         }
       }
     })();
@@ -597,9 +726,15 @@ export default function PromptsView() {
           if (!completedShots.has(itemId)) continue;
           const promptPath = `${shotsDir}/${file}`;
           const motionPath = `${projectDirectory}/prompts/motion/scene_${scene}_shot_${shot}.json`;
+          // Same staleness check as the image prompt above, but for the
+          // motion directive. When the motion node is still pending, the
+          // file on disk is from a prior run — don't fetch or display it.
+          const shouldReadMotion = completedMotion.has(itemId);
           const [pRaw, mRaw] = await Promise.all([
             window.electron.project.readFile(promptPath).catch(() => null),
-            window.electron.project.readFile(motionPath).catch(() => null),
+            shouldReadMotion
+              ? window.electron.project.readFile(motionPath).catch(() => null)
+              : Promise.resolve(null),
           ]);
           let prompts: ShotPromptFile | null = null;
           let motion: MotionFile | null = null;
@@ -632,7 +767,7 @@ export default function PromptsView() {
     return () => {
       cancelled = true;
     };
-  }, [projectDirectory, refreshTick, completedShots]);
+  }, [projectDirectory, refreshTick, completedShots, completedMotion]);
 
   const resolveRef = useCallback(
     (refId: string): string | null => refMap.get(refId) ?? null,
@@ -860,6 +995,40 @@ export default function PromptsView() {
               const md = entry.motion?.motionDirective;
               const neg = entry.prompts?.negativePrompt;
               const assets = shotAssets.get(`${entry.scene}-${entry.shot}`);
+              const itemId = `scene_${entry.scene}_shot_${entry.shot}`;
+              // Surgical regen targets per row. The redoNode contract
+              // (see kshana-core/src/core/planner/ExecutorAgent.ts:1041)
+              // owns cascading: image_only regens dirty completed
+              // downstream video; the bare shot_video / shot_image_last_frame
+              // call cascades to final_video. So one click = one surgical
+              // refresh of just that asset (plus everything it invalidates
+              // downstream by definition).
+              const shotLabel = `Scene ${entry.scene} Shot ${entry.shot}`;
+              const firstFrameRegen: RegenTarget = {
+                nodeId: `shot_image:${itemId}`,
+                scope: 'image_only',
+                frame: 'first_frame',
+                label: 'Regenerate first frame (also re-renders shot video)',
+                whatLabel: `first frame of ${shotLabel}`,
+              };
+              const lastFrameRegen: RegenTarget = assets?.hasLastFrameNode
+                ? {
+                    nodeId: `shot_image_last_frame:${itemId}`,
+                    label: 'Regenerate last frame (also re-renders shot video)',
+                    whatLabel: `last frame of ${shotLabel}`,
+                  }
+                : {
+                    nodeId: `shot_image:${itemId}`,
+                    scope: 'image_only',
+                    frame: 'last_frame',
+                    label: 'Regenerate last frame (also re-renders shot video)',
+                    whatLabel: `last frame of ${shotLabel}`,
+                  };
+              const videoRegen: RegenTarget = {
+                nodeId: `shot_video:${itemId}`,
+                label: 'Regenerate shot video (re-renders final video too)',
+                whatLabel: `video for ${shotLabel}`,
+              };
               return (
                 <div
                   key={`${entry.scene}-${entry.shot}`}
@@ -893,6 +1062,8 @@ export default function PromptsView() {
                         : undefined
                     }
                     editor={editor}
+                    regen={firstFrameRegen}
+                    notify={agent?.notifyChatReceipt}
                   />
 
                   <MediaPromptRow
@@ -913,6 +1084,8 @@ export default function PromptsView() {
                         : undefined
                     }
                     editor={editor}
+                    regen={lastFrameRegen}
+                    notify={agent?.notifyChatReceipt}
                   />
 
                   <MediaPromptRow
@@ -933,6 +1106,8 @@ export default function PromptsView() {
                         : undefined
                     }
                     editor={editor}
+                    regen={videoRegen}
+                    notify={agent?.notifyChatReceipt}
                   />
 
                   {neg && (

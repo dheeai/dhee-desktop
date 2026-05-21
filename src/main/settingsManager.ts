@@ -8,6 +8,12 @@ import type {
   LLMTierConfig,
   ThemeId,
 } from '../shared/settingsTypes';
+import {
+  encryptCredential,
+  decryptCredential,
+  TOP_LEVEL_CREDENTIAL_FIELDS,
+  TIER_CREDENTIAL_FIELDS,
+} from './credentialCipher';
 
 const FIXED_COMFYUI_TIMEOUT_SECONDS = 1800;
 const LEGACY_LOCAL_COMFYUI_URL = 'http://localhost:8000';
@@ -254,20 +260,87 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   return normalized;
 }
 
+/**
+ * Decrypt credential fields in-place on a settings object. Used after
+ * loading from disk so the rest of the app sees plaintext keys.
+ */
+function decryptCredentialFields(s: AppSettings): AppSettings {
+  for (const field of TOP_LEVEL_CREDENTIAL_FIELDS) {
+    const raw = (s as unknown as Record<string, unknown>)[field];
+    if (typeof raw === 'string') {
+      (s as unknown as Record<string, string>)[field] = decryptCredential(raw);
+    }
+  }
+  for (const tierKey of ['llmTierMedium', 'llmTierLight'] as const) {
+    const tier = s[tierKey];
+    if (tier && typeof tier === 'object') {
+      for (const field of TIER_CREDENTIAL_FIELDS) {
+        const raw = (tier as unknown as Record<string, unknown>)[field];
+        if (typeof raw === 'string') {
+          (tier as unknown as Record<string, string>)[field] = decryptCredential(raw);
+        }
+      }
+    }
+  }
+  return s;
+}
+
+/**
+ * Encrypt credential fields before persisting. The on-disk copy ends
+ * up with `__kshana_enc_v1__<base64>` envelopes for every API key;
+ * URLs / model names / etc. stay plaintext for debuggability.
+ */
+function encryptCredentialFields(s: AppSettings): AppSettings {
+  const cloned: AppSettings = {
+    ...s,
+    llmTierMedium: { ...s.llmTierMedium },
+    llmTierLight: { ...s.llmTierLight },
+  };
+  for (const field of TOP_LEVEL_CREDENTIAL_FIELDS) {
+    const v = (cloned as unknown as Record<string, unknown>)[field];
+    if (typeof v === 'string') {
+      (cloned as unknown as Record<string, string>)[field] = encryptCredential(v);
+    }
+  }
+  for (const tierKey of ['llmTierMedium', 'llmTierLight'] as const) {
+    const tier = cloned[tierKey];
+    if (tier) {
+      for (const field of TIER_CREDENTIAL_FIELDS) {
+        const v = (tier as unknown as Record<string, unknown>)[field];
+        if (typeof v === 'string') {
+          (tier as unknown as Record<string, string>)[field] = encryptCredential(v);
+        }
+      }
+    }
+  }
+  return cloned;
+}
+
 export const getSettings = (): AppSettings => {
+  // Read the on-disk envelope, normalize the schema (which may rewrite
+  // legacy fields), then decrypt the credentials for in-memory use.
   const normalized = normalizeSettings(store.store as Partial<AppSettings>);
-  store.set(normalized);
-  return normalized;
+  // Persist the encrypted-on-disk form. If any credential was loaded
+  // as legacy plaintext, encryptCredentialFields turns it into the
+  // enveloped form here — silent one-shot migration on first read
+  // after upgrade.
+  store.set(encryptCredentialFields(normalized));
+  return decryptCredentialFields(normalized);
 };
 
 export const updateSettings = (patch: Partial<AppSettings>): AppSettings => {
-  const current = store.store as Partial<AppSettings>;
+  // Decrypt the current on-disk state before merging the patch so we
+  // don't accidentally mix enveloped values with the caller's plaintext
+  // update. Then re-encrypt the merged result for storage and return
+  // plaintext to the caller.
+  const stored = normalizeSettings(store.store as Partial<AppSettings>);
+  const currentDecrypted = decryptCredentialFields(stored);
   const merged = {
-    ...current,
+    ...currentDecrypted,
     ...patch,
   };
   const normalized = normalizeSettings(merged);
-  store.set(normalized);
+  store.set(encryptCredentialFields(normalized));
   return normalized;
 };
 

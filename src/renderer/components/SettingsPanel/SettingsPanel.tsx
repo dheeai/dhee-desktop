@@ -374,7 +374,11 @@ export default function SettingsPanel({
       ? 'Connected to Cloud'
       : 'Cloud sign-in required'
     : 'Connected to Local';
-  
+  const statusSupportText = isCloudMode
+    ? isCloudReady
+      ? 'The bundled core is running locally while paid calls use Dhee Cloud credits through the proxy.'
+      : 'Sign in to Dhee Cloud to route paid calls through the authenticated proxy.'
+    : 'The bundled core is running locally with the provider settings shown below.';
 
   const renderTierSection = (
     tier: 'llmTierMedium' | 'llmTierLight',
@@ -787,6 +791,7 @@ export default function SettingsPanel({
               <>
                 <div className={styles.sectionHeader}>
                   <h3>Connection</h3>
+                  <p>Choose BYO keys or Dhee Cloud credits for paid calls.</p>
                 </div>
 
                 <div className={styles.statusCard}>

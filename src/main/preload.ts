@@ -57,6 +57,8 @@ import {
   type ValidateWorkflowResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
+  type GetHistoryRequest,
+  type GetHistoryResponse,
 } from '../shared/dheeIpc';
 
 interface WordTimestamp {
@@ -137,6 +139,15 @@ const settingsBridge = {
 const projectBridge = {
   selectDirectory(): Promise<string | null> {
     return ipcRenderer.invoke('project:select-directory');
+  },
+  /**
+   * Suggested default workspace folder for a new project when the user
+   * has not yet picked one. Returns `<home>/dhee-studios`. Pair with
+   * `renderer/utils/workspacePathDefaults.readPersistedWorkspacePath` —
+   * stored choice wins over this default on subsequent opens.
+   */
+  getDefaultWorkspacePath(): Promise<string> {
+    return ipcRenderer.invoke('project:get-default-workspace-path');
   },
   selectVideoFile(): Promise<string | null> {
     return ipcRenderer.invoke('project:select-video-file');
@@ -734,6 +745,9 @@ const dheeBridge = {
     req: ClearChatHistoryRequest,
   ): Promise<ClearChatHistoryResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CLEAR_CHAT_HISTORY, req);
+  },
+  getHistory(req: GetHistoryRequest): Promise<GetHistoryResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.GET_HISTORY, req);
   },
   runnerCancel(): Promise<RunnerCancelResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL);

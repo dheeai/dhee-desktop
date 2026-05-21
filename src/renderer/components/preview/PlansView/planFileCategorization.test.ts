@@ -87,6 +87,40 @@ describe('categorizePlanFile', () => {
       expect(file.displayName).toBe('Random Thoughts');
     });
   });
+
+  // Hierarchical scene-breakdown JSONs (kshana-core feat/hierarchical-shot-breakdown):
+  // three layers of files under `prompts/videos/scenes/`. All land in the
+  // new `breakdowns` category and sort grouped by scene number (assembled,
+  // then plan, then per-shot ascending).
+  describe('GIVEN the assembled scene_N.json under prompts/videos/scenes/', () => {
+    it('THEN category is "breakdowns" and displayName is "Scene N — Breakdown"', () => {
+      const file = categorizePlanFile('prompts/videos/scenes/scene_2.json');
+      expect(file.category).toBe('breakdowns');
+      expect(file.displayName).toBe('Scene 2 — Breakdown');
+    });
+  });
+
+  describe('GIVEN the Stage A scene_N.plan.json', () => {
+    it('THEN category is "breakdowns" and displayName is "Scene N — Shot Plan"', () => {
+      const file = categorizePlanFile('prompts/videos/scenes/scene_2.plan.json');
+      expect(file.category).toBe('breakdowns');
+      expect(file.displayName).toBe('Scene 2 — Shot Plan');
+    });
+  });
+
+  describe('GIVEN a Stage B scene_N.shots/M.json', () => {
+    it('THEN category is "breakdowns" and displayName is "Scene N — Shot M"', () => {
+      const file = categorizePlanFile('prompts/videos/scenes/scene_2.shots/3.json');
+      expect(file.category).toBe('breakdowns');
+      expect(file.displayName).toBe('Scene 2 — Shot 3');
+    });
+
+    it('THEN multi-digit scenes and shots both parse', () => {
+      const file = categorizePlanFile('prompts/videos/scenes/scene_12.shots/7.json');
+      expect(file.category).toBe('breakdowns');
+      expect(file.displayName).toBe('Scene 12 — Shot 7');
+    });
+  });
 });
 
 describe('groupPlanFiles', () => {
@@ -137,24 +171,117 @@ describe('groupPlanFiles', () => {
       expect(grouped.scenes).toEqual([]);
       expect(grouped.settings).toEqual([]);
       expect(grouped.characters).toEqual([]);
+      expect(grouped.breakdowns).toEqual([]);
       expect(grouped.other).toEqual([]);
     });
   });
 
-  describe('GIVEN paths that are not .md files', () => {
-    it('WHEN grouped THEN only .md files appear in any category', () => {
+  describe('GIVEN paths that are not .md and not scene-breakdown JSONs', () => {
+    it('WHEN grouped THEN unrelated config / binary files stay out of every category', () => {
+      // The breakdown JSONs under `prompts/videos/scenes/` ARE allowed
+      // through (see the breakdowns-specific tests below); this case
+      // covers everything ELSE — project state, binary media, etc.
       const grouped = groupPlanFiles([
         'original_input.md',
         'project.json',
         'characters/officer.md',
         'assets/images/foo.png',
+        'prompts/images/characters/officer.json',
+        'prompts/motion/scene_1_shot_1.json',
       ]);
       expect(grouped.content.map((f) => f.path)).toEqual(['original_input.md']);
       expect(grouped.characters.map((f) => f.path)).toEqual([
         'characters/officer.md',
       ]);
-      // No non-md files leaked into "other".
+      // No unrelated JSONs / images leaked into any bucket.
       expect(grouped.other).toEqual([]);
+      expect(grouped.breakdowns).toEqual([]);
+    });
+  });
+
+  describe('GIVEN .failed sidecars from kshana-core validation rejections', () => {
+    it('categorises a shot-image-prompt failure as "failures" with a scene/shot-aware label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/images/shots/scene-1-shot-3.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Composition — Scene 1 Shot 3 (failed)',
+      ]);
+    });
+
+    it('categorises an assembled-scene failure as "failures" with a Scene Breakdown label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_2.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Scene Breakdown — Scene 2 (failed)',
+      ]);
+    });
+
+    it('categorises a stage-A plan failure with a "Shot Plan" label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_1.plan.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Plan — Scene 1 (failed)',
+      ]);
+    });
+
+    it('categorises a stage-B per-shot breakdown failure with a Scene/Shot label', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_1.shots/4.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Breakdown — Scene 1 Shot 4 (failed)',
+      ]);
+    });
+
+    it('does NOT surface the `.failed.error` companion as its own entry (folded into the .failed view)', () => {
+      const grouped = groupPlanFiles([
+        'prompts/images/shots/scene-1-shot-3.json.failed',
+        'prompts/images/shots/scene-1-shot-3.json.failed.error',
+      ]);
+      // One failures entry only — the .error is co-read at view time.
+      expect(grouped.failures).toHaveLength(1);
+    });
+
+    it('sorts failures with scene-major ordering', () => {
+      const grouped = groupPlanFiles([
+        'prompts/images/shots/scene-2-shot-1.json.failed',
+        'prompts/images/shots/scene-1-shot-5.json.failed',
+        'prompts/images/shots/scene-1-shot-1.json.failed',
+      ]);
+      expect(grouped.failures.map((f) => f.displayName)).toEqual([
+        'Shot Composition — Scene 1 Shot 1 (failed)',
+        'Shot Composition — Scene 1 Shot 5 (failed)',
+        'Shot Composition — Scene 2 Shot 1 (failed)',
+      ]);
+    });
+  });
+
+  describe('GIVEN a project with the three scene-breakdown layers on disk', () => {
+    it('groups assembled + plan + per-shot under "breakdowns", sorted by scene then layer', () => {
+      const grouped = groupPlanFiles([
+        'prompts/videos/scenes/scene_1.shots/2.json',
+        'prompts/videos/scenes/scene_2.json',
+        'prompts/videos/scenes/scene_1.plan.json',
+        'prompts/videos/scenes/scene_1.shots/1.json',
+        'prompts/videos/scenes/scene_1.json',
+        'prompts/videos/scenes/scene_2.plan.json',
+        'prompts/videos/scenes/scene_2.shots/1.json',
+      ]);
+      // Scene 1's three files come first (assembled, plan, shot 1, shot 2),
+      // then Scene 2's three. Locks in the cross-scene + within-scene
+      // ordering: assembled outputs first, plan second, per-shot ascending.
+      expect(grouped.breakdowns.map((f) => f.displayName)).toEqual([
+        'Scene 1 — Breakdown',
+        'Scene 1 — Shot Plan',
+        'Scene 1 — Shot 1',
+        'Scene 1 — Shot 2',
+        'Scene 2 — Breakdown',
+        'Scene 2 — Shot Plan',
+        'Scene 2 — Shot 1',
+      ]);
     });
   });
 });

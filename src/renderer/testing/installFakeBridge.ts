@@ -237,7 +237,7 @@ function applyMatchingRules(channel: ScenarioChannel, payloadText: string): void
  * scripted emits for any matching rule on the given channel — i.e. when
  * the last event for this turn has fired. This lets the fake `runTask`
  * stay pending for the duration of the streaming window, mirroring real
- * dhee-ink behavior so `usedheeSession.status` correctly transitions
+ * dhee-ink behavior so `useDheeSession.status` correctly transitions
  * idle → running → idle around the playback.
  *
  * If no rule matches, resolves immediately.

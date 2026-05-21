@@ -19,6 +19,7 @@ import StoryboardView from '../StoryboardView/StoryboardView';
 import PromptsView from '../PromptsView/PromptsView';
 import VideoLibraryView from '../VideoLibraryView/VideoLibraryView';
 import PlansView from '../PlansView/PlansView';
+import RedoFromMenu from '../RedoFromMenu/RedoFromMenu';
 import TimelinePanel from '../TimelinePanel/TimelinePanel';
 import { TimelineDockIcon } from '../EditorIcons';
 import styles from './PreviewPanel.module.scss';
@@ -274,6 +275,12 @@ export default function PreviewPanel() {
               </button>
             ))}
           </div>
+        </div>
+        {/* Right-aligned project actions. Today: "Redo from..." dropdown
+         *  for stage-level resets. Surfaces existing /reset functionality
+         *  with discovery + a non-recoverable-action confirmation modal. */}
+        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', paddingRight: 12 }}>
+          <RedoFromMenu />
         </div>
       </div>
 

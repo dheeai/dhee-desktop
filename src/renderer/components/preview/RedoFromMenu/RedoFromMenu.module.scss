@@ -1,0 +1,203 @@
+@import '../../../styles/tokens';
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  background: rgba(var(--color-bg-panel-elevated-rgb), 0.85);
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.45);
+  border-radius: 6px;
+  color: $color-text-secondary;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-bg-panel-elevated-rgb), 1);
+    color: $color-text-primary;
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 50;
+  min-width: 220px;
+  background: rgba(var(--color-bg-panel-elevated-rgb), 0.98);
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.55);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  padding: 4px 0;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: $color-text-primary;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  transition: background 0.1s ease;
+
+  &:hover {
+    background: rgba(var(--color-accent-rgb), 0.18);
+  }
+
+  &:focus-visible {
+    outline: 2px solid rgba(var(--color-accent-rgb), 0.7);
+    outline-offset: -2px;
+  }
+}
+
+.menuItemSecondary {
+  font-size: $font-size-xs;
+  color: $color-text-secondary;
+  margin-top: 2px;
+}
+
+.menuWrapper {
+  position: relative;
+  display: inline-block;
+}
+
+// ─── Confirmation modal ────────────────────────────────────────────────
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+.modalCard {
+  background: var(--color-bg-panel);
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.55);
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 520px;
+  width: 100%;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  color: $color-text-primary;
+}
+
+.modalTitle {
+  margin: 0 0 4px;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-semibold;
+}
+
+.modalSubtitle {
+  margin: 0 0 16px;
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.modalSection {
+  margin-bottom: 16px;
+}
+
+.modalSectionLabel {
+  font-size: $font-size-xs;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: $color-text-secondary;
+  margin-bottom: 6px;
+}
+
+.modalList {
+  list-style: disc;
+  padding-left: 22px;
+  margin: 0;
+  font-size: $font-size-sm;
+  line-height: 1.5;
+}
+
+.modalWarning {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgba(220, 90, 90, 0.12);
+  border: 1px solid rgba(220, 90, 90, 0.35);
+  font-size: $font-size-sm;
+  margin-bottom: 14px;
+}
+
+.modalHint {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 12px 14px;
+  border-radius: 6px;
+  background: rgba(var(--color-accent-rgb), 0.10);
+  border: 1px solid rgba(var(--color-accent-rgb), 0.30);
+  font-size: $font-size-sm;
+  margin-bottom: 18px;
+  color: $color-text-secondary;
+
+  code {
+    background: rgba(0, 0, 0, 0.30);
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-size: $font-size-xs;
+    color: $color-text-primary;
+  }
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.modalButton {
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: $font-size-sm;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.modalButtonSecondary {
+  background: transparent;
+  color: $color-text-secondary;
+  border-color: rgba(var(--color-border-strong-rgb), 0.55);
+
+  &:hover {
+    color: $color-text-primary;
+  }
+}
+
+.modalButtonDanger {
+  background: rgb(190, 70, 70);
+  color: white;
+  border-color: rgb(170, 60, 60);
+
+  &:hover:not(:disabled) {
+    background: rgb(210, 80, 80);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}

@@ -166,20 +166,25 @@ export class FileSystemManager extends EventEmitter {
     filePath: string,
   ): void {
     const normalizedPath = filePath.replace(/\\/g, '/');
-    // Store the latest event for each file path
+    // Coalesce duplicate events for the same path — the latest wins.
     this.pendingEvents.set(normalizedPath, {
       type,
       path: normalizedPath,
     } as FileChangeEvent);
 
-    // Clear existing timeout
-    if (this.debounceTimeout) {
-      clearTimeout(this.debounceTimeout);
-    }
-
-    // Set new timeout to batch events
+    // Trailing-edge debounce with NO reset. Earlier this branch
+    // `clearTimeout`-ed the existing timer on every new event, which
+    // turned the 200 ms debounce into "wait until writes stop" — and
+    // a dhee_run_to streams writes for 10+ minutes straight, so the
+    // flush never happened during a run. The PromptsView panel
+    // therefore stayed frozen for the whole pipeline. By only
+    // ARMING the timer when it's not already running, we guarantee
+    // a flush at most DEBOUNCE_DELAY ms after the first pending
+    // event — duplicate writes during that window still coalesce
+    // into the Map (latest event per path), but distinct paths
+    // continue to land in the renderer in near-real time.
+    if (this.debounceTimeout) return;
     this.debounceTimeout = setTimeout(() => {
-      // Emit all pending events
       for (const event of this.pendingEvents.values()) {
         this.emit('file-change', event);
       }
