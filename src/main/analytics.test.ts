@@ -1,4 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  jest,
+} from '@jest/globals';
 import type { dheeCoreManager } from './dheeCoreManager';
 import type { AccountInfo } from '../shared/settingsTypes';
 
@@ -74,7 +81,7 @@ describe('desktop analytics', () => {
     analytics.startDesktopAnalytics({
       manager: manager as unknown as dheeCoreManager,
     });
-    const installId = mockStoreData.installId;
+    const { installId } = mockStoreData;
 
     analytics.startDesktopAnalytics({
       manager: manager as unknown as dheeCoreManager,
@@ -98,10 +105,49 @@ describe('desktop analytics', () => {
     const events = manager.captureAnalyticsEvent.mock.calls.map(
       ([event]) => event,
     );
-    expect(events.filter((event) => event === 'desktop_app_first_started')).toHaveLength(1);
-    expect(events.filter((event) => event === 'desktop_app_started')).toHaveLength(2);
-    expect(events.filter((event) => event === 'desktop_heartbeat')).toHaveLength(2);
+    expect(
+      events.filter((event) => event === 'desktop_app_first_started'),
+    ).toHaveLength(1);
+    expect(events.filter((event) => event === '$screen')).toHaveLength(2);
+    expect(
+      events.filter((event) => event === 'desktop_app_started'),
+    ).toHaveLength(2);
+    expect(
+      events.filter((event) => event === 'desktop_heartbeat'),
+    ).toHaveLength(2);
     expect(events).toContain('desktop_app_quit');
+
+    const screenCall = manager.captureAnalyticsEvent.mock.calls.find(
+      ([event]) => event === '$screen',
+    );
+    expect(screenCall?.[1]).toEqual(
+      expect.objectContaining({
+        $screen_name: 'desktop_main',
+        $session_id: expect.any(String),
+        analytics_session_id: expect.any(String),
+      }),
+    );
+
+    const startCall = manager.captureAnalyticsEvent.mock.calls.find(
+      ([event]) => event === 'desktop_app_started',
+    );
+    expect(startCall?.[1]).toEqual(
+      expect.objectContaining({
+        $session_id: expect.any(String),
+        analytics_session_id: expect.any(String),
+        launch_source: 'electron_main',
+      }),
+    );
+
+    const heartbeatCall = manager.captureAnalyticsEvent.mock.calls.find(
+      ([event]) => event === 'desktop_heartbeat',
+    );
+    expect(heartbeatCall?.[1]).toEqual(
+      expect.objectContaining({
+        $session_id: expect.any(String),
+        heartbeat_interval_ms: 60_000,
+      }),
+    );
     expect(manager.flushAnalytics).toHaveBeenCalledTimes(1);
   });
 
@@ -122,9 +168,7 @@ describe('desktop analytics', () => {
     analytics.resetDesktopAnalyticsIdentity(
       manager as unknown as dheeCoreManager,
     );
-    analytics.captureDesktopAuthStarted(
-      manager as unknown as dheeCoreManager,
-    );
+    analytics.captureDesktopAuthStarted(manager as unknown as dheeCoreManager);
     analytics.stopDesktopAnalytics(manager as unknown as dheeCoreManager);
 
     expect(manager.configureAnalytics).toHaveBeenCalledWith(
@@ -147,9 +191,32 @@ describe('desktop analytics', () => {
     expect(manager.captureAnalyticsEvent).toHaveBeenCalledWith(
       'desktop_auth_started',
       expect.objectContaining({
+        $session_id: expect.any(String),
         auth_surface: 'desktop_main',
         app_version: '9.9.9',
       }),
     );
+  });
+
+  it('can defer the final flush until core shutdown has queued session-ended events', async () => {
+    mockStoreData.installId = 'install-stable';
+    mockStoreData.firstDesktopStartCaptured = true;
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.startDesktopAnalytics({
+      manager: manager as unknown as dheeCoreManager,
+    });
+    analytics.stopDesktopAnalytics(manager as unknown as dheeCoreManager, {
+      flush: false,
+    });
+
+    expect(manager.captureAnalyticsEvent).toHaveBeenCalledWith(
+      'desktop_app_quit',
+      expect.objectContaining({
+        $session_id: expect.any(String),
+      }),
+    );
+    expect(manager.flushAnalytics).not.toHaveBeenCalled();
   });
 });

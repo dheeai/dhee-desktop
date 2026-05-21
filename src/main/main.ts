@@ -3509,11 +3509,13 @@ dheeCoreManager = new DheeCoreManager();
 
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
-  stopDesktopAnalytics(dheeCoreManager);
+  stopDesktopAnalytics(dheeCoreManager, { flush: false });
   try {
     dheeCoreManager.stop();
   } catch (error) {
     log.error(`Failed to stop embedded engine: ${(error as Error).message}`);
+  } finally {
+    dheeCoreManager.flushAnalytics().catch(() => undefined);
   }
 });
 
@@ -3543,6 +3545,11 @@ const bootstrapBackend = async () => {
       await getCloudAuthRuntime(settings),
     );
     log.info('[EmbeddedDhee] Manager started');
+    const analyticsHost = process.env.POSTHOG_HOST || '(default)';
+    const analyticsSaltState = process.env.ANALYTICS_SALT ? 'set' : 'unset';
+    log.info(
+      `[EmbeddedDhee] Analytics ${dheeCoreManager.isAnalyticsEnabled() ? 'enabled' : 'disabled'} posthogHost=${analyticsHost} analyticsSalt=${analyticsSaltState}`,
+    );
     startDesktopAnalytics({
       manager: dheeCoreManager,
       account: getAccount(),

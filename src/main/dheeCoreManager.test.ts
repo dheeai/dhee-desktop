@@ -118,8 +118,10 @@ const mockLoadDevEnv = jest.fn(() => ({
   root: FAKE_INK_ROOT,
   projectsDir: FAKE_PROJECTS_DIR,
 }));
+const mockConfigurePostHogRuntime = jest.fn();
 __setManagerLoader(async () => ({
   ConversationManager: FakeConversationManager,
+  configurePostHogRuntime: mockConfigurePostHogRuntime,
   loadDevEnv: mockLoadDevEnv,
 } as unknown as Parameters<typeof __setManagerLoader>[0] extends () => Promise<infer M> ? M : never));
 
@@ -172,6 +174,7 @@ beforeEach(() => {
   mockState.envSnapshots = [];
   mockState.shutdownCalls = 0;
   mockState.lastInstance = null;
+  mockConfigurePostHogRuntime.mockClear();
   delete process.env['LLM_PROVIDER'];
   delete process.env['OPENAI_API_KEY'];
   delete process.env['OPENAI_BASE_URL'];
@@ -191,6 +194,9 @@ beforeEach(() => {
   delete process.env['VLM_API_KEY'];
   delete process.env['VLM_MODEL'];
   delete process.env['LLM_ROUTING_ENABLED'];
+  delete process.env['POSTHOG_API_KEY'];
+  delete process.env['POSTHOG_HOST'];
+  delete process.env['ANALYTICS_SALT'];
   for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
     for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
       delete process.env[`LLM_TIER_${tier}_${k}`];
@@ -209,6 +215,21 @@ describe('dheeCoreManager', () => {
     expect(mockState.envSnapshots).toHaveLength(1);
     expect(mockState.envSnapshots[0]?.LLM_PROVIDER).toBe('openai');
     expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
+  });
+
+  it('start() forwards PostHog runtime settings to embedded core', async () => {
+    process.env['POSTHOG_API_KEY'] = 'phc_test';
+    process.env['POSTHOG_HOST'] = 'https://posthog.test';
+    process.env['ANALYTICS_SALT'] = 'salt-test';
+
+    const mgr = new dheeCoreManager();
+    await mgr.start(baseSettings);
+
+    expect(mockConfigurePostHogRuntime).toHaveBeenCalledWith({
+      apiKey: 'phc_test',
+      host: 'https://posthog.test',
+      analyticsSalt: 'salt-test',
+    });
   });
 
   // ── Mode-routing tests ──────────────────────────────────────────────
