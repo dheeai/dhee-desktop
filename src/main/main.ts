@@ -3543,6 +3543,11 @@ const bootstrapBackend = async () => {
       await getCloudAuthRuntime(settings),
     );
     log.info('[EmbeddedDhee] Manager started');
+    const analyticsHost = process.env.POSTHOG_HOST || '(default)';
+    const analyticsSaltState = process.env.ANALYTICS_SALT ? 'set' : 'unset';
+    log.info(
+      `[EmbeddedDhee] Analytics ${dheeCoreManager.isAnalyticsEnabled() ? 'enabled' : 'disabled'} posthogHost=${analyticsHost} analyticsSalt=${analyticsSaltState}`,
+    );
     startDesktopAnalytics({
       manager: dheeCoreManager,
       account: getAccount(),
