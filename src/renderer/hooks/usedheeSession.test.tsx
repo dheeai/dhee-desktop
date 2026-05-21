@@ -216,7 +216,7 @@ describe('useDheeSession', () => {
 
   it('createSession on mount retries when the IPC layer initially rejects (startup race)', async () => {
     let attempts = 0;
-    (window as unknown as { kshana: { createSession: jest.Mock } }).kshana.createSession =
+    (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
       jest.fn(async () => {
         attempts += 1;
         if (attempts < 3) {
@@ -261,15 +261,15 @@ describe('useDheeSession', () => {
     // around — simulating a fresh in-memory entry).
     let runCalls = 0;
     let createSessionCalls = 0;
-    (window as unknown as { kshana: { runTask: jest.Mock; createSession: jest.Mock } })
-      .kshana.runTask = jest.fn(async (req: { sessionId: string }) => {
+    (window as unknown as { dhee: { runTask: jest.Mock; createSession: jest.Mock } })
+      .dhee.runTask = jest.fn(async (req: { sessionId: string }) => {
       runCalls += 1;
       if (runCalls === 1) {
         return { ok: false, error: `Session not found: ${req.sessionId}` };
       }
       return { ok: true };
     });
-    (window as unknown as { kshana: { createSession: jest.Mock } }).kshana.createSession =
+    (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
       jest.fn(async () => {
         createSessionCalls += 1;
         return { sessionId: 's-2' };
@@ -312,7 +312,7 @@ describe('useDheeSession', () => {
       compactionCount: 0,
     };
     let getHistoryCalls = 0;
-    (window as unknown as { kshana: { getHistory: jest.Mock } }).kshana.getHistory =
+    (window as unknown as { dhee: { getHistory: jest.Mock } }).dhee.getHistory =
       jest.fn(async (req: { sessionId: string }) => {
         getHistoryCalls += 1;
         return { sessionId: req.sessionId, history: snapshot };
@@ -346,7 +346,7 @@ describe('useDheeSession', () => {
   });
 
   it('refreshHistory() leaves history null when the backend has no snapshot', async () => {
-    (window as unknown as { kshana: { getHistory: jest.Mock } }).kshana.getHistory =
+    (window as unknown as { dhee: { getHistory: jest.Mock } }).dhee.getHistory =
       jest.fn(async () => ({ sessionId: 's-1', history: null }));
 
     let api: ReturnType<typeof useDheeSession> | null = null;
@@ -374,12 +374,12 @@ describe('useDheeSession', () => {
 
     let runCalls = 0;
     let createSessionCalls = 0;
-    (window as unknown as { kshana: { runTask: jest.Mock; createSession: jest.Mock } })
-      .kshana.runTask = jest.fn(async () => {
+    (window as unknown as { dhee: { runTask: jest.Mock; createSession: jest.Mock } })
+      .dhee.runTask = jest.fn(async () => {
       runCalls += 1;
       return { ok: false, error: 'something else broke' };
     });
-    (window as unknown as { kshana: { createSession: jest.Mock } }).kshana.createSession =
+    (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
       jest.fn(async () => {
         createSessionCalls += 1;
         return { sessionId: 's-should-not-be-called' };
