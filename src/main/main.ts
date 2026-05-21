@@ -3509,11 +3509,13 @@ dheeCoreManager = new DheeCoreManager();
 
 app.on('before-quit', () => {
   desktopLogger.logSessionEnd();
-  stopDesktopAnalytics(dheeCoreManager);
+  stopDesktopAnalytics(dheeCoreManager, { flush: false });
   try {
     dheeCoreManager.stop();
   } catch (error) {
     log.error(`Failed to stop embedded engine: ${(error as Error).message}`);
+  } finally {
+    dheeCoreManager.flushAnalytics().catch(() => undefined);
   }
 });
 

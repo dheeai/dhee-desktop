@@ -25,6 +25,7 @@ const analyticsStore = new Store<AnalyticsStore>({
 let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
 let startedAt = 0;
 let activeInstallId: string | null = null;
+let activeAnalyticsSessionId: string | null = null;
 
 export function getOrCreateInstallId(): string {
   const existing = analyticsStore.get('installId');
@@ -57,7 +58,27 @@ function baseProperties(): Record<string, unknown> {
   };
 }
 
-function configureIdentity({ manager, account }: DesktopAnalyticsRuntime): string {
+function getOrCreateAnalyticsSessionId(): string {
+  if (activeAnalyticsSessionId) {
+    return activeAnalyticsSessionId;
+  }
+  activeAnalyticsSessionId = randomUUID();
+  return activeAnalyticsSessionId;
+}
+
+function sessionProperties(): Record<string, unknown> {
+  const analyticsSessionId = getOrCreateAnalyticsSessionId();
+  return {
+    ...baseProperties(),
+    analytics_session_id: analyticsSessionId,
+    $session_id: analyticsSessionId,
+  };
+}
+
+function configureIdentity({
+  manager,
+  account,
+}: DesktopAnalyticsRuntime): string {
   const installId = getOrCreateInstallId();
   manager.configureAnalytics({
     appVersion: app.getVersion(),
@@ -71,21 +92,33 @@ function configureIdentity({ manager, account }: DesktopAnalyticsRuntime): strin
 export function startDesktopAnalytics(runtime: DesktopAnalyticsRuntime): void {
   const installId = configureIdentity(runtime);
   startedAt = Date.now();
+  activeAnalyticsSessionId = randomUUID();
 
-  const firstCaptured = analyticsStore.get('firstDesktopStartCaptured') === true;
+  const firstCaptured =
+    analyticsStore.get('firstDesktopStartCaptured') === true;
   if (!firstCaptured) {
-    runtime.manager.captureAnalyticsEvent('desktop_app_first_started', baseProperties());
+    runtime.manager.captureAnalyticsEvent(
+      'desktop_app_first_started',
+      baseProperties(),
+    );
     analyticsStore.set('firstDesktopStartCaptured', true);
   }
 
+  runtime.manager.captureAnalyticsEvent('$screen', {
+    ...sessionProperties(),
+    $screen_name: 'desktop_main',
+    screen_name: 'desktop_main',
+  });
+
   runtime.manager.captureAnalyticsEvent('desktop_app_started', {
-    ...baseProperties(),
+    ...sessionProperties(),
     launch_source: 'electron_main',
   });
 
   const captureHeartbeat = () => {
     runtime.manager.captureAnalyticsEvent('desktop_heartbeat', {
-      ...baseProperties(),
+      ...sessionProperties(),
+      heartbeat_interval_ms: HEARTBEAT_INTERVAL_MS,
       uptime_ms: Math.max(0, Date.now() - startedAt),
     });
   };
@@ -101,7 +134,7 @@ export function startDesktopAnalytics(runtime: DesktopAnalyticsRuntime): void {
 
 export function captureDesktopAuthStarted(manager: dheeCoreManager): void {
   manager.captureAnalyticsEvent('desktop_auth_started', {
-    ...baseProperties(),
+    ...sessionProperties(),
     auth_surface: 'desktop_main',
   });
 }
@@ -120,15 +153,20 @@ export function resetDesktopAnalyticsIdentity(manager: dheeCoreManager): void {
   manager.setAnalyticsIdentity({ installId });
 }
 
-export function stopDesktopAnalytics(manager: dheeCoreManager): void {
+export function stopDesktopAnalytics(
+  manager: dheeCoreManager,
+  options: { flush?: boolean } = {},
+): void {
   if (heartbeatInterval) {
     clearInterval(heartbeatInterval);
     heartbeatInterval = null;
   }
 
   manager.captureAnalyticsEvent('desktop_app_quit', {
-    ...baseProperties(),
+    ...sessionProperties(),
     uptime_ms: startedAt ? Math.max(0, Date.now() - startedAt) : undefined,
   });
-  void manager.flushAnalytics();
+  if (options.flush ?? true) {
+    manager.flushAnalytics().catch(() => undefined);
+  }
 }
