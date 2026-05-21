@@ -1,9 +1,25 @@
+/**
+ * Build the first user-facing message dispatched into chat after the
+ * New Project wizard completes.
+ *
+ * By the time this runs:
+ *   - The wizard has already called `dhee.setup-project` IPC, which
+ *     wrote `project.json` with `style`, `templateId`, `duration`.
+ *   - The project folder exists on disk.
+ *   - The active-project announcement (in `projectAnnouncement.ts`)
+ *     injects "Active project: <name>" into the agent's task so the
+ *     model already knows which project it's working on.
+ *   - The pi-orchestrator skill prompt (`prompts/system/pi-orchestrator.md`)
+ *     documents `dhee_new` / `existingDir` / `dhee_run_to` semantics.
+ *
+ * So the kickoff message does NOT need to repeat any of that. The user
+ * sees a clean chat starting with their own story. The agent has
+ * everything it needs to save the story and start the pipeline.
+ *
+ * Returns an empty message when no story is provided — the caller
+ * short-circuits the dispatch in that case.
+ */
 interface BuildWizardKickoffArgs {
-  projectDir: string;
-  projectName: string;
-  templateId: string;
-  style: string;
-  duration: number;
   story: string;
 }
 
@@ -19,15 +35,7 @@ export function buildWizardKickoff(
     return { message: '' };
   }
 
-  const lines = [
-    `Create a new dhee project named "${args.projectName}" in the existing folder ${args.projectDir}.`,
-    `Use the ${args.templateId} template with ${args.style} style for ${args.duration} seconds.`,
-    '',
-    'Story:',
-    trimmedStory,
-    '',
-    'Pass the absolute folder path as `existingDir` to dhee_new so the project is created in place rather than under the default projects directory.',
-  ];
-
-  return { message: lines.join('\n') };
+  return {
+    message: `${trimmedStory}\n\nSave this as the project input and start the pipeline.`,
+  };
 }

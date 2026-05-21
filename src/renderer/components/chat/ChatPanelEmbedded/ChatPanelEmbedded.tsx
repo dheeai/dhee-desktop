@@ -903,19 +903,12 @@ export default function ChatPanelEmbedded() {
       return;
     }
 
-    // Build the kickoff and dispatch as a chat task; pi-agent will
-    // route this to dhee_new with `existingDir` set to the
-    // pre-created folder.
-    const projectDirName =
-      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') ||
-      projectName ||
-      'project';
+    // Build the kickoff and dispatch as a chat task. The agent sees
+    // the story and starts the pipeline; project metadata
+    // (style/template/duration) has already been persisted by the
+    // setup-project IPC above, and the active-project announcement
+    // tells the agent which project it's working on.
     const { message } = buildWizardKickoff({
-      projectDir: projectDirectory,
-      projectName: projectDirName,
-      templateId: selectedTemplateId,
-      style: selectedStyleId,
-      duration: selectedDuration,
       story: trimmedStory,
     });
     if (!message) {
