@@ -9,7 +9,7 @@ describe('ProjectCard', () => {
     lastOpened: Date.now(),
     description: 'Test project',
     sceneCount: 3,
-    characterCount: 2,
+    shotCount: 12,
   };
 
   it('opens the project from the main card surface', () => {

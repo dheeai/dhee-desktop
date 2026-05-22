@@ -29,6 +29,13 @@ import RecentProjectsList from '../RecentProjectsList/RecentProjectsList';
 import { getProjectNameFromPath, sortRecentProjects } from '../projectDisplay';
 import styles from './LandingScreen.module.scss';
 import type { BackendProjectFile } from '../../../services/project/backendProjectAdapter';
+import {
+  collectMeetCharacterShots,
+  countScenesAndShots,
+  extractSceneImages,
+  selectSmartThumbnail,
+  type SVPShape,
+} from './projectMetadataHelpers';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
 import type { AccountInfo } from '../../../../shared/settingsTypes';
 
@@ -59,7 +66,7 @@ interface ProjectMetadata {
   manifestName?: string;
   description?: string | null;
   sceneCount?: number | null;
-  characterCount?: number | null;
+  shotCount?: number | null;
   thumbnailPath?: string | null;
 }
 
@@ -204,11 +211,14 @@ async function loadSingleProjectMetadata(
   projectPath: string,
 ): Promise<ProjectMetadata> {
   const metadata: ProjectMetadata = {};
-  const [projectContent, thumbnailPath] = await Promise.all([
+  const [projectContent, fileThumbnailPath, manifestContent] = await Promise.all([
     window.electron.project
       .readFile(joinPath(projectPath, 'project.json'))
       .catch(() => null),
     findThumbnailPath(projectPath),
+    window.electron.project
+      .readFile(joinPath(projectPath, 'assets/manifest.json'))
+      .catch(() => null),
   ]);
 
   if (projectContent) {
@@ -216,14 +226,63 @@ async function loadSingleProjectMetadata(
       const project = safeJsonParse<BackendProjectFile>(projectContent);
       metadata.manifestName = project.title;
       metadata.description = project.description ?? null;
-      metadata.sceneCount = project.scenes.length;
-      metadata.characterCount = project.characters.length;
     } catch {
       // Ignore malformed or missing project metadata.
     }
   }
 
-  metadata.thumbnailPath = thumbnailPath;
+  // Counts: the asset manifest is the authoritative source. project.json's
+  // top-level `scenes` array is a legacy stub the pipeline stopped
+  // populating after the dep-graph migration, so reading it directly
+  // shows "1 scene · 0 characters" for projects that actually have 15
+  // shots rendered on disk. Trust the manifest.
+  let sceneImages: ReturnType<typeof extractSceneImages> = [];
+  if (manifestContent) {
+    try {
+      const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
+      sceneImages = extractSceneImages(manifest);
+    } catch {
+      /* malformed manifest — fall through with empty list */
+    }
+  }
+  const { scenes, shots } = countScenesAndShots(sceneImages);
+  metadata.sceneCount = scenes;
+  metadata.shotCount = shots;
+
+  // Thumbnail: prefer the persisted file written by
+  // ensureProjectThumbnailFromManifest at project-open time; otherwise
+  // synthesize a smart pick from the manifest, preferring shots tagged
+  // `meet_character` in their scene_video_prompt (hero introductions
+  // make the most identifiable thumbnails). Falls back to a random
+  // scene_image if no meet_character shots exist.
+  if (fileThumbnailPath) {
+    metadata.thumbnailPath = fileThumbnailPath;
+  } else if (sceneImages.length > 0) {
+    const sceneNums = Array.from(new Set(sceneImages.map((s) => s.scene)));
+    const svps: Record<number, SVPShape | null> = {};
+    await Promise.all(
+      sceneNums.map(async (n) => {
+        const content = await window.electron.project
+          .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
+          .catch(() => null);
+        if (!content) {
+          svps[n] = null;
+          return;
+        }
+        try {
+          svps[n] = safeJsonParse<SVPShape>(content);
+        } catch {
+          svps[n] = null;
+        }
+      }),
+    );
+    const meetCharSet = collectMeetCharacterShots(svps);
+    const pick = selectSmartThumbnail(sceneImages, meetCharSet);
+    metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;
+  } else {
+    metadata.thumbnailPath = null;
+  }
+
   return metadata;
 }
 
@@ -348,7 +407,7 @@ export default function LandingScreen() {
           lastOpened: project.lastOpened,
           description: metadata?.description || null,
           sceneCount: metadata?.sceneCount ?? null,
-          characterCount: metadata?.characterCount ?? null,
+          shotCount: metadata?.shotCount ?? null,
           thumbnailPath: metadata?.thumbnailPath || null,
         };
       }),
