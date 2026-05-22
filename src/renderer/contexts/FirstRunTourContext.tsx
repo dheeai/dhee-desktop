@@ -84,7 +84,7 @@ interface TourStep {
   fallbackTargetIds?: string[];
   actionHint?: string;
   requiresAction?: boolean;
-  actionKind?: 'provider-choice' | 'settings-setup' | 'project-location';
+  actionKind?: 'tour-start' | 'cloud-sign-in' | 'project-location';
 }
 
 interface TargetRect {
@@ -114,66 +114,61 @@ const TOUR_STEPS: TourStep[] = [
     body: 'Dhee can use Dhee Cloud credits or local providers. You can inspect either setup path now, but you can also continue without entering keys.',
     actionHint:
       'Setup is optional during the walkthrough. The project flow stays available.',
-    actionKind: 'provider-choice',
+    actionKind: 'tour-start',
   },
   {
     id: 'settings-local-comfy',
     targetId: 'settings-comfy-url',
     title: 'Local ComfyUI lives here',
-    body: 'For local image and video generation, enter the ComfyUI server URL here. The default is fine to leave blank until you have a local server ready.',
-    actionHint: 'You can continue without filling this in.',
-    actionKind: 'settings-setup',
+    body: 'This is where a local ComfyUI server URL lives. The default can stay as-is until you have a local server ready.',
+    actionHint: 'This is only a walkthrough step. No setup is required now.',
   },
   {
     id: 'settings-local-llm-provider',
     targetId: 'settings-llm-provider',
     title: 'Choose the local LLM provider',
-    body: 'Dhee uses an LLM for planning, story structure, prompts, and agent decisions. Pick Gemini or an OpenAI-compatible endpoint when you are ready.',
-    actionHint: 'This is informational for first run.',
-    actionKind: 'settings-setup',
+    body: 'This is where the local LLM provider is selected. Dhee uses it for planning, story structure, prompts, and agent decisions.',
+    actionHint: 'You can leave the current choice unchanged.',
   },
   {
     id: 'settings-local-llm-key',
     targetId: 'settings-llm-api-key',
     fallbackTargetIds: ['settings-llm-provider'],
     title: 'API keys go in the provider section',
-    body: 'Put your Gemini or OpenAI-compatible key here. Dhee does not require you to enter it before creating a project.',
+    body: 'This is where a Gemini or OpenAI-compatible key goes when you want to run locally.',
     actionHint: 'No key is required to continue the guide.',
-    actionKind: 'settings-setup',
   },
   {
     id: 'settings-local-llm-model',
     targetId: 'settings-llm-model',
     fallbackTargetIds: ['settings-llm-provider'],
     title: 'Model IDs are configured beside the key',
-    body: 'This field tells Dhee which model to call for the main creative work. You can come back and tune this later.',
-    actionHint: 'Leave the default until you know which model you want.',
-    actionKind: 'settings-setup',
+    body: 'This is where the model ID is configured for local creative work. You can come back and tune it later.',
+    actionHint: 'The current value is fine for this walkthrough.',
   },
   {
     id: 'settings-local-test',
     targetId: 'settings-provider-test',
     title: 'Test providers when ready',
-    body: 'This check probes Cloud, ComfyUI, and LLM readiness. It is advisory and will not block the guide.',
-    actionHint: 'Use it after entering settings, or skip it for now.',
-    actionKind: 'settings-setup',
+    body: 'This is where provider checks live. They are advisory and help diagnose Cloud, ComfyUI, and LLM readiness.',
+    actionHint: 'You do not need to run the test now.',
   },
   {
     id: 'settings-local-save',
     targetId: 'settings-save-connection',
     title: 'Save connection changes',
-    body: 'When you do edit provider fields, save them here. For the walkthrough you can continue without saving anything.',
-    actionHint: 'Continue returns to project creation.',
-    actionKind: 'settings-setup',
+    body: 'This is where connection changes are saved when you edit provider settings.',
+    actionHint:
+      'Nothing changed during the walkthrough, so no save is required.',
   },
   {
     id: 'settings-cloud-signin',
     targetId: 'settings-cloud-sign-in',
     fallbackTargetIds: ['settings-cloud-toggles'],
     title: 'Cloud sign-in starts here',
-    body: 'Dhee Cloud uses the browser sign-in flow. If you started sign-in, finish it in the browser, then return here.',
-    actionHint: 'Sign-in is external, so the guide stays non-blocking.',
-    actionKind: 'settings-setup',
+    body: 'Dhee Cloud uses the browser sign-in flow. Sign in here when you want Cloud credits, or continue without signing in.',
+    actionHint: 'Cloud signup is optional during the walkthrough.',
+    actionKind: 'cloud-sign-in',
   },
   {
     id: 'settings-cloud-toggles',
@@ -182,7 +177,6 @@ const TOUR_STEPS: TourStep[] = [
     title: 'Cloud mode toggles live in Connection',
     body: 'After sign-in, these switches route ComfyUI, LLM, or VLM work through Dhee Cloud credits instead of local providers.',
     actionHint: 'You can continue without enabling Cloud mode.',
-    actionKind: 'settings-setup',
   },
   {
     id: 'landing-create',
@@ -459,7 +453,6 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       const settingsCloudSignInIndex = getTourStepIndex(
         'settings-cloud-signin',
       );
-      const landingCreateIndex = getTourStepIndex('landing-create');
       const projectNameIndex = getTourStepIndex('project-name');
       const projectLocationIndex = getTourStepIndex('project-location');
       const projectCreateIndex = getTourStepIndex('project-create');
@@ -475,14 +468,17 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
         activeSource &&
         currentStep?.id === 'landing-provider-choice'
       ) {
-        setStepIndex(landingCreateIndex);
+        requestLandingAction({ action: 'open-settings', tab: 'connection' });
+        setStepIndex(settingsLocalComfyIndex);
         return;
       }
       if (event === 'settings_local_setup_seen' && activeSource) {
+        requestLandingAction({ action: 'open-settings', tab: 'connection' });
         setStepIndex(settingsLocalComfyIndex);
         return;
       }
       if (event === 'settings_cloud_setup_seen' && activeSource) {
+        requestLandingAction({ action: 'open-settings', tab: 'connection' });
         setStepIndex(settingsCloudSignInIndex);
         return;
       }
@@ -628,40 +624,36 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
   const goBack = useCallback(() => {
     setStepIndex((current) => {
       const currentStep = TOUR_STEPS[current];
-      if (
-        currentStep?.id === 'settings-local-comfy' ||
-        currentStep?.id === 'settings-cloud-signin'
-      ) {
+      if (currentStep?.id === 'settings-local-comfy') {
+        requestLandingAction({ action: 'show-projects' });
         return getTourStepIndex('landing-provider-choice');
       }
       if (currentStep?.id === 'landing-create') {
-        return getTourStepIndex('landing-provider-choice');
+        requestLandingAction({ action: 'open-settings', tab: 'connection' });
+        return getTourStepIndex('settings-cloud-toggles');
       }
       return Math.max(0, current - 1);
     });
   }, []);
 
-  const continueToProjects = useCallback(() => {
-    requestLandingAction({ action: 'show-projects' });
-    setStepIndex(getTourStepIndex('landing-create'));
-  }, []);
-
   const goNext = useCallback(() => {
     setStepIndex((current) => {
       const currentStep = TOUR_STEPS[current];
+      if (currentStep?.id === 'landing-provider-choice') {
+        requestLandingAction({ action: 'open-settings', tab: 'connection' });
+        return getTourStepIndex('settings-local-comfy');
+      }
       if (
         currentStep?.id === 'settings-local-comfy' ||
         currentStep?.id === 'settings-local-llm-provider' ||
         currentStep?.id === 'settings-local-llm-key' ||
         currentStep?.id === 'settings-local-llm-model' ||
-        currentStep?.id === 'settings-local-test'
+        currentStep?.id === 'settings-local-test' ||
+        currentStep?.id === 'settings-local-save'
       ) {
         return current + 1;
       }
-      if (
-        currentStep?.id === 'settings-local-save' ||
-        currentStep?.id === 'settings-cloud-toggles'
-      ) {
+      if (currentStep?.id === 'settings-cloud-toggles') {
         requestLandingAction({ action: 'show-projects' });
         return getTourStepIndex('landing-create');
       }
@@ -690,33 +682,17 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
   const handleProviderSignIn = useCallback(() => {
     const signInResult = window.electron.account?.signIn?.();
     signInResult?.catch(() => undefined);
-    requestLandingAction({ action: 'open-settings', tab: 'connection' });
-    notifyTourEvent('settings_cloud_setup_seen');
-  }, [notifyTourEvent]);
-
-  const handleProviderLocalSetup = useCallback(() => {
-    requestLandingAction({ action: 'open-settings', tab: 'connection' });
-    notifyTourEvent('settings_local_setup_seen');
-  }, [notifyTourEvent]);
-
-  const handleProviderContinue = useCallback(() => {
-    continueToProjects();
-    notifyTourEvent('provider_choice_seen');
-  }, [continueToProjects, notifyTourEvent]);
+  }, []);
 
   const handleUseProjectLocation = useCallback(() => {
     notifyTourEvent('project_location_confirmed');
   }, [notifyTourEvent]);
 
   let advanceButton: ReactNode = null;
-  if (activeStep?.actionKind === 'provider-choice') {
+  if (activeStep?.actionKind === 'tour-start') {
     advanceButton = (
-      <button
-        type="button"
-        className={styles.primaryButton}
-        onClick={handleProviderContinue}
-      >
-        Continue without setup
+      <button type="button" className={styles.primaryButton} onClick={goNext}>
+        Start walkthrough
       </button>
     );
   } else if (activeStep?.actionKind === 'project-location') {
@@ -777,7 +753,7 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
             {activeStep.actionHint ? (
               <p className={styles.actionHint}>{activeStep.actionHint}</p>
             ) : null}
-            {activeStep.actionKind === 'provider-choice' ? (
+            {activeStep.actionKind === 'cloud-sign-in' ? (
               <div className={styles.choiceActions}>
                 <button
                   type="button"
@@ -785,13 +761,6 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
                   onClick={handleProviderSignIn}
                 >
                   Sign in to Dhee Cloud
-                </button>
-                <button
-                  type="button"
-                  className={styles.secondaryButton}
-                  onClick={handleProviderLocalSetup}
-                >
-                  Local setup
                 </button>
               </div>
             ) : null}
@@ -807,15 +776,6 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
                 >
                   Skip
                 </button>
-                {activeStep.actionKind === 'settings-setup' ? (
-                  <button
-                    type="button"
-                    className={styles.secondaryButton}
-                    onClick={continueToProjects}
-                  >
-                    Continue without setup
-                  </button>
-                ) : null}
                 {stepIndex > 0 ? (
                   <button
                     type="button"

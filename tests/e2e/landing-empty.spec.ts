@@ -2,11 +2,40 @@
  * Wave 2 — Landing screen empty state.
  */
 /* eslint-disable no-underscore-dangle */
-import { test, expect } from './fixtures';
+import { test, expect, type Page } from './fixtures';
+
+async function expectTourHeading(page: Page, name: RegExp) {
+  await expect(page.getByRole('heading', { name })).toBeVisible();
+}
+
+async function clickNextToTourHeading(page: Page, name: RegExp) {
+  await page.getByRole('button', { name: /^Next$/i }).click();
+  await expectTourHeading(page, name);
+}
+
+async function startLinearWalkthrough(page: Page) {
+  await page.getByRole('button', { name: /^Start walkthrough$/i }).click();
+  await expectTourHeading(page, /Local ComfyUI lives here/i);
+}
+
+async function advanceToProjectCreation(page: Page) {
+  await startLinearWalkthrough(page);
+  await clickNextToTourHeading(page, /Choose the local LLM provider/i);
+  await clickNextToTourHeading(page, /API keys go in the provider section/i);
+  await clickNextToTourHeading(
+    page,
+    /Model IDs are configured beside the key/i,
+  );
+  await clickNextToTourHeading(page, /Test providers when ready/i);
+  await clickNextToTourHeading(page, /Save connection changes/i);
+  await clickNextToTourHeading(page, /Cloud sign-in starts here/i);
+  await clickNextToTourHeading(page, /Cloud mode toggles live in Connection/i);
+  await clickNextToTourHeading(page, /Create your first project/i);
+}
 
 test.describe('Feature: Landing screen, empty state', () => {
   test.describe('Given a user with no recent projects', () => {
-    test('When the page boots, Then the first-run walkthrough starts with Cloud and local choices', async ({
+    test('When the page boots, Then the first-run walkthrough starts with the overview', async ({
       page,
       bootInline,
     }) => {
@@ -21,11 +50,14 @@ test.describe('Feature: Landing screen, empty state', () => {
         page.getByText(/Dhee can use Dhee Cloud credits/i),
       ).toBeVisible();
       await expect(
-        page.getByRole('button', { name: /Sign in to Dhee Cloud/i }),
+        page.getByRole('button', { name: /^Start walkthrough$/i }),
       ).toBeVisible();
       await expect(
+        page.getByRole('button', { name: /Sign in to Dhee Cloud/i }),
+      ).toHaveCount(0);
+      await expect(
         page.getByRole('button', { name: /Local setup/i }),
-      ).toBeVisible();
+      ).toHaveCount(0);
 
       // And — both sidebar CTAs are still mounted.
       await expect(
@@ -81,13 +113,13 @@ test.describe('Feature: Landing screen, empty state', () => {
       ).toBeVisible();
     });
 
-    test('When the user chooses local setup from the walkthrough, Then Connection settings opens', async ({
+    test('When the user starts the walkthrough, Then local Connection settings opens', async ({
       page,
       bootInline,
     }) => {
       await bootInline({ surface: 'landing', rules: [] });
 
-      await page.getByRole('button', { name: /Local setup/i }).click();
+      await startLinearWalkthrough(page);
 
       await expect(
         page.getByRole('heading', { name: /Settings$/i }),
@@ -102,49 +134,56 @@ test.describe('Feature: Landing screen, empty state', () => {
       await expect(
         page.getByRole('heading', { name: /Choose the local LLM provider/i }),
       ).toBeVisible();
-      await page
-        .getByRole('button', { name: /Continue without setup/i })
-        .click();
-      await expect(
-        page.getByRole('heading', { name: /Create your first project/i }),
-      ).toBeVisible();
     });
 
-    test('When the user starts Cloud sign-in, Then the tour shows Cloud settings without blocking', async ({
+    test('When the walkthrough reaches Cloud sign-in, Then sign-in is optional', async ({
       page,
       bootInline,
     }) => {
       await bootInline({ surface: 'landing', rules: [] });
+
+      await startLinearWalkthrough(page);
+      await clickNextToTourHeading(page, /Choose the local LLM provider/i);
+      await clickNextToTourHeading(
+        page,
+        /API keys go in the provider section/i,
+      );
+      await clickNextToTourHeading(
+        page,
+        /Model IDs are configured beside the key/i,
+      );
+      await clickNextToTourHeading(page, /Test providers when ready/i);
+      await clickNextToTourHeading(page, /Save connection changes/i);
+      await clickNextToTourHeading(page, /Cloud sign-in starts here/i);
+
+      const beforeSignInCalls = await page.evaluate(() =>
+        window.__dheeTest!.getCalls('account.signIn'),
+      );
+      expect(beforeSignInCalls.length).toBe(0);
 
       await page
         .getByRole('button', { name: /Sign in to Dhee Cloud/i })
         .click();
 
-      await expect(
-        page.getByRole('heading', { name: /Cloud sign-in starts here/i }),
-      ).toBeVisible();
-      const calls = await page.evaluate(() =>
+      const afterSignInCalls = await page.evaluate(() =>
         window.__dheeTest!.getCalls('account.signIn'),
       );
-      expect(calls.length).toBeGreaterThanOrEqual(1);
+      expect(afterSignInCalls.length).toBeGreaterThanOrEqual(1);
 
-      await page
-        .getByRole('button', { name: /Continue without setup/i })
-        .click();
-      await expect(
-        page.getByRole('heading', { name: /Create your first project/i }),
-      ).toBeVisible();
+      await clickNextToTourHeading(
+        page,
+        /Cloud mode toggles live in Connection/i,
+      );
+      await clickNextToTourHeading(page, /Create your first project/i);
     });
 
-    test('When the user continues from provider choice, Then the walkthrough points to New Project', async ({
+    test('When the user completes setup sections, Then the walkthrough points to New Project', async ({
       page,
       bootInline,
     }) => {
       await bootInline({ surface: 'landing', rules: [] });
 
-      await page
-        .getByRole('button', { name: /^Continue without setup$/i })
-        .click();
+      await advanceToProjectCreation(page);
 
       await expect(
         page.getByRole('heading', { name: /Create your first project/i }),
@@ -169,9 +208,7 @@ test.describe('Feature: Landing screen, empty state', () => {
         );
       });
 
-      await page
-        .getByRole('button', { name: /^Continue without setup$/i })
-        .click();
+      await advanceToProjectCreation(page);
       await page.getByRole('button', { name: /^New Project$/i }).click();
       await expect(
         page.getByRole('heading', { name: /Name the project/i }),

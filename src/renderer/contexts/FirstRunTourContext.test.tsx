@@ -128,6 +128,26 @@ function renderTour() {
   );
 }
 
+async function clickNextToHeading(heading: string) {
+  fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+  expect(await screen.findByText(heading)).not.toBeNull();
+}
+
+async function advanceThroughSetupWalkthrough() {
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Start walkthrough' }),
+  );
+  expect(await screen.findByText('Local ComfyUI lives here')).not.toBeNull();
+  await clickNextToHeading('Choose the local LLM provider');
+  await clickNextToHeading('API keys go in the provider section');
+  await clickNextToHeading('Model IDs are configured beside the key');
+  await clickNextToHeading('Test providers when ready');
+  await clickNextToHeading('Save connection changes');
+  await clickNextToHeading('Cloud sign-in starts here');
+  await clickNextToHeading('Cloud mode toggles live in Connection');
+  await clickNextToHeading('Create your first project');
+}
+
 describe('FirstRunTourProvider', () => {
   beforeEach(() => {
     mockRecentProjects = [];
@@ -186,6 +206,9 @@ describe('FirstRunTourProvider', () => {
 
     expect(await screen.findByText('Choose how Dhee runs')).not.toBeNull();
     expect(screen.getByText(/Dhee can use Dhee Cloud credits/i)).not.toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Start walkthrough' }),
+    ).not.toBeNull();
   });
 
   it('auto-starts even when an account is signed in', async () => {
@@ -220,31 +243,7 @@ describe('FirstRunTourProvider', () => {
     });
   });
 
-  it('continues from provider choice to project creation', async () => {
-    renderTour();
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Continue without setup' }),
-    );
-
-    expect(await screen.findByText('Create your first project')).not.toBeNull();
-    expect(screen.getByText('Click New Project to continue.')).not.toBeNull();
-  });
-
-  it('calls account sign-in from the provider choice', async () => {
-    renderTour();
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Sign in to Dhee Cloud' }),
-    );
-
-    await waitFor(() => {
-      expect(mockSignIn).toHaveBeenCalledTimes(1);
-    });
-    expect(await screen.findByText('Cloud sign-in starts here')).not.toBeNull();
-  });
-
-  it('requests Connection settings from the local setup action', async () => {
+  it('starts the linear walkthrough by opening local Connection settings', async () => {
     const actions: FirstRunTourLandingAction[] = [];
     const handler = (event: Event) => {
       actions.push((event as CustomEvent<FirstRunTourLandingAction>).detail);
@@ -253,8 +252,9 @@ describe('FirstRunTourProvider', () => {
 
     try {
       renderTour();
+
       fireEvent.click(
-        await screen.findByRole('button', { name: 'Local setup' }),
+        await screen.findByRole('button', { name: 'Start walkthrough' }),
       );
 
       expect(actions).toContainEqual({
@@ -269,11 +269,44 @@ describe('FirstRunTourProvider', () => {
     }
   });
 
+  it('walks through local setup, then Cloud signup, then project creation', async () => {
+    renderTour();
+
+    await advanceThroughSetupWalkthrough();
+
+    expect(await screen.findByText('Create your first project')).not.toBeNull();
+    expect(screen.getByText('Click New Project to continue.')).not.toBeNull();
+  });
+
+  it('does not launch Cloud sign-in until the optional Cloud step action is clicked', async () => {
+    renderTour();
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Start walkthrough' }),
+    );
+    expect(await screen.findByText('Local ComfyUI lives here')).not.toBeNull();
+    await clickNextToHeading('Choose the local LLM provider');
+    await clickNextToHeading('API keys go in the provider section');
+    await clickNextToHeading('Model IDs are configured beside the key');
+    await clickNextToHeading('Test providers when ready');
+    await clickNextToHeading('Save connection changes');
+    await clickNextToHeading('Cloud sign-in starts here');
+
+    expect(mockSignIn).not.toHaveBeenCalled();
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Sign in to Dhee Cloud' }),
+    );
+
+    await waitFor(() => {
+      expect(mockSignIn).toHaveBeenCalledTimes(1);
+    });
+    expect(screen.getByText('Cloud sign-in starts here')).not.toBeNull();
+  });
+
   it('advances from project name to location, then create project', async () => {
     renderTour();
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Continue without setup' }),
-    );
+    await advanceThroughSetupWalkthrough();
     fireEvent.click(await screen.findByRole('button', { name: 'New Project' }));
 
     expect(await screen.findByText('Name the project')).not.toBeNull();
@@ -337,9 +370,7 @@ describe('FirstRunTourProvider', () => {
 
   it('guides setup style, duration, story, then persists first prompt submission', async () => {
     renderTour();
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Continue without setup' }),
-    );
+    await advanceThroughSetupWalkthrough();
     fireEvent.click(await screen.findByRole('button', { name: 'New Project' }));
     fireEvent.change(screen.getByLabelText('Project name'), {
       target: { value: 'Demo' },
