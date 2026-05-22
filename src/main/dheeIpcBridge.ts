@@ -380,6 +380,7 @@ function publishEvent(window: BrowserWindow, event: dheeCoreEvent): void {
     'notification',
     'project_focused',
     'media_generated',
+    'session_status',
   ]);
   if (!knownEvents.has(event.eventName)) {
     // Don't crash the bridge on unrecognized event names — surface and drop.

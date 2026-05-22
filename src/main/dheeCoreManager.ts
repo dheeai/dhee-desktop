@@ -719,6 +719,12 @@ export function buildEventsAdapter(
       emit('project_focused', sessionId, data),
     onMediaGenerated: (sessionId, data) =>
       emit('media_generated', sessionId, data),
+    // Session lifecycle transitions. The renderer subscribes via the
+    // 'session_status' channel to render a "thinking…" /
+    // "Supervisor reviewing…" pill so the chat is no longer "frozen
+    // with no visible explanation" during server-initiated turns.
+    onSessionStatus: (sessionId, data) =>
+      emit('session_status', sessionId, data),
   };
 }
 
@@ -1027,6 +1033,21 @@ export class dheeCoreManager {
       };
     }
     const events = buildEventsAdapter(eventCb);
+    // Pin the events bridge for the lifetime of this session — server-
+    // initiated turns (supervisor pi-agent on runner `completed`) call
+    // runTask without an eventCb, and the manager's persistentEvents
+    // fallback uses this bridge so their tool calls / streaming text
+    // still reach the renderer. Idempotent: last bind wins (renderer
+    // reload swaps in a fresh webContents.send closure).
+    try {
+      (
+        this.cm as unknown as {
+          bindSessionEventBridge?: (s: string, e: ConversationEvents) => void;
+        }
+      ).bindSessionEventBridge?.(sessionId, events);
+    } catch {
+      /* older dhee-core without the bridge API — runTask still works */
+    }
     try {
       const result = await (
         this.cm as unknown as {
