@@ -6,6 +6,11 @@ import type {
   LLMTierConfig,
   ThemeId,
 } from '../../../shared/settingsTypes';
+import type {
+  ProviderDiagnosticItem,
+  ProviderDiagnosticsSnapshot,
+  ProviderDiagnosticStatus,
+} from '../../../shared/providerDiagnosticsTypes';
 import { DESKTOP_THEMES } from '../../themes';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
@@ -42,6 +47,7 @@ function formatBytes(n: number): string {
 type Props = {
   isOpen: boolean;
   variant?: 'modal' | 'embedded';
+  initialTab?: SettingsTab;
   settings: AppSettings | null;
   onClose: () => void;
   onThemeChange: (themeId: ThemeId) => Promise<void> | void;
@@ -146,9 +152,30 @@ function getAccountBridge() {
   }).account;
 }
 
+function getProviderDiagnosticsBridge() {
+  return (window.electron as typeof window.electron & {
+    providerDiagnostics?: typeof window.electron.providerDiagnostics;
+  }).providerDiagnostics;
+}
+
+function diagnosticBadgeClass(status: ProviderDiagnosticStatus): string {
+  switch (status) {
+    case 'ready':
+      return styles.statusBadgeSuccess;
+    case 'error':
+      return styles.statusBadgeError;
+    case 'warning':
+      return styles.statusBadgeWarning;
+    case 'unknown':
+    default:
+      return styles.statusBadgeNeutral;
+  }
+}
+
 export default function SettingsPanel({
   isOpen,
   variant = 'modal',
+  initialTab = 'appearance',
   settings,
   onClose,
   onThemeChange,
@@ -173,6 +200,9 @@ export default function SettingsPanel({
     kind: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [providerDiagnostics, setProviderDiagnostics] =
+    useState<ProviderDiagnosticsSnapshot | null>(null);
+  const [providerDiagnosticsBusy, setProviderDiagnosticsBusy] = useState(false);
 
   useEffect(() => {
     if (activeTab !== 'diagnostics') return;
@@ -223,15 +253,38 @@ export default function SettingsPanel({
       setDiagnosticsBusy(null);
     }
   };
+
+  const handleProviderDiagnostics = async () => {
+    const bridge = getProviderDiagnosticsBridge();
+    if (!bridge) return;
+    setProviderDiagnosticsBusy(true);
+    try {
+      setProviderDiagnostics(await bridge.run());
+    } catch {
+      setProviderDiagnostics({
+        checkedAt: Date.now(),
+        items: [
+          {
+            id: 'llm',
+            label: 'Provider checks',
+            status: 'error',
+            message: 'Provider checks are unavailable in this build.',
+          },
+        ],
+      });
+    } finally {
+      setProviderDiagnosticsBusy(false);
+    }
+  };
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
   }, [settings, isVisible]);
 
   useEffect(() => {
     if (isVisible) {
-      setActiveTab('appearance');
+      setActiveTab(initialTab);
     }
-  }, [isVisible]);
+  }, [initialTab, isVisible]);
 
   useEffect(() => {
     if (!isOpen || isEmbedded) return;
@@ -513,6 +566,24 @@ export default function SettingsPanel({
       />
       {label}
     </label>
+  );
+
+  const renderProviderDiagnostic = (item: ProviderDiagnosticItem) => (
+    <div key={item.id} className={styles.providerDiagnosticRow}>
+      <div>
+        <div className={styles.providerDiagnosticTitle}>{item.label}</div>
+        <p className={styles.providerDiagnosticMessage}>{item.message}</p>
+        {item.detail ? (
+          <p className={styles.providerDiagnosticDetail}>{item.detail}</p>
+        ) : null}
+      </div>
+      <div
+        className={`${styles.statusBadge} ${diagnosticBadgeClass(item.status)}`}
+      >
+        <span className={styles.statusDot} />
+        {item.status}
+      </div>
+    </div>
   );
 
   const panelContent = (
@@ -797,19 +868,36 @@ export default function SettingsPanel({
                 <div className={styles.statusCard}>
                   <div className={styles.statusTopRow}>
                     <div>
-                      <div className={styles.statusHeader}>
-                      Status
-                      </div>
+                      <div className={styles.statusHeader}>Status</div>
                       <div className={styles.statusHeadline}>
                         {statusHeadline}
                       </div>
-                    
                     </div>
                     <div className={`${styles.statusBadge} ${statusBadgeClass}`}>
                       <span className={styles.statusDot} />
                       {statusLabel}
                     </div>
                   </div>
+                  <div className={styles.providerDiagnosticsActions}>
+                    <button
+                      type="button"
+                      className={styles.submitButton}
+                      onClick={handleProviderDiagnostics}
+                      disabled={providerDiagnosticsBusy}
+                    >
+                      {providerDiagnosticsBusy
+                        ? 'Checking...'
+                        : 'Test all providers'}
+                    </button>
+                  </div>
+                  {providerDiagnostics ? (
+                    <div
+                      className={styles.providerDiagnosticsList}
+                      aria-label="Provider readiness results"
+                    >
+                      {providerDiagnostics.items.map(renderProviderDiagnostic)}
+                    </div>
+                  ) : null}
                 </div>
 
                 <fieldset className={styles.fieldset}>

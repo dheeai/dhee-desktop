@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronLeft, RefreshCw, Settings2, Sparkles } from 'lucide-react';
+import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
 import styleAnimePreview from '../../../../../assets/previews/style_anime.png';
 import styleCinematicDocumentaryPreview from '../../../../../assets/previews/style_cinematic_documentary.png';
 import styleCinematicRealismPreview from '../../../../../assets/previews/style_cinematic_realism.png';
@@ -68,7 +69,12 @@ const STYLE_PREVIEW_SRC: Record<string, string> = {
   watercolor: styleWatercolorPreview,
 };
 
-export type SetupStep = 'template' | 'style' | 'duration' | 'story' | 'autonomous';
+export type SetupStep =
+  | 'template'
+  | 'style'
+  | 'duration'
+  | 'story'
+  | 'autonomous';
 export type SetupPanelMode = 'hidden' | 'banner' | 'wizard' | 'summary';
 
 interface ProjectSetupPanelProps {
@@ -151,6 +157,7 @@ export default function ProjectSetupPanel({
   onConfirmSetup,
   onBack,
 }: ProjectSetupPanelProps) {
+  const firstRunTour = useOptionalFirstRunTour();
   const [customDuration, setCustomDuration] = useState('');
 
   const selectedTemplate = useMemo(
@@ -182,6 +189,12 @@ export default function ProjectSetupPanel({
     () => (selectedTemplateId ? durationPresets[selectedTemplateId] || [] : []),
     [durationPresets, selectedTemplateId],
   );
+
+  useEffect(() => {
+    if (mode !== 'hidden') {
+      firstRunTour.notifyTourEvent('setup_wizard_visible');
+    }
+  }, [firstRunTour, mode]);
 
   useEffect(() => {
     if (mode !== 'wizard') return undefined;
@@ -266,7 +279,7 @@ export default function ProjectSetupPanel({
 
   if (mode === 'banner') {
     return (
-      <div className={styles.banner}>
+      <div className={styles.banner} data-tour-id="workspace-setup-wizard">
         <div className={styles.bannerLeft}>
           <Settings2 size={15} />
           <span>Configure Project Setup</span>
@@ -284,7 +297,7 @@ export default function ProjectSetupPanel({
 
   if (mode === 'summary') {
     return (
-      <div className={styles.summary}>
+      <div className={styles.summary} data-tour-id="workspace-setup-wizard">
         <div className={styles.summaryHeader}>
           <div className={styles.summaryTitle}>
             <Sparkles size={14} />
@@ -331,7 +344,7 @@ export default function ProjectSetupPanel({
   }
 
   return (
-    <div className={styles.wizard}>
+    <div className={styles.wizard} data-tour-id="workspace-setup-wizard">
       <div className={styles.wizardHeader}>
         <div className={styles.wizardTitleRow}>
           {step !== 'template' && (

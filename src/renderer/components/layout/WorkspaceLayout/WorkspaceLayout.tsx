@@ -50,7 +50,10 @@ export default function WorkspaceLayout() {
   const [runnerActive, setRunnerActive] = useState(false);
 
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
-  const displayProjectName = getProjectDisplayName(projectName, projectDirectory);
+  const displayProjectName = getProjectDisplayName(
+    projectName,
+    projectDirectory,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -133,7 +136,10 @@ export default function WorkspaceLayout() {
             <span>Back</span>
           </button>
         </div>
-        <span className={styles.title} title={displayProjectName || 'Dhee Desktop'}>
+        <span
+          className={styles.title}
+          title={displayProjectName || 'Dhee Desktop'}
+        >
           {displayProjectName || 'Dhee Desktop'}
         </span>
         <div className={styles.headerRight}>
@@ -151,7 +157,12 @@ export default function WorkspaceLayout() {
       <div className={styles.workspace}>
         <PanelGroup direction="horizontal" autoSaveId="workspace-panels">
           <Panel defaultSize={70} minSize={50}>
-            <PreviewPanel />
+            <div
+              className={styles.panelTourTarget}
+              data-tour-id="workspace-preview"
+            >
+              <PreviewPanel />
+            </div>
           </Panel>
 
           <PanelResizeHandle className={styles.resizeHandle} />
@@ -165,7 +176,12 @@ export default function WorkspaceLayout() {
             onCollapse={() => setChatExpanded(false)}
             onExpand={() => setChatExpanded(true)}
           >
-            <ChatPanel />
+            <div
+              className={styles.panelTourTarget}
+              data-tour-id="workspace-chat-panel"
+            >
+              <ChatPanel />
+            </div>
           </Panel>
         </PanelGroup>
       </div>

@@ -5,6 +5,7 @@
  * `electron.project.getRecent()`. Tests pre-seed via `bridgeReturns`
  * so the list is populated when LandingScreen mounts.
  */
+/* eslint-disable no-underscore-dangle */
 import { test, expect } from './fixtures';
 
 const RECENTS = [
@@ -42,6 +43,9 @@ test.describe('Feature: Landing screen, recent projects', () => {
       await expect(
         page.getByRole('heading', { name: /^sci-fi$/, level: 3 }),
       ).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: /Choose how Dhee runs/i }),
+      ).toHaveCount(0);
 
       // And — paths appear in card meta (shortened form contains the basename).
       await expect(page.getByText(/noir\.dhee/).first()).toBeVisible();

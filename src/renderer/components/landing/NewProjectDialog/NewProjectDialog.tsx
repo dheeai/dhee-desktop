@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderOpen, Plus, X } from 'lucide-react';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
 import { useOptionalKshanaSession } from '../../../hooks/useDheeSession';
 import {
   buildDefaultWorkspaceFolder,
@@ -51,13 +52,15 @@ export default function NewProjectDialog({
   // style/duration/story, and the agent's `dhee_new` tool writes
   // project.json. `closeProject` is retained for the rollback path
   // (close the in-memory uninitialized state on error).
-  const { closeProject, error: projectError } = useProject();
+  const { closeProject } = useProject();
   const { openProject, projectDirectory: previousProjectDirectory } =
     useWorkspace();
+  const firstRunTour = useOptionalFirstRunTour();
   // Optional — the dialog mounts outside a session provider in some
   // test fixtures. When null, the chat-reset side effect is skipped;
   // production always provides a session.
   const session = useOptionalKshanaSession();
+  const notifiedValidProjectNameRef = useRef(false);
 
   const [projectName, setProjectName] = useState('');
   const [description, setDescription] = useState('');
@@ -72,7 +75,8 @@ export default function NewProjectDialog({
       setWorkspacePath('');
       setError(null);
       setIsSubmitting(false);
-      return;
+      notifiedValidProjectNameRef.current = false;
+      return undefined;
     }
     // Populate the Location field on open so the user doesn't have to
     // click "Choose Folder" every single time. Order of preference:
@@ -103,6 +107,18 @@ export default function NewProjectDialog({
     };
   }, [isOpen]);
 
+  useEffect(() => {
+    if (!isOpen) return;
+    const hasValidProjectName = projectName.trim().length > 0;
+    if (!hasValidProjectName) {
+      notifiedValidProjectNameRef.current = false;
+      return;
+    }
+    if (notifiedValidProjectNameRef.current) return;
+    notifiedValidProjectNameRef.current = true;
+    firstRunTour.notifyTourEvent('project_name_valid');
+  }, [firstRunTour, isOpen, projectName]);
+
   const handlePickWorkspace = useCallback(async () => {
     setError(null);
     try {
@@ -117,7 +133,6 @@ export default function NewProjectDialog({
 
   const handleCreate = useCallback(async () => {
     const trimmedName = projectName.trim();
-    const trimmedDescription = description.trim();
     const normalizedWorkspacePath = normalizePathValue(workspacePath);
 
     if (!trimmedName) {
@@ -160,10 +175,6 @@ export default function NewProjectDialog({
       }
 
       projectDirectory = normalizePathValue(createdDirectory);
-      // Description is captured for future use but currently unused —
-      // dhee_new doesn't take a description parameter; the agent
-      // derives one from the story. Suppress unused-var warning.
-      void trimmedDescription;
       // System-B removal: no projectService.createProject call here.
       // The folder is created (above), and `openProject(projectDirectory)`
       // below loads it as an "uninitialized" project. The wizard panel
@@ -208,6 +219,7 @@ export default function NewProjectDialog({
       }
 
       await openProject(projectDirectory);
+      firstRunTour.notifyTourEvent('project_opened');
       onClose();
     } catch (err) {
       if (didCreateProject) {
@@ -219,11 +231,10 @@ export default function NewProjectDialog({
     }
   }, [
     closeProject,
-    description,
+    firstRunTour,
     onClose,
     openProject,
     previousProjectDirectory,
-    projectError,
     projectName,
     session,
     workspacePath,
@@ -270,6 +281,7 @@ export default function NewProjectDialog({
             placeholder="My Agentic Video Project"
             disabled={formLocked}
             aria-label="Project name"
+            data-tour-id="new-project-name"
           />
 
           <span className={styles.label}>Description (optional)</span>
@@ -319,6 +331,7 @@ export default function NewProjectDialog({
             className={styles.createButton}
             onClick={handleCreate}
             disabled={formLocked}
+            data-tour-id="new-project-create"
           >
             <Plus size={15} />
             {createButtonLabel}

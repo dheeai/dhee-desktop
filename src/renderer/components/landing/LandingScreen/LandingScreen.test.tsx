@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import LandingScreen from './LandingScreen';
 
 const mockOpenProject = jest.fn<(path: string) => Promise<void>>();
@@ -7,7 +13,14 @@ const mockRefreshRecentProjects = jest.fn<() => Promise<void>>();
 const mockUpdateTheme = jest.fn<(themeId: string) => Promise<void>>();
 const mockSaveConnectionSettings = jest.fn<() => Promise<boolean>>();
 const mockClearError = jest.fn<() => void>();
+const mockStartTour = jest.fn();
+const mockNotifyTourEvent = jest.fn();
+const mockTourLandingActionEvent = 'dhee:first-run-tour:landing-action';
+const mockSettingsPanel = jest.fn(({ initialTab }: { initialTab: string }) => (
+  <div data-testid="settings-panel">Settings: {initialTab}</div>
+));
 let mockProjectLoading = false;
+let mockRecentProjectsLoaded = true;
 
 let mockRecentProjects = [
   {
@@ -20,6 +33,7 @@ let mockRecentProjects = [
 jest.mock('../../../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
     recentProjects: mockRecentProjects,
+    recentProjectsLoaded: mockRecentProjectsLoaded,
     openProject: mockOpenProject,
     refreshRecentProjects: mockRefreshRecentProjects,
     isLoading: false,
@@ -44,7 +58,20 @@ jest.mock('../../../contexts/AppSettingsContext', () => ({
   }),
 }));
 
-jest.mock('../../SettingsPanel', () => () => null);
+jest.mock('../../../contexts/FirstRunTourContext', () => ({
+  FIRST_RUN_TOUR_LANDING_ACTION_EVENT: 'dhee:first-run-tour:landing-action',
+  useOptionalFirstRunTour: () => ({
+    isActive: false,
+    startTour: mockStartTour,
+    skipTour: jest.fn(),
+    notifyTourEvent: mockNotifyTourEvent,
+  }),
+}));
+
+jest.mock(
+  '../../SettingsPanel',
+  () => (props: { initialTab: string }) => mockSettingsPanel(props),
+);
 jest.mock('../NewProjectDialog/NewProjectDialog', () => () => null);
 
 function buildRecentProjects(count: number) {
@@ -73,12 +100,16 @@ describe('LandingScreen', () => {
     mockUpdateTheme.mockReset();
     mockSaveConnectionSettings.mockReset();
     mockClearError.mockReset();
+    mockStartTour.mockReset();
+    mockNotifyTourEvent.mockReset();
+    mockSettingsPanel.mockClear();
     mockReadFile.mockReset();
     mockCheckFileExists.mockReset();
     mockRenameProject.mockReset();
     mockDeleteProject.mockReset();
     mockGetVersion.mockReset();
     mockProjectLoading = false;
+    mockRecentProjectsLoaded = true;
     mockRecentProjects = [
       {
         path: '/projects/demo',
@@ -116,6 +147,75 @@ describe('LandingScreen', () => {
         },
       },
     });
+  });
+
+  it('marks the primary first-run actions as walkthrough targets', async () => {
+    mockRecentProjects = [];
+
+    render(<LandingScreen />);
+
+    expect(await screen.findByText('Dhee Desktop')).not.toBeNull();
+    expect(
+      screen
+        .getByRole('button', { name: 'New Project' })
+        .getAttribute('data-tour-id'),
+    ).toBe('landing-new-project');
+    expect(
+      screen
+        .getByRole('button', { name: 'Open Workspace' })
+        .getAttribute('data-tour-id'),
+    ).toBe('landing-open-workspace');
+    expect(screen.getByTitle(/LLM:/).getAttribute('data-tour-id')).toBe(
+      'landing-provider-status',
+    );
+    expect(
+      screen
+        .getByRole('button', { name: 'Sign In' })
+        .getAttribute('data-tour-id'),
+    ).toBe('landing-sign-in');
+    expect(screen.queryByText('Set up Dhee Desktop')).toBeNull();
+    expect(screen.queryByText('Dhee Cloud')).toBeNull();
+  });
+
+  it('opens Connection settings when the walkthrough asks for local setup', async () => {
+    mockRecentProjects = [];
+
+    render(<LandingScreen />);
+    expect(await screen.findByText('Dhee Desktop')).not.toBeNull();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(mockTourLandingActionEvent, {
+          detail: { action: 'open-settings', tab: 'connection' },
+        }),
+      );
+    });
+
+    expect((await screen.findByTestId('settings-panel')).textContent).toBe(
+      'Settings: connection',
+    );
+  });
+
+  it('notifies the walkthrough when New Project is clicked', async () => {
+    render(<LandingScreen />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'New Project' }));
+
+    expect(mockNotifyTourEvent).toHaveBeenCalledWith('new_project_clicked');
+  });
+
+  it('lets Help replay the first-run walkthrough', async () => {
+    mockRecentProjects = [];
+
+    render(<LandingScreen />);
+    expect(
+      await screen.findByText(
+        'No projects yet. Create your first project to get started.',
+      ),
+    ).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(mockStartTour).toHaveBeenCalledWith({ source: 'help' });
   });
 
   it('keeps new project available while project work is loading', async () => {

@@ -5,7 +5,8 @@
   display: flex;
   height: 100%;
   width: 100%;
-  background: radial-gradient(
+  background:
+    radial-gradient(
       circle at 10% 0%,
       rgba(var(--color-accent-primary-rgb), 0.08) 0%,
       rgba(15, 17, 26, 0) 35%
@@ -218,8 +219,15 @@
 
 .mainLight {
   background-image:
-    linear-gradient(rgba(var(--color-text-primary-rgb), 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(var(--color-text-primary-rgb), 0.04) 1px, transparent 1px);
+    linear-gradient(
+      rgba(var(--color-text-primary-rgb), 0.04) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(var(--color-text-primary-rgb), 0.04) 1px,
+      transparent 1px
+    );
 }
 
 .mainSettings {

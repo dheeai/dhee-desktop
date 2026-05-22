@@ -17,6 +17,11 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
+import type {
+  CompleteOnboardingRequest,
+  OnboardingState,
+} from '../shared/onboardingTypes';
+import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -133,6 +138,21 @@ const settingsBridge = {
     return () => {
       ipcRenderer.removeListener('settings:updated', subscription);
     };
+  },
+};
+
+const onboardingBridge = {
+  getState(): Promise<OnboardingState> {
+    return ipcRenderer.invoke('onboarding:get-state');
+  },
+  complete(req?: CompleteOnboardingRequest): Promise<OnboardingState> {
+    return ipcRenderer.invoke('onboarding:complete', req);
+  },
+};
+
+const providerDiagnosticsBridge = {
+  run(): Promise<ProviderDiagnosticsSnapshot> {
+    return ipcRenderer.invoke('provider-diagnostics:run');
   },
 };
 
@@ -847,6 +867,8 @@ const electronHandler = {
     },
   },
   settings: settingsBridge,
+  onboarding: onboardingBridge,
+  providerDiagnostics: providerDiagnosticsBridge,
   project: projectBridge,
   remotion: remotionBridge,
   logger: loggerBridge,

@@ -44,6 +44,11 @@ import {
   refreshBalance,
   setAccount,
 } from './accountManager';
+import {
+  completeOnboarding,
+  getOnboardingState,
+} from './onboardingManager';
+import { runProviderDiagnostics } from './providerDiagnostics';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import {
   captureDesktopAuthStarted,
@@ -369,6 +374,21 @@ ipcMain.handle(
     return updated;
   },
 );
+
+ipcMain.handle('onboarding:get-state', () => {
+  return getOnboardingState();
+});
+
+ipcMain.handle(
+  'onboarding:complete',
+  (_event, req?: { skipped?: boolean }) => {
+    return completeOnboarding(req ?? {});
+  },
+);
+
+ipcMain.handle('provider-diagnostics:run', async () => {
+  return runProviderDiagnostics(getSettings(), getAccount());
+});
 
 // Project / File System IPC handlers
 // New-Project default-workspace handler.

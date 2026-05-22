@@ -80,7 +80,7 @@ async function waitForSurfaceReady(
     case 'landing':
       // Landing renders a "dhee Desktop" brand heading in the sidebar.
       await page
-        .getByRole('heading', { name: /dhee Desktop/i })
+        .getByRole('heading', { name: 'Dhee Desktop', exact: true })
         .waitFor({ state: 'visible', timeout: TIMEOUT });
       return;
     case 'workspace':

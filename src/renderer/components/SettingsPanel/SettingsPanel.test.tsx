@@ -182,6 +182,70 @@ describe('SettingsPanel', () => {
     expect(screen.getAllByText('OpenAI-Compatible').length).toBeGreaterThan(0);
   });
 
+  it('opens directly to the requested initial tab', async () => {
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument();
+    expect(screen.getByLabelText('ComfyUI URL')).toBeInTheDocument();
+  });
+
+  it('runs advisory provider diagnostics from the Connection tab', async () => {
+    const run = jest.fn().mockResolvedValue({
+      checkedAt: 1,
+      items: [
+        {
+          id: 'llm',
+          label: 'LLM',
+          status: 'warning',
+          message: 'OpenAI-compatible LLM needs an API key.',
+        },
+      ],
+    });
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        providerDiagnostics: { run },
+      },
+    });
+
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Test all providers' }));
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText('OpenAI-compatible LLM needs an API key.'),
+    ).toBeInTheDocument();
+  });
+
   it('hides Medium and Light tier sections when "use same LLM for all tasks" is checked', async () => {
     await act(async () => {
       render(

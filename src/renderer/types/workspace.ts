@@ -23,6 +23,7 @@ export interface WorkspaceState {
   selectedFile: SelectedFile | null;
   activeContextFiles: SelectedFile[];
   recentProjects: RecentProject[];
+  recentProjectsLoaded: boolean;
   connectionState: ConnectionState;
   isLoading: boolean;
   pendingFileNavigation: string | null;

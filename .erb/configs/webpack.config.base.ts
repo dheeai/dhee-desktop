@@ -3,10 +3,13 @@
  */
 
 import type { Configuration } from 'webpack';
-import webpack from './webpack.instance';
 import TsconfigPathsPlugins from 'tsconfig-paths-webpack-plugin';
+import webpack from './webpack.instance';
 import webpackPaths from './webpack.paths';
+import loadLocalDevEnv from './loadLocalDevEnv';
 import { dependencies as externals } from '../../release/app/package.json';
+
+loadLocalDevEnv();
 
 const configuration: Configuration = {
   // `dhee-ink` is required by the embedded main-process integration.
@@ -17,9 +20,13 @@ const configuration: Configuration = {
   // any other electron dep.
   externals: [
     ...Object.keys(externals || {}),
-    ({ request }: { request?: string }, callback: (err?: Error | null, result?: string) => void) => {
+    (
+      { request }: { request?: string },
+      callback: (err?: Error | null, result?: string) => void,
+    ) => {
       if (request && /^dhee-core(\/|$)/.test(request)) {
-        return callback(null, `commonjs ${request}`);
+        callback(null, `commonjs ${request}`);
+        return;
       }
       callback();
     },
@@ -63,7 +70,12 @@ const configuration: Configuration = {
     plugins: [new TsconfigPathsPlugins()],
   },
 
-  plugins: [new webpack.EnvironmentPlugin({ NODE_ENV: 'production' })],
+  plugins: [
+    new webpack.EnvironmentPlugin({
+      NODE_ENV: 'production',
+      dhee_FIRST_RUN_TOUR_DEV_MODE: '0',
+    }),
+  ],
 };
 
 export default configuration;

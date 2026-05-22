@@ -8,6 +8,7 @@ const mockCreateProject =
   >();
 const mockCloseProject = jest.fn<() => void>();
 const mockOpenProject = jest.fn<(path: string) => Promise<void>>();
+const mockNotifyTourEvent = jest.fn<(event: string) => void>();
 
 jest.mock('../../../contexts/ProjectContext', () => ({
   useProject: () => ({
@@ -21,6 +22,15 @@ jest.mock('../../../contexts/ProjectContext', () => ({
 jest.mock('../../../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
     openProject: mockOpenProject,
+  }),
+}));
+
+jest.mock('../../../contexts/FirstRunTourContext', () => ({
+  useOptionalFirstRunTour: () => ({
+    isActive: false,
+    startTour: jest.fn(),
+    skipTour: jest.fn(),
+    notifyTourEvent: mockNotifyTourEvent,
   }),
 }));
 
@@ -40,6 +50,7 @@ describe('NewProjectDialog', () => {
     mockCreateProject.mockReset();
     mockCloseProject.mockReset();
     mockOpenProject.mockReset();
+    mockNotifyTourEvent.mockReset();
     mockSelectDirectory.mockReset();
     mockCreateFolder.mockReset();
     mockCheckFileExists.mockReset();
@@ -158,6 +169,24 @@ describe('NewProjectDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
+  it('notifies the walkthrough when the project name becomes valid', async () => {
+    const onClose = jest.fn();
+    render(<NewProjectDialog isOpen onClose={onClose} />);
+
+    fireEvent.change(screen.getByLabelText('Project name'), {
+      target: { value: '   ' },
+    });
+    expect(mockNotifyTourEvent).not.toHaveBeenCalledWith('project_name_valid');
+
+    fireEvent.change(screen.getByLabelText('Project name'), {
+      target: { value: 'demo' },
+    });
+
+    await waitFor(() => {
+      expect(mockNotifyTourEvent).toHaveBeenCalledWith('project_name_valid');
+    });
+  });
+
   it('creates a project without any provider sign-in gate', async () => {
     mockCheckFileExists.mockResolvedValue(false);
 
@@ -179,6 +208,7 @@ describe('NewProjectDialog', () => {
     });
     expect(mockCreateProject).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
+    expect(mockNotifyTourEvent).toHaveBeenCalledWith('project_opened');
   });
 
   it('creates a new project when no existing project is found', async () => {

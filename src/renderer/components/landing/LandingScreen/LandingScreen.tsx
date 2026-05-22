@@ -19,6 +19,11 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { safeJsonParse } from '../../../utils/safeJsonParse';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
+import {
+  FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
+  useOptionalFirstRunTour,
+  type FirstRunTourLandingAction,
+} from '../../../contexts/FirstRunTourContext';
 import SettingsPanel from '../../SettingsPanel';
 import type { LandingProjectCard } from '../ProjectCard/ProjectCard';
 import NewProjectDialog from '../NewProjectDialog/NewProjectDialog';
@@ -54,6 +59,12 @@ const FALLBACK_APP_VERSION = 'v?.?.?';
 const PROJECTS_PER_PAGE = 9;
 type LandingView = 'projects' | 'settings';
 type AccountAuthStatus = 'idle' | 'waiting' | 'expired' | 'error';
+type SettingsTabTarget =
+  | 'account'
+  | 'appearance'
+  | 'connection'
+  | 'workflows'
+  | 'diagnostics';
 
 interface ProjectMetadata {
   manifestName?: string;
@@ -113,13 +124,13 @@ interface AmbientStatus {
  */
 function getAmbientStatus(
   authStatus: AccountAuthStatus,
-  styles: Record<string, string>,
+  classes: Record<string, string>,
 ): AmbientStatus | null {
   if (authStatus === 'waiting') {
-    return { label: 'Connecting', className: styles.modeBadgeConnecting };
+    return { label: 'Connecting', className: classes.modeBadgeConnecting };
   }
   if (authStatus === 'expired') {
-    return { label: 'Session expired', className: styles.modeBadgeWarning };
+    return { label: 'Session expired', className: classes.modeBadgeWarning };
   }
   return null;
 }
@@ -136,7 +147,7 @@ function getLaneBadges(
   comfyBackend: string | undefined,
   vlmBackend: string | undefined,
   account: AccountInfo | null,
-  styles: Record<string, string>,
+  classes: Record<string, string>,
 ): { llm: LaneBadge; comfy: LaneBadge; vlm: LaneBadge } {
   // Cloud only counts as cloud when the user is signed in. A persisted
   // 'cloud' value with no account is effectively local at runtime.
@@ -146,15 +157,15 @@ function getLaneBadges(
   return {
     llm: {
       label: llmIsCloud ? 'LLM ☁' : 'LLM 🖥',
-      className: llmIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+      className: llmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
     },
     comfy: {
       label: comfyIsCloud ? 'Comfy ☁' : 'Comfy 🖥',
-      className: comfyIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+      className: comfyIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
     },
     vlm: {
       label: vlmIsCloud ? 'VLM ☁' : 'VLM 🖥',
-      className: vlmIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+      className: vlmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
     },
   };
 }
@@ -174,7 +185,6 @@ function getHeroSubtitle(
   }
   return 'Create locally, or sign in to use Dhee Cloud credits.';
 }
-
 
 function joinPath(basePath: string, segment: string): string {
   const normalizedBase = basePath.replace(/\/+$/, '');
@@ -231,6 +241,7 @@ export default function LandingScreen() {
   const { recentProjects, openProject, isLoading, refreshRecentProjects } =
     useWorkspace();
   const { isLoading: isProjectLoading } = useProject();
+  const firstRunTour = useOptionalFirstRunTour();
   const {
     themeId,
     settings,
@@ -242,6 +253,8 @@ export default function LandingScreen() {
   } = useAppSettings();
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<LandingView>('projects');
+  const [settingsInitialTab, setSettingsInitialTab] =
+    useState<SettingsTabTarget>('appearance');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
@@ -320,8 +333,12 @@ export default function LandingScreen() {
     }
     accountBridge
       .get()
-      .then(setAccount)
-      .catch(() => setAccount(null));
+      .then((nextAccount) => {
+        setAccount(nextAccount);
+      })
+      .catch(() => {
+        setAccount(null);
+      });
     accountBridge
       .getAuthStatus()
       .then(setAuthStatus)
@@ -379,6 +396,39 @@ export default function LandingScreen() {
     );
   }, [totalProjectPages]);
 
+  const openSettingsTab = useCallback(
+    (tab: SettingsTabTarget) => {
+      clearError();
+      setSettingsInitialTab(tab);
+      setActiveView('settings');
+    },
+    [clearError],
+  );
+
+  useEffect(() => {
+    const handleTourLandingAction = (event: Event) => {
+      const { detail } = event as CustomEvent<FirstRunTourLandingAction>;
+      if (detail?.action === 'open-settings') {
+        openSettingsTab(detail.tab);
+        return;
+      }
+      if (detail?.action === 'show-projects') {
+        setActiveView('projects');
+      }
+    };
+
+    window.addEventListener(
+      FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
+      handleTourLandingAction,
+    );
+    return () => {
+      window.removeEventListener(
+        FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
+        handleTourLandingAction,
+      );
+    };
+  }, [openSettingsTab]);
+
   const handleOpenDirectory = useCallback(async () => {
     setError(null);
     try {
@@ -393,8 +443,9 @@ export default function LandingScreen() {
 
   const handleCreateNewProject = useCallback(() => {
     setError(null);
+    firstRunTour.notifyTourEvent('new_project_clicked');
     setIsNewProjectDialogOpen(true);
-  }, []);
+  }, [firstRunTour]);
 
   const handleAccountSignIn = useCallback(async () => {
     setAuthStatus('waiting');
@@ -514,7 +565,10 @@ export default function LandingScreen() {
           </div>
           <h1 className={styles.brandTitle}>Dhee Desktop</h1>
           {ambientStatus ? (
-            <div className={`${styles.modeBadge} ${ambientStatus.className}`}>
+            <div
+              className={`${styles.modeBadge} ${ambientStatus.className}`}
+              data-tour-id="landing-provider-status"
+            >
               <span className={styles.modeDot} />
               {ambientStatus.label}
             </div>
@@ -522,6 +576,7 @@ export default function LandingScreen() {
             <div
               className={styles.modeBadgeRow}
               title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'}`}
+              data-tour-id="landing-provider-status"
             >
               <span
                 className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.llm.className}`}
@@ -551,6 +606,7 @@ export default function LandingScreen() {
             type="button"
             className={styles.newProjectButton}
             onClick={handleCreateNewProject}
+            data-tour-id="landing-new-project"
           >
             <Plus size={16} />
             New Project
@@ -560,6 +616,7 @@ export default function LandingScreen() {
             className={styles.openWorkspaceButton}
             onClick={handleOpenDirectory}
             disabled={isLoading || isProjectLoading}
+            data-tour-id="landing-open-workspace"
           >
             <FolderOpen size={16} />
             {isLoading ? 'Opening...' : 'Open Workspace'}
@@ -578,17 +635,18 @@ export default function LandingScreen() {
           <button
             type="button"
             className={`${styles.settingsAction} ${activeView === 'settings' ? styles.footerActionActive : ''}`}
-            onClick={() => {
-              clearError();
-              setActiveView('settings');
-            }}
+            onClick={() => openSettingsTab('appearance')}
             aria-pressed={activeView === 'settings'}
           >
             <Settings size={16} />
             <span>Settings</span>
           </button>
           <div className={styles.footerMetaRow}>
-            <button type="button" className={styles.footerLink}>
+            <button
+              type="button"
+              className={styles.footerLink}
+              onClick={() => firstRunTour.startTour({ source: 'help' })}
+            >
               Help
             </button>
             <span className={styles.footerVersionTag}>{appVersion}</span>
@@ -612,6 +670,7 @@ export default function LandingScreen() {
                   type="button"
                   className={styles.heroAccountButton}
                   onClick={handleAccountSignIn}
+                  data-tour-id="landing-sign-in"
                 >
                   {authStatus === 'waiting' ? 'Open Browser Again' : 'Sign In'}
                 </button>
@@ -728,6 +787,7 @@ export default function LandingScreen() {
             <SettingsPanel
               isOpen
               variant="embedded"
+              initialTab={settingsInitialTab}
               settings={settings}
               onClose={() => setActiveView('projects')}
               onThemeChange={updateTheme}
