@@ -31,9 +31,9 @@ import styles from './LandingScreen.module.scss';
 import type { BackendProjectFile } from '../../../services/project/backendProjectAdapter';
 import {
   collectMeetCharacterShots,
-  countScenesAndShots,
   extractSceneImages,
   selectSmartThumbnail,
+  sumScenesAndShots,
   type SVPShape,
 } from './projectMetadataHelpers';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
@@ -231,11 +231,16 @@ async function loadSingleProjectMetadata(
     }
   }
 
-  // Counts: the asset manifest is the authoritative source. project.json's
-  // top-level `scenes` array is a legacy stub the pipeline stopped
-  // populating after the dep-graph migration, so reading it directly
-  // shows "1 scene · 0 characters" for projects that actually have 15
-  // shots rendered on disk. Trust the manifest.
+  // Counts come from the planner's per-scene `scene_video_prompt`
+  // files, NOT the asset manifest. The manifest stores asset versions
+  // (regenerating shot 1 eleven times produces 11 manifest entries all
+  // tagged `(scene=1, shot=1)`) so counting unique-pairs from there
+  // undercounts the actual shot count of the project. The planner files
+  // are the authoritative project shape: one file per scene,
+  // file.shots[].length = shot count for that scene.
+  //
+  // We also need the SVP parses for the thumbnail's meet_character
+  // matching below, so combine both passes here.
   let sceneImages: ReturnType<typeof extractSceneImages> = [];
   if (manifestContent) {
     try {
@@ -245,7 +250,28 @@ async function loadSingleProjectMetadata(
       /* malformed manifest — fall through with empty list */
     }
   }
-  const { scenes, shots } = countScenesAndShots(sceneImages);
+
+  // Discover which scenes the planner has produced by enumerating
+  // `prompts/videos/scenes/scene_<N>.json`. We don't know up-front how
+  // many scenes there are, so try a reasonable upper bound (32) in
+  // parallel. Missing files just return null and contribute zero.
+  const MAX_SCENES_TO_PROBE = 32;
+  const svps: Record<number, SVPShape | null> = {};
+  await Promise.all(
+    Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(async (n) => {
+      const content = await window.electron.project
+        .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
+        .catch(() => null);
+      if (!content) return;
+      try {
+        svps[n] = safeJsonParse<SVPShape>(content);
+      } catch {
+        svps[n] = null;
+      }
+    }),
+  );
+
+  const { scenes, shots } = sumScenesAndShots(svps);
   metadata.sceneCount = scenes;
   metadata.shotCount = shots;
 
@@ -258,24 +284,6 @@ async function loadSingleProjectMetadata(
   if (fileThumbnailPath) {
     metadata.thumbnailPath = fileThumbnailPath;
   } else if (sceneImages.length > 0) {
-    const sceneNums = Array.from(new Set(sceneImages.map((s) => s.scene)));
-    const svps: Record<number, SVPShape | null> = {};
-    await Promise.all(
-      sceneNums.map(async (n) => {
-        const content = await window.electron.project
-          .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
-          .catch(() => null);
-        if (!content) {
-          svps[n] = null;
-          return;
-        }
-        try {
-          svps[n] = safeJsonParse<SVPShape>(content);
-        } catch {
-          svps[n] = null;
-        }
-      }),
-    );
     const meetCharSet = collectMeetCharacterShots(svps);
     const pick = selectSmartThumbnail(sceneImages, meetCharSet);
     metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;

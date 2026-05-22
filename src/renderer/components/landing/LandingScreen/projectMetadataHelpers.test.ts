@@ -1,9 +1,10 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   collectMeetCharacterShots,
-  countScenesAndShots,
   extractSceneImages,
+  parseSceneShotFromPath,
   selectSmartThumbnail,
+  sumScenesAndShots,
 } from './projectMetadataHelpers';
 
 describe('extractSceneImages', () => {
@@ -49,12 +50,16 @@ describe('extractSceneImages', () => {
     expect(out[0]?.path).toBe('c.png');
   });
 
-  it('drops entries with missing scene_number, missing path, or bad shape', () => {
+  it('drops entries with bad shape / unrecoverable identity', () => {
     const out = extractSceneImages({
       assets: [
-        { type: 'scene_image', path: 'no-scene.png' }, // missing scene_number
-        { type: 'scene_image', scene_number: 'one' as unknown as number, path: 'bad-type.png' },
-        { type: 'scene_image', scene_number: 1, path: '' }, // empty path
+        // missing path entirely → unrecoverable
+        { type: 'scene_image', scene_number: 1 },
+        // empty path
+        { type: 'scene_image', scene_number: 1, path: '' },
+        // bad scene_number type AND no s<N>shot<M> in path → unrecoverable
+        { type: 'scene_image', scene_number: 'one', path: 'no-pattern.png' },
+        // good — recovered via metadata
         { type: 'scene_image', scene_number: 1, path: 'ok.png', metadata: { shot_number: 2 } },
         null,
         'string',
@@ -63,37 +68,111 @@ describe('extractSceneImages', () => {
     expect(out).toEqual([{ scene: 1, shot: 2, path: 'ok.png' }]);
   });
 
-  it('defaults shot_number to 0 when missing (rare but possible on legacy entries)', () => {
+  it('recovers (scene, shot) from the file path when manifest metadata is null — the Better Image regression', () => {
+    // Better Image's manifest had entries with scene_number: null and
+    // metadata.shot_number: null. The path encodes the real values.
     const out = extractSceneImages({
-      assets: [{ type: 'scene_image', scene_number: 1, path: 'x.png' }],
+      assets: [
+        {
+          type: 'scene_image',
+          path: 'assets/images/s1shot4_last_frame_klein_WuZS6N.png',
+          scene_number: null,
+          metadata: { shot_number: null },
+        },
+        {
+          type: 'scene_image',
+          path: 'assets/images/s1shot1_last_frame_klein_2aj9TZ.png',
+        },
+      ] as unknown[],
     });
-    expect(out[0]?.shot).toBe(0);
+    expect(out).toEqual([
+      { scene: 1, shot: 4, path: 'assets/images/s1shot4_last_frame_klein_WuZS6N.png' },
+      { scene: 1, shot: 1, path: 'assets/images/s1shot1_last_frame_klein_2aj9TZ.png' },
+    ]);
+  });
+
+  it('prefers explicit manifest fields over path parsing when both exist', () => {
+    // A manifest entry's explicit (scene, shot) wins over what the
+    // path suggests — useful when assets get renamed but the entry
+    // still tracks the original.
+    const out = extractSceneImages({
+      assets: [
+        {
+          type: 'scene_image',
+          scene_number: 2,
+          path: 'assets/images/s1shot1_ff.png', // path says (1,1)
+          metadata: { shot_number: 5 }, // metadata says (2,5) — win
+        },
+      ],
+    });
+    expect(out).toEqual([{ scene: 2, shot: 5, path: 'assets/images/s1shot1_ff.png' }]);
   });
 });
 
-describe('countScenesAndShots', () => {
+describe('parseSceneShotFromPath', () => {
+  it('extracts (scene, shot) from canonical scene_image filenames', () => {
+    expect(
+      parseSceneShotFromPath('assets/images/s1shot1_first_frame_klein_abc.png'),
+    ).toEqual({ scene: 1, shot: 1 });
+    expect(
+      parseSceneShotFromPath('assets/images/s4shot11_last_frame_klein_xyz.png'),
+    ).toEqual({ scene: 4, shot: 11 });
+  });
+
+  it('returns null on paths without the s<N>shot<M>_ pattern', () => {
+    expect(parseSceneShotFromPath('assets/images/thumbnail.png')).toBeNull();
+    expect(parseSceneShotFromPath('s1shot1')).toBeNull(); // no trailing underscore
+    expect(parseSceneShotFromPath('')).toBeNull();
+  });
+
+  it('matches at the start of path or after a directory boundary', () => {
+    expect(parseSceneShotFromPath('s2shot3_ff.png')).toEqual({
+      scene: 2,
+      shot: 3,
+    });
+  });
+});
+
+describe('sumScenesAndShots', () => {
   it('returns zeros for empty input', () => {
-    expect(countScenesAndShots([])).toEqual({ scenes: 0, shots: 0 });
+    expect(sumScenesAndShots({})).toEqual({ scenes: 0, shots: 0 });
   });
 
-  it('counts unique scenes and unique (scene, shot) pairs', () => {
-    const out = countScenesAndShots([
-      { scene: 1, shot: 1, path: 'a' },
-      { scene: 1, shot: 2, path: 'b' },
-      { scene: 1, shot: 2, path: 'c' }, // dup (scene, shot) → counted once
-      { scene: 2, shot: 1, path: 'd' },
-      { scene: 2, shot: 2, path: 'e' },
-      { scene: 2, shot: 3, path: 'f' },
-    ]);
-    expect(out).toEqual({ scenes: 2, shots: 5 });
+  it('sums scenes (one per non-null SVP) and shots (sum of shots[] lengths)', () => {
+    expect(
+      sumScenesAndShots({
+        1: { shots: [{}, {}, {}] }, // 3 shots
+        2: { shots: [{}, {}, {}, {}, {}] }, // 5 shots
+        3: { shots: [] }, // 0 shots
+      }),
+    ).toEqual({ scenes: 3, shots: 8 });
   });
 
-  it('shot identity is per-scene (shot 1 in scene 1 != shot 1 in scene 2)', () => {
-    const out = countScenesAndShots([
-      { scene: 1, shot: 1, path: 'a' },
-      { scene: 2, shot: 1, path: 'b' },
-    ]);
-    expect(out).toEqual({ scenes: 2, shots: 2 });
+  it('skips null / undefined entries (missing scene_<N>.json files)', () => {
+    expect(
+      sumScenesAndShots({
+        1: { shots: [{}, {}] },
+        2: null,
+        3: undefined,
+        4: { shots: [{}] },
+      }),
+    ).toEqual({ scenes: 2, shots: 3 });
+  });
+
+  it('tolerates SVPs without a shots array (counts the scene, 0 shots)', () => {
+    expect(sumScenesAndShots({ 1: {} })).toEqual({ scenes: 1, shots: 0 });
+    expect(sumScenesAndShots({ 1: { shots: null as never } })).toEqual({
+      scenes: 1,
+      shots: 0,
+    });
+  });
+
+  it('Better Image regression — 15-shot scene reads as 1 scene · 15 shots', () => {
+    // The bug we shipped to fix: manifest-based counting saw 11 versions
+    // of scene 1 shot 1 and produced (1, 1). Planner-based counting
+    // reads the 15-shot plan and produces (1, 15).
+    const plan15 = { shots: Array.from({ length: 15 }, (_, i) => ({ shotNumber: i + 1 })) };
+    expect(sumScenesAndShots({ 1: plan15 })).toEqual({ scenes: 1, shots: 15 });
   });
 });
 

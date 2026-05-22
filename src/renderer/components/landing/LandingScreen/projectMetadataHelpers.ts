@@ -3,18 +3,41 @@
  * artifacts. Kept separate from `LandingScreen.tsx` so they can be
  * unit-tested against synthesized inputs without an Electron bridge.
  *
- * Inputs:
- *   - `assets/manifest.json` — the authoritative source of generated
- *     content. Each `scene_image` entry carries `scene_number` (top
- *     level) + `metadata.shot_number` (snake_case). project.json's
- *     top-level `scenes` / `characters` arrays are legacy stubs the
- *     pipeline stopped populating after the dep-graph migration —
- *     don't trust them for counts.
- *   - `prompts/videos/scenes/scene_<N>.json` — the scene_video_prompt
- *     output (NOT the .plan.json or .state.json variants). Each shot
- *     here has a `purpose` field; `meet_character` shots are usually
- *     hero introductions and make the best thumbnails.
+ * Data-source decisions (load-bearing — empirically validated against
+ * Better Image's 1779423804 manifest which had 11 scene_image entries
+ * that were all 11 *versions* of `s1shot1`, not 11 different shots):
+ *
+ *   - **Counts come from `prompts/videos/scenes/scene_<N>.json`**
+ *     (the scene_video_prompt outputs). One file per scene; each
+ *     file's `shots[]` array is the per-shot plan. This is what the
+ *     project IS — the planner's authoritative shape.
+ *
+ *   - **Thumbnail picking uses `assets/manifest.json` scene_image
+ *     entries** filtered to those that have a usable path. Many
+ *     entries have null `scene_number` / `metadata.shot_number`, so
+ *     we fall back to parsing the file path (`s<N>shot<M>_...`) to
+ *     recover the (scene, shot) when the manifest fields are missing.
+ *
+ *   - **`meet_character` matching** runs against scene_video_prompt's
+ *     `shots[].purpose` to find hero-intro shots, then pairs against
+ *     scene_image manifest entries by (scene, shot). Hero introductions
+ *     make the most identifiable thumbnails.
+ *
+ * Never trusted: project.json's top-level `scenes` / `characters`
+ * arrays. They're legacy stubs the pipeline stopped populating after
+ * the dep-graph migration.
  */
+
+/**
+ * A parsed scene_video_prompt file as we care about it for thumbnail
+ * selection and counting — just shot count + purpose mapping. Extra
+ * fields ignored.
+ */
+export interface SVPShape {
+  shots?: Array<
+    { shotNumber?: unknown; purpose?: unknown } | null | undefined
+  >;
+}
 
 /** Manifest entry we care about for landing-card display. */
 export interface ManifestSceneImage {
@@ -24,9 +47,28 @@ export interface ManifestSceneImage {
 }
 
 /**
+ * Parse `(scene, shot)` from a scene_image's file path when the
+ * manifest metadata is missing/null. Path pattern:
+ *   `assets/images/s<N>shot<M>_<frame>_<provider>_<hash>.png`
+ * Returns null when the pattern doesn't match.
+ */
+export function parseSceneShotFromPath(
+  path: string,
+): { scene: number; shot: number } | null {
+  const m = /(?:^|\/)s(\d+)shot(\d+)_/.exec(path);
+  if (!m || !m[1] || !m[2]) return null;
+  const scene = parseInt(m[1], 10);
+  const shot = parseInt(m[2], 10);
+  if (!Number.isFinite(scene) || !Number.isFinite(shot)) return null;
+  return { scene, shot };
+}
+
+/**
  * Extract `scene_image` entries from an `assets/manifest.json` parse.
- * Silently drops malformed entries — landing screen must not crash on
- * a single bad row.
+ * Recovers (scene, shot) from the file path when manifest metadata is
+ * missing — observed in real projects where regen / last-frame writes
+ * landed entries with null `scene_number` and null `metadata.shot_number`.
+ * Silently drops entries from which (scene, shot) cannot be recovered.
  */
 export function extractSceneImages(
   manifest: { assets?: Array<unknown> } | null | undefined,
@@ -42,39 +84,51 @@ export function extractSceneImages(
       metadata?: { shot_number?: unknown } | null;
     };
     if (entry.type !== 'scene_image') continue;
-    if (typeof entry.scene_number !== 'number') continue;
     if (typeof entry.path !== 'string' || !entry.path) continue;
-    const shot =
+
+    let scene: number | null =
+      typeof entry.scene_number === 'number' ? entry.scene_number : null;
+    let shot: number | null =
       typeof entry.metadata?.shot_number === 'number'
         ? entry.metadata.shot_number
-        : 0;
-    out.push({ scene: entry.scene_number, shot, path: entry.path });
+        : null;
+
+    if (scene === null || shot === null) {
+      const parsed = parseSceneShotFromPath(entry.path);
+      if (parsed) {
+        scene = scene ?? parsed.scene;
+        shot = shot ?? parsed.shot;
+      }
+    }
+    if (scene === null || shot === null) continue;
+    out.push({ scene, shot, path: entry.path });
   }
   return out;
 }
 
 /**
- * Count distinct scenes and shots from a list of scene_image entries.
- * Shot identity is `(scene, shot)` since shot numbers reset per scene.
+ * Sum scenes and shots from the planner's `scene_video_prompt` files.
+ *
+ * Each entry in `svps` is one scene; each scene's `shots[]` length is
+ * its planned shot count. `scenes` is the number of entries; `shots`
+ * is the total across all of them.
+ *
+ * Manifest-based counting is wrong because the manifest stores asset
+ * *versions* — regenerating shot 1 eleven times produces 11 manifest
+ * entries all tagged `(scene=1, shot=1)`. The planner's per-scene file
+ * is the authoritative project shape.
  */
-export function countScenesAndShots(
-  images: ManifestSceneImage[],
+export function sumScenesAndShots(
+  svps: Record<number, SVPShape | null | undefined>,
 ): { scenes: number; shots: number } {
-  const sceneSet = new Set<number>();
-  const shotSet = new Set<string>();
-  for (const img of images) {
-    sceneSet.add(img.scene);
-    shotSet.add(`${img.scene}_${img.shot}`);
+  let scenes = 0;
+  let shots = 0;
+  for (const svp of Object.values(svps)) {
+    if (!svp) continue;
+    scenes += 1;
+    if (Array.isArray(svp.shots)) shots += svp.shots.length;
   }
-  return { scenes: sceneSet.size, shots: shotSet.size };
-}
-
-/**
- * A parsed scene_video_prompt file as we care about it for thumbnail
- * selection — just shot purpose mapping. Extra fields ignored.
- */
-export interface SVPShape {
-  shots?: Array<{ shotNumber?: unknown; purpose?: unknown } | null | undefined>;
+  return { scenes, shots };
 }
 
 /**
@@ -83,8 +137,8 @@ export interface SVPShape {
  * `meet_character`. These are usually hero introductions and make
  * the most identifiable thumbnails.
  *
- * Returns a Set of `"<scene>_<shot>"` keys matching the format used
- * by `countScenesAndShots` so callers can membership-test directly.
+ * Returns a Set of `"<scene>_<shot>"` keys so callers can membership-
+ * test directly against `ManifestSceneImage` entries.
  */
 export function collectMeetCharacterShots(
   svps: Record<number, SVPShape | null | undefined>,
