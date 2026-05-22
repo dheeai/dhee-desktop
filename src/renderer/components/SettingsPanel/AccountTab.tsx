@@ -123,7 +123,7 @@ export default function AccountTab() {
     } else if (isWaiting) {
       emptyTitle = 'Waiting for browser';
       emptyText =
-        'Finish sign-in in your browser. If Chrome asks, choose Open Dhee Desktop.';
+        'Finish sign-in in your browser. If Chrome asks, choose Open Dhee Studio.';
       emptyCardStatusClass = styles.statusCard;
     }
 

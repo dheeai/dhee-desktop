@@ -172,7 +172,7 @@ function getHeroSubtitle(
     return `Signed in as ${account.email}. Create and manage projects from this desktop.`;
   }
   if (authStatus === 'waiting') {
-    return 'Finish sign-in in your browser, then choose Open Dhee Desktop when prompted.';
+    return 'Finish sign-in in your browser, then choose Open Dhee Studio when prompted.';
   }
   if (authStatus === 'expired') {
     return 'Your cloud session expired. Local projects are still available.';
@@ -591,11 +591,11 @@ export default function LandingScreen() {
         <div className={styles.topBarBrand}>
           <img
             src={dheeLogoUrl}
-            alt="Dhee"
+            alt="Dhee Studio"
             className={styles.brandLogo}
             draggable={false}
           />
-          <h1 className={styles.brandTitle}>Dhee</h1>
+          <h1 className={styles.brandTitle}>Dhee Studio</h1>
         </div>
 
         <div className={styles.topBarStatus}>

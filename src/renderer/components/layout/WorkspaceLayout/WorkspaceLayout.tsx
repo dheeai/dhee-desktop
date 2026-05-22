@@ -133,8 +133,8 @@ export default function WorkspaceLayout() {
             <span>Back</span>
           </button>
         </div>
-        <span className={styles.title} title={displayProjectName || 'Dhee Desktop'}>
-          {displayProjectName || 'Dhee Desktop'}
+        <span className={styles.title} title={displayProjectName || 'Dhee Studio'}>
+          {displayProjectName || 'Dhee Studio'}
         </span>
         <div className={styles.headerRight}>
           <button

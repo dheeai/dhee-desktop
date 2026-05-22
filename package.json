@@ -245,7 +245,7 @@
     "@electron/rebuild": "^3.7.1"
   },
   "build": {
-    "productName": "Dhee",
+    "productName": "Dhee Studio",
     "appId": "com.dheeai.desktop",
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
