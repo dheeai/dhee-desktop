@@ -1,6 +1,17 @@
-import { describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import ProjectSetupPanel from './ProjectSetupPanel';
+
+const mockNotifyTourEvent = jest.fn<(event: string) => void>();
+
+jest.mock('../../../contexts/FirstRunTourContext', () => ({
+  useOptionalFirstRunTour: () => ({
+    isActive: false,
+    startTour: jest.fn(),
+    skipTour: jest.fn(),
+    notifyTourEvent: mockNotifyTourEvent,
+  }),
+}));
 
 const templates = [
   {
@@ -79,6 +90,10 @@ function renderPanel() {
 }
 
 describe('ProjectSetupPanel', () => {
+  beforeEach(() => {
+    mockNotifyTourEvent.mockReset();
+  });
+
   it('renders preview images for template and style selection cards', () => {
     const props = {
       onOpenWizard: jest.fn(),
@@ -197,11 +212,13 @@ describe('ProjectSetupPanel', () => {
   // ── Story step (the new 4 of 5 step that collects the user's seed
   // idea before pi-agent kicks off the project) ─────────────────────
 
-  function renderStoryStep(overrides: {
-    storyInput?: string;
-    onChangeStory?: jest.Mock;
-    onSubmitStory?: jest.Mock;
-  } = {}) {
+  function renderStoryStep(
+    overrides: {
+      storyInput?: string;
+      onChangeStory?: jest.Mock;
+      onSubmitStory?: jest.Mock;
+    } = {},
+  ) {
     const onChangeStory = overrides.onChangeStory ?? jest.fn();
     const onSubmitStory = overrides.onSubmitStory ?? jest.fn();
     render(
@@ -305,9 +322,7 @@ describe('ProjectSetupPanel', () => {
     expect(screen.queryByText('Step 3 of 3')).not.toBeNull();
     expect(screen.queryByText('Tell Us the Story')).not.toBeNull();
     // The textarea is rendered with an aria-label.
-    expect(
-      screen.getByLabelText('Project story or idea'),
-    ).not.toBeNull();
+    expect(screen.getByLabelText('Project story or idea')).not.toBeNull();
   });
 
   it('disables the Continue button while the story is empty', () => {
@@ -341,6 +356,38 @@ describe('ProjectSetupPanel', () => {
     ) as HTMLTextAreaElement;
     fireEvent.change(textarea, { target: { value: 'Once upon a time' } });
     expect(onChangeStory).toHaveBeenCalledWith('Once upon a time');
+  });
+
+  it('notifies the walkthrough after story typing pauses', () => {
+    jest.useFakeTimers();
+
+    try {
+      renderStoryStep({ storyInput: '' });
+      const textarea = screen.getByLabelText(
+        'Project story or idea',
+      ) as HTMLTextAreaElement;
+
+      fireEvent.change(textarea, { target: { value: 'A' } });
+      act(() => {
+        jest.advanceTimersByTime(899);
+      });
+      expect(mockNotifyTourEvent).not.toHaveBeenCalledWith('setup_story_valid');
+
+      fireEvent.change(textarea, {
+        target: { value: 'A product launch story' },
+      });
+      act(() => {
+        jest.advanceTimersByTime(899);
+      });
+      expect(mockNotifyTourEvent).not.toHaveBeenCalledWith('setup_story_valid');
+
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
+      expect(mockNotifyTourEvent).toHaveBeenCalledWith('setup_story_valid');
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('fires onSubmitStory when Continue is clicked with a non-empty story', () => {

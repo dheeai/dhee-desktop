@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
 import NewProjectDialog from './NewProjectDialog';
 
 const mockCreateProject =
@@ -169,22 +175,47 @@ describe('NewProjectDialog', () => {
     expect(onClose).toHaveBeenCalled();
   });
 
-  it('notifies the walkthrough when the project name becomes valid', async () => {
+  it('notifies the walkthrough after project name typing pauses', async () => {
+    jest.useFakeTimers();
     const onClose = jest.fn();
-    render(<NewProjectDialog isOpen onClose={onClose} />);
 
-    fireEvent.change(screen.getByLabelText('Project name'), {
-      target: { value: '   ' },
-    });
-    expect(mockNotifyTourEvent).not.toHaveBeenCalledWith('project_name_valid');
+    try {
+      render(<NewProjectDialog isOpen onClose={onClose} />);
 
-    fireEvent.change(screen.getByLabelText('Project name'), {
-      target: { value: 'demo' },
-    });
+      fireEvent.change(screen.getByLabelText('Project name'), {
+        target: { value: '   ' },
+      });
+      expect(mockNotifyTourEvent).not.toHaveBeenCalledWith(
+        'project_name_valid',
+      );
 
-    await waitFor(() => {
+      fireEvent.change(screen.getByLabelText('Project name'), {
+        target: { value: 'd' },
+      });
+      act(() => {
+        jest.advanceTimersByTime(899);
+      });
+      expect(mockNotifyTourEvent).not.toHaveBeenCalledWith(
+        'project_name_valid',
+      );
+
+      fireEvent.change(screen.getByLabelText('Project name'), {
+        target: { value: 'demo' },
+      });
+      act(() => {
+        jest.advanceTimersByTime(899);
+      });
+      expect(mockNotifyTourEvent).not.toHaveBeenCalledWith(
+        'project_name_valid',
+      );
+
+      act(() => {
+        jest.advanceTimersByTime(1);
+      });
       expect(mockNotifyTourEvent).toHaveBeenCalledWith('project_name_valid');
-    });
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('creates a project without any provider sign-in gate', async () => {

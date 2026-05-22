@@ -14,6 +14,7 @@ import { shouldResetChatOnProjectChange } from '../../../utils/chatResetOnProjec
 import styles from './NewProjectDialog.module.scss';
 
 const PROJECT_SETUP_STORAGE_KEY = 'dhee.pendingProjectSetup';
+const TOUR_INPUT_ADVANCE_DELAY_MS = 900;
 
 interface NewProjectDialogProps {
   isOpen: boolean;
@@ -108,15 +109,20 @@ export default function NewProjectDialog({
   }, [isOpen]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     const hasValidProjectName = projectName.trim().length > 0;
     if (!hasValidProjectName) {
       notifiedValidProjectNameRef.current = false;
-      return;
+      return undefined;
     }
-    if (notifiedValidProjectNameRef.current) return;
-    notifiedValidProjectNameRef.current = true;
-    firstRunTour.notifyTourEvent('project_name_valid');
+    if (notifiedValidProjectNameRef.current) return undefined;
+    const timeoutId = window.setTimeout(() => {
+      notifiedValidProjectNameRef.current = true;
+      firstRunTour.notifyTourEvent('project_name_valid');
+    }, TOUR_INPUT_ADVANCE_DELAY_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
   }, [firstRunTour, isOpen, projectName]);
 
   const handlePickWorkspace = useCallback(async () => {

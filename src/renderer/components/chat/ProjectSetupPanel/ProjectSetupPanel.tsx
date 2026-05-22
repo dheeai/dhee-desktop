@@ -69,6 +69,8 @@ const STYLE_PREVIEW_SRC: Record<string, string> = {
   watercolor: styleWatercolorPreview,
 };
 
+const TOUR_INPUT_ADVANCE_DELAY_MS = 900;
+
 export type SetupStep =
   | 'template'
   | 'style'
@@ -159,6 +161,7 @@ export default function ProjectSetupPanel({
 }: ProjectSetupPanelProps) {
   const firstRunTour = useOptionalFirstRunTour();
   const notifiedStoryValidRef = useRef(false);
+  const storyValidTimerRef = useRef<number | null>(null);
   const [customDuration, setCustomDuration] = useState('');
 
   const selectedTemplate = useMemo(
@@ -207,18 +210,28 @@ export default function ProjectSetupPanel({
     [firstRunTour, onSelectDuration],
   );
 
+  const clearStoryValidTimer = useCallback(() => {
+    if (storyValidTimerRef.current === null) return;
+    window.clearTimeout(storyValidTimerRef.current);
+    storyValidTimerRef.current = null;
+  }, []);
+
   const handleStoryChange = useCallback(
     (value: string) => {
       onChangeStory(value);
+      clearStoryValidTimer();
       if (!value.trim()) {
         notifiedStoryValidRef.current = false;
         return;
       }
       if (notifiedStoryValidRef.current) return;
-      notifiedStoryValidRef.current = true;
-      firstRunTour.notifyTourEvent('setup_story_valid');
+      storyValidTimerRef.current = window.setTimeout(() => {
+        notifiedStoryValidRef.current = true;
+        storyValidTimerRef.current = null;
+        firstRunTour.notifyTourEvent('setup_story_valid');
+      }, TOUR_INPUT_ADVANCE_DELAY_MS);
     },
-    [firstRunTour, onChangeStory],
+    [clearStoryValidTimer, firstRunTour, onChangeStory],
   );
 
   const handleStorySubmit = useCallback(() => {
@@ -234,9 +247,12 @@ export default function ProjectSetupPanel({
 
   useEffect(() => {
     if (step !== 'story') {
+      clearStoryValidTimer();
       notifiedStoryValidRef.current = false;
     }
-  }, [step]);
+  }, [clearStoryValidTimer, step]);
+
+  useEffect(() => clearStoryValidTimer, [clearStoryValidTimer]);
 
   useEffect(() => {
     if (mode !== 'wizard') return undefined;
