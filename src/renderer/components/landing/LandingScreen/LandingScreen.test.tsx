@@ -184,71 +184,23 @@ describe('LandingScreen', () => {
     expect(mockRefreshRecentProjects).toHaveBeenCalled();
   });
 
-  it('shows 9 project cards on the first page and paginates to the rest', async () => {
+  it('renders every project card with no pagination cap (responsive grid handles overflow)', async () => {
     mockRecentProjects = buildRecentProjects(11);
 
     render(<LandingScreen />);
 
+    // All 11 cards visible at once — pagination was removed (user
+    // complaint: "stops on a number doesn't make sense, it needs to
+    // stop when the space is filled").
     expect(
       await screen.findByRole('button', { name: 'Rename project-11' }),
-    ).not.toBeNull();
-    expect(
-      screen.getByRole('button', { name: 'Rename project-03' }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Rename project-02' }),
-    ).toBeNull();
-    expect(screen.getByText('1-9 of 11')).not.toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Next projects page' }));
-
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-02' }),
     ).not.toBeNull();
     expect(
       screen.getByRole('button', { name: 'Rename project-01' }),
     ).not.toBeNull();
     expect(
-      screen.queryByRole('button', { name: 'Rename project-03' }),
-    ).toBeNull();
-    expect(screen.getByText('10-11 of 11')).not.toBeNull();
-  });
-
-  it('does not show pagination for 9 or fewer projects', async () => {
-    mockRecentProjects = buildRecentProjects(9);
-
-    render(<LandingScreen />);
-
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-09' }),
-    ).not.toBeNull();
-    expect(
       screen.queryByRole('button', { name: 'Next projects page' }),
     ).toBeNull();
-  });
-
-  it('clamps the active project page when the current page disappears', async () => {
-    mockRecentProjects = buildRecentProjects(10);
-    const { rerender } = render(<LandingScreen />);
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Next projects page' }),
-    );
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-01' }),
-    ).not.toBeNull();
-
-    mockRecentProjects = buildRecentProjects(9);
-    rerender(<LandingScreen />);
-
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-09' }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Rename project-01' }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Next projects page' }),
-    ).toBeNull();
+    expect(screen.queryByText(/1-9 of 11/)).toBeNull();
   });
 });

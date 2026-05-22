@@ -3,7 +3,7 @@
 
 .container {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto 1fr;
   height: 100%;
   width: 100%;
   min-height: 0;
@@ -89,6 +89,21 @@
   border-radius: 50%;
   background: currentColor;
   display: inline-block;
+}
+
+// Red dot — applied to any lane that fails the configuration check
+// (no API key, no URL, sign-in required, etc.). The whole pill also
+// picks up a warn outline via .statusPillWarn so the issue is visible
+// without hovering.
+.statusDotError {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
+}
+
+.statusPillWarn {
+  border-color: rgba(239, 68, 68, 0.45);
+  background: rgba(239, 68, 68, 0.08);
+  color: $color-text-primary;
 }
 
 .statusLaneLabel {
@@ -641,12 +656,236 @@
 .emptyState {
   @include panel-base;
   border-radius: $radius-lg;
-  padding: $spacing-xl;
+  padding: 64px $spacing-xl;
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: $spacing-md;
+  align-items: center;
+  text-align: center;
+  gap: 14px;
   color: $color-text-secondary;
+  min-height: 360px;
+  justify-content: center;
+}
+
+.emptyStateLogo {
+  width: 72px;
+  height: 72px;
+  opacity: 0.85;
+  margin-bottom: 4px;
+  user-select: none;
+}
+
+.emptyStateTitle {
+  margin: 0;
+  color: $color-text-primary;
+  font-size: 22px;
+  font-weight: $font-weight-semibold;
+  letter-spacing: -0.01em;
+}
+
+.emptyStateMessage {
+  margin: 0;
+  max-width: 460px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: $color-text-secondary;
+}
+
+.emptyStateActions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.emptyStatePrimary,
+.emptyStateSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 16px;
+  border-radius: $radius-sm;
+  font-size: 13px;
+  font-weight: $font-weight-medium;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.emptyStatePrimary {
+  color: $color-bg-panel;
+  background: $color-accent-primary;
+  border: 1px solid transparent;
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-accent-primary-rgb), 0.88);
+  }
+}
+
+.emptyStateSecondary {
+  color: $color-text-secondary;
+  background: transparent;
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.3);
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.35);
+    color: $color-text-primary;
+  }
+}
+
+// ── Backend-not-ready warning dialog ────────────────────────────────────────
+.warnOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: $spacing-lg;
+}
+
+.warnDialog {
+  @include panel-base;
+  border-radius: $radius-lg;
+  max-width: 460px;
+  width: 100%;
+  padding: 20px 22px 18px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  background: rgba(var(--color-bg-panel-rgb), 0.98);
+}
+
+.warnHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+}
+
+.warnTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.warnIcon {
+  color: #f59e0b;
+}
+
+.warnTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: $font-weight-semibold;
+  color: $color-text-primary;
+  line-height: 1;
+}
+
+.warnClose {
+  background: transparent;
+  border: 0;
+  padding: 4px;
+  color: $color-text-secondary;
+  cursor: pointer;
+  border-radius: $radius-sm;
+  display: inline-flex;
+
+  &:hover {
+    color: $color-text-primary;
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.4);
+  }
+}
+
+.warnBody {
+  margin: 14px 0 6px;
+}
+
+.warnIntro {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  color: $color-text-secondary;
+}
+
+.warnLaneList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.warnLaneItem {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: $radius-sm;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.22);
+}
+
+.warnLaneName {
+  font-size: 12px;
+  font-weight: $font-weight-bold;
+  color: $color-text-primary;
+  letter-spacing: 0.02em;
+}
+
+.warnLaneReason {
+  font-size: 12px;
+  color: $color-text-secondary;
+  text-align: right;
+}
+
+.warnActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
+
+.warnPrimary,
+.warnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: $radius-sm;
+  font-size: 12px;
+  font-weight: $font-weight-medium;
+  font-family: inherit;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.warnPrimary {
+  color: $color-bg-panel;
+  background: $color-accent-primary;
+  border: 1px solid transparent;
+
+  &:hover {
+    background: rgba(var(--color-accent-primary-rgb), 0.88);
+  }
+}
+
+.warnSecondary {
+  color: $color-text-secondary;
+  background: transparent;
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.3);
+
+  &:hover {
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.35);
+    color: $color-text-primary;
+  }
 }
 
 .error {

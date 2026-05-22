@@ -34,6 +34,8 @@ import {
   sumScenesAndShots,
   type SVPShape,
 } from './projectMetadataHelpers';
+import { getBackendConfigStatus } from './backendConfigStatus';
+import BackendNotReadyDialog from './BackendNotReadyDialog';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
 import type { AccountInfo } from '../../../../shared/settingsTypes';
 
@@ -312,6 +314,7 @@ export default function LandingScreen() {
     Record<string, ProjectMetadata>
   >({});
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
+  const [showBackendNotReady, setShowBackendNotReady] = useState(false);
   const [renameTarget, setRenameTarget] = useState<PendingProjectAction | null>(
     null,
   );
@@ -456,8 +459,17 @@ export default function LandingScreen() {
 
   const handleCreateNewProject = useCallback(() => {
     setError(null);
+    // Gate creation on at least one working LLM + Comfy. Without
+    // either, the agent literally can't run anything — better to
+    // tell the user up front than let them spin up a project that
+    // dies on the first tool call.
+    const status = getBackendConfigStatus(settings, account);
+    if (!status.allConfigured) {
+      setShowBackendNotReady(true);
+      return;
+    }
     setIsNewProjectDialogOpen(true);
-  }, []);
+  }, [account, settings]);
 
   const handleAccountSignIn = useCallback(async () => {
     setAuthStatus('waiting');
@@ -571,6 +583,7 @@ export default function LandingScreen() {
     account,
     styles,
   );
+  const backendStatus = getBackendConfigStatus(settings, account);
 
   return (
     <div className={styles.container}>
@@ -596,21 +609,41 @@ export default function LandingScreen() {
             </span>
           ) : (
             <span
-              className={styles.statusPill}
-              title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'}`}
+              className={`${styles.statusPill} ${backendStatus.allConfigured ? '' : styles.statusPillWarn}`}
+              title={
+                backendStatus.allConfigured
+                  ? `LLM: ${settings?.llmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'}`
+                  : backendStatus.unconfiguredLanes
+                      .map((l) =>
+                        `${l.lane.toUpperCase()}: ${l.reason}`,
+                      )
+                      .join(' · ')
+              }
             >
               <span
-                className={`${styles.statusDot} ${laneBadges.llm.className}`}
+                className={`${styles.statusDot} ${
+                  backendStatus.llm.configured
+                    ? laneBadges.llm.className
+                    : styles.statusDotError
+                }`}
               />
               <span className={styles.statusLaneLabel}>LLM</span>
               <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.statusDot} ${laneBadges.comfy.className}`}
+                className={`${styles.statusDot} ${
+                  backendStatus.comfy.configured
+                    ? laneBadges.comfy.className
+                    : styles.statusDotError
+                }`}
               />
               <span className={styles.statusLaneLabel}>Comfy</span>
               <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.statusDot} ${laneBadges.vlm.className}`}
+                className={`${styles.statusDot} ${
+                  backendStatus.vlm.configured
+                    ? laneBadges.vlm.className
+                    : styles.statusDotError
+                }`}
               />
               <span className={styles.statusLaneLabel}>VLM</span>
             </span>
@@ -683,21 +716,48 @@ export default function LandingScreen() {
 
               {projectCards.length === 0 ? (
                 <div className={styles.emptyState}>
-                  <p>
-                    No projects yet. Create your first project to get started.
+                  <img
+                    src={dheeLogoUrl}
+                    alt=""
+                    aria-hidden="true"
+                    className={styles.emptyStateLogo}
+                    draggable={false}
+                  />
+                  <h3 className={styles.emptyStateTitle}>
+                    Start your first project
+                  </h3>
+                  <p className={styles.emptyStateMessage}>
+                    Drop a story, an idea, or a script. Dhee will break it
+                    into scenes, generate the visuals, and stitch the video.
                   </p>
-                  <button
-                    type="button"
-                    className={styles.newProjectButton}
-                    onClick={handleCreateNewProject}
-                  >
-                    <Plus size={16} />
-                    Create Project
-                  </button>
+                  <div className={styles.emptyStateActions}>
+                    <button
+                      type="button"
+                      className={styles.emptyStatePrimary}
+                      onClick={handleCreateNewProject}
+                    >
+                      <Plus size={16} />
+                      New Project
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.emptyStateSecondary}
+                      onClick={handleOpenDirectory}
+                      disabled={isLoading || isProjectLoading}
+                    >
+                      <FolderOpen size={16} />
+                      {isLoading ? 'Opening…' : 'Open Existing Folder'}
+                    </button>
+                  </div>
                 </div>
               ) : (
+                // Render every project card. Pagination was removed —
+                // the responsive grid + scroll handles however many
+                // cards exist. "Stop on a number" caps were wasting
+                // space the user explicitly noticed (1-9 of 15 with
+                // empty rows below).
                 <div className={styles.projectsGrid}>
-                  {visibleProjectCards.map((project) => (
+                  {projectCards.map((project) => (
                     <ProjectCard
                       key={project.path}
                       project={project}
@@ -708,75 +768,6 @@ export default function LandingScreen() {
                   ))}
                 </div>
               )}
-              {totalProjectPages > 1 ? (
-                <div
-                  className={styles.projectsPagination}
-                  aria-label="Projects pagination"
-                >
-                  <span className={styles.projectsPageCount}>
-                    {projectRangeStart}-{projectRangeEnd} of{' '}
-                    {projectCards.length}
-                  </span>
-                  <div className={styles.paginationControls}>
-                    <button
-                      type="button"
-                      className={styles.paginationArrow}
-                      aria-label="Previous projects page"
-                      onClick={() =>
-                        setProjectPage((currentPage) =>
-                          Math.max(0, currentPage - 1),
-                        )
-                      }
-                      disabled={projectPage === 0}
-                    >
-                      <ChevronLeft size={16} />
-                    </button>
-                    <div className={styles.paginationPages}>
-                      {projectPaginationItems.map((item) =>
-                        typeof item === 'number' ? (
-                          <button
-                            key={item}
-                            type="button"
-                            className={`${styles.paginationPage} ${
-                              item === projectPage
-                                ? styles.paginationPageActive
-                                : ''
-                            }`}
-                            aria-label={`Go to projects page ${item + 1}`}
-                            aria-current={
-                              item === projectPage ? 'page' : undefined
-                            }
-                            onClick={() => setProjectPage(item)}
-                          >
-                            {item + 1}
-                          </button>
-                        ) : (
-                          <span
-                            key={item}
-                            className={styles.paginationEllipsis}
-                            aria-hidden="true"
-                          >
-                            ...
-                          </span>
-                        ),
-                      )}
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.paginationArrow}
-                      aria-label="Next projects page"
-                      onClick={() =>
-                        setProjectPage((currentPage) =>
-                          Math.min(totalProjectPages - 1, currentPage + 1),
-                        )
-                      }
-                      disabled={projectPage >= totalProjectPages - 1}
-                    >
-                      <ChevronRight size={16} />
-                    </button>
-                  </div>
-                </div>
-              ) : null}
             </section>
           </>
         ) : (
@@ -795,12 +786,21 @@ export default function LandingScreen() {
         )}
       </main>
 
-      <footer className={styles.bottomBar}>
-        <button type="button" className={styles.bottomBarLink}>
-          Help
-        </button>
-        <span className={styles.bottomBarVersion}>{appVersion}</span>
-      </footer>
+      <BackendNotReadyDialog
+        isOpen={showBackendNotReady}
+        unconfiguredLanes={backendStatus.unconfiguredLanes}
+        canSignIn={!account}
+        onClose={() => setShowBackendNotReady(false)}
+        onOpenSettings={() => {
+          setShowBackendNotReady(false);
+          clearError();
+          setActiveView('settings');
+        }}
+        onSignIn={() => {
+          setShowBackendNotReady(false);
+          void handleAccountSignIn();
+        }}
+      />
 
       <NewProjectDialog
         isOpen={isNewProjectDialogOpen}
