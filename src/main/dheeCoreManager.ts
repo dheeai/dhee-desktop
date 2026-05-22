@@ -1072,12 +1072,23 @@ export class dheeCoreManager {
     }
   }
 
-  /** Mirror of ConversationManager.cancelTask — returns false if no session. */
+  /**
+   * Mirror of ConversationManager.cancelTask. Tagged userInitiated
+   * because the IPC bridge only invokes this when the user clicks
+   * Stop in the chat header — server-side auto-cancels in the
+   * back-to-back runTask path call ConversationManager.cancelTask
+   * directly. The flag tells the silent-agent escape hatch in
+   * runTask to suppress the "Agent didn't respond — interrupted"
+   * notification (the user already knows; the extra warning is
+   * noise).
+   */
   cancelTask(sessionId: string): boolean {
     if (!this.cm) return false;
     return (
-      this.cm as unknown as { cancelTask: (s: string) => boolean }
-    ).cancelTask(sessionId);
+      this.cm as unknown as {
+        cancelTask: (s: string, p?: unknown, o?: { userInitiated?: boolean }) => boolean;
+      }
+    ).cancelTask(sessionId, undefined, { userInitiated: true });
   }
 
   /**
