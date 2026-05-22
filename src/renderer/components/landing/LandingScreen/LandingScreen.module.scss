@@ -50,12 +50,17 @@
 }
 
 .brandTitle {
+  // Wordmark font — Instrument Serif italic. Distinct from the SF Pro
+  // body stack so the brand reads as a brand, not a UI label.
+  // Fallback chain covers offline launches and CSP blocks.
   margin: 0;
   color: $color-text-primary;
-  font-size: $font-size-lg;
-  font-weight: $font-weight-bold;
+  font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 26px;
+  font-weight: 400;
   line-height: 1;
-  letter-spacing: -0.01em;
+  letter-spacing: 0.005em;
   white-space: nowrap;
 }
 
@@ -676,11 +681,16 @@
 }
 
 .emptyStateTitle {
+  // Matches the brand wordmark font so the empty state has the same
+  // editorial voice as the top bar.
   margin: 0;
   color: $color-text-primary;
-  font-size: 22px;
-  font-weight: $font-weight-semibold;
-  letter-spacing: -0.01em;
+  font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  font-style: italic;
+  font-size: 32px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.1;
 }
 
 .emptyStateMessage {
