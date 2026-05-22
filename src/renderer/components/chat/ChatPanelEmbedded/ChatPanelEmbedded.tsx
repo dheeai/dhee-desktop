@@ -258,13 +258,15 @@ function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const entries = Object.entries(args as Record<string, unknown>);
   if (entries.length === 0) return '';
-  // Pick the most useful 1-2 args, truncate long values.
-  const parts = entries.slice(0, 2).map(([k, v]) => {
+  // Show every arg, full value. Tool card CSS handles wrapping for long
+  // strings; chopping in JS made debugging impossible (paths got cut
+  // mid-folder, prompts cut mid-word, etc.). The summary feeds tool-card
+  // display only — it's not used for any matching / parsing logic.
+  const parts = entries.map(([k, v]) => {
     let value = '';
     if (typeof v === 'string') value = v;
     else if (typeof v === 'number' || typeof v === 'boolean') value = String(v);
     else value = JSON.stringify(v);
-    if (value.length > 32) value = `${value.slice(0, 32)}…`;
     return `${k}=${value}`;
   });
   return parts.join(' ');
