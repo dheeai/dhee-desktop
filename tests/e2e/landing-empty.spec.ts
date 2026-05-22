@@ -18,7 +18,7 @@ test.describe('Feature: Landing screen, empty state', () => {
         page.getByRole('heading', { name: /Choose how Dhee runs/i }),
       ).toBeVisible();
       await expect(
-        page.getByText(/Dhee Cloud is the fastest path/i),
+        page.getByText(/Dhee can use Dhee Cloud credits/i),
       ).toBeVisible();
       await expect(
         page.getByRole('button', { name: /Sign in to Dhee Cloud/i }),
@@ -95,7 +95,45 @@ test.describe('Feature: Landing screen, empty state', () => {
       await expect(
         page.getByRole('heading', { name: /^Connection$/i }),
       ).toBeVisible();
-      await expect(page.getByText(/Choose BYO keys/i)).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: /Local ComfyUI lives here/i }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: /^Next$/i }).click();
+      await expect(
+        page.getByRole('heading', { name: /Choose the local LLM provider/i }),
+      ).toBeVisible();
+      await page
+        .getByRole('button', { name: /Continue without setup/i })
+        .click();
+      await expect(
+        page.getByRole('heading', { name: /Create your first project/i }),
+      ).toBeVisible();
+    });
+
+    test('When the user starts Cloud sign-in, Then the tour shows Cloud settings without blocking', async ({
+      page,
+      bootInline,
+    }) => {
+      await bootInline({ surface: 'landing', rules: [] });
+
+      await page
+        .getByRole('button', { name: /Sign in to Dhee Cloud/i })
+        .click();
+
+      await expect(
+        page.getByRole('heading', { name: /Cloud sign-in starts here/i }),
+      ).toBeVisible();
+      const calls = await page.evaluate(() =>
+        window.__dheeTest!.getCalls('account.signIn'),
+      );
+      expect(calls.length).toBeGreaterThanOrEqual(1);
+
+      await page
+        .getByRole('button', { name: /Continue without setup/i })
+        .click();
+      await expect(
+        page.getByRole('heading', { name: /Create your first project/i }),
+      ).toBeVisible();
     });
 
     test('When the user continues from provider choice, Then the walkthrough points to New Project', async ({
@@ -104,7 +142,9 @@ test.describe('Feature: Landing screen, empty state', () => {
     }) => {
       await bootInline({ surface: 'landing', rules: [] });
 
-      await page.getByRole('button', { name: /^Continue$/i }).click();
+      await page
+        .getByRole('button', { name: /^Continue without setup$/i })
+        .click();
 
       await expect(
         page.getByRole('heading', { name: /Create your first project/i }),
@@ -114,7 +154,7 @@ test.describe('Feature: Landing screen, empty state', () => {
       ).toBeVisible();
     });
 
-    test('When the user creates a project, Then the walkthrough advances to workspace chat', async ({
+    test('When the user creates a project, Then the walkthrough reaches the first setup prompt', async ({
       page,
       bootInline,
     }) => {
@@ -129,13 +169,19 @@ test.describe('Feature: Landing screen, empty state', () => {
         );
       });
 
-      await page.getByRole('button', { name: /^Continue$/i }).click();
+      await page
+        .getByRole('button', { name: /^Continue without setup$/i })
+        .click();
       await page.getByRole('button', { name: /^New Project$/i }).click();
       await expect(
         page.getByRole('heading', { name: /Name the project/i }),
       ).toBeVisible();
 
       await page.getByLabel(/Project name/i).fill('Walkthrough Test');
+      await expect(
+        page.getByRole('heading', { name: /Confirm the project location/i }),
+      ).toBeVisible();
+      await page.getByRole('button', { name: /Use this location/i }).click();
       await expect(
         page.getByRole('heading', { name: /Create the project folder/i }),
       ).toBeVisible();
@@ -149,6 +195,40 @@ test.describe('Feature: Landing screen, empty state', () => {
       ).toBeVisible();
       await expect(page.getByText(/This is where you describe/i)).toBeVisible();
 
+      await page.getByRole('button', { name: /^Next$/i }).click();
+      await expect(
+        page.getByRole('heading', { name: /Pick a visual style/i }),
+      ).toBeVisible();
+      await page
+        .locator('[data-tour-id="setup-style-options"] button')
+        .first()
+        .click();
+
+      await expect(
+        page.getByRole('heading', { name: /Choose the duration/i }),
+      ).toBeVisible();
+      await page
+        .locator('[data-tour-id="setup-duration-options"] button')
+        .first()
+        .click();
+
+      await expect(
+        page.getByRole('heading', { name: /Enter the first prompt/i }),
+      ).toBeVisible();
+      await page
+        .getByLabel(/Project story or idea/i)
+        .fill('A concise product launch video with cinematic lighting.');
+      await expect(
+        page.getByRole('heading', { name: /Send the setup prompt/i }),
+      ).toBeVisible();
+      await page.locator('[data-tour-id="setup-story-continue"]').click();
+
+      await expect(
+        page.getByRole('heading', {
+          name: /Outputs appear in the preview area/i,
+        }),
+      ).toBeVisible();
+
       const calls = await page.evaluate(() =>
         window.__dheeTest!.getCalls('onboarding.complete'),
       );
@@ -158,7 +238,7 @@ test.describe('Feature: Landing screen, empty state', () => {
             call.args &&
               typeof call.args === 'object' &&
               (call.args as { completedReason?: unknown }).completedReason ===
-                'project_opened',
+                'first_prompt_submitted',
           ),
         ),
       ).toBe(true);

@@ -1013,6 +1013,7 @@ export default function ChatPanelEmbedded() {
     const text = input.trim();
     // A turn must have either text or at least one attachment.
     if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
+    firstRunTour.notifyTourEvent('chat_prompt_sent');
 
     // If pi-agent is mid-turn (e.g. running a multi-step regen +
     // bash + regen sequence), the user often wants to interject
@@ -1545,7 +1546,12 @@ export default function ChatPanelEmbedded() {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (e.target.value.trim()) {
+                firstRunTour.notifyTourEvent('chat_prompt_valid');
+              }
+            }}
             placeholder={
               isMainBusy
                 ? 'Thinking…'

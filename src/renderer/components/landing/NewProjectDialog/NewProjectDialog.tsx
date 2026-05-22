@@ -125,11 +125,12 @@ export default function NewProjectDialog({
       const selectedPath = await window.electron.project.selectDirectory();
       if (selectedPath) {
         setWorkspacePath(selectedPath);
+        firstRunTour.notifyTourEvent('project_location_confirmed');
       }
     } catch (err) {
       setError(`Failed to select folder: ${(err as Error).message}`);
     }
-  }, []);
+  }, [firstRunTour]);
 
   const handleCreate = useCallback(async () => {
     const trimmedName = projectName.trim();
@@ -296,7 +297,10 @@ export default function NewProjectDialog({
             aria-label="Project description"
           />
 
-          <div className={styles.locationRow}>
+          <div
+            className={styles.locationRow}
+            data-tour-id="new-project-location"
+          >
             <div className={styles.locationInfo}>
               <span className={styles.locationLabel}>Location</span>
               <span className={styles.locationPath}>
@@ -308,6 +312,7 @@ export default function NewProjectDialog({
               className={styles.pickButton}
               onClick={handlePickWorkspace}
               disabled={formLocked}
+              data-tour-id="new-project-choose-folder"
             >
               <FolderOpen size={15} />
               Choose Folder

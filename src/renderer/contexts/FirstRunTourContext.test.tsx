@@ -38,6 +38,20 @@ function Harness() {
   return (
     <>
       <div data-tour-id="landing-provider-status">Provider status</div>
+      <input data-tour-id="settings-comfy-url" aria-label="ComfyUI URL" />
+      <div data-tour-id="settings-llm-provider">LLM provider</div>
+      <input data-tour-id="settings-llm-api-key" aria-label="LLM API key" />
+      <input data-tour-id="settings-llm-model" aria-label="LLM model" />
+      <button type="button" data-tour-id="settings-provider-test">
+        Test all providers
+      </button>
+      <button type="button" data-tour-id="settings-save-connection">
+        Save & Restart
+      </button>
+      <button type="button" data-tour-id="settings-cloud-sign-in">
+        Settings Sign In
+      </button>
+      <div data-tour-id="settings-cloud-toggles">Cloud toggles</div>
       <button
         type="button"
         data-tour-id="landing-new-project"
@@ -54,7 +68,15 @@ function Harness() {
           }
         }}
       />
-      <button type="button" data-tour-id="new-project-create">
+      <div data-tour-id="new-project-location">Project location</div>
+      <button type="button" data-tour-id="new-project-choose-folder">
+        Choose Folder
+      </button>
+      <button
+        type="button"
+        data-tour-id="new-project-create"
+        onClick={() => tour.notifyTourEvent('project_opened')}
+      >
         Create Project
       </button>
       <button type="button" onClick={() => tour.startTour({ source: 'help' })}>
@@ -62,6 +84,36 @@ function Harness() {
       </button>
       <div data-tour-id="workspace-chat-panel">Chat panel</div>
       <div data-tour-id="workspace-setup-wizard">Setup wizard</div>
+      <button
+        type="button"
+        data-tour-id="setup-style-options"
+        onClick={() => tour.notifyTourEvent('setup_style_selected')}
+      >
+        Style options
+      </button>
+      <button
+        type="button"
+        data-tour-id="setup-duration-options"
+        onClick={() => tour.notifyTourEvent('setup_duration_selected')}
+      >
+        Duration options
+      </button>
+      <textarea
+        data-tour-id="setup-story-input"
+        aria-label="Story input"
+        onChange={(event) => {
+          if (event.currentTarget.value.trim()) {
+            tour.notifyTourEvent('setup_story_valid');
+          }
+        }}
+      />
+      <button
+        type="button"
+        data-tour-id="setup-story-continue"
+        onClick={() => tour.notifyTourEvent('setup_story_submitted')}
+      >
+        Continue setup
+      </button>
       <textarea data-tour-id="workspace-chat-input" aria-label="Chat input" />
       <div data-tour-id="workspace-preview">Preview</div>
     </>
@@ -88,7 +140,7 @@ describe('FirstRunTourProvider', () => {
     delete process.env.dhee_FIRST_RUN_TOUR_DEV_MODE;
 
     mockGetState.mockResolvedValue({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: false,
       completedAt: null,
       skipped: false,
@@ -106,7 +158,7 @@ describe('FirstRunTourProvider', () => {
           ? (req as CompleteOnboardingRequest).completedReason
           : 'manual_finish';
       return {
-        guideVersion: 2,
+        guideVersion: 3,
         completed: true,
         completedAt: 123,
         skipped,
@@ -133,7 +185,7 @@ describe('FirstRunTourProvider', () => {
     renderTour();
 
     expect(await screen.findByText('Choose how Dhee runs')).not.toBeNull();
-    expect(screen.getByText(/Dhee Cloud is the fastest path/i)).not.toBeNull();
+    expect(screen.getByText(/Dhee can use Dhee Cloud credits/i)).not.toBeNull();
   });
 
   it('auto-starts even when an account is signed in', async () => {
@@ -171,7 +223,9 @@ describe('FirstRunTourProvider', () => {
   it('continues from provider choice to project creation', async () => {
     renderTour();
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Continue without setup' }),
+    );
 
     expect(await screen.findByText('Create your first project')).not.toBeNull();
     expect(screen.getByText('Click New Project to continue.')).not.toBeNull();
@@ -187,6 +241,7 @@ describe('FirstRunTourProvider', () => {
     await waitFor(() => {
       expect(mockSignIn).toHaveBeenCalledTimes(1);
     });
+    expect(await screen.findByText('Cloud sign-in starts here')).not.toBeNull();
   });
 
   it('requests Connection settings from the local setup action', async () => {
@@ -206,14 +261,19 @@ describe('FirstRunTourProvider', () => {
         action: 'open-settings',
         tab: 'connection',
       });
+      expect(
+        await screen.findByText('Local ComfyUI lives here'),
+      ).not.toBeNull();
     } finally {
       window.removeEventListener(FIRST_RUN_TOUR_LANDING_ACTION_EVENT, handler);
     }
   });
 
-  it('advances from project name to create project when the name is valid', async () => {
+  it('advances from project name to location, then create project', async () => {
     renderTour();
-    fireEvent.click(await screen.findByRole('button', { name: 'Continue' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Continue without setup' }),
+    );
     fireEvent.click(await screen.findByRole('button', { name: 'New Project' }));
 
     expect(await screen.findByText('Name the project')).not.toBeNull();
@@ -222,16 +282,21 @@ describe('FirstRunTourProvider', () => {
       target: { value: 'Demo' },
     });
 
+    expect(
+      await screen.findByText('Confirm the project location'),
+    ).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Use this location' }));
+
     expect(await screen.findByText('Create the project folder')).not.toBeNull();
   });
 
   it('lets Help replay after completion', async () => {
     mockGetState.mockResolvedValue({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: true,
       completedAt: 1,
       skipped: false,
-      completedReason: 'project_opened',
+      completedReason: 'first_prompt_submitted',
     });
 
     renderTour();
@@ -253,7 +318,7 @@ describe('FirstRunTourProvider', () => {
     });
   });
 
-  it('persists completion when a project opens', async () => {
+  it('does not persist completion when a project opens', async () => {
     const view = renderTour();
     await screen.findByText('Choose how Dhee runs');
 
@@ -264,11 +329,51 @@ describe('FirstRunTourProvider', () => {
       </FirstRunTourProvider>,
     );
 
+    await screen.findByText('Chat drives the workflow');
+    expect(mockComplete).not.toHaveBeenCalledWith({
+      completedReason: 'project_opened',
+    });
+  });
+
+  it('guides setup style, duration, story, then persists first prompt submission', async () => {
+    renderTour();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Continue without setup' }),
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'New Project' }));
+    fireEvent.change(screen.getByLabelText('Project name'), {
+      target: { value: 'Demo' },
+    });
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Use this location' }),
+    );
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Create Project' }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
+    expect(await screen.findByText('Pick a visual style')).not.toBeNull();
+    fireEvent.click(screen.getByText('Style options'));
+
+    expect(await screen.findByText('Choose the duration')).not.toBeNull();
+    fireEvent.click(screen.getByText('Duration options'));
+
+    expect(await screen.findByText('Enter the first prompt')).not.toBeNull();
+    fireEvent.change(screen.getByLabelText('Story input'), {
+      target: { value: 'A product launch video' },
+    });
+
+    expect(await screen.findByText('Send the setup prompt')).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Continue setup' }));
+
     await waitFor(() => {
       expect(mockComplete).toHaveBeenCalledWith({
-        completedReason: 'project_opened',
+        completedReason: 'first_prompt_submitted',
       });
     });
+    expect(
+      await screen.findByText('Outputs appear in the preview area'),
+    ).not.toBeNull();
   });
 
   it('dev mode forces the tour even after completion and recent projects', async () => {
@@ -278,11 +383,11 @@ describe('FirstRunTourProvider', () => {
       { path: '/projects/existing', name: 'existing', lastOpened: 1 },
     ];
     mockGetState.mockResolvedValue({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: true,
       completedAt: 1,
       skipped: false,
-      completedReason: 'project_opened',
+      completedReason: 'first_prompt_submitted',
     });
 
     renderTour();

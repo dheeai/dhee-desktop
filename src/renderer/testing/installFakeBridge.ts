@@ -675,7 +675,7 @@ const fakeElectron = {
       record('onboarding.getState', undefined);
       return Promise.resolve(
         bridgeReturn('onboarding.getState', {
-          guideVersion: 2,
+          guideVersion: 3,
           completed: false,
           completedAt: null,
           skipped: false,
@@ -698,7 +698,7 @@ const fakeElectron = {
             ? 'skipped'
             : 'manual_finish';
       const next = {
-        guideVersion: 2,
+        guideVersion: 3,
         completed: true,
         completedAt: Date.now(),
         skipped,

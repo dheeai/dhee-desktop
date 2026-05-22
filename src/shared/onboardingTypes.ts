@@ -1,7 +1,8 @@
-export const FIRST_RUN_GUIDE_VERSION = 2;
+export const FIRST_RUN_GUIDE_VERSION = 3;
 
 export type OnboardingCompletionReason =
   | 'project_opened'
+  | 'first_prompt_submitted'
   | 'skipped'
   | 'manual_finish';
 

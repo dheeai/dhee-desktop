@@ -31,13 +31,13 @@ describe('onboardingManager', () => {
     const onboarding = await loadOnboardingManager();
 
     expect(onboarding.getOnboardingState()).toEqual({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: false,
       completedAt: null,
       skipped: false,
     });
     expect(mockStoreSet).toHaveBeenCalledWith('firstRunGuide', {
-      guideVersion: 2,
+      guideVersion: 3,
       completed: false,
       completedAt: null,
       skipped: false,
@@ -49,14 +49,14 @@ describe('onboardingManager', () => {
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(12345);
 
     expect(onboarding.completeOnboarding()).toEqual({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: true,
       completedAt: 12345,
       skipped: false,
       completedReason: 'manual_finish',
     });
     expect(mockStoreData.firstRunGuide).toEqual({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: true,
       completedAt: 12345,
       skipped: false,
@@ -71,7 +71,7 @@ describe('onboardingManager', () => {
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(67890);
 
     expect(onboarding.completeOnboarding({ skipped: true })).toEqual({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: true,
       completedAt: 67890,
       skipped: true,
@@ -87,14 +87,14 @@ describe('onboardingManager', () => {
 
     expect(
       onboarding.completeOnboarding({
-        completedReason: 'project_opened',
+        completedReason: 'first_prompt_submitted',
       }),
     ).toEqual({
-      guideVersion: 2,
+      guideVersion: 3,
       completed: true,
       completedAt: 24680,
       skipped: false,
-      completedReason: 'project_opened',
+      completedReason: 'first_prompt_submitted',
     });
 
     nowSpy.mockRestore();

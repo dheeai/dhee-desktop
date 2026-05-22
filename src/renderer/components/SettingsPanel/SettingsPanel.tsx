@@ -884,6 +884,7 @@ export default function SettingsPanel({
                       className={styles.submitButton}
                       onClick={handleProviderDiagnostics}
                       disabled={providerDiagnosticsBusy}
+                      data-tour-id="settings-provider-test"
                     >
                       {providerDiagnosticsBusy
                         ? 'Checking...'
@@ -902,7 +903,10 @@ export default function SettingsPanel({
 
                 <fieldset className={styles.fieldset}>
                   <legend>ComfyUI</legend>
-                  <div className={styles.cloudToggleRow}>
+                  <div
+                    className={styles.cloudToggleRow}
+                    data-tour-id="settings-cloud-toggles"
+                  >
                     <label
                       className={styles.checkboxLabel}
                       title={
@@ -930,6 +934,7 @@ export default function SettingsPanel({
                         className={styles.inlineSignInButton}
                         onClick={handleInlineSignIn}
                         disabled={signingIn}
+                        data-tour-id="settings-cloud-sign-in"
                       >
                         {signingIn ? 'Opening…' : 'Sign In'}
                       </button>
@@ -953,6 +958,7 @@ export default function SettingsPanel({
                             handleInput('comfyuiUrl', event.target.value)
                           }
                           placeholder="http://localhost:8000"
+                          data-tour-id="settings-comfy-url"
                         />
                       </label>
 
@@ -1030,7 +1036,10 @@ export default function SettingsPanel({
                           prompts, motion directives — and the pi-agent
                           orchestrator.
                         </p>
-                        <div className={styles.radios}>
+                        <div
+                          className={styles.radios}
+                          data-tour-id="settings-llm-provider"
+                        >
                           {renderProviderToggle('gemini', 'Gemini')}
                           {renderProviderToggle('openai', 'OpenAI-Compatible')}
                         </div>
@@ -1048,6 +1057,7 @@ export default function SettingsPanel({
                                 handleInput('googleApiKey', event.target.value)
                               }
                               placeholder="AIza..."
+                              data-tour-id="settings-llm-api-key"
                             />
                           </label>
 
@@ -1061,6 +1071,7 @@ export default function SettingsPanel({
                                 handleInput('geminiModel', event.target.value)
                               }
                               placeholder="gemini-2.5-flash"
+                              data-tour-id="settings-llm-model"
                             />
                           </label>
                         </>
@@ -1106,6 +1117,7 @@ export default function SettingsPanel({
                                 handleInput('openaiModel', event.target.value)
                               }
                               placeholder="gpt-4o"
+                              data-tour-id="settings-llm-model"
                             />
                           </label>
 
@@ -1119,6 +1131,7 @@ export default function SettingsPanel({
                                 handleInput('openaiApiKey', event.target.value)
                               }
                               placeholder="sk-..."
+                              data-tour-id="settings-llm-api-key"
                             />
                           </label>
                         </>
@@ -1322,6 +1335,7 @@ export default function SettingsPanel({
                 type="submit"
                 className={styles.submitButton}
                 disabled={isSavingConnection}
+                data-tour-id="settings-save-connection"
               >
                 {isSavingConnection ? 'Saving…' : 'Save & Restart'}
               </button>
