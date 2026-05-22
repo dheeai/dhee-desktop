@@ -544,7 +544,12 @@ export default function LandingScreen() {
     setProjectActionError(null);
     setIsProjectActionPending(true);
     try {
-      await window.electron.project.deleteProject(deleteTarget.path);
+      // Soft-remove: drop from the recents list only. Files on disk
+      // are preserved so the user can re-open the folder later via
+      // "Open Workspace" and the project will reappear. The full
+      // `deleteProject` IPC (which removes the folder from disk) is
+      // not used here — the UI never destroys user content.
+      await window.electron.project.removeRecent(deleteTarget.path);
       await refreshRecentProjects();
       setDeleteTarget(null);
     } catch (err) {

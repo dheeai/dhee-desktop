@@ -65,6 +65,7 @@ describe('LandingScreen', () => {
   const mockRenameProject =
     jest.fn<(projectPath: string, newName: string) => Promise<string>>();
   const mockDeleteProject = jest.fn<(projectPath: string) => Promise<void>>();
+  const mockRemoveRecent = jest.fn<(projectPath: string) => Promise<void>>();
   const mockGetVersion = jest.fn<() => Promise<string>>();
 
   beforeEach(() => {
@@ -77,6 +78,7 @@ describe('LandingScreen', () => {
     mockCheckFileExists.mockReset();
     mockRenameProject.mockReset();
     mockDeleteProject.mockReset();
+    mockRemoveRecent.mockReset();
     mockGetVersion.mockReset();
     mockProjectLoading = false;
     mockRecentProjects = [
@@ -98,6 +100,7 @@ describe('LandingScreen', () => {
     mockCheckFileExists.mockResolvedValue(false);
     mockRenameProject.mockResolvedValue('/projects/demo-renamed');
     mockDeleteProject.mockResolvedValue(undefined);
+    mockRemoveRecent.mockResolvedValue(undefined);
     mockRefreshRecentProjects.mockResolvedValue(undefined);
     mockGetVersion.mockResolvedValue('1.0.0');
 
@@ -109,6 +112,7 @@ describe('LandingScreen', () => {
           checkFileExists: mockCheckFileExists,
           renameProject: mockRenameProject,
           deleteProject: mockDeleteProject,
+          removeRecent: mockRemoveRecent,
           selectDirectory: jest.fn(),
         },
         app: {
@@ -159,19 +163,24 @@ describe('LandingScreen', () => {
     expect(screen.queryByText('Stale Manifest Title')).toBeNull();
   });
 
-  it('opens the delete dialog from the project card and submits delete', async () => {
+  it('opens the remove dialog from the project card and soft-removes the project (no folder deletion)', async () => {
     render(<LandingScreen />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete demo' }));
     expect(
-      screen.getByRole('dialog', { name: 'Delete project' }),
+      screen.getByRole('dialog', { name: 'Remove project from workspace' }),
     ).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Project' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove from Workspace' }),
+    );
 
     await waitFor(() => {
-      expect(mockDeleteProject).toHaveBeenCalledWith('/projects/demo');
+      expect(mockRemoveRecent).toHaveBeenCalledWith('/projects/demo');
     });
+    // The destructive deleteProject IPC must NEVER fire from the
+    // landing-screen action — the UI no longer destroys user content.
+    expect(mockDeleteProject).not.toHaveBeenCalled();
     expect(mockRefreshRecentProjects).toHaveBeenCalled();
   });
 

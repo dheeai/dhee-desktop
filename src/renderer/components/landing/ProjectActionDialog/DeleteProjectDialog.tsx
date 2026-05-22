@@ -32,15 +32,15 @@ export default function DeleteProjectDialog({
         className={styles.dialog}
         role="dialog"
         aria-modal="true"
-        aria-label="Delete project"
+        aria-label="Remove project from workspace"
       >
         <div className={styles.header}>
-          <h2 className={styles.title}>Delete Project</h2>
+          <h2 className={styles.title}>Remove from Workspace</h2>
           <button
             type="button"
             className={styles.closeButton}
             onClick={onClose}
-            aria-label="Close delete project dialog"
+            aria-label="Close remove project dialog"
             disabled={isSubmitting}
           >
             <X size={16} />
@@ -49,10 +49,13 @@ export default function DeleteProjectDialog({
 
         <div className={styles.body}>
           <p className={styles.message}>
-            Delete <span className={styles.projectName}>{projectName}</span>{' '}
-            from disk and remove it from recent projects.
+            Remove <span className={styles.projectName}>{projectName}</span>{' '}
+            from this workspace?
           </p>
-          <p className={styles.warning}>This action cannot be undone.</p>
+          <p className={styles.warning}>
+            Files on disk are preserved. Re-open the folder anytime via
+            “Open Workspace” to bring it back.
+          </p>
           {error && <p className={styles.error}>{error}</p>}
         </div>
 
@@ -72,7 +75,7 @@ export default function DeleteProjectDialog({
             disabled={isSubmitting}
           >
             <Trash2 size={15} />
-            {isSubmitting ? 'Deleting...' : 'Delete Project'}
+            {isSubmitting ? 'Removing…' : 'Remove from Workspace'}
           </button>
         </div>
       </div>
