@@ -2,15 +2,286 @@
 @import '../../../styles/mixins';
 
 .container {
-  display: flex;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
   height: 100%;
   width: 100%;
+  min-height: 0;
   background: radial-gradient(
       circle at 10% 0%,
       rgba(var(--color-accent-primary-rgb), 0.08) 0%,
       rgba(15, 17, 26, 0) 35%
     ),
     $color-background-dark;
+}
+
+// ── Top bar (replaces the sidebar) ───────────────────────────────────────────
+.topBar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: 12px $spacing-lg;
+  border-bottom: 1px solid $color-panel-border;
+  background: rgba(var(--color-bg-panel-rgb), 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  min-height: 52px;
+
+  // App is a desktop window — let the user drag from the top bar
+  // (Electron convention). Buttons inside need to opt out via
+  // -webkit-app-region: no-drag.
+  -webkit-app-region: drag;
+}
+
+.topBarBrand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex-shrink: 0;
+}
+
+.brandLogo {
+  width: 28px;
+  height: 28px;
+  border-radius: $radius-sm;
+  display: block;
+  user-select: none;
+}
+
+.brandTitle {
+  margin: 0;
+  color: $color-text-primary;
+  font-size: $font-size-lg;
+  font-weight: $font-weight-bold;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.topBarStatus {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.statusPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(var(--color-bg-panel-soft-rgb), 0.35);
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.25);
+  color: $color-text-secondary;
+  font-size: 11px;
+  font-weight: $font-weight-medium;
+  line-height: 1;
+  white-space: nowrap;
+  -webkit-app-region: no-drag;
+  cursor: default;
+}
+
+.statusDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  display: inline-block;
+}
+
+.statusLaneLabel {
+  font-size: 10px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.statusSep {
+  opacity: 0.4;
+  font-size: 10px;
+  margin: 0 1px;
+}
+
+.topBarActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+
+  > button {
+    -webkit-app-region: no-drag;
+  }
+}
+
+.topBarActionLabel {
+  // Inline label hidden on narrow widths — icon-only buttons.
+  @media (max-width: 700px) {
+    display: none;
+  }
+}
+
+.topBarPrimary,
+.topBarSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: $radius-sm;
+  font-size: 12px;
+  font-weight: $font-weight-medium;
+  font-family: inherit;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+  white-space: nowrap;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.topBarPrimary {
+  color: $color-text-primary;
+  background: rgba(var(--color-accent-primary-rgb), 0.18);
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.45);
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-accent-primary-rgb), 0.28);
+    border-color: rgba(var(--color-accent-primary-rgb), 0.6);
+  }
+}
+
+.topBarSecondary {
+  color: $color-text-secondary;
+  background: transparent;
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.3);
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.35);
+    color: $color-text-primary;
+  }
+}
+
+.topBarIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: $radius-sm;
+  color: $color-text-secondary;
+  background: transparent;
+  border: 1px solid rgba(var(--color-border-strong-rgb), 0.25);
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease;
+
+  &:hover {
+    color: $color-text-primary;
+    background: rgba(var(--color-bg-panel-soft-rgb), 0.35);
+  }
+}
+
+.topBarIconActive {
+  color: $color-text-primary;
+  background: rgba(var(--color-accent-primary-rgb), 0.15);
+  border-color: rgba(var(--color-accent-primary-rgb), 0.4);
+}
+
+// Sign In is the primary CTA on the top bar — filled accent, not muted.
+.topBarCta {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  margin-left: 4px;
+  border-radius: $radius-sm;
+  border: 1px solid transparent;
+  background: $color-accent-primary;
+  color: $color-bg-panel;
+  font-size: 12px;
+  font-weight: $font-weight-bold;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 120ms ease, transform 80ms ease;
+
+  &:hover {
+    background: rgba(var(--color-accent-primary-rgb), 0.88);
+  }
+
+  &:active {
+    transform: translateY(1px);
+  }
+}
+
+// ── Bottom bar (Help + version) ──────────────────────────────────────────────
+.bottomBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: 6px $spacing-lg;
+  border-top: 1px solid $color-panel-border;
+  color: $color-text-secondary;
+  font-size: 10px;
+  background: rgba(var(--color-bg-panel-rgb), 0.4);
+}
+
+.bottomBarLink {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-decoration: none;
+
+  &:hover {
+    color: $color-text-primary;
+  }
+}
+
+.bottomBarVersion {
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}
+
+// ── Main area: now full-width since the sidebar is gone ─────────────────────
+.projectsGrid {
+  // Responsive grid: 4 / 3 / 2 / 1 cols at descending widths.
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: $spacing-md;
+  width: 100%;
+
+  @media (max-width: 1400px) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  @media (max-width: 900px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  @media (max-width: 600px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.projectsCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 10px;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: rgba(var(--color-bg-panel-soft-rgb), 0.45);
+  color: $color-text-secondary;
+  font-size: 11px;
+  font-weight: $font-weight-medium;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .sidebar {
@@ -278,16 +549,14 @@
 
 .projectsTitle {
   margin: 0;
+  display: inline-flex;
+  align-items: center;
   color: $color-text-primary;
   font-size: $font-size-xl;
   font-weight: $font-weight-semibold;
 }
-
-.projectsGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: $spacing-lg;
-}
+// .projectsGrid lives near the top of the file with the new responsive
+// breakpoints (4 / 3 / 2 / 1). The old auto-fill version was removed.
 
 .projectsPagination {
   display: flex;

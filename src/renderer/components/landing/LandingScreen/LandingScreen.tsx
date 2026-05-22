@@ -11,10 +11,9 @@ import {
   ChevronRight as _ChevronRight,
   FolderOpen as _FolderOpen,
   Plus as _Plus,
-  Play as _Play,
   Settings as _Settings,
-  Sparkles as _Sparkles,
 } from 'lucide-react';
+import dheeLogoUrl from '../../../../../assets/icon.svg';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { safeJsonParse } from '../../../utils/safeJsonParse';
 import { useProject } from '../../../contexts/ProjectContext';
@@ -25,7 +24,6 @@ import NewProjectDialog from '../NewProjectDialog/NewProjectDialog';
 import ProjectCard from '../ProjectCard/ProjectCard';
 import DeleteProjectDialog from '../ProjectActionDialog/DeleteProjectDialog';
 import RenameProjectDialog from '../ProjectActionDialog/RenameProjectDialog';
-import RecentProjectsList from '../RecentProjectsList/RecentProjectsList';
 import { getProjectNameFromPath, sortRecentProjects } from '../projectDisplay';
 import styles from './LandingScreen.module.scss';
 import type { BackendProjectFile } from '../../../services/project/backendProjectAdapter';
@@ -45,9 +43,7 @@ const FolderOpen = _FolderOpen as unknown as LucideFC;
 const ChevronLeft = _ChevronLeft as unknown as LucideFC;
 const ChevronRight = _ChevronRight as unknown as LucideFC;
 const Plus = _Plus as unknown as LucideFC;
-const Play = _Play as unknown as LucideFC;
 const Settings = _Settings as unknown as LucideFC;
-const Sparkles = _Sparkles as unknown as LucideFC;
 
 const THUMBNAIL_CANDIDATES = [
   '.dhee/ui/thumbnail.jpg',
@@ -575,126 +571,114 @@ export default function LandingScreen() {
     account,
     styles,
   );
-  const heroSubtitle = getHeroSubtitle(account, authStatus);
 
   return (
     <div className={styles.container}>
-      <aside className={styles.sidebar}>
-        <div className={styles.brand}>
-          <div className={styles.brandIcon}>
-            <Play size={20} className={styles.playIcon} />
-          </div>
-          <h1 className={styles.brandTitle}>Dhee Desktop</h1>
+      <header className={styles.topBar}>
+        <div className={styles.topBarBrand}>
+          <img
+            src={dheeLogoUrl}
+            alt="Dhee"
+            className={styles.brandLogo}
+            draggable={false}
+          />
+          <h1 className={styles.brandTitle}>Dhee</h1>
+        </div>
+
+        <div className={styles.topBarStatus}>
           {ambientStatus ? (
-            <div className={`${styles.modeBadge} ${ambientStatus.className}`}>
-              <span className={styles.modeDot} />
+            <span
+              className={`${styles.statusPill} ${ambientStatus.className}`}
+              title={ambientStatus.label}
+            >
+              <span className={styles.statusDot} />
               {ambientStatus.label}
-            </div>
+            </span>
           ) : (
-            <div
-              className={styles.modeBadgeRow}
+            <span
+              className={styles.statusPill}
               title={`LLM: ${settings?.llmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'}`}
             >
               <span
-                className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.llm.className}`}
-              >
-                <span className={styles.modeDot} />
-                {laneBadges.llm.label}
-              </span>
+                className={`${styles.statusDot} ${laneBadges.llm.className}`}
+              />
+              <span className={styles.statusLaneLabel}>LLM</span>
+              <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.comfy.className}`}
-              >
-                <span className={styles.modeDot} />
-                {laneBadges.comfy.label}
-              </span>
+                className={`${styles.statusDot} ${laneBadges.comfy.className}`}
+              />
+              <span className={styles.statusLaneLabel}>Comfy</span>
+              <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.modeBadge} ${styles.modeBadgeLane} ${laneBadges.vlm.className}`}
-              >
-                <span className={styles.modeDot} />
-                {laneBadges.vlm.label}
-              </span>
-            </div>
+                className={`${styles.statusDot} ${laneBadges.vlm.className}`}
+              />
+              <span className={styles.statusLaneLabel}>VLM</span>
+            </span>
           )}
         </div>
 
-        <div className={styles.sidebarSection}>
-          <p className={styles.sectionLabel}>Quick Actions</p>
+        <div className={styles.topBarActions}>
           <button
             type="button"
-            className={styles.newProjectButton}
+            className={styles.topBarPrimary}
             onClick={handleCreateNewProject}
           >
-            <Plus size={16} />
-            New Project
+            <Plus size={14} />
+            <span className={styles.topBarActionLabel}>New Project</span>
           </button>
           <button
             type="button"
-            className={styles.openWorkspaceButton}
+            className={styles.topBarSecondary}
             onClick={handleOpenDirectory}
             disabled={isLoading || isProjectLoading}
           >
-            <FolderOpen size={16} />
-            {isLoading ? 'Opening...' : 'Open Workspace'}
+            <FolderOpen size={14} />
+            <span className={styles.topBarActionLabel}>
+              {isLoading ? 'Opening…' : 'Open'}
+            </span>
           </button>
-        </div>
-
-        <div className={styles.sidebarSection}>
-          <p className={styles.sectionLabel}>Recent Projects</p>
-          <RecentProjectsList
-            projects={recentProjects}
-            onSelect={handleSelectRecent}
-          />
-        </div>
-
-        <div className={styles.sidebarFooter}>
           <button
             type="button"
-            className={`${styles.settingsAction} ${activeView === 'settings' ? styles.footerActionActive : ''}`}
+            className={`${styles.topBarIconButton} ${activeView === 'settings' ? styles.topBarIconActive : ''}`}
             onClick={() => {
               clearError();
-              setActiveView('settings');
+              setActiveView(activeView === 'settings' ? 'projects' : 'settings');
             }}
             aria-pressed={activeView === 'settings'}
+            aria-label="Settings"
+            title="Settings"
           >
             <Settings size={16} />
-            <span>Settings</span>
           </button>
-          <div className={styles.footerMetaRow}>
-            <button type="button" className={styles.footerLink}>
-              Help
+          {!account ? (
+            <button
+              type="button"
+              className={styles.topBarCta}
+              onClick={handleAccountSignIn}
+            >
+              {authStatus === 'waiting' ? 'Open Browser Again' : 'Sign In'}
             </button>
-            <span className={styles.footerVersionTag}>{appVersion}</span>
-          </div>
+          ) : null}
         </div>
-      </aside>
+      </header>
 
       <main
         className={`${styles.main} ${themeId === 'paper-light' ? styles.mainLight : ''} ${activeView === 'settings' ? styles.mainSettings : ''}`}
       >
         {activeView === 'projects' ? (
           <>
-            <section className={styles.hero}>
-              <Sparkles size={16} />
-              <div>
-                <h2 className={styles.heroTitle}>Agentic Video Workspace</h2>
-                <p className={styles.heroSubtitle}>{heroSubtitle}</p>
-              </div>
-              {!account ? (
-                <button
-                  type="button"
-                  className={styles.heroAccountButton}
-                  onClick={handleAccountSignIn}
-                >
-                  {authStatus === 'waiting' ? 'Open Browser Again' : 'Sign In'}
-                </button>
-              ) : null}
-            </section>
-
             {error && <p className={styles.error}>{error}</p>}
 
             <section className={styles.projectsSection}>
               <div className={styles.projectsHeader}>
-                <h3 className={styles.projectsTitle}>Projects</h3>
+                <h2 className={styles.projectsTitle}>
+                  Projects
+                  {projectCards.length > 0 ? (
+                    <span className={styles.projectsCount}>
+                      {projectCards.length}
+                    </span>
+                  ) : null}
+                </h2>
               </div>
 
               {projectCards.length === 0 ? (
@@ -810,6 +794,14 @@ export default function LandingScreen() {
           </section>
         )}
       </main>
+
+      <footer className={styles.bottomBar}>
+        <button type="button" className={styles.bottomBarLink}>
+          Help
+        </button>
+        <span className={styles.bottomBarVersion}>{appVersion}</span>
+      </footer>
+
       <NewProjectDialog
         isOpen={isNewProjectDialogOpen}
         onClose={() => setIsNewProjectDialogOpen(false)}
