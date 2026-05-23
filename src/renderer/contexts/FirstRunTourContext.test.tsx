@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import {
   FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
   FirstRunTourProvider,
+  getCoachmarkStyle,
   useFirstRunTour,
   type FirstRunTourLandingAction,
 } from './FirstRunTourContext';
@@ -16,6 +17,8 @@ const mockComplete =
 const mockGetState = jest.fn<() => Promise<OnboardingState>>();
 const mockSignIn = jest.fn<() => Promise<{ opened: boolean }>>();
 const originalNodeEnv = process.env.NODE_ENV;
+const originalInnerWidth = window.innerWidth;
+const originalInnerHeight = window.innerHeight;
 
 let mockRecentProjects: Array<{
   path: string;
@@ -40,6 +43,7 @@ function Harness() {
       <div data-tour-id="landing-provider-status">Provider status</div>
       <input data-tour-id="settings-comfy-url" aria-label="ComfyUI URL" />
       <div data-tour-id="settings-llm-provider">LLM provider</div>
+      <input data-tour-id="settings-llm-base-url" aria-label="LLM base URL" />
       <input data-tour-id="settings-llm-api-key" aria-label="LLM API key" />
       <input data-tour-id="settings-llm-model" aria-label="LLM model" />
       <button type="button" data-tour-id="settings-provider-test">
@@ -128,6 +132,17 @@ function renderTour() {
   );
 }
 
+function setViewport(width: number, height: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    value: width,
+  });
+  Object.defineProperty(window, 'innerHeight', {
+    configurable: true,
+    value: height,
+  });
+}
+
 async function clickNextToHeading(heading: string) {
   fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
   expect(await screen.findByText(heading)).not.toBeNull();
@@ -139,8 +154,9 @@ async function advanceThroughSetupWalkthrough() {
   );
   expect(await screen.findByText('Local ComfyUI lives here')).not.toBeNull();
   await clickNextToHeading('Choose the local LLM provider');
-  await clickNextToHeading('API keys go in the provider section');
-  await clickNextToHeading('Model IDs are configured beside the key');
+  await clickNextToHeading('Base URL comes before the model');
+  await clickNextToHeading('Model IDs come before the key');
+  await clickNextToHeading('API keys go after the model');
   await clickNextToHeading('Test providers when ready');
   await clickNextToHeading('Save connection changes');
   await clickNextToHeading('Cloud sign-in starts here');
@@ -158,6 +174,7 @@ describe('FirstRunTourProvider', () => {
     mockSignIn.mockReset();
     process.env.NODE_ENV = originalNodeEnv;
     delete process.env.dhee_FIRST_RUN_TOUR_DEV_MODE;
+    setViewport(originalInnerWidth, originalInnerHeight);
 
     mockGetState.mockResolvedValue({
       guideVersion: 3,
@@ -278,6 +295,25 @@ describe('FirstRunTourProvider', () => {
     expect(screen.getByText('Click New Project to continue.')).not.toBeNull();
   });
 
+  it('can right-align coachmarks inside wide settings rows', () => {
+    setViewport(1986, 1124);
+
+    expect(
+      getCoachmarkStyle({ left: 320, top: 548, width: 1600, height: 50 }),
+    ).toEqual({ left: 1560, top: 548 });
+  });
+
+  it('can place coachmarks below wide prompt inputs', () => {
+    setViewport(1468, 1136);
+
+    expect(
+      getCoachmarkStyle(
+        { left: 36, top: 192, width: 1396, height: 355 },
+        'below-or-above-target',
+      ),
+    ).toEqual({ left: 1072, top: 561 });
+  });
+
   it('does not launch Cloud sign-in until the optional Cloud step action is clicked', async () => {
     renderTour();
 
@@ -286,8 +322,9 @@ describe('FirstRunTourProvider', () => {
     );
     expect(await screen.findByText('Local ComfyUI lives here')).not.toBeNull();
     await clickNextToHeading('Choose the local LLM provider');
-    await clickNextToHeading('API keys go in the provider section');
-    await clickNextToHeading('Model IDs are configured beside the key');
+    await clickNextToHeading('Base URL comes before the model');
+    await clickNextToHeading('Model IDs come before the key');
+    await clickNextToHeading('API keys go after the model');
     await clickNextToHeading('Test providers when ready');
     await clickNextToHeading('Save connection changes');
     await clickNextToHeading('Cloud sign-in starts here');

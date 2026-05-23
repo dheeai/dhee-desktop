@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-jest.mock('react', () => jest.requireActual('react'));
 import SettingsPanel from './SettingsPanel';
+
+jest.mock('react', () => jest.requireActual('react'));
 
 const baseSettings = {
   backendMode: 'local' as const,
@@ -180,6 +181,30 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('Comfy Cloud API Key')).toBeInTheDocument();
     // "OpenAI-Compatible" appears in both LLM and VLM provider toggles.
     expect(screen.getAllByText('OpenAI-Compatible').length).toBeGreaterThan(0);
+  });
+
+  it('orders Gemini model before API key in provider settings', async () => {
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={{ ...baseSettings, llmProvider: 'gemini' }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    const modelLabel = screen.getByText('Gemini Model ID');
+    const apiKeyLabel = screen.getByText('Google API Key');
+
+    expect(modelLabel.compareDocumentPosition(apiKeyLabel)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it('opens directly to the requested initial tab', async () => {

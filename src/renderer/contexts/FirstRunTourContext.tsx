@@ -58,8 +58,9 @@ type TourStepId =
   | 'landing-provider-choice'
   | 'settings-local-comfy'
   | 'settings-local-llm-provider'
-  | 'settings-local-llm-key'
+  | 'settings-local-llm-base-url'
   | 'settings-local-llm-model'
+  | 'settings-local-llm-key'
   | 'settings-local-test'
   | 'settings-local-save'
   | 'settings-cloud-signin'
@@ -85,6 +86,8 @@ interface TourStep {
   actionHint?: string;
   requiresAction?: boolean;
   actionKind?: 'tour-start' | 'cloud-sign-in' | 'project-location';
+  lockTargetRect?: boolean;
+  coachmarkPlacement?: 'auto' | 'below-or-above-target';
 }
 
 interface TargetRect {
@@ -92,6 +95,7 @@ interface TargetRect {
   top: number;
   width: number;
   height: number;
+  targetId?: string;
 }
 
 const FirstRunTourContext = createContext<FirstRunTourContextValue | null>(
@@ -131,20 +135,28 @@ const TOUR_STEPS: TourStep[] = [
     actionHint: 'You can leave the current choice unchanged.',
   },
   {
-    id: 'settings-local-llm-key',
-    targetId: 'settings-llm-api-key',
+    id: 'settings-local-llm-base-url',
+    targetId: 'settings-llm-base-url',
     fallbackTargetIds: ['settings-llm-provider'],
-    title: 'API keys go in the provider section',
-    body: 'This is where a Gemini or OpenAI-compatible key goes when you want to run locally.',
-    actionHint: 'No key is required to continue the guide.',
+    title: 'Base URL comes before the model',
+    body: 'This is where an OpenAI-compatible endpoint is configured. The default OpenAI URL is fine unless you use a local or third-party gateway.',
+    actionHint: 'You can leave the default value unchanged.',
   },
   {
     id: 'settings-local-llm-model',
     targetId: 'settings-llm-model',
     fallbackTargetIds: ['settings-llm-provider'],
-    title: 'Model IDs are configured beside the key',
+    title: 'Model IDs come before the key',
     body: 'This is where the model ID is configured for local creative work. You can come back and tune it later.',
     actionHint: 'The current value is fine for this walkthrough.',
+  },
+  {
+    id: 'settings-local-llm-key',
+    targetId: 'settings-llm-api-key',
+    fallbackTargetIds: ['settings-llm-provider'],
+    title: 'API keys go after the model',
+    body: 'This is where a Gemini or OpenAI-compatible key goes when you want to run locally.',
+    actionHint: 'No key is required to continue the guide.',
   },
   {
     id: 'settings-local-test',
@@ -246,6 +258,8 @@ const TOUR_STEPS: TourStep[] = [
     actionHint:
       'Write as much as you need. Next appears when the prompt has text.',
     requiresAction: true,
+    lockTargetRect: true,
+    coachmarkPlacement: 'below-or-above-target',
   },
   {
     id: 'setup-submit',
@@ -263,6 +277,8 @@ const TOUR_STEPS: TourStep[] = [
     body: 'If the setup wizard is not shown, type the first request here. You can ask for a storyboard, a video concept, or a specific edit.',
     actionHint: 'Type a prompt and press Enter or Send.',
     requiresAction: true,
+    lockTargetRect: true,
+    coachmarkPlacement: 'below-or-above-target',
   },
   {
     id: 'workspace-preview',
@@ -301,21 +317,27 @@ function requestLandingAction(detail: FirstRunTourLandingAction) {
   );
 }
 
-function getTargetElement(step: TourStep): HTMLElement | null {
+function getTargetElement(
+  step: TourStep,
+): { element: HTMLElement; targetId: string } | null {
   const targetIds = [step.targetId, ...(step.fallbackTargetIds || [])].filter(
     Boolean,
   ) as string[];
-  let found: HTMLElement | null = null;
+  let found: { element: HTMLElement; targetId: string } | null = null;
   targetIds.some((targetId) => {
-    found = document.querySelector<HTMLElement>(`[data-tour-id="${targetId}"]`);
+    const element = document.querySelector<HTMLElement>(
+      `[data-tour-id="${targetId}"]`,
+    );
+    found = element ? { element, targetId } : null;
     return found !== null;
   });
   return found;
 }
 
 function readTargetRect(step: TourStep): TargetRect | null {
-  const element = getTargetElement(step);
-  if (!element) return null;
+  const target = getTargetElement(step);
+  if (!target) return null;
+  const { element, targetId } = target;
   let rect = element.getBoundingClientRect();
   if (
     rect.top < 0 ||
@@ -332,6 +354,7 @@ function readTargetRect(step: TourStep): TargetRect | null {
     top: Math.max(8, rect.top - padding),
     width: rect.width + padding * 2,
     height: rect.height + padding * 2,
+    targetId,
   };
 }
 
@@ -339,7 +362,10 @@ function clamp(value: number, min: number, max: number) {
   return Math.max(min, Math.min(value, max));
 }
 
-function getCoachmarkStyle(rect: TargetRect | null): CSSProperties {
+export function getCoachmarkStyle(
+  rect: TargetRect | null,
+  placement: TourStep['coachmarkPlacement'] = 'auto',
+): CSSProperties {
   const width = Math.min(360, window.innerWidth - 32);
   if (!rect) {
     return {
@@ -349,11 +375,30 @@ function getCoachmarkStyle(rect: TargetRect | null): CSSProperties {
   }
 
   const gap = 14;
+  const maxLeft = Math.max(16, window.innerWidth - width - 16);
   const rightSpace = window.innerWidth - rect.left - rect.width;
-  let left = clamp(rect.left, 16, window.innerWidth - width - 16);
+  const leftSpace = rect.left;
+  let left = clamp(rect.left, 16, maxLeft);
+  if (placement === 'below-or-above-target') {
+    const estimatedHeight = 260;
+    const belowTop = rect.top + rect.height + gap;
+    const aboveTop = rect.top - estimatedHeight - gap;
+    const top =
+      belowTop <= window.innerHeight - 80
+        ? belowTop
+        : clamp(aboveTop, 16, window.innerHeight - estimatedHeight - 16);
+
+    return {
+      left: clamp(rect.left + rect.width - width, 16, maxLeft),
+      top,
+    };
+  }
+
   if (rightSpace >= width + gap) {
     left = rect.left + rect.width + gap;
-  } else if (rect.left >= width + gap) {
+  } else if (rect.width >= width) {
+    left = clamp(rect.left + rect.width - width, 16, maxLeft);
+  } else if (leftSpace >= width + gap) {
     left = rect.left - width - gap;
   }
   const top = clamp(rect.top, 16, window.innerHeight - 260);
@@ -601,27 +646,45 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
     }
 
     let scheduledUpdate: number | null = null;
-    const update = () => {
-      setTargetRect(readTargetRect(activeStep));
+    let lockedRect: TargetRect | null = null;
+    const update = (force = false) => {
+      if (activeStep.lockTargetRect && lockedRect && !force) {
+        setTargetRect(lockedRect);
+        return;
+      }
+
+      const nextRect = readTargetRect(activeStep);
+      if (activeStep.lockTargetRect && !force) {
+        if (nextRect?.targetId === activeStep.targetId) {
+          lockedRect = nextRect;
+        }
+        setTargetRect(lockedRect || nextRect);
+        return;
+      }
+
+      lockedRect = nextRect?.targetId === activeStep.targetId ? nextRect : null;
+      setTargetRect(nextRect);
     };
-    const schedule = () => {
+    const schedule = (force = false) => {
       if (scheduledUpdate) {
         window.clearTimeout(scheduledUpdate);
       }
-      scheduledUpdate = window.setTimeout(update, 0);
+      scheduledUpdate = window.setTimeout(() => update(force), 0);
     };
+    const scheduleResize = () => schedule(true);
+    const scheduleScroll = () => schedule(false);
 
     update();
     const interval = window.setInterval(update, 250);
-    window.addEventListener('resize', schedule);
-    window.addEventListener('scroll', schedule, true);
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('scroll', scheduleScroll, true);
     return () => {
       if (scheduledUpdate) {
         window.clearTimeout(scheduledUpdate);
       }
       window.clearInterval(interval);
-      window.removeEventListener('resize', schedule);
-      window.removeEventListener('scroll', schedule, true);
+      window.removeEventListener('resize', scheduleResize);
+      window.removeEventListener('scroll', scheduleScroll, true);
     };
   }, [activeStep]);
 
@@ -650,6 +713,7 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       if (
         currentStep?.id === 'settings-local-comfy' ||
         currentStep?.id === 'settings-local-llm-provider' ||
+        currentStep?.id === 'settings-local-llm-base-url' ||
         currentStep?.id === 'settings-local-llm-key' ||
         currentStep?.id === 'settings-local-llm-model' ||
         currentStep?.id === 'settings-local-test' ||
@@ -760,7 +824,7 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
           ) : null}
           <section
             className={styles.coachmark}
-            style={getCoachmarkStyle(targetRect)}
+            style={getCoachmarkStyle(targetRect, activeStep.coachmarkPlacement)}
             role="dialog"
             aria-label="First-run walkthrough"
           >

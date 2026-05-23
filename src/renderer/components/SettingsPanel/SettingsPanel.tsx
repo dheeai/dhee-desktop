@@ -473,19 +473,6 @@ export default function SettingsPanel({
         {cfg.provider === 'gemini' && (
           <>
             <label className={styles.label}>
-              Google API Key
-              <input
-                type="password"
-                className={styles.input}
-                value={cfg.googleApiKey}
-                disabled={isLlmCloudMode}
-                onChange={(event) =>
-                  handleTierInput(tier, 'googleApiKey', event.target.value)
-                }
-                placeholder="AIza..."
-              />
-            </label>
-            <label className={styles.label}>
               Gemini Model ID
               <input
                 type="text"
@@ -496,6 +483,19 @@ export default function SettingsPanel({
                   handleTierInput(tier, 'geminiModel', event.target.value)
                 }
                 placeholder="gemini-2.5-flash"
+              />
+            </label>
+            <label className={styles.label}>
+              Google API Key
+              <input
+                type="password"
+                className={styles.input}
+                value={cfg.googleApiKey}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'googleApiKey', event.target.value)
+                }
+                placeholder="AIza..."
               />
             </label>
           </>
@@ -1048,20 +1048,6 @@ export default function SettingsPanel({
                       {form.llmProvider === 'gemini' && (
                         <>
                           <label className={styles.label}>
-                            Google API Key
-                            <input
-                              type="password"
-                              className={styles.input}
-                              value={form.googleApiKey}
-                              onChange={(event) =>
-                                handleInput('googleApiKey', event.target.value)
-                              }
-                              placeholder="AIza..."
-                              data-tour-id="settings-llm-api-key"
-                            />
-                          </label>
-
-                          <label className={styles.label}>
                             Gemini Model ID
                             <input
                               type="text"
@@ -1072,6 +1058,20 @@ export default function SettingsPanel({
                               }
                               placeholder="gemini-2.5-flash"
                               data-tour-id="settings-llm-model"
+                            />
+                          </label>
+
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.googleApiKey}
+                              onChange={(event) =>
+                                handleInput('googleApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
+                              data-tour-id="settings-llm-api-key"
                             />
                           </label>
                         </>
@@ -1104,6 +1104,7 @@ export default function SettingsPanel({
                               }
                               placeholder="https://api.openai.com/v1"
                               aria-label="Base URL"
+                              data-tour-id="settings-llm-base-url"
                             />
                           </div>
 
@@ -1252,18 +1253,6 @@ export default function SettingsPanel({
                       {form.vlmProvider === 'gemini' ? (
                         <>
                           <label className={styles.label}>
-                            Google API Key
-                            <input
-                              type="password"
-                              className={styles.input}
-                              value={form.vlmApiKey}
-                              onChange={(event) =>
-                                handleInput('vlmApiKey', event.target.value)
-                              }
-                              placeholder="AIza..."
-                            />
-                          </label>
-                          <label className={styles.label}>
                             Gemini Vision Model ID
                             <input
                               type="text"
@@ -1273,6 +1262,18 @@ export default function SettingsPanel({
                                 handleInput('vlmModel', event.target.value)
                               }
                               placeholder="gemini-2.5-pro"
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.vlmApiKey}
+                              onChange={(event) =>
+                                handleInput('vlmApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
                             />
                           </label>
                         </>

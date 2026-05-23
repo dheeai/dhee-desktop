@@ -13,6 +13,71 @@ async function clickNextToTourHeading(page: Page, name: RegExp) {
   await expectTourHeading(page, name);
 }
 
+async function expectCoachmarkRightAligned(page: Page, targetId: string) {
+  await expect
+    .poll(async () => {
+      const placement = await page.evaluate((tourId) => {
+        const dialog = document
+          .querySelector<HTMLElement>('[role="dialog"]')
+          ?.getBoundingClientRect();
+        const target = document
+          .querySelector<HTMLElement>(`[data-tour-id="${tourId}"]`)
+          ?.getBoundingClientRect();
+
+        if (!dialog || !target) return 'missing';
+
+        const targetMidpoint = target.left + target.width / 2;
+        if (dialog.left <= targetMidpoint) return 'left-of-target';
+        if (dialog.right > window.innerWidth - 15) return 'overflowing';
+        return 'right-aligned';
+      }, targetId);
+
+      return placement;
+    })
+    .toBe('right-aligned');
+}
+
+async function readCoachmarkPosition(page: Page) {
+  return page.evaluate(() => {
+    const dialog = document
+      .querySelector<HTMLElement>('[role="dialog"]')
+      ?.getBoundingClientRect();
+
+    if (!dialog) return null;
+    return { left: Math.round(dialog.left), top: Math.round(dialog.top) };
+  });
+}
+
+async function readCoachmarkAndTargetPosition(page: Page, targetId: string) {
+  return page.evaluate((tourId) => {
+    const dialog = document
+      .querySelector<HTMLElement>('[role="dialog"]')
+      ?.getBoundingClientRect();
+    const target = document
+      .querySelector<HTMLElement>(`[data-tour-id="${tourId}"]`)
+      ?.getBoundingClientRect();
+
+    if (!dialog || !target) return null;
+
+    return {
+      dialogTop: Math.round(dialog.top),
+      targetBottom: Math.round(target.bottom),
+    };
+  }, targetId);
+}
+
+async function expectCoachmarkBelowTarget(page: Page, targetId: string) {
+  await expect
+    .poll(async () => {
+      const placement = await readCoachmarkAndTargetPosition(page, targetId);
+      if (!placement) return 'missing';
+      return placement.dialogTop >= placement.targetBottom
+        ? 'below-target'
+        : 'overlapping-target';
+    })
+    .toBe('below-target');
+}
+
 async function startLinearWalkthrough(page: Page) {
   await page.getByRole('button', { name: /^Start walkthrough$/i }).click();
   await expectTourHeading(page, /Local ComfyUI lives here/i);
@@ -21,11 +86,9 @@ async function startLinearWalkthrough(page: Page) {
 async function advanceToProjectCreation(page: Page) {
   await startLinearWalkthrough(page);
   await clickNextToTourHeading(page, /Choose the local LLM provider/i);
-  await clickNextToTourHeading(page, /API keys go in the provider section/i);
-  await clickNextToTourHeading(
-    page,
-    /Model IDs are configured beside the key/i,
-  );
+  await clickNextToTourHeading(page, /Base URL comes before the model/i);
+  await clickNextToTourHeading(page, /Model IDs come before the key/i);
+  await clickNextToTourHeading(page, /API keys go after the model/i);
   await clickNextToTourHeading(page, /Test providers when ready/i);
   await clickNextToTourHeading(page, /Save connection changes/i);
   await clickNextToTourHeading(page, /Cloud sign-in starts here/i);
@@ -126,6 +189,7 @@ test.describe('Feature: Landing screen, empty state', () => {
       await expect(
         page.getByRole('heading', { name: /Local ComfyUI lives here/i }),
       ).toBeVisible();
+      await expectCoachmarkRightAligned(page, 'settings-comfy-url');
       await page.getByRole('button', { name: /^Next$/i }).click();
       await expect(
         page.getByRole('heading', { name: /Choose the local LLM provider/i }),
@@ -140,14 +204,9 @@ test.describe('Feature: Landing screen, empty state', () => {
 
       await startLinearWalkthrough(page);
       await clickNextToTourHeading(page, /Choose the local LLM provider/i);
-      await clickNextToTourHeading(
-        page,
-        /API keys go in the provider section/i,
-      );
-      await clickNextToTourHeading(
-        page,
-        /Model IDs are configured beside the key/i,
-      );
+      await clickNextToTourHeading(page, /Base URL comes before the model/i);
+      await clickNextToTourHeading(page, /Model IDs come before the key/i);
+      await clickNextToTourHeading(page, /API keys go after the model/i);
       await clickNextToTourHeading(page, /Test providers when ready/i);
       await clickNextToTourHeading(page, /Save connection changes/i);
       await clickNextToTourHeading(page, /Cloud sign-in starts here/i);
@@ -170,6 +229,7 @@ test.describe('Feature: Landing screen, empty state', () => {
         page,
         /Cloud mode toggles live in Connection/i,
       );
+      await expectCoachmarkRightAligned(page, 'settings-cloud-toggles');
       await clickNextToTourHeading(page, /Create your first project/i);
     });
 
@@ -252,9 +312,16 @@ test.describe('Feature: Landing screen, empty state', () => {
       await expect(
         page.getByRole('heading', { name: /Enter the first prompt/i }),
       ).toBeVisible();
+      await expectCoachmarkBelowTarget(page, 'setup-story-input');
+      const promptCoachmarkPosition = await readCoachmarkPosition(page);
+      expect(promptCoachmarkPosition).not.toBeNull();
       await page
         .getByLabel(/Project story or idea/i)
         .fill('A concise product launch video with cinematic lighting.');
+      await expect(page.getByRole('button', { name: /^Next$/i })).toBeVisible();
+      await expect
+        .poll(() => readCoachmarkPosition(page))
+        .toEqual(promptCoachmarkPosition);
       await page.getByRole('button', { name: /^Next$/i }).click();
       await expect(
         page.getByRole('heading', { name: /Send the setup prompt/i }),
