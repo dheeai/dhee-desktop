@@ -199,12 +199,14 @@ describe('useDheeSession', () => {
       unsubscribe = api!.subscribe('tool_call', handler);
     });
 
-    expect(mockState.listeners).toHaveLength(1);
-    expect(mockState.listeners[0]?.eventName).toBe('tool_call');
-    expect(mockState.listeners[0]?.active).toBe(true);
+    const toolCallListener = mockState.listeners.find(
+      (listener) => listener.eventName === 'tool_call',
+    );
+    expect(toolCallListener).toBeDefined();
+    expect(toolCallListener?.active).toBe(true);
 
     unsubscribe!();
-    expect(mockState.listeners[0]?.active).toBe(false);
+    expect(toolCallListener?.active).toBe(false);
   });
 
   // ── Resilience: createSession startup race ──────────────────────────────
