@@ -104,7 +104,15 @@ export type dheeEventName =
   | 'timeline_update'
   | 'notification'
   | 'project_focused'
-  | 'media_generated';
+  | 'media_generated'
+  /**
+   * Session lifecycle transition. Emitted on every change of
+   * session.state.status — payload `{ status, turnKind? }`. The
+   * renderer subscribes to render a "thinking…" or "Supervisor
+   * reviewing…" pill so the chat is never frozen with no visible
+   * explanation during a server-initiated supervisor turn.
+   */
+  | 'session_status';
 
 /** Payload published on `dhee_EVENT_CHANNEL`. */
 export interface dheeEvent {

@@ -10,7 +10,7 @@ export interface LandingProjectCard {
   description?: string | null;
   thumbnailPath?: string | null;
   sceneCount?: number | null;
-  characterCount?: number | null;
+  shotCount?: number | null;
 }
 
 interface ProjectCardProps {
@@ -41,15 +41,13 @@ export default function ProjectCard({
         `${project.sceneCount} ${project.sceneCount === 1 ? 'scene' : 'scenes'}`,
       );
     }
-    if (typeof project.characterCount === 'number') {
+    if (typeof project.shotCount === 'number') {
       values.push(
-        `${project.characterCount} ${
-          project.characterCount === 1 ? 'character' : 'characters'
-        }`,
+        `${project.shotCount} ${project.shotCount === 1 ? 'shot' : 'shots'}`,
       );
     }
     return values.join(' · ');
-  }, [project.characterCount, project.sceneCount]);
+  }, [project.sceneCount, project.shotCount]);
 
   return (
     <div className={styles.card} title={project.path}>

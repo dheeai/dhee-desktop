@@ -314,6 +314,8 @@ describe('FirstRunTourProvider', () => {
     fireEvent.change(screen.getByLabelText('Project name'), {
       target: { value: 'Demo' },
     });
+    expect(await screen.findByRole('button', { name: 'Next' })).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
 
     expect(
       await screen.findByText('Confirm the project location'),
@@ -375,6 +377,7 @@ describe('FirstRunTourProvider', () => {
     fireEvent.change(screen.getByLabelText('Project name'), {
       target: { value: 'Demo' },
     });
+    fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
     fireEvent.click(
       await screen.findByRole('button', { name: 'Use this location' }),
     );
@@ -394,6 +397,7 @@ describe('FirstRunTourProvider', () => {
       target: { value: 'A product launch video' },
     });
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Next' }));
     expect(await screen.findByText('Send the setup prompt')).not.toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Continue setup' }));
 

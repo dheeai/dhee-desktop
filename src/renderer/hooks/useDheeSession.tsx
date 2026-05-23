@@ -463,6 +463,43 @@ function useCreateKshanaSession(): DheeSessionApi {
     [],
   );
 
+  // Reflect SERVER-side session status transitions in local UI state.
+  // Without this, `status` was set only optimistically when the user
+  // typed (useDheeSession.tsx:369) — server-initiated turns (the
+  // supervisor pi-agent that auto-engages on runner `completed`)
+  // never flipped the local status to 'running', so the chat header
+  // stayed on "Ready" / "Resume" while the agent was actually busy
+  // working on the user's behalf (the 2026-05-22 missing-Stop-button
+  // bug).
+  //
+  // Mapping: server 'running' → 'running'; server 'completed' /
+  // 'awaiting_input' / 'idle' → 'idle'; server 'error' → 'error'.
+  // Ignore events for other sessionIds (multi-window safety).
+  useEffect(() => {
+    if (!sessionId) return undefined;
+    const unsubscribe = window.dhee.on(
+      'session_status',
+      (event) => {
+        if (event.sessionId !== sessionId) return;
+        const data = event.data as { status?: string } | null;
+        const serverStatus = data?.status;
+        if (!serverStatus) return;
+        if (serverStatus === 'running') {
+          setStatus('running');
+        } else if (serverStatus === 'error') {
+          setStatus('error');
+        } else if (
+          serverStatus === 'completed' ||
+          serverStatus === 'awaiting_input' ||
+          serverStatus === 'idle'
+        ) {
+          setStatus('idle');
+        }
+      },
+    );
+    return unsubscribe;
+  }, [sessionId]);
+
   return {
     sessionId,
     status,

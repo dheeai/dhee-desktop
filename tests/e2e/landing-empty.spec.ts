@@ -63,9 +63,7 @@ test.describe('Feature: Landing screen, empty state', () => {
       await expect(
         page.getByRole('button', { name: /New Project/i }).first(),
       ).toBeVisible();
-      await expect(
-        page.getByRole('button', { name: /Open Workspace/i }),
-      ).toBeVisible();
+      await expect(page.getByRole('button', { name: /^Open$/i })).toBeVisible();
     });
 
     test('When the user skips the walkthrough, Then the regular empty state appears and skip persists', async ({
@@ -77,9 +75,7 @@ test.describe('Feature: Landing screen, empty state', () => {
       await page.getByRole('button', { name: /^Skip$/i }).click();
 
       await expect(
-        page.getByText(
-          /No projects yet\. Create your first project to get started\./i,
-        ),
+        page.getByRole('heading', { name: /Start your first project/i }),
       ).toBeVisible();
 
       const calls = await page.evaluate(() =>
@@ -209,12 +205,16 @@ test.describe('Feature: Landing screen, empty state', () => {
       });
 
       await advanceToProjectCreation(page);
-      await page.getByRole('button', { name: /^New Project$/i }).click();
+      await page
+        .getByRole('button', { name: /^New Project$/i })
+        .first()
+        .click();
       await expect(
         page.getByRole('heading', { name: /Name the project/i }),
       ).toBeVisible();
 
       await page.getByLabel(/Project name/i).fill('Walkthrough Test');
+      await page.getByRole('button', { name: /^Next$/i }).click();
       await expect(
         page.getByRole('heading', { name: /Confirm the project location/i }),
       ).toBeVisible();
@@ -255,6 +255,7 @@ test.describe('Feature: Landing screen, empty state', () => {
       await page
         .getByLabel(/Project story or idea/i)
         .fill('A concise product launch video with cinematic lighting.');
+      await page.getByRole('button', { name: /^Next$/i }).click();
       await expect(
         page.getByRole('heading', { name: /Send the setup prompt/i }),
       ).toBeVisible();

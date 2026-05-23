@@ -92,6 +92,7 @@ describe('LandingScreen', () => {
   const mockRenameProject =
     jest.fn<(projectPath: string, newName: string) => Promise<string>>();
   const mockDeleteProject = jest.fn<(projectPath: string) => Promise<void>>();
+  const mockRemoveRecent = jest.fn<(projectPath: string) => Promise<void>>();
   const mockGetVersion = jest.fn<() => Promise<string>>();
 
   beforeEach(() => {
@@ -107,6 +108,7 @@ describe('LandingScreen', () => {
     mockCheckFileExists.mockReset();
     mockRenameProject.mockReset();
     mockDeleteProject.mockReset();
+    mockRemoveRecent.mockReset();
     mockGetVersion.mockReset();
     mockProjectLoading = false;
     mockRecentProjectsLoaded = true;
@@ -129,6 +131,7 @@ describe('LandingScreen', () => {
     mockCheckFileExists.mockResolvedValue(false);
     mockRenameProject.mockResolvedValue('/projects/demo-renamed');
     mockDeleteProject.mockResolvedValue(undefined);
+    mockRemoveRecent.mockResolvedValue(undefined);
     mockRefreshRecentProjects.mockResolvedValue(undefined);
     mockGetVersion.mockResolvedValue('1.0.0');
 
@@ -140,6 +143,7 @@ describe('LandingScreen', () => {
           checkFileExists: mockCheckFileExists,
           renameProject: mockRenameProject,
           deleteProject: mockDeleteProject,
+          removeRecent: mockRemoveRecent,
           selectDirectory: jest.fn(),
         },
         app: {
@@ -154,16 +158,14 @@ describe('LandingScreen', () => {
 
     render(<LandingScreen />);
 
-    expect(await screen.findByText('Dhee Desktop')).not.toBeNull();
+    expect(await screen.findByText('Dhee Studio')).not.toBeNull();
     expect(
       screen
-        .getByRole('button', { name: 'New Project' })
+        .getAllByRole('button', { name: 'New Project' })[0]
         .getAttribute('data-tour-id'),
     ).toBe('landing-new-project');
     expect(
-      screen
-        .getByRole('button', { name: 'Open Workspace' })
-        .getAttribute('data-tour-id'),
+      screen.getByRole('button', { name: 'Open' }).getAttribute('data-tour-id'),
     ).toBe('landing-open-workspace');
     expect(screen.getByTitle(/LLM:/).getAttribute('data-tour-id')).toBe(
       'landing-provider-status',
@@ -181,7 +183,7 @@ describe('LandingScreen', () => {
     mockRecentProjects = [];
 
     render(<LandingScreen />);
-    expect(await screen.findByText('Dhee Desktop')).not.toBeNull();
+    expect(await screen.findByText('Dhee Studio')).not.toBeNull();
 
     act(() => {
       window.dispatchEvent(
@@ -208,11 +210,7 @@ describe('LandingScreen', () => {
     mockRecentProjects = [];
 
     render(<LandingScreen />);
-    expect(
-      await screen.findByText(
-        'No projects yet. Create your first project to get started.',
-      ),
-    ).not.toBeNull();
+    expect(await screen.findByText('Start your first project')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Help' }));
     expect(mockStartTour).toHaveBeenCalledWith({ source: 'help' });
@@ -259,87 +257,44 @@ describe('LandingScreen', () => {
     expect(screen.queryByText('Stale Manifest Title')).toBeNull();
   });
 
-  it('opens the delete dialog from the project card and submits delete', async () => {
+  it('opens the remove dialog from the project card and soft-removes the project (no folder deletion)', async () => {
     render(<LandingScreen />);
 
     fireEvent.click(await screen.findByRole('button', { name: 'Delete demo' }));
     expect(
-      screen.getByRole('dialog', { name: 'Delete project' }),
+      screen.getByRole('dialog', { name: 'Remove project from workspace' }),
     ).not.toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Delete Project' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Remove from Workspace' }),
+    );
 
     await waitFor(() => {
-      expect(mockDeleteProject).toHaveBeenCalledWith('/projects/demo');
+      expect(mockRemoveRecent).toHaveBeenCalledWith('/projects/demo');
     });
+    // The destructive deleteProject IPC must NEVER fire from the
+    // landing-screen action — the UI no longer destroys user content.
+    expect(mockDeleteProject).not.toHaveBeenCalled();
     expect(mockRefreshRecentProjects).toHaveBeenCalled();
   });
 
-  it('shows 9 project cards on the first page and paginates to the rest', async () => {
+  it('renders every project card with no pagination cap (responsive grid handles overflow)', async () => {
     mockRecentProjects = buildRecentProjects(11);
 
     render(<LandingScreen />);
 
+    // All 11 cards visible at once — pagination was removed (user
+    // complaint: "stops on a number doesn't make sense, it needs to
+    // stop when the space is filled").
     expect(
       await screen.findByRole('button', { name: 'Rename project-11' }),
-    ).not.toBeNull();
-    expect(
-      screen.getByRole('button', { name: 'Rename project-03' }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Rename project-02' }),
-    ).toBeNull();
-    expect(screen.getByText('1-9 of 11')).not.toBeNull();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Next projects page' }));
-
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-02' }),
     ).not.toBeNull();
     expect(
       screen.getByRole('button', { name: 'Rename project-01' }),
     ).not.toBeNull();
     expect(
-      screen.queryByRole('button', { name: 'Rename project-03' }),
-    ).toBeNull();
-    expect(screen.getByText('10-11 of 11')).not.toBeNull();
-  });
-
-  it('does not show pagination for 9 or fewer projects', async () => {
-    mockRecentProjects = buildRecentProjects(9);
-
-    render(<LandingScreen />);
-
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-09' }),
-    ).not.toBeNull();
-    expect(
       screen.queryByRole('button', { name: 'Next projects page' }),
     ).toBeNull();
-  });
-
-  it('clamps the active project page when the current page disappears', async () => {
-    mockRecentProjects = buildRecentProjects(10);
-    const { rerender } = render(<LandingScreen />);
-
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Next projects page' }),
-    );
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-01' }),
-    ).not.toBeNull();
-
-    mockRecentProjects = buildRecentProjects(9);
-    rerender(<LandingScreen />);
-
-    expect(
-      await screen.findByRole('button', { name: 'Rename project-09' }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Rename project-01' }),
-    ).not.toBeNull();
-    expect(
-      screen.queryByRole('button', { name: 'Next projects page' }),
-    ).toBeNull();
+    expect(screen.queryByText(/1-9 of 11/)).toBeNull();
   });
 });

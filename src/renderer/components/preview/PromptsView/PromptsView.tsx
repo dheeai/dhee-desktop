@@ -16,6 +16,11 @@ import { FileText, Pencil } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useDheeSession } from '../../../hooks/useDheeSession';
+import {
+  MediaVersionProvider,
+  useMediaVersion,
+  withMediaVersion,
+} from '../../../hooks/useMediaVersion';
 import { savePromptEdit, type PromptKind } from './savePromptEdit';
 import AssetRegenerateButton, {
   type AssetRegenerateFrame,
@@ -143,6 +148,7 @@ function PromptText({
   resolveRef: (refId: string) => string | null;
 }) {
   const tokens = useMemo(() => tokenize(text), [text]);
+  const mediaVersion = useMediaVersion();
   const refByNumber = useMemo(() => {
     const map = new Map<number, PromptReference>();
     for (const r of references ?? []) map.set(r.imageNumber, r);
@@ -167,7 +173,10 @@ function PromptText({
             {(ref || path) && (
               <span className={styles.refPreview}>
                 {path ? (
-                  <img src={`file://${path}`} alt={ref?.refId ?? ''} />
+                  <img
+                    src={withMediaVersion(`file://${path}`, mediaVersion)}
+                    alt={ref?.refId ?? ''}
+                  />
                 ) : (
                   <span className={styles.refMissing}>
                     not yet generated
@@ -379,7 +388,11 @@ function MediaPromptRow({
       />
     );
   }
-  const src = `file://${projectDirectory}/${mediaPath}`;
+  const mediaVersion = useMediaVersion();
+  const src = withMediaVersion(
+    `file://${projectDirectory}/${mediaPath}`,
+    mediaVersion,
+  );
   return (
     <div className={styles.mediaPromptRow}>
       <div className={styles.mediaCell}>
@@ -956,6 +969,11 @@ export default function PromptsView() {
   };
 
   return (
+    // refreshTick bumps whenever the file watcher reports a change in
+    // prompts/images, prompts/motion, or assets/. Every <img>/<video>
+    // below appends `?v=<tick>` so the browser refetches new bytes
+    // when the path is unchanged (agent edited a file in place).
+    <MediaVersionProvider value={refreshTick}>
     <div className={styles.container} ref={containerRef}>
       <div className={styles.toolbar}>
         <span className={styles.toolbarLabel}>Jump to:</span>
@@ -1140,5 +1158,6 @@ export default function PromptsView() {
         ))}
       </div>
     </div>
+    </MediaVersionProvider>
   );
 }

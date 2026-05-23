@@ -191,7 +191,7 @@ const TOUR_STEPS: TourStep[] = [
     targetId: 'new-project-name',
     title: 'Name the project',
     body: 'Give this workspace a clear name. After that, the guide will show where the project folder is created.',
-    actionHint: 'Type a project name to continue to location.',
+    actionHint: 'Type a project name. Next appears when the name is ready.',
     requiresAction: true,
   },
   {
@@ -243,7 +243,8 @@ const TOUR_STEPS: TourStep[] = [
     fallbackTargetIds: ['workspace-setup-wizard'],
     title: 'Enter the first prompt',
     body: 'This is the most important onboarding step. Describe the story, product, scene, or video idea you want Dhee to build.',
-    actionHint: 'Type a story or prompt to continue.',
+    actionHint:
+      'Write as much as you need. Next appears when the prompt has text.',
     requiresAction: true,
   },
   {
@@ -369,6 +370,8 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
   const [activeSource, setActiveSource] = useState<TourSource | null>(null);
   const [stepIndex, setStepIndex] = useState(0);
   const [targetRect, setTargetRect] = useState<TargetRect | null>(null);
+  const [projectNameReady, setProjectNameReady] = useState(false);
+  const [setupStoryReady, setSetupStoryReady] = useState(false);
   const autoStartedRef = useRef(false);
   const lastProjectDirectoryRef = useRef<string | null>(null);
 
@@ -431,6 +434,8 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
   const startTour = useCallback(
     ({ source }: StartTourRequest) => {
       const firstWorkspaceStep = getTourStepIndex('workspace-chat');
+      setProjectNameReady(false);
+      setSetupStoryReady(false);
       setStepIndex(projectDirectory ? firstWorkspaceStep : 0);
       setActiveSource(source);
     },
@@ -460,7 +465,6 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       const setupStyleIndex = getTourStepIndex('setup-style');
       const setupDurationIndex = getTourStepIndex('setup-duration');
       const setupStoryIndex = getTourStepIndex('setup-story');
-      const setupSubmitIndex = getTourStepIndex('setup-submit');
       const previewIndex = getTourStepIndex('workspace-preview');
 
       if (
@@ -490,7 +494,7 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       }
       if (event === 'project_name_valid' && activeSource) {
         if (currentIndex <= projectNameIndex) {
-          setStepIndex(projectLocationIndex);
+          setProjectNameReady(true);
         }
         return;
       }
@@ -542,7 +546,7 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       }
       if (event === 'setup_story_valid' && activeSource) {
         if (currentIndex <= setupStoryIndex) {
-          setStepIndex(setupSubmitIndex);
+          setSetupStoryReady(true);
         }
         return;
       }
@@ -660,6 +664,9 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       if (currentStep?.id === 'settings-cloud-signin') {
         return getTourStepIndex('settings-cloud-toggles');
       }
+      if (currentStep?.id === 'project-name' && projectNameReady) {
+        return getTourStepIndex('project-location');
+      }
       if (currentStep?.id === 'workspace-chat') {
         const setupVisible = document.querySelector(
           '[data-tour-id="setup-style-options"], [data-tour-id="workspace-setup-wizard"]',
@@ -667,6 +674,9 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
         return setupVisible
           ? getTourStepIndex('setup-style')
           : getTourStepIndex('chat-prompt');
+      }
+      if (currentStep?.id === 'setup-story' && setupStoryReady) {
+        return getTourStepIndex('setup-submit');
       }
       if (current >= TOUR_STEPS.length - 1) {
         completeOnboarding({ completedReason: 'manual_finish' }).catch(
@@ -677,7 +687,7 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
       }
       return current + 1;
     });
-  }, [completeOnboarding]);
+  }, [completeOnboarding, projectNameReady, setupStoryReady]);
 
   const handleProviderSignIn = useCallback(() => {
     const signInResult = window.electron.account?.signIn?.();
@@ -703,6 +713,15 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
         onClick={handleUseProjectLocation}
       >
         Use this location
+      </button>
+    );
+  } else if (
+    (activeStep?.id === 'project-name' && projectNameReady) ||
+    (activeStep?.id === 'setup-story' && setupStoryReady)
+  ) {
+    advanceButton = (
+      <button type="button" className={styles.primaryButton} onClick={goNext}>
+        Next
       </button>
     );
   } else if (activeStep && !activeStep.requiresAction) {

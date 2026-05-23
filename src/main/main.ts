@@ -3793,7 +3793,7 @@ async function openDesktopAuthWindow(url: string): Promise<void> {
     resizable: true,
     minimizable: true,
     maximizable: false,
-    title: 'Sign in to Dhee Desktop',
+    title: 'Sign in to Dhee Studio',
     backgroundColor: '#030508',
     webPreferences: {
       sandbox: false,
