@@ -48,7 +48,6 @@ export default function ProjectRunButton({
   onStart,
   onCancel,
 }: ProjectRunButtonProps) {
-
   // Hide entirely when the project is fresh (the wizard is the right
   // entry point) or completed (no resume to offer; the CTA handles
   // "show final video"). Also hide while the lifecycle probe is
@@ -67,8 +66,13 @@ export default function ProjectRunButton({
           onCancel();
         }}
         aria-label={stopping ? 'Stopping run' : 'Stop run'}
-        title={stopping ? 'Cancelling — finishing the current step…' : 'Stop the current run'}
+        title={
+          stopping
+            ? 'Cancelling — finishing the current step…'
+            : 'Stop the current run'
+        }
         disabled={stopping}
+        data-tour-id="workspace-run-control"
         style={{
           display: 'inline-flex',
           alignItems: 'center',
@@ -104,6 +108,7 @@ export default function ProjectRunButton({
       aria-label="Resume run"
       title="Resume the pipeline from where you left off"
       disabled={!ready}
+      data-tour-id="workspace-run-control"
       style={{
         display: 'inline-flex',
         alignItems: 'center',

@@ -5,6 +5,7 @@
  * `electron.project.getRecent()`. Tests pre-seed via `bridgeReturns`
  * so the list is populated when LandingScreen mounts.
  */
+/* eslint-disable no-underscore-dangle */
 import { test, expect } from './fixtures';
 
 const RECENTS = [
@@ -42,6 +43,9 @@ test.describe('Feature: Landing screen, recent projects', () => {
       await expect(
         page.getByRole('heading', { name: /^sci-fi$/, level: 3 }),
       ).toBeVisible();
+      await expect(
+        page.getByRole('heading', { name: /Choose how Dhee runs/i }),
+      ).toHaveCount(0);
 
       // And — paths appear in card meta (shortened form contains the basename).
       await expect(page.getByText(/noir\.dhee/).first()).toBeVisible();
@@ -75,7 +79,7 @@ test.describe('Feature: Landing screen, recent projects', () => {
       expect(addCalls.map((c) => c.args)).toContain('/tmp/noir.dhee');
     });
 
-    test('When the user clicks "Open Workspace", Then project.selectDirectory is called', async ({
+    test('When the user clicks "Open", Then project.selectDirectory is called', async ({
       page,
       bootInline,
     }) => {
@@ -87,7 +91,7 @@ test.describe('Feature: Landing screen, recent projects', () => {
       });
 
       // When
-      await page.getByRole('button', { name: /Open Workspace/i }).click();
+      await page.getByRole('button', { name: /^Open$/i }).click();
 
       // Then
       const calls = await page.evaluate(() =>
@@ -98,7 +102,7 @@ test.describe('Feature: Landing screen, recent projects', () => {
   });
 
   test.describe('Given more than 9 recent projects seeded into the bridge', () => {
-    test('When the user pages through projects, Then older projects remain reachable', async ({
+    test('When there are many projects, Then all cards remain reachable without pagination', async ({
       page,
       bootInline,
     }) => {
@@ -109,7 +113,7 @@ test.describe('Feature: Landing screen, recent projects', () => {
         rules: [],
       });
 
-      // Then — page 1 shows the newest 9 and hides older projects.
+      // Then — the responsive grid exposes all projects without paging.
       await expect(
         page.getByRole('heading', { name: /^project-11$/, level: 3 }),
       ).toBeVisible();
@@ -118,20 +122,14 @@ test.describe('Feature: Landing screen, recent projects', () => {
       ).toBeVisible();
       await expect(
         page.getByRole('heading', { name: /^project-02$/, level: 3 }),
-      ).toHaveCount(0);
-      await expect(page.getByText('1-9 of 11')).toBeVisible();
-
-      // When
-      await page.getByRole('button', { name: 'Next projects page' }).click();
-
-      // Then — page 2 exposes the remaining older projects.
-      await expect(
-        page.getByRole('heading', { name: /^project-02$/, level: 3 }),
       ).toBeVisible();
       await expect(
         page.getByRole('heading', { name: /^project-01$/, level: 3 }),
       ).toBeVisible();
-      await expect(page.getByText('10-11 of 11')).toBeVisible();
+      await expect(
+        page.getByRole('button', { name: 'Next projects page' }),
+      ).toHaveCount(0);
+      await expect(page.getByText('1-9 of 11')).toHaveCount(0);
     });
   });
 });

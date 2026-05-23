@@ -46,6 +46,7 @@ const initialState: WorkspaceState = {
   selectedFile: null,
   activeContextFiles: [],
   recentProjects: [],
+  recentProjectsLoaded: false,
   connectionState: {
     server: 'disconnected',
   },
@@ -74,9 +75,13 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
   const refreshRecentProjects = useCallback(async () => {
     try {
       const recent = await window.electron.project.getRecent();
-      setState((prev) => ({ ...prev, recentProjects: recent }));
+      setState((prev) => ({
+        ...prev,
+        recentProjects: recent,
+        recentProjectsLoaded: true,
+      }));
     } catch {
-      // Failed to load recent projects
+      setState((prev) => ({ ...prev, recentProjectsLoaded: true }));
     }
   }, []);
 
@@ -241,6 +246,7 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
           projectName,
           fileTree: tree,
           recentProjects: recent,
+          recentProjectsLoaded: true,
           isLoading: false,
           selectedFile: null,
           activeContextFiles: [],

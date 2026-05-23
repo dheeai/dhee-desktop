@@ -7,8 +7,6 @@ import {
   type SVGProps,
 } from 'react';
 import {
-  ChevronLeft as _ChevronLeft,
-  ChevronRight as _ChevronRight,
   FolderOpen as _FolderOpen,
   Plus as _Plus,
   Settings as _Settings,
@@ -18,6 +16,11 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { safeJsonParse } from '../../../utils/safeJsonParse';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
+import {
+  FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
+  useOptionalFirstRunTour,
+  type FirstRunTourLandingAction,
+} from '../../../contexts/FirstRunTourContext';
 import SettingsPanel from '../../SettingsPanel';
 import type { LandingProjectCard } from '../ProjectCard/ProjectCard';
 import NewProjectDialog from '../NewProjectDialog/NewProjectDialog';
@@ -42,8 +45,6 @@ import type { AccountInfo } from '../../../../shared/settingsTypes';
 type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
 
 const FolderOpen = _FolderOpen as unknown as LucideFC;
-const ChevronLeft = _ChevronLeft as unknown as LucideFC;
-const ChevronRight = _ChevronRight as unknown as LucideFC;
 const Plus = _Plus as unknown as LucideFC;
 const Settings = _Settings as unknown as LucideFC;
 
@@ -56,9 +57,14 @@ const THUMBNAIL_CANDIDATES = [
   'thumbnail.webp',
 ];
 const FALLBACK_APP_VERSION = 'v?.?.?';
-const PROJECTS_PER_PAGE = 9;
 type LandingView = 'projects' | 'settings';
 type AccountAuthStatus = 'idle' | 'waiting' | 'expired' | 'error';
+type SettingsTabTarget =
+  | 'account'
+  | 'appearance'
+  | 'connection'
+  | 'workflows'
+  | 'diagnostics';
 
 interface ProjectMetadata {
   manifestName?: string;
@@ -71,37 +77,6 @@ interface ProjectMetadata {
 interface PendingProjectAction {
   path: string;
   name: string;
-}
-
-function getProjectPaginationItems(
-  currentPage: number,
-  totalPages: number,
-): Array<number | 'ellipsis-start' | 'ellipsis-end'> {
-  if (totalPages <= 7) {
-    return Array.from({ length: totalPages }, (_, index) => index);
-  }
-
-  const pages = new Set([
-    0,
-    totalPages - 1,
-    currentPage - 1,
-    currentPage,
-    currentPage + 1,
-  ]);
-  const visiblePages = [...pages]
-    .filter((page) => page >= 0 && page < totalPages)
-    .sort((a, b) => a - b);
-  const items: Array<number | 'ellipsis-start' | 'ellipsis-end'> = [];
-
-  visiblePages.forEach((page, index) => {
-    const previousPage = visiblePages[index - 1];
-    if (index > 0 && page - previousPage > 1) {
-      items.push(page < currentPage ? 'ellipsis-start' : 'ellipsis-end');
-    }
-    items.push(page);
-  });
-
-  return items;
 }
 
 interface AmbientStatus {
@@ -118,13 +93,13 @@ interface AmbientStatus {
  */
 function getAmbientStatus(
   authStatus: AccountAuthStatus,
-  styles: Record<string, string>,
+  classes: Record<string, string>,
 ): AmbientStatus | null {
   if (authStatus === 'waiting') {
-    return { label: 'Connecting', className: styles.modeBadgeConnecting };
+    return { label: 'Connecting', className: classes.modeBadgeConnecting };
   }
   if (authStatus === 'expired') {
-    return { label: 'Session expired', className: styles.modeBadgeWarning };
+    return { label: 'Session expired', className: classes.modeBadgeWarning };
   }
   return null;
 }
@@ -141,7 +116,7 @@ function getLaneBadges(
   comfyBackend: string | undefined,
   vlmBackend: string | undefined,
   account: AccountInfo | null,
-  styles: Record<string, string>,
+  classes: Record<string, string>,
 ): { llm: LaneBadge; comfy: LaneBadge; vlm: LaneBadge } {
   // Cloud only counts as cloud when the user is signed in. A persisted
   // 'cloud' value with no account is effectively local at runtime.
@@ -151,35 +126,18 @@ function getLaneBadges(
   return {
     llm: {
       label: llmIsCloud ? 'LLM ☁' : 'LLM 🖥',
-      className: llmIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+      className: llmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
     },
     comfy: {
       label: comfyIsCloud ? 'Comfy ☁' : 'Comfy 🖥',
-      className: comfyIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+      className: comfyIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
     },
     vlm: {
       label: vlmIsCloud ? 'VLM ☁' : 'VLM 🖥',
-      className: vlmIsCloud ? styles.modeBadgeCloud : styles.modeBadgeLocal,
+      className: vlmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
     },
   };
 }
-
-function getHeroSubtitle(
-  account: AccountInfo | null,
-  authStatus: AccountAuthStatus,
-): string {
-  if (account) {
-    return `Signed in as ${account.email}. Create and manage projects from this desktop.`;
-  }
-  if (authStatus === 'waiting') {
-    return 'Finish sign-in in your browser, then choose Open Dhee Studio when prompted.';
-  }
-  if (authStatus === 'expired') {
-    return 'Your cloud session expired. Local projects are still available.';
-  }
-  return 'Create locally, or sign in to use Dhee Cloud credits.';
-}
-
 
 function joinPath(basePath: string, segment: string): string {
   const normalizedBase = basePath.replace(/\/+$/, '');
@@ -209,15 +167,16 @@ async function loadSingleProjectMetadata(
   projectPath: string,
 ): Promise<ProjectMetadata> {
   const metadata: ProjectMetadata = {};
-  const [projectContent, fileThumbnailPath, manifestContent] = await Promise.all([
-    window.electron.project
-      .readFile(joinPath(projectPath, 'project.json'))
-      .catch(() => null),
-    findThumbnailPath(projectPath),
-    window.electron.project
-      .readFile(joinPath(projectPath, 'assets/manifest.json'))
-      .catch(() => null),
-  ]);
+  const [projectContent, fileThumbnailPath, manifestContent] =
+    await Promise.all([
+      window.electron.project
+        .readFile(joinPath(projectPath, 'project.json'))
+        .catch(() => null),
+      findThumbnailPath(projectPath),
+      window.electron.project
+        .readFile(joinPath(projectPath, 'assets/manifest.json'))
+        .catch(() => null),
+    ]);
 
   if (projectContent) {
     try {
@@ -242,7 +201,9 @@ async function loadSingleProjectMetadata(
   let sceneImages: ReturnType<typeof extractSceneImages> = [];
   if (manifestContent) {
     try {
-      const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
+      const manifest = safeJsonParse<{ assets: Array<unknown> }>(
+        manifestContent,
+      );
       sceneImages = extractSceneImages(manifest);
     } catch {
       /* malformed manifest — fall through with empty list */
@@ -256,17 +217,21 @@ async function loadSingleProjectMetadata(
   const MAX_SCENES_TO_PROBE = 32;
   const svps: Record<number, SVPShape | null> = {};
   await Promise.all(
-    Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(async (n) => {
-      const content = await window.electron.project
-        .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
-        .catch(() => null);
-      if (!content) return;
-      try {
-        svps[n] = safeJsonParse<SVPShape>(content);
-      } catch {
-        svps[n] = null;
-      }
-    }),
+    Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(
+      async (n) => {
+        const content = await window.electron.project
+          .readFile(
+            joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`),
+          )
+          .catch(() => null);
+        if (!content) return;
+        try {
+          svps[n] = safeJsonParse<SVPShape>(content);
+        } catch {
+          svps[n] = null;
+        }
+      },
+    ),
   );
 
   const { scenes, shots } = sumScenesAndShots(svps);
@@ -296,6 +261,7 @@ export default function LandingScreen() {
   const { recentProjects, openProject, isLoading, refreshRecentProjects } =
     useWorkspace();
   const { isLoading: isProjectLoading } = useProject();
+  const firstRunTour = useOptionalFirstRunTour();
   const {
     themeId,
     settings,
@@ -307,6 +273,8 @@ export default function LandingScreen() {
   } = useAppSettings();
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<LandingView>('projects');
+  const [settingsInitialTab, setSettingsInitialTab] =
+    useState<SettingsTabTarget>('appearance');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
@@ -325,7 +293,6 @@ export default function LandingScreen() {
     null,
   );
   const [isProjectActionPending, setIsProjectActionPending] = useState(false);
-  const [projectPage, setProjectPage] = useState(0);
 
   useEffect(() => {
     let isActive = true;
@@ -386,8 +353,13 @@ export default function LandingScreen() {
     }
     accountBridge
       .get()
-      .then(setAccount)
-      .catch(() => setAccount(null));
+      .then((nextAccount) => {
+        setAccount(nextAccount);
+        return undefined;
+      })
+      .catch(() => {
+        setAccount(null);
+      });
     accountBridge
       .getAuthStatus()
       .then(setAuthStatus)
@@ -420,30 +392,39 @@ export default function LandingScreen() {
       }),
     [metadataByPath, recentProjects],
   );
-  const totalProjectPages = Math.max(
-    1,
-    Math.ceil(projectCards.length / PROJECTS_PER_PAGE),
-  );
-  const visibleProjectCards = useMemo(() => {
-    const pageStart = projectPage * PROJECTS_PER_PAGE;
-    return projectCards.slice(pageStart, pageStart + PROJECTS_PER_PAGE);
-  }, [projectCards, projectPage]);
-  const projectPaginationItems = useMemo(
-    () => getProjectPaginationItems(projectPage, totalProjectPages),
-    [projectPage, totalProjectPages],
-  );
-  const projectRangeStart =
-    projectCards.length === 0 ? 0 : projectPage * PROJECTS_PER_PAGE + 1;
-  const projectRangeEnd = Math.min(
-    projectCards.length,
-    (projectPage + 1) * PROJECTS_PER_PAGE,
+
+  const openSettingsTab = useCallback(
+    (tab: SettingsTabTarget) => {
+      clearError();
+      setSettingsInitialTab(tab);
+      setActiveView('settings');
+    },
+    [clearError],
   );
 
   useEffect(() => {
-    setProjectPage((currentPage) =>
-      Math.min(currentPage, totalProjectPages - 1),
+    const handleTourLandingAction = (event: Event) => {
+      const { detail } = event as CustomEvent<FirstRunTourLandingAction>;
+      if (detail?.action === 'open-settings') {
+        openSettingsTab(detail.tab);
+        return;
+      }
+      if (detail?.action === 'show-projects') {
+        setActiveView('projects');
+      }
+    };
+
+    window.addEventListener(
+      FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
+      handleTourLandingAction,
     );
-  }, [totalProjectPages]);
+    return () => {
+      window.removeEventListener(
+        FIRST_RUN_TOUR_LANDING_ACTION_EVENT,
+        handleTourLandingAction,
+      );
+    };
+  }, [openSettingsTab]);
 
   const handleOpenDirectory = useCallback(async () => {
     setError(null);
@@ -459,17 +440,18 @@ export default function LandingScreen() {
 
   const handleCreateNewProject = useCallback(() => {
     setError(null);
+    firstRunTour.notifyTourEvent('new_project_clicked');
     // Gate creation on at least one working LLM + Comfy. Without
     // either, the agent literally can't run anything — better to
     // tell the user up front than let them spin up a project that
     // dies on the first tool call.
     const status = getBackendConfigStatus(settings, account);
-    if (!status.allConfigured) {
+    if (!status.allConfigured && !firstRunTour.isActive) {
       setShowBackendNotReady(true);
       return;
     }
     setIsNewProjectDialogOpen(true);
-  }, [account, settings]);
+  }, [account, firstRunTour, settings]);
 
   const handleAccountSignIn = useCallback(async () => {
     setAuthStatus('waiting');
@@ -603,6 +585,7 @@ export default function LandingScreen() {
             <span
               className={`${styles.statusPill} ${ambientStatus.className}`}
               title={ambientStatus.label}
+              data-tour-id="landing-provider-status"
             >
               <span className={styles.statusDot} />
               {ambientStatus.label}
@@ -610,13 +593,12 @@ export default function LandingScreen() {
           ) : (
             <span
               className={`${styles.statusPill} ${backendStatus.allConfigured ? '' : styles.statusPillWarn}`}
+              data-tour-id="landing-provider-status"
               title={
                 backendStatus.allConfigured
                   ? `LLM: ${settings?.llmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · ComfyUI: ${settings?.comfyBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'} · VLM: ${settings?.vlmBackend === 'cloud' && account ? 'Dhee Cloud' : 'Local'}`
                   : backendStatus.unconfiguredLanes
-                      .map((l) =>
-                        `${l.lane.toUpperCase()}: ${l.reason}`,
-                      )
+                      .map((l) => `${l.lane.toUpperCase()}: ${l.reason}`)
                       .join(' · ')
               }
             >
@@ -655,6 +637,7 @@ export default function LandingScreen() {
             type="button"
             className={styles.topBarPrimary}
             onClick={handleCreateNewProject}
+            data-tour-id="landing-new-project"
           >
             <Plus size={14} />
             <span className={styles.topBarActionLabel}>New Project</span>
@@ -664,6 +647,7 @@ export default function LandingScreen() {
             className={styles.topBarSecondary}
             onClick={handleOpenDirectory}
             disabled={isLoading || isProjectLoading}
+            data-tour-id="landing-open-workspace"
           >
             <FolderOpen size={14} />
             <span className={styles.topBarActionLabel}>
@@ -674,8 +658,11 @@ export default function LandingScreen() {
             type="button"
             className={`${styles.topBarIconButton} ${activeView === 'settings' ? styles.topBarIconActive : ''}`}
             onClick={() => {
-              clearError();
-              setActiveView(activeView === 'settings' ? 'projects' : 'settings');
+              if (activeView === 'settings') {
+                setActiveView('projects');
+                return;
+              }
+              openSettingsTab('appearance');
             }}
             aria-pressed={activeView === 'settings'}
             aria-label="Settings"
@@ -688,6 +675,7 @@ export default function LandingScreen() {
               type="button"
               className={styles.topBarCta}
               onClick={handleAccountSignIn}
+              data-tour-id="landing-sign-in"
             >
               {authStatus === 'waiting' ? 'Open Browser Again' : 'Sign In'}
             </button>
@@ -727,8 +715,8 @@ export default function LandingScreen() {
                     Start your first project
                   </h3>
                   <p className={styles.emptyStateMessage}>
-                    Drop a story, an idea, or a script. Dhee will break it
-                    into scenes, generate the visuals, and stitch the video.
+                    Drop a story, an idea, or a script. Dhee will break it into
+                    scenes, generate the visuals, and stitch the video.
                   </p>
                   <div className={styles.emptyStateActions}>
                     <button
@@ -775,6 +763,7 @@ export default function LandingScreen() {
             <SettingsPanel
               isOpen
               variant="embedded"
+              initialTab={settingsInitialTab}
               settings={settings}
               onClose={() => setActiveView('projects')}
               onThemeChange={updateTheme}
@@ -786,6 +775,17 @@ export default function LandingScreen() {
         )}
       </main>
 
+      <footer className={styles.bottomBar}>
+        <button
+          type="button"
+          className={styles.bottomBarLink}
+          onClick={() => firstRunTour.startTour({ source: 'help' })}
+        >
+          Help
+        </button>
+        <span className={styles.bottomBarVersion}>{appVersion}</span>
+      </footer>
+
       <BackendNotReadyDialog
         isOpen={showBackendNotReady}
         unconfiguredLanes={backendStatus.unconfiguredLanes}
@@ -793,12 +793,11 @@ export default function LandingScreen() {
         onClose={() => setShowBackendNotReady(false)}
         onOpenSettings={() => {
           setShowBackendNotReady(false);
-          clearError();
-          setActiveView('settings');
+          openSettingsTab('connection');
         }}
         onSignIn={() => {
           setShowBackendNotReady(false);
-          void handleAccountSignIn();
+          handleAccountSignIn().catch(() => undefined);
         }}
       />
 

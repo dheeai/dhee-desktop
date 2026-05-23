@@ -217,7 +217,10 @@ function emitEvent(eventName: dheeEventName, data: unknown): void {
   }
 }
 
-function applyMatchingRules(channel: ScenarioChannel, payloadText: string): void {
+function applyMatchingRules(
+  channel: ScenarioChannel,
+  payloadText: string,
+): void {
   for (const rule of state.scenario.rules) {
     if (rule.on.channel !== channel) continue;
     if (rule.on.match && !payloadText.includes(rule.on.match)) continue;
@@ -363,6 +366,10 @@ const fakeElectron = {
       return Promise.resolve(
         bridgeReturn('settings.get', {
           themeId: 'studio-neutral',
+          backendMode: 'local',
+          llmBackend: 'local',
+          comfyBackend: 'local',
+          vlmBackend: 'local',
           comfyuiMode: 'inherit',
           comfyuiUrl: '',
           comfyCloudApiKey: '',
@@ -386,7 +393,8 @@ const fakeElectron = {
       record('settings.update', patch);
       // Mirror the patch as the next `get()` so subsequent reads see it.
       const merged = {
-        ...(state.bridgeReturns.get('settings.get') as object | undefined ?? {}),
+        ...((state.bridgeReturns.get('settings.get') as object | undefined) ??
+          {}),
         ...(patch as object),
       };
       state.bridgeReturns.set('settings.get', merged);
@@ -416,12 +424,16 @@ const fakeElectron = {
     readTree: (p: string) => {
       record('project.readTree', p);
       return Promise.resolve(
-        bridgeReturn('project.readTree', {
-          name: 'fake-project',
-          path: state.project.directory ?? '/tmp/fake-project.dhee',
-          type: 'directory' as const,
-          children: [],
-        }, [p]),
+        bridgeReturn(
+          'project.readTree',
+          {
+            name: 'fake-project',
+            path: state.project.directory ?? '/tmp/fake-project.dhee',
+            type: 'directory' as const,
+            children: [],
+          },
+          [p],
+        ),
       );
     },
     readFile: (p: string) => {
@@ -430,7 +442,11 @@ const fakeElectron = {
       if (fileReturns) {
         const normalized = p.replace(/\\/g, '/');
         for (const [pattern, content] of Object.entries(fileReturns)) {
-          if (normalized === pattern || normalized.endsWith(`/${pattern}`) || normalized.includes(pattern)) {
+          if (
+            normalized === pattern ||
+            normalized.endsWith(`/${pattern}`) ||
+            normalized.includes(pattern)
+          ) {
             return Promise.resolve(content);
           }
         }
@@ -524,7 +540,9 @@ const fakeElectron = {
     },
     exportChatJson: (p: unknown) => {
       record('project.exportChatJson', p);
-      return Promise.resolve(bridgeReturn('project.exportChatJson', { ok: true }));
+      return Promise.resolve(
+        bridgeReturn('project.exportChatJson', { ok: true }),
+      );
     },
     composeTimelineVideo: (p: unknown) => {
       record('project.composeTimelineVideo', p);
@@ -534,7 +552,9 @@ const fakeElectron = {
     },
     exportCapcut: (p: unknown) => {
       record('project.exportCapcut', p);
-      return Promise.resolve(bridgeReturn('project.exportCapcut', { success: false }));
+      return Promise.resolve(
+        bridgeReturn('project.exportCapcut', { success: false }),
+      );
     },
     onFileChange: (cb: (payload: unknown) => void) =>
       subscribeElectron('project:file-change', cb),
@@ -544,7 +564,9 @@ const fakeElectron = {
   remotion: {
     renderInfographics: (p: unknown) => {
       record('remotion.renderInfographics', p);
-      return Promise.resolve(bridgeReturn('remotion.renderInfographics', { jobId: 'fake' }));
+      return Promise.resolve(
+        bridgeReturn('remotion.renderInfographics', { jobId: 'fake' }),
+      );
     },
     cancelJob: (jobId: string) => {
       record('remotion.cancelJob', jobId);
@@ -581,13 +603,19 @@ const fakeElectron = {
     getStatus: () => {
       record('updates.getStatus', undefined);
       return Promise.resolve(
-        bridgeReturn('updates.getStatus', { phase: 'idle', checkedAt: Date.now() }),
+        bridgeReturn('updates.getStatus', {
+          phase: 'idle',
+          checkedAt: Date.now(),
+        }),
       );
     },
     checkNow: () => {
       record('updates.checkNow', undefined);
       return Promise.resolve(
-        bridgeReturn('updates.checkNow', { phase: 'not-available', checkedAt: Date.now() }),
+        bridgeReturn('updates.checkNow', {
+          phase: 'not-available',
+          checkedAt: Date.now(),
+        }),
       );
     },
     onStatusChange: (cb: (payload: unknown) => void) =>
@@ -597,6 +625,123 @@ const fakeElectron = {
     getVersion: () => {
       record('app.getVersion', undefined);
       return Promise.resolve(bridgeReturn('app.getVersion', '0.0.0-test'));
+    },
+  },
+  account: {
+    get: () => {
+      record('account.get', undefined);
+      return Promise.resolve(bridgeReturn('account.get', null));
+    },
+    getAuthStatus: () => {
+      record('account.getAuthStatus', undefined);
+      return Promise.resolve(bridgeReturn('account.getAuthStatus', 'idle'));
+    },
+    signIn: () => {
+      record('account.signIn', undefined);
+      return Promise.resolve(
+        bridgeReturn('account.signIn', { opened: true, state: 'test-state' }),
+      );
+    },
+    signOut: () => {
+      record('account.signOut', undefined);
+      state.bridgeReturns.set('account.get', null);
+      fireElectron('account:changed', null);
+      return Promise.resolve({ success: true });
+    },
+    refreshBalance: () => {
+      record('account.refreshBalance', undefined);
+      return Promise.resolve(
+        bridgeReturn('account.refreshBalance', {
+          status: 'ok',
+          balance: 0,
+        }),
+      );
+    },
+    getBillingUrl: () => Promise.resolve('http://localhost:3000/billing'),
+    openBilling: () => {
+      record('account.openBilling', undefined);
+      return Promise.resolve({
+        opened: true,
+        url: 'http://localhost:3000/billing',
+      });
+    },
+    onAuthStatusChange: (cb: (payload: unknown) => void) =>
+      subscribeElectron('account:auth-status', cb),
+    onChange: (cb: (payload: unknown) => void) =>
+      subscribeElectron('account:changed', cb),
+  },
+  onboarding: {
+    getState: () => {
+      record('onboarding.getState', undefined);
+      return Promise.resolve(
+        bridgeReturn('onboarding.getState', {
+          guideVersion: 3,
+          completed: false,
+          completedAt: null,
+          skipped: false,
+        }),
+      );
+    },
+    complete: (req?: unknown) => {
+      record('onboarding.complete', req);
+      const skipped =
+        typeof req === 'object' &&
+        req !== null &&
+        (req as { skipped?: unknown }).skipped === true;
+      const completedReason =
+        typeof req === 'object' &&
+        req !== null &&
+        typeof (req as { completedReason?: unknown }).completedReason ===
+          'string'
+          ? (req as { completedReason: string }).completedReason
+          : skipped
+            ? 'skipped'
+            : 'manual_finish';
+      const next = {
+        guideVersion: 3,
+        completed: true,
+        completedAt: Date.now(),
+        skipped,
+        completedReason,
+      };
+      state.bridgeReturns.set('onboarding.getState', next);
+      return Promise.resolve(next);
+    },
+  },
+  providerDiagnostics: {
+    run: () => {
+      record('providerDiagnostics.run', undefined);
+      return Promise.resolve(
+        bridgeReturn('providerDiagnostics.run', {
+          checkedAt: Date.now(),
+          items: [
+            {
+              id: 'cloud-account',
+              label: 'Dhee Cloud account',
+              status: 'warning',
+              message: 'Sign in to use Dhee Cloud credits.',
+            },
+            {
+              id: 'comfyui',
+              label: 'ComfyUI',
+              status: 'warning',
+              message: 'Could not reach ComfyUI at http://127.0.0.1:8188.',
+            },
+            {
+              id: 'llm',
+              label: 'LLM',
+              status: 'warning',
+              message: 'OpenAI-compatible LLM needs an API key.',
+            },
+            {
+              id: 'vlm',
+              label: 'VLM judge',
+              status: 'warning',
+              message: 'Local VLM needs a base URL, API key, and model.',
+            },
+          ],
+        }),
+      );
     },
   },
 };
@@ -610,8 +755,7 @@ const testApi: dheeTestApi = {
       state.project = {
         name: scenario.project.name,
         directory:
-          scenario.project.directory ??
-          `/tmp/${scenario.project.name}.dhee`,
+          scenario.project.directory ?? `/tmp/${scenario.project.name}.dhee`,
       };
     }
     if (scenario.bridgeReturns) {

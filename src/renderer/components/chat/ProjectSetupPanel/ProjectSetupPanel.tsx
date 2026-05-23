@@ -1,6 +1,7 @@
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, RefreshCw, Settings2, Sparkles } from 'lucide-react';
+import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
 import styleAnimePreview from '../../../../../assets/previews/style_anime.png';
 import styleCinematicDocumentaryPreview from '../../../../../assets/previews/style_cinematic_documentary.png';
 import styleCinematicRealismPreview from '../../../../../assets/previews/style_cinematic_realism.png';
@@ -68,7 +69,14 @@ const STYLE_PREVIEW_SRC: Record<string, string> = {
   watercolor: styleWatercolorPreview,
 };
 
-export type SetupStep = 'template' | 'style' | 'duration' | 'story' | 'autonomous';
+const TOUR_INPUT_ADVANCE_DELAY_MS = 900;
+
+export type SetupStep =
+  | 'template'
+  | 'style'
+  | 'duration'
+  | 'story'
+  | 'autonomous';
 export type SetupPanelMode = 'hidden' | 'banner' | 'wizard' | 'summary';
 
 interface ProjectSetupPanelProps {
@@ -151,6 +159,9 @@ export default function ProjectSetupPanel({
   onConfirmSetup,
   onBack,
 }: ProjectSetupPanelProps) {
+  const firstRunTour = useOptionalFirstRunTour();
+  const notifiedStoryValidRef = useRef(false);
+  const storyValidTimerRef = useRef<number | null>(null);
   const [customDuration, setCustomDuration] = useState('');
 
   const selectedTemplate = useMemo(
@@ -182,6 +193,66 @@ export default function ProjectSetupPanel({
     () => (selectedTemplateId ? durationPresets[selectedTemplateId] || [] : []),
     [durationPresets, selectedTemplateId],
   );
+
+  const handleSelectStyleOption = useCallback(
+    (styleId: string) => {
+      firstRunTour.notifyTourEvent('setup_style_selected');
+      onSelectStyle(styleId);
+    },
+    [firstRunTour, onSelectStyle],
+  );
+
+  const handleSelectDurationOption = useCallback(
+    (seconds: number) => {
+      firstRunTour.notifyTourEvent('setup_duration_selected');
+      onSelectDuration(seconds);
+    },
+    [firstRunTour, onSelectDuration],
+  );
+
+  const clearStoryValidTimer = useCallback(() => {
+    if (storyValidTimerRef.current === null) return;
+    window.clearTimeout(storyValidTimerRef.current);
+    storyValidTimerRef.current = null;
+  }, []);
+
+  const handleStoryChange = useCallback(
+    (value: string) => {
+      onChangeStory(value);
+      clearStoryValidTimer();
+      if (!value.trim()) {
+        notifiedStoryValidRef.current = false;
+        return;
+      }
+      if (notifiedStoryValidRef.current) return;
+      storyValidTimerRef.current = window.setTimeout(() => {
+        notifiedStoryValidRef.current = true;
+        storyValidTimerRef.current = null;
+        firstRunTour.notifyTourEvent('setup_story_valid');
+      }, TOUR_INPUT_ADVANCE_DELAY_MS);
+    },
+    [clearStoryValidTimer, firstRunTour, onChangeStory],
+  );
+
+  const handleStorySubmit = useCallback(() => {
+    firstRunTour.notifyTourEvent('setup_story_submitted');
+    onSubmitStory();
+  }, [firstRunTour, onSubmitStory]);
+
+  useEffect(() => {
+    if (mode !== 'hidden') {
+      firstRunTour.notifyTourEvent('setup_wizard_visible');
+    }
+  }, [firstRunTour, mode]);
+
+  useEffect(() => {
+    if (step !== 'story') {
+      clearStoryValidTimer();
+      notifiedStoryValidRef.current = false;
+    }
+  }, [clearStoryValidTimer, step]);
+
+  useEffect(() => clearStoryValidTimer, [clearStoryValidTimer]);
 
   useEffect(() => {
     if (mode !== 'wizard') return undefined;
@@ -218,7 +289,7 @@ export default function ProjectSetupPanel({
         const target = styleOptions[index];
         if (!target) return;
         event.preventDefault();
-        onSelectStyle(target.id);
+        handleSelectStyleOption(target.id);
         return;
       }
 
@@ -232,7 +303,7 @@ export default function ProjectSetupPanel({
       const target = durationOptions[index];
       if (!target) return;
       event.preventDefault();
-      onSelectDuration(target.seconds);
+      handleSelectDurationOption(target.seconds);
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -241,10 +312,10 @@ export default function ProjectSetupPanel({
     };
   }, [
     durationOptions,
+    handleSelectDurationOption,
+    handleSelectStyleOption,
     mode,
-    onSelectDuration,
     onSelectAutonomousMode,
-    onSelectStyle,
     onSelectTemplate,
     step,
     styleOptions,
@@ -256,7 +327,7 @@ export default function ProjectSetupPanel({
     if (!Number.isFinite(seconds) || seconds <= 0) {
       return;
     }
-    onSelectDuration(seconds);
+    handleSelectDurationOption(seconds);
     setCustomDuration('');
   };
 
@@ -266,7 +337,7 @@ export default function ProjectSetupPanel({
 
   if (mode === 'banner') {
     return (
-      <div className={styles.banner}>
+      <div className={styles.banner} data-tour-id="workspace-setup-wizard">
         <div className={styles.bannerLeft}>
           <Settings2 size={15} />
           <span>Configure Project Setup</span>
@@ -284,7 +355,7 @@ export default function ProjectSetupPanel({
 
   if (mode === 'summary') {
     return (
-      <div className={styles.summary}>
+      <div className={styles.summary} data-tour-id="workspace-setup-wizard">
         <div className={styles.summaryHeader}>
           <div className={styles.summaryTitle}>
             <Sparkles size={14} />
@@ -331,7 +402,7 @@ export default function ProjectSetupPanel({
   }
 
   return (
-    <div className={styles.wizard}>
+    <div className={styles.wizard} data-tour-id="workspace-setup-wizard">
       <div className={styles.wizardHeader}>
         <div className={styles.wizardTitleRow}>
           {step !== 'template' && (
@@ -399,7 +470,10 @@ export default function ProjectSetupPanel({
           )}
 
           {step === 'style' && (
-            <div className={styles.cardsGrid}>
+            <div
+              className={styles.cardsGrid}
+              data-tour-id="setup-style-options"
+            >
               {styleOptions.map((style, index) => (
                 <button
                   type="button"
@@ -407,7 +481,7 @@ export default function ProjectSetupPanel({
                   className={`${styles.card} ${
                     selectedStyleId === style.id ? styles.cardSelected : ''
                   }`}
-                  onClick={() => onSelectStyle(style.id)}
+                  onClick={() => handleSelectStyleOption(style.id)}
                   disabled={configuring}
                 >
                   {renderCardPreview(
@@ -428,7 +502,10 @@ export default function ProjectSetupPanel({
 
           {step === 'duration' && (
             <>
-              <div className={styles.durationRow}>
+              <div
+                className={styles.durationRow}
+                data-tour-id="setup-duration-options"
+              >
                 {durationOptions.map((duration, index) => (
                   <button
                     type="button"
@@ -438,7 +515,7 @@ export default function ProjectSetupPanel({
                         ? styles.durationSelected
                         : ''
                     }`}
-                    onClick={() => onSelectDuration(duration.seconds)}
+                    onClick={() => handleSelectDurationOption(duration.seconds)}
                     disabled={configuring}
                   >
                     {index + 1}. {duration.label}
@@ -479,16 +556,18 @@ export default function ProjectSetupPanel({
                 placeholder="A noir detective walks into the rain... or paste a longer story / outline here. The agent will build everything from this seed."
                 rows={8}
                 value={storyInput}
-                onChange={(event) => onChangeStory(event.target.value)}
+                onChange={(event) => handleStoryChange(event.target.value)}
                 disabled={configuring}
                 aria-label="Project story or idea"
+                data-tour-id="setup-story-input"
               />
               <div className={styles.autonomousFooter}>
                 <button
                   type="button"
                   className={styles.continueButton}
-                  onClick={onSubmitStory}
+                  onClick={handleStorySubmit}
                   disabled={configuring || storyInput.trim().length === 0}
+                  data-tour-id="setup-story-continue"
                 >
                   Continue
                 </button>

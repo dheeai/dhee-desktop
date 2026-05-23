@@ -98,6 +98,11 @@
   overflow: hidden;
 }
 
+.panelTourTarget {
+  height: 100%;
+  min-height: 0;
+}
+
 .resizeHandle {
   width: 4px;
   background-color: rgba(var(--color-bg-panel-soft-rgb), 0.2);
@@ -116,7 +121,7 @@
 
   &:hover {
     background-color: rgba(var(--color-accent-primary-rgb), 0.12);
-    
+
     &::after {
       background-color: rgba(var(--color-accent-primary-rgb), 0.8);
     }
@@ -124,7 +129,7 @@
 
   &[data-resize-handle-active] {
     background-color: rgba(var(--color-accent-primary-rgb), 0.18);
-    
+
     &::after {
       background-color: rgba(var(--color-accent-primary-rgb), 0.92);
     }

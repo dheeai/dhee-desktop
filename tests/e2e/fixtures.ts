@@ -48,14 +48,12 @@ async function seedAndNavigate(page: Page, scenario: Scenario): Promise<void> {
 
   await page.goto('/');
 
-  await page.waitForFunction(
-    () => typeof window.__dheeTest !== 'undefined',
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => typeof window.__dheeTest !== 'undefined', {
+    timeout: 10_000,
+  });
   await page.evaluate(() => {
-    const pending = (
-      window as unknown as { __pendingScenario?: unknown }
-    ).__pendingScenario;
+    const pending = (window as unknown as { __pendingScenario?: unknown })
+      .__pendingScenario;
     if (pending) {
       (
         window.__dheeTest as unknown as {
@@ -78,9 +76,9 @@ async function waitForSurfaceReady(
         .waitFor({ state: 'visible', timeout: TIMEOUT });
       return;
     case 'landing':
-      // Landing renders a "dhee Desktop" brand heading in the sidebar.
+      // Landing renders the app brand heading in the top bar.
       await page
-        .getByRole('heading', { name: /dhee Desktop/i })
+        .getByRole('heading', { name: 'Dhee Studio', exact: true })
         .waitFor({ state: 'visible', timeout: TIMEOUT });
       return;
     case 'workspace':

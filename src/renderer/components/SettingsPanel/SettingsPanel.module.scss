@@ -572,6 +572,46 @@
   gap: $spacing-sm $spacing-md;
 }
 
+.providerDiagnosticsActions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.providerDiagnosticsList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+  margin-top: $spacing-md;
+}
+
+.providerDiagnosticRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: $spacing-md;
+  padding: $spacing-sm 0;
+  border-top: 1px solid rgba(var(--color-border-strong-rgb), 0.3);
+}
+
+.providerDiagnosticTitle {
+  color: $color-text-primary;
+  font-size: $font-size-sm;
+  font-weight: $font-weight-semibold;
+}
+
+.providerDiagnosticMessage,
+.providerDiagnosticDetail {
+  margin: 3px 0 0;
+  color: $color-text-secondary;
+  font-size: $font-size-sm;
+  line-height: 1.45;
+}
+
+.providerDiagnosticDetail {
+  color: $color-text-muted;
+  overflow-wrap: anywhere;
+}
+
 .accountIdentity {
   display: flex;
   align-items: center;
