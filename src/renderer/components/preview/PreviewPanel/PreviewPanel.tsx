@@ -6,13 +6,13 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-// FolderKanban (Assets) and Layers (Storyboard) icons retained for the
-// deprecated tabs — kept imported so re-enabling those tabs is a
-// single-line change in the `tabs` array below.
-import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers } from 'lucide-react';
+import { ChevronUp, Clapperboard, FileCode2, FileText } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
-import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
+import {
+  TimelineDataProvider,
+  useTimelineDataContext,
+} from '../../../contexts/TimelineDataContext';
 import type { SceneVersions } from '../../../types/dhee/timeline';
 import AssetsView from '../AssetsView/AssetsView';
 import StoryboardView from '../StoryboardView/StoryboardView';
@@ -25,6 +25,104 @@ import { TimelineDockIcon } from '../EditorIcons';
 import styles from './PreviewPanel.module.scss';
 
 type Tab = 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
+
+interface TimelinePlaybackDriverProps {
+  activeTab: Tab;
+  playbackTime: number;
+  isPlaying: boolean;
+  isDragging: boolean;
+  onPlaybackTimeChange: (time: number) => void;
+  onPlaybackStateChange: (playing: boolean) => void;
+  onTotalDurationChange: (duration: number) => void;
+}
+
+function TimelinePlaybackDriver({
+  activeTab,
+  playbackTime,
+  isPlaying,
+  isDragging,
+  onPlaybackTimeChange,
+  onPlaybackStateChange,
+  onTotalDurationChange,
+}: TimelinePlaybackDriverProps) {
+  const { totalDuration } = useTimelineDataContext();
+  const frameRef = useRef<number | null>(null);
+  const clockRef = useRef<{
+    lastTimestamp: number | null;
+    playbackTime: number;
+  }>({
+    lastTimestamp: null,
+    playbackTime,
+  });
+
+  useEffect(() => {
+    onTotalDurationChange(totalDuration);
+  }, [onTotalDurationChange, totalDuration]);
+
+  useEffect(() => {
+    clockRef.current.playbackTime = playbackTime;
+  }, [playbackTime]);
+
+  useEffect(() => {
+    const clock = clockRef.current;
+
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+
+    if (activeTab === 'video-library' || !isPlaying || isDragging) {
+      clock.lastTimestamp = null;
+      return undefined;
+    }
+
+    const tick = (timestamp: number) => {
+      const previousTimestamp = clock.lastTimestamp;
+      const deltaSeconds = previousTimestamp
+        ? Math.max(0, (timestamp - previousTimestamp) / 1000)
+        : 0;
+      const nextTime = clock.playbackTime + deltaSeconds;
+      const boundedTime =
+        totalDuration > 0
+          ? Math.min(nextTime, totalDuration)
+          : Math.max(0, nextTime);
+
+      clock.lastTimestamp = timestamp;
+      clock.playbackTime = boundedTime;
+      onPlaybackTimeChange(boundedTime);
+
+      if (totalDuration > 0 && boundedTime >= totalDuration - 0.001) {
+        frameRef.current = null;
+        clock.lastTimestamp = null;
+        onPlaybackStateChange(false);
+        return;
+      }
+
+      // eslint-disable-next-line compat/compat
+      frameRef.current = requestAnimationFrame(tick);
+    };
+
+    // eslint-disable-next-line compat/compat
+    frameRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      if (frameRef.current !== null) {
+        cancelAnimationFrame(frameRef.current);
+        frameRef.current = null;
+      }
+      clock.lastTimestamp = null;
+    };
+  }, [
+    activeTab,
+    isDragging,
+    isPlaying,
+    onPlaybackStateChange,
+    onPlaybackTimeChange,
+    totalDuration,
+  ]);
+
+  return null;
+}
 
 export default function PreviewPanel() {
   // Default to Prompts — the per-shot prompt + media inspector is the
@@ -174,7 +272,8 @@ export default function PreviewPanel() {
     [timelineHeight],
   );
 
-  const shouldHydrateTimeline = activeTab === 'video-library' || timelineOpen;
+  const shouldHydrateTimeline =
+    activeTab === 'video-library' || timelineOpen || isPlaying;
 
   const renderActiveContent = () => (
     <div className={styles.content}>
@@ -279,7 +378,14 @@ export default function PreviewPanel() {
         {/* Right-aligned project actions. Today: "Redo from..." dropdown
          *  for stage-level resets. Surfaces existing /reset functionality
          *  with discovery + a non-recoverable-action confirmation modal. */}
-        <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', paddingRight: 12 }}>
+        <div
+          style={{
+            marginLeft: 'auto',
+            display: 'flex',
+            alignItems: 'center',
+            paddingRight: 12,
+          }}
+        >
           <RedoFromMenu />
         </div>
       </div>
@@ -287,6 +393,15 @@ export default function PreviewPanel() {
       <div className={styles.contentWrapper}>
         {shouldHydrateTimeline ? (
           <TimelineDataProvider activeVersions={activeVersions}>
+            <TimelinePlaybackDriver
+              activeTab={activeTab}
+              playbackTime={playbackTime}
+              isPlaying={isPlaying}
+              isDragging={isDragging}
+              onPlaybackTimeChange={setPlaybackTime}
+              onPlaybackStateChange={setIsPlaying}
+              onTotalDurationChange={setTotalDuration}
+            />
             {renderActiveContent()}
             {renderTimelineSection()}
           </TimelineDataProvider>

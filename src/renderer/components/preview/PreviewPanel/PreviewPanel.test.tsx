@@ -14,8 +14,52 @@
  * bar itself.
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/react';
+import type { ReactNode } from 'react';
 import PreviewPanel from './PreviewPanel';
+
+type AnimationFrameCallback = (timestamp: number) => void;
+
+let mockTimelineTotalDuration = 5;
+let mockFrameCallbacks: AnimationFrameCallback[] = [];
+
+const mockTimelinePanel = jest.fn(
+  ({
+    playbackTime,
+    isPlaying,
+    onPlayPause,
+  }: {
+    playbackTime: number;
+    isPlaying: boolean;
+    onPlayPause?: (playing: boolean) => void;
+  }) => (
+    <div data-testid="timeline-panel">
+      <button type="button" onClick={() => onPlayPause?.(!isPlaying)}>
+        Timeline Play Toggle
+      </button>
+      <span data-testid="timeline-playback-time">
+        {playbackTime.toFixed(2)}
+      </span>
+      <span data-testid="timeline-playing-state">{String(isPlaying)}</span>
+    </div>
+  ),
+);
+
+const mockVideoLibraryView = jest.fn(() => (
+  <div data-testid="watch-view">Watch</div>
+));
+
+function flushAnimationFrame(timestamp: number) {
+  const callbacks = mockFrameCallbacks;
+  mockFrameCallbacks = [];
+  callbacks.forEach((callback) => callback(timestamp));
+}
 
 jest.mock('../../../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
@@ -33,7 +77,10 @@ jest.mock('../../../contexts/ProjectContext', () => ({
 }));
 
 jest.mock('../../../contexts/TimelineDataContext', () => ({
-  TimelineDataProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  TimelineDataProvider: ({ children }: { children: ReactNode }) => children,
+  useTimelineDataContext: () => ({
+    totalDuration: mockTimelineTotalDuration,
+  }),
 }));
 
 // View components are stubbed — the test is about the tab bar, not
@@ -43,15 +90,44 @@ jest.mock('../../../contexts/TimelineDataContext', () => ({
 jest.mock('../AssetsView/AssetsView', () => () => null);
 jest.mock('../StoryboardView/StoryboardView', () => () => null);
 jest.mock('../PromptsView/PromptsView', () => () => null);
-jest.mock('../VideoLibraryView/VideoLibraryView', () => () => null);
+jest.mock(
+  '../VideoLibraryView/VideoLibraryView',
+  () => () => mockVideoLibraryView(),
+);
 jest.mock('../PlansView/PlansView', () => () => null);
-jest.mock('../TimelinePanel/TimelinePanel', () => () => null);
+jest.mock(
+  '../TimelinePanel/TimelinePanel',
+  () => (props: Parameters<typeof mockTimelinePanel>[0]) =>
+    mockTimelinePanel(props),
+);
 jest.mock('../EditorIcons', () => ({ TimelineDockIcon: () => null }));
 // RedoFromMenu uses useDheeSession which needs the full
 // window.dhee IPC surface. Stubbed for the tab-bar tests; the menu
 // has its own test file (RedoFromMenu/redoFromStages.test.ts) for
 // the data layer.
 jest.mock('../RedoFromMenu/RedoFromMenu', () => () => null);
+
+beforeEach(() => {
+  mockTimelineTotalDuration = 5;
+  mockFrameCallbacks = [];
+  mockTimelinePanel.mockClear();
+  mockVideoLibraryView.mockClear();
+  Object.defineProperty(window, 'requestAnimationFrame', {
+    configurable: true,
+    value: jest.fn((callback: AnimationFrameCallback) => {
+      mockFrameCallbacks.push(callback);
+      return mockFrameCallbacks.length;
+    }),
+  });
+  Object.defineProperty(window, 'cancelAnimationFrame', {
+    configurable: true,
+    value: jest.fn(),
+  });
+});
+
+afterEach(() => {
+  jest.restoreAllMocks();
+});
 
 describe('PreviewPanel — tab visibility and default selection', () => {
   describe('GIVEN a project is open', () => {
@@ -70,9 +146,7 @@ describe('PreviewPanel — tab visibility and default selection', () => {
 
       it('THEN Storyboard is NOT visible', () => {
         render(<PreviewPanel />);
-        expect(
-          screen.queryByRole('tab', { name: /Storyboard/i }),
-        ).toBeNull();
+        expect(screen.queryByRole('tab', { name: /Storyboard/i })).toBeNull();
       });
 
       it('THEN Assets is NOT visible', () => {
@@ -95,6 +169,49 @@ describe('PreviewPanel — tab visibility and default selection', () => {
         render(<PreviewPanel />);
         const promptsTab = screen.getByRole('tab', { name: /^Prompts$/ });
         expect(promptsTab).toHaveAttribute('aria-selected', 'true');
+      });
+
+      it('THEN the timeline play button advances playback on the default Prompts tab', async () => {
+        render(<PreviewPanel />);
+
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Timeline Play Toggle' }),
+        );
+
+        await waitFor(() => {
+          expect(mockFrameCallbacks.length).toBeGreaterThan(0);
+        });
+
+        act(() => {
+          flushAnimationFrame(1000);
+          flushAnimationFrame(1500);
+        });
+
+        await waitFor(() => {
+          expect(
+            Number(screen.getByTestId('timeline-playback-time').textContent),
+          ).toBeGreaterThan(0);
+        });
+      });
+
+      it('THEN the fallback clock stays disabled while Watch is active', async () => {
+        render(<PreviewPanel />);
+
+        fireEvent.click(screen.getByRole('tab', { name: /^Watch$/ }));
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Timeline Play Toggle' }),
+        );
+
+        await waitFor(() => {
+          expect(
+            screen.getByTestId('timeline-playing-state'),
+          ).toHaveTextContent('true');
+        });
+
+        expect(mockFrameCallbacks).toHaveLength(0);
+        expect(screen.getByTestId('timeline-playback-time')).toHaveTextContent(
+          '0.00',
+        );
       });
     });
   });
