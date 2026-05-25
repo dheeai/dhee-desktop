@@ -139,6 +139,24 @@ export function captureDesktopAuthStarted(manager: dheeCoreManager): void {
   });
 }
 
+export function captureDesktopProjectCreated(
+  manager: dheeCoreManager,
+  input: { projectName: string },
+): void {
+  const projectName = input.projectName.trim();
+  if (!projectName) {
+    return;
+  }
+
+  manager.captureAnalyticsEvent('project_created', {
+    ...sessionProperties(),
+    project_name: projectName,
+    project_name_length: projectName.length,
+    creation_surface: 'new_project_dialog',
+    project_creation_source: 'desktop',
+  });
+}
+
 export function identifyDesktopUser(
   manager: dheeCoreManager,
   userId: string,
