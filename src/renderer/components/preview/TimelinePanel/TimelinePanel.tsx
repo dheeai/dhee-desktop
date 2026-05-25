@@ -29,10 +29,7 @@ import {
 import { imageToBase64, shouldUseBase64 } from '../../../utils/imageToBase64';
 import {
   clampImageMove,
-  clampImageResizeRight,
-  buildUpdatedImageOverride,
   buildUpdatedInfographicOverride,
-  buildUpdatedSegmentTimingOverride,
   buildUpdatedVideoSplitOverride,
   snapToSecond,
 } from '../../../utils/timelineImageEditing';
@@ -211,18 +208,6 @@ interface TimelineItemComponentProps {
     e: React.MouseEvent<HTMLDivElement>,
     item: TimelineItem,
   ) => void;
-  onImageResizeMouseDown?: (
-    e: React.MouseEvent<HTMLDivElement>,
-    item: TimelineItem,
-  ) => void;
-  onVisualDragMouseDown?: (
-    e: React.MouseEvent<HTMLDivElement>,
-    item: TimelineItem,
-  ) => void;
-  onVisualResizeMouseDown?: (
-    e: React.MouseEvent<HTMLDivElement>,
-    item: TimelineItem,
-  ) => void;
   onInfographicDragMouseDown?: (
     e: React.MouseEvent<HTMLDivElement>,
     item: TimelineItem,
@@ -241,9 +226,6 @@ function TimelineItemComponent({
   projectDirectory,
   isSelected,
   onItemClick,
-  onImageResizeMouseDown,
-  onVisualDragMouseDown,
-  onVisualResizeMouseDown,
   onInfographicDragMouseDown,
   onItemContextMenu,
   isEditing = false,
@@ -514,15 +496,10 @@ function TimelineItemComponent({
   if (item.type === 'video' && videoPath) {
     return (
       <div
-        className={`${styles.videoBlock} ${item.sourceType === 'server_timeline' ? styles.editableImageBlock : ''} ${isSelected ? styles.selected : ''} ${isEditing ? styles.editing : ''}`}
+        className={`${styles.videoBlock} ${isSelected ? styles.selected : ''}`}
         style={{
           left: `${left}px`,
           width: `${width}px`,
-        }}
-        onMouseDown={(e) => {
-          if (item.sourceType === 'server_timeline' && onVisualDragMouseDown) {
-            onVisualDragMouseDown(e, item);
-          }
         }}
         onClick={(e) => {
           if (onItemClick) {
@@ -552,19 +529,6 @@ function TimelineItemComponent({
           <div className={styles.clipBadge}>{clipBadgeLabel}</div>
         )}
         <div className={styles.videoLabel}>{footerLabel}</div>
-        {item.sourceType === 'server_timeline' && (
-          <div
-            className={styles.imageResizeHandle}
-            onMouseDown={(e) => {
-              e.preventDefault();
-              e.stopPropagation();
-              if (onVisualResizeMouseDown) {
-                onVisualResizeMouseDown(e, item);
-              }
-            }}
-            role="presentation"
-          />
-        )}
       </div>
     );
   }
@@ -690,15 +654,10 @@ function TimelineItemComponent({
 
   return (
     <div
-      className={`${styles.sceneBlock} ${styles.editableImageBlock} ${isSelected ? styles.selected : ''} ${isEditing ? styles.editing : ''}`}
+      className={`${styles.sceneBlock} ${isSelected ? styles.selected : ''}`}
       style={{
         left: `${left}px`,
         width: `${width}px`,
-      }}
-      onMouseDown={(e) => {
-        if (item.sourceType === 'server_timeline' && onVisualDragMouseDown) {
-          onVisualDragMouseDown(e, item);
-        }
       }}
       onClick={(e) => {
         if (onItemClick) {
@@ -724,22 +683,6 @@ function TimelineItemComponent({
             : item.prompt}
         </div>
       )}
-      <div
-        className={styles.imageResizeHandle}
-        onMouseDown={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (
-            item.sourceType === 'server_timeline' &&
-            onVisualResizeMouseDown
-          ) {
-            onVisualResizeMouseDown(e, item);
-          } else if (onImageResizeMouseDown) {
-            onImageResizeMouseDown(e, item);
-          }
-        }}
-        role="presentation"
-      />
     </div>
   );
 }
@@ -1361,31 +1304,6 @@ export default function TimelinePanel({
     };
   }, [clearUndoHistory]);
 
-  const commitImageTimingOverride = useCallback(
-    (
-      placementNumber: number,
-      sourceStartTime: number,
-      sourceEndTime: number,
-      editedStartTime: number,
-      editedEndTime: number,
-    ) => {
-      const currentOverrides = imageTimingOverridesRef.current;
-      const nextOverrides = buildUpdatedImageOverride(
-        currentOverrides,
-        placementNumber,
-        sourceStartTime,
-        sourceEndTime,
-        editedStartTime,
-        editedEndTime,
-      );
-
-      if (nextOverrides !== currentOverrides) {
-        updateImageTimingOverrides(nextOverrides);
-      }
-    },
-    [updateImageTimingOverrides],
-  );
-
   const commitInfographicTimingOverride = useCallback(
     (
       placementNumber: number,
@@ -1409,31 +1327,6 @@ export default function TimelinePanel({
       }
     },
     [updateInfographicTimingOverrides],
-  );
-
-  const commitSegmentTimingOverride = useCallback(
-    (
-      segmentId: string | undefined,
-      sourceStartTime: number,
-      sourceEndTime: number,
-      editedStartTime: number,
-      editedEndTime: number,
-    ) => {
-      const currentOverrides = segmentTimingOverridesRef.current;
-      const nextOverrides = buildUpdatedSegmentTimingOverride(
-        currentOverrides,
-        segmentId,
-        sourceStartTime,
-        sourceEndTime,
-        editedStartTime,
-        editedEndTime,
-      );
-
-      if (nextOverrides !== currentOverrides) {
-        updateSegmentTimingOverrides(nextOverrides);
-      }
-    },
-    [updateSegmentTimingOverrides],
   );
 
   const commitVideoSplitAtTime = useCallback(
@@ -1866,311 +1759,6 @@ export default function TimelinePanel({
       setCurrentPosition,
       onDragStateChange,
       closeContextMenu,
-    ],
-  );
-
-  const handleServerVisualDragMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>, item: TimelineItem) => {
-      if (
-        item.sourceType !== 'server_timeline' ||
-        (item.type !== 'image' && item.type !== 'video')
-      ) {
-        return;
-      }
-      if (e.button !== 0) return;
-
-      e.stopPropagation();
-      e.preventDefault();
-      scrollPositionBeforeEditRef.current =
-        tracksRef.current?.scrollLeft ?? null;
-
-      const sourceStartTime = item.sourceStartTime ?? item.startTime;
-      const sourceEndTime = item.sourceEndTime ?? item.endTime;
-      const initialStartTime = item.startTime;
-      const initialDuration = Math.max(1, item.duration);
-
-      let lastStartTime = initialStartTime;
-      let hasRecordedUndoSnapshot = false;
-      const interactionSnapshot = captureSnapshot();
-
-      setActiveEditingItemId(item.id);
-      setIsDragging(true);
-      if (onDragStateChange) {
-        onDragStateChange(true);
-      }
-      wasPlayingBeforeDragRef.current = isPlaying;
-      dragStartXRef.current = e.clientX;
-      dragStartPositionRef.current = currentPosition;
-
-      if (isPlaying) {
-        setIsPlaying(false);
-      }
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaX = moveEvent.clientX - dragStartXRef.current;
-        if (Math.abs(deltaX) <= 5) {
-          return;
-        }
-
-        const deltaSeconds = pixelsToSeconds(deltaX, zoomLevel);
-        const nextRange = clampImageMove({
-          desiredStart: initialStartTime + deltaSeconds,
-          duration: initialDuration,
-          minStart: 0,
-          maxEnd: totalDuration,
-        });
-
-        if (nextRange.startTime !== lastStartTime) {
-          if (!hasRecordedUndoSnapshot) {
-            pushUndoSnapshot(interactionSnapshot);
-            hasRecordedUndoSnapshot = true;
-          }
-
-          lastStartTime = nextRange.startTime;
-          commitSegmentTimingOverride(
-            item.segmentId,
-            sourceStartTime,
-            sourceEndTime,
-            nextRange.startTime,
-            nextRange.endTime,
-          );
-        }
-      };
-
-      const handleMouseUpGlobal = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUpGlobal);
-        setIsDragging(false);
-        if (onDragStateChange) {
-          onDragStateChange(false);
-        }
-        setActiveEditingItemId(null);
-
-        if (wasPlayingBeforeDragRef.current) {
-          setIsPlaying(true);
-        }
-      };
-
-      document.addEventListener('mousemove', handleMouseMove, {
-        passive: true,
-      });
-      document.addEventListener('mouseup', handleMouseUpGlobal);
-    },
-    [
-      captureSnapshot,
-      commitSegmentTimingOverride,
-      currentPosition,
-      isPlaying,
-      onDragStateChange,
-      pushUndoSnapshot,
-      setIsPlaying,
-      totalDuration,
-      zoomLevel,
-    ],
-  );
-
-  const handleServerVisualResizeMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>, item: TimelineItem) => {
-      if (
-        item.sourceType !== 'server_timeline' ||
-        (item.type !== 'image' && item.type !== 'video')
-      ) {
-        return;
-      }
-      if (e.button !== 0) return;
-
-      e.stopPropagation();
-      e.preventDefault();
-      scrollPositionBeforeEditRef.current =
-        tracksRef.current?.scrollLeft ?? null;
-
-      const sourceStartTime = item.sourceStartTime ?? item.startTime;
-      const sourceEndTime = item.sourceEndTime ?? item.endTime;
-      const initialStartTime = item.startTime;
-      const initialEndTime = item.endTime;
-
-      let lastStartTime = initialStartTime;
-      let lastEndTime = initialEndTime;
-      let hasRecordedUndoSnapshot = false;
-      const interactionSnapshot = captureSnapshot();
-
-      setActiveEditingItemId(item.id);
-      setIsDragging(true);
-      if (onDragStateChange) {
-        onDragStateChange(true);
-      }
-      wasPlayingBeforeDragRef.current = isPlaying;
-      dragStartXRef.current = e.clientX;
-      dragStartPositionRef.current = currentPosition;
-
-      if (isPlaying) {
-        setIsPlaying(false);
-      }
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaX = moveEvent.clientX - dragStartXRef.current;
-        if (Math.abs(deltaX) <= 5) {
-          return;
-        }
-
-        const deltaSeconds = pixelsToSeconds(deltaX, zoomLevel);
-        const nextRange = clampImageResizeRight({
-          startTime: initialStartTime,
-          desiredEnd: initialEndTime + deltaSeconds,
-          maxEnd: totalDuration,
-          minDuration: 1,
-        });
-
-        if (
-          nextRange.startTime !== lastStartTime ||
-          nextRange.endTime !== lastEndTime
-        ) {
-          if (!hasRecordedUndoSnapshot) {
-            pushUndoSnapshot(interactionSnapshot);
-            hasRecordedUndoSnapshot = true;
-          }
-
-          lastStartTime = nextRange.startTime;
-          lastEndTime = nextRange.endTime;
-          commitSegmentTimingOverride(
-            item.segmentId,
-            sourceStartTime,
-            sourceEndTime,
-            nextRange.startTime,
-            nextRange.endTime,
-          );
-        }
-      };
-
-      const handleMouseUpGlobal = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUpGlobal);
-        setIsDragging(false);
-        if (onDragStateChange) {
-          onDragStateChange(false);
-        }
-        setActiveEditingItemId(null);
-
-        if (wasPlayingBeforeDragRef.current) {
-          setIsPlaying(true);
-        }
-      };
-
-      document.addEventListener('mousemove', handleMouseMove, {
-        passive: true,
-      });
-      document.addEventListener('mouseup', handleMouseUpGlobal);
-    },
-    [
-      captureSnapshot,
-      commitSegmentTimingOverride,
-      currentPosition,
-      isPlaying,
-      onDragStateChange,
-      pushUndoSnapshot,
-      setIsPlaying,
-      totalDuration,
-      zoomLevel,
-    ],
-  );
-
-  const handleImageResizeMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>, item: TimelineItem) => {
-      if (item.type !== 'image' || item.placementNumber === undefined) return;
-      if (e.button !== 0) return;
-
-      e.stopPropagation();
-      e.preventDefault();
-      scrollPositionBeforeEditRef.current =
-        tracksRef.current?.scrollLeft ?? null;
-
-      const sourceStartTime = item.sourceStartTime ?? item.startTime;
-      const sourceEndTime = item.sourceEndTime ?? item.endTime;
-      const initialStartTime = item.startTime;
-      const initialEndTime = item.endTime;
-
-      let lastStartTime = initialStartTime;
-      let lastEndTime = initialEndTime;
-      let hasRecordedUndoSnapshot = false;
-      const interactionSnapshot = captureSnapshot();
-
-      setActiveEditingItemId(item.id);
-      setIsDragging(true);
-      if (onDragStateChange) {
-        onDragStateChange(true);
-      }
-      wasPlayingBeforeDragRef.current = isPlaying;
-      dragStartXRef.current = e.clientX;
-      dragStartPositionRef.current = currentPosition;
-
-      if (isPlaying) {
-        setIsPlaying(false);
-      }
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaX = moveEvent.clientX - dragStartXRef.current;
-        if (Math.abs(deltaX) <= 5) {
-          return;
-        }
-
-        const deltaSeconds = pixelsToSeconds(deltaX, zoomLevel);
-        const nextRange = clampImageResizeRight({
-          startTime: initialStartTime,
-          desiredEnd: initialEndTime + deltaSeconds,
-          maxEnd: totalDuration,
-          minDuration: 1,
-        });
-
-        if (
-          nextRange.startTime !== lastStartTime ||
-          nextRange.endTime !== lastEndTime
-        ) {
-          if (!hasRecordedUndoSnapshot) {
-            pushUndoSnapshot(interactionSnapshot);
-            hasRecordedUndoSnapshot = true;
-          }
-
-          lastStartTime = nextRange.startTime;
-          lastEndTime = nextRange.endTime;
-          commitImageTimingOverride(
-            item.placementNumber!,
-            sourceStartTime,
-            sourceEndTime,
-            nextRange.startTime,
-            nextRange.endTime,
-          );
-        }
-      };
-
-      const handleMouseUpGlobal = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUpGlobal);
-        setIsDragging(false);
-        if (onDragStateChange) {
-          onDragStateChange(false);
-        }
-        setActiveEditingItemId(null);
-
-        if (wasPlayingBeforeDragRef.current) {
-          setIsPlaying(true);
-        }
-      };
-
-      document.addEventListener('mousemove', handleMouseMove, {
-        passive: true,
-      });
-      document.addEventListener('mouseup', handleMouseUpGlobal);
-    },
-    [
-      isPlaying,
-      currentPosition,
-      onDragStateChange,
-      zoomLevel,
-      totalDuration,
-      commitImageTimingOverride,
-      captureSnapshot,
-      pushUndoSnapshot,
-      setIsPlaying,
     ],
   );
 
@@ -3103,13 +2691,6 @@ export default function TimelinePanel({
                             projectDirectory={projectDirectory || null}
                             isSelected={activeEditingItemId === item.id}
                             onItemClick={handleItemClick}
-                            onImageResizeMouseDown={handleImageResizeMouseDown}
-                            onVisualDragMouseDown={
-                              handleServerVisualDragMouseDown
-                            }
-                            onVisualResizeMouseDown={
-                              handleServerVisualResizeMouseDown
-                            }
                             onInfographicDragMouseDown={
                               handleInfographicDragMouseDown
                             }
