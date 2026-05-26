@@ -314,3 +314,60 @@
     transform: rotate(360deg);
   }
 }
+
+.methodList {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.methodCard {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: $spacing-xs;
+  padding: $spacing-sm $spacing-md;
+  border: 1px solid $color-panel-border;
+  border-radius: $radius-sm;
+  background: rgba(var(--color-text-primary-rgb), 0.02);
+  color: $color-text-primary;
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+
+  &:hover:not(:disabled) {
+    border-color: rgba(var(--color-accent-primary-rgb), 0.34);
+  }
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.methodSelected {
+  background: rgba(var(--color-accent-primary-rgb), 0.1);
+  border-color: rgba(var(--color-accent-primary-rgb), 0.55);
+}
+
+.methodCardHeader {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-xs;
+}
+
+.methodCardIndex {
+  font-size: $font-size-xs;
+  opacity: 0.6;
+}
+
+.methodCardTitle {
+  font-size: $font-size-sm;
+  font-weight: 600;
+}
+
+.methodCardDescription {
+  font-size: $font-size-xs;
+  opacity: 0.75;
+  line-height: 1.45;
+}

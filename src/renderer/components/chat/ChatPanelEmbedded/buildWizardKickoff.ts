@@ -4,13 +4,15 @@
  *
  * The agent receives this message, recognizes it as a project-creation
  * task, and calls `dhee_new` with the metadata it needs:
- *   - `name`     ← projectName
- *   - `template` ← templateId
- *   - `style`    ← style
- *   - `duration` ← duration
- *   - `input`    ← story
- *   - `existingDir` ← projectDir (so dhee_new creates in-place, not in
- *                    the default projects directory)
+ *   - `name`         ← projectName
+ *   - `template`     ← templateId
+ *   - `style`        ← style
+ *   - `duration`     ← duration
+ *   - `renderMethod` ← renderMethod (which dispatcher path the project
+ *                     uses; persists to project.json)
+ *   - `input`        ← story
+ *   - `existingDir`  ← projectDir (so dhee_new creates in-place, not in
+ *                     the default projects directory)
  *
  * As of the System-B removal refactor, this is the SOLE path that
  * writes `project.json`. The renderer no longer pre-stubs the file
@@ -28,6 +30,8 @@ interface BuildWizardKickoffArgs {
   templateId: string;
   style: string;
   duration: number;
+  /** Render method (shot_by_shot | prompt_relay). Value must come from kshana-core's RenderMethod registry. */
+  renderMethod: string;
   story: string;
 }
 
@@ -48,12 +52,13 @@ export function buildWizardKickoff(
     `- Template: ${args.templateId}`,
     `- Style: ${args.style}`,
     `- Duration: ${args.duration} seconds`,
+    `- Render method: ${args.renderMethod}`,
     `- Folder: ${args.projectDir} (pass as existingDir)`,
     '',
     'Story:',
     trimmedStory,
     '',
-    'Then start the pipeline.',
+    `Call dhee_new with renderMethod="${args.renderMethod}" along with the settings above. Then start the pipeline.`,
   ];
 
   return { message: lines.join('\n') };

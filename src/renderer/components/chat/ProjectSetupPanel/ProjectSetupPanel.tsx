@@ -42,6 +42,13 @@ export interface SetupDurationOption {
   seconds: number;
 }
 
+export interface SetupRenderMethodOption {
+  /** Must match a value in kshana-core's `RenderMethod` type. */
+  id: string;
+  displayName: string;
+  description: string;
+}
+
 const TEMPLATE_PREVIEW_SRC: Record<string, string> = {
   documentary: templateDocumentaryPreview,
   graphic_novel: templateGraphicNovelPreview,
@@ -68,7 +75,7 @@ const STYLE_PREVIEW_SRC: Record<string, string> = {
   watercolor: styleWatercolorPreview,
 };
 
-export type SetupStep = 'template' | 'style' | 'duration' | 'story' | 'autonomous';
+export type SetupStep = 'template' | 'style' | 'duration' | 'method' | 'story' | 'autonomous';
 export type SetupPanelMode = 'hidden' | 'banner' | 'wizard' | 'summary';
 
 interface ProjectSetupPanelProps {
@@ -76,9 +83,11 @@ interface ProjectSetupPanelProps {
   step: SetupStep;
   templates: SetupTemplateOption[];
   durationPresets: Record<string, SetupDurationOption[]>;
+  renderMethods: SetupRenderMethodOption[];
   selectedTemplateId: string | null;
   selectedStyleId: string | null;
   selectedDuration: number | null;
+  selectedRenderMethod: string | null;
   selectedAutonomousMode: boolean;
   storyInput: string;
   loading: boolean;
@@ -89,6 +98,7 @@ interface ProjectSetupPanelProps {
   onSelectTemplate: (templateId: string) => void;
   onSelectStyle: (styleId: string) => void;
   onSelectDuration: (seconds: number) => void;
+  onSelectRenderMethod: (methodId: string) => void;
   onChangeStory: (value: string) => void;
   onSubmitStory: () => void;
   onSelectAutonomousMode: (enabled: boolean) => void;
@@ -132,9 +142,11 @@ export default function ProjectSetupPanel({
   step,
   templates,
   durationPresets,
+  renderMethods,
   selectedTemplateId,
   selectedStyleId,
   selectedDuration,
+  selectedRenderMethod,
   selectedAutonomousMode,
   storyInput,
   loading,
@@ -145,6 +157,7 @@ export default function ProjectSetupPanel({
   onSelectTemplate,
   onSelectStyle,
   onSelectDuration,
+  onSelectRenderMethod,
   onChangeStory,
   onSubmitStory,
   onSelectAutonomousMode,
@@ -229,6 +242,14 @@ export default function ProjectSetupPanel({
         return;
       }
 
+      if (step === 'method') {
+        const target = renderMethods[index];
+        if (!target) return;
+        event.preventDefault();
+        onSelectRenderMethod(target.id);
+        return;
+      }
+
       const target = durationOptions[index];
       if (!target) return;
       event.preventDefault();
@@ -244,8 +265,10 @@ export default function ProjectSetupPanel({
     mode,
     onSelectDuration,
     onSelectAutonomousMode,
+    onSelectRenderMethod,
     onSelectStyle,
     onSelectTemplate,
+    renderMethods,
     step,
     styleOptions,
     templates,
@@ -347,9 +370,10 @@ export default function ProjectSetupPanel({
           )}
           <span className={styles.wizardStep}>
             {step === 'template' && 'Setup'}
-            {step === 'style' && 'Step 1 of 3'}
-            {step === 'duration' && 'Step 2 of 3'}
-            {step === 'story' && 'Step 3 of 3'}
+            {step === 'style' && 'Step 1 of 4'}
+            {step === 'duration' && 'Step 2 of 4'}
+            {step === 'method' && 'Step 3 of 4'}
+            {step === 'story' && 'Step 4 of 4'}
             {step === 'autonomous' && 'Setup'}
           </span>
         </div>
@@ -357,6 +381,7 @@ export default function ProjectSetupPanel({
           {step === 'template' && 'Choose a Template'}
           {step === 'style' && 'Choose a Style'}
           {step === 'duration' && 'Choose Duration'}
+          {step === 'method' && 'Choose Generation Method'}
           {step === 'story' && 'Tell Us the Story'}
           {step === 'autonomous' && 'Autonomous Mode'}
         </h3>
@@ -470,6 +495,34 @@ export default function ProjectSetupPanel({
                 </button>
               </div>
             </>
+          )}
+
+          {step === 'method' && (
+            <div className={styles.methodList}>
+              {renderMethods.map((method, index) => (
+                <button
+                  type="button"
+                  key={method.id}
+                  className={`${styles.methodCard} ${
+                    selectedRenderMethod === method.id
+                      ? styles.methodSelected
+                      : ''
+                  }`}
+                  onClick={() => onSelectRenderMethod(method.id)}
+                  disabled={configuring}
+                >
+                  <div className={styles.methodCardHeader}>
+                    <span className={styles.methodCardIndex}>{index + 1}.</span>
+                    <span className={styles.methodCardTitle}>
+                      {method.displayName}
+                    </span>
+                  </div>
+                  <div className={styles.methodCardDescription}>
+                    {method.description}
+                  </div>
+                </button>
+              ))}
+            </div>
           )}
 
           {step === 'story' && (

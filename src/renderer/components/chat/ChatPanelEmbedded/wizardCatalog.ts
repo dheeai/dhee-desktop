@@ -12,6 +12,7 @@
 import type {
   SetupTemplateOption,
   SetupDurationOption,
+  SetupRenderMethodOption,
 } from '../ProjectSetupPanel/ProjectSetupPanel';
 
 export const WIZARD_TEMPLATES: SetupTemplateOption[] = [
@@ -47,3 +48,32 @@ export const WIZARD_DURATION_PRESETS: Record<string, SetupDurationOption[]> = {
 export const WIZARD_DEFAULT_TEMPLATE_ID = 'narrative';
 export const WIZARD_DEFAULT_STYLE_ID = 'cinematic_realism';
 export const WIZARD_DEFAULT_DURATION_SECONDS = 60;
+
+/**
+ * Render methods exposed in the new-project wizard. Mirrors the
+ * canonical registry in `kshana-core/src/core/project/renderMethods.ts`.
+ * Keep these in sync — id values must match.
+ *
+ * The choice gets persisted to `project.json` → `renderMethod` via
+ * the `dhee_new` tool's `renderMethod` parameter. The project-level
+ * dispatcher (runProjectInProcess) reads the field and routes
+ * rendering accordingly. The pi-agent's role with this field is
+ * editing later (dhee_set_render_method); the initial selection
+ * happens here in the wizard.
+ */
+export const WIZARD_RENDER_METHODS: SetupRenderMethodOption[] = [
+  {
+    id: 'shot_by_shot',
+    displayName: 'Shot-by-shot',
+    description:
+      'Render each shot independently with first + last frame anchors. Higher per-frame resolution, slower wall-clock. Works on any LTX-capable Comfy.',
+  },
+  {
+    id: 'prompt_relay',
+    displayName: 'Prompt relay',
+    description:
+      'Render whole scenes continuously via LTX Director. Better cross-shot motion fidelity and identity continuity, lower per-frame resolution. Requires the local Comfy box (cloud Comfy lacks the LTX Director custom nodes + LoRAs).',
+  },
+];
+
+export const WIZARD_DEFAULT_RENDER_METHOD = 'shot_by_shot';

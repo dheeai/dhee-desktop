@@ -54,6 +54,8 @@ import {
   WIZARD_DEFAULT_TEMPLATE_ID,
   WIZARD_DEFAULT_STYLE_ID,
   WIZARD_DEFAULT_DURATION_SECONDS,
+  WIZARD_DEFAULT_RENDER_METHOD,
+  WIZARD_RENDER_METHODS,
 } from './wizardCatalog';
 import { loadPersistedProjectSetup } from './loadPersistedProjectSetup';
 import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
@@ -434,6 +436,9 @@ export default function ChatPanelEmbedded() {
   );
   const [selectedDuration, setSelectedDuration] = useState<number | null>(
     WIZARD_DEFAULT_DURATION_SECONDS,
+  );
+  const [selectedRenderMethod, setSelectedRenderMethod] = useState<string | null>(
+    WIZARD_DEFAULT_RENDER_METHOD,
   );
   const [storyInput, setStoryInput] = useState('');
   const [setupError, setSetupError] = useState<string | null>(null);
@@ -859,6 +864,11 @@ export default function ChatPanelEmbedded() {
 
   const handleSelectDuration = useCallback((duration: number) => {
     setSelectedDuration(duration);
+    setSetupStep('method');
+  }, []);
+
+  const handleSelectRenderMethod = useCallback((methodId: string) => {
+    setSelectedRenderMethod(methodId);
     setSetupStep('story');
   }, []);
 
@@ -901,6 +911,7 @@ export default function ChatPanelEmbedded() {
       templateId: selectedTemplateId,
       style: selectedStyleId,
       duration: selectedDuration,
+      renderMethod: selectedRenderMethod ?? WIZARD_DEFAULT_RENDER_METHOD,
       story: trimmedStory,
     });
     if (!message) {
@@ -926,6 +937,7 @@ export default function ChatPanelEmbedded() {
     projectDirectory,
     projectName,
     selectedDuration,
+    selectedRenderMethod,
     selectedStyleId,
     selectedTemplateId,
     session,
@@ -943,7 +955,8 @@ export default function ChatPanelEmbedded() {
 
   const handleSetupBack = useCallback(() => {
     if (setupStep === 'duration') setSetupStep('style');
-    else if (setupStep === 'story') setSetupStep('duration');
+    else if (setupStep === 'method') setSetupStep('duration');
+    else if (setupStep === 'story') setSetupStep('method');
   }, [setupStep]);
 
   const handleOpenSetupWizard = useCallback(() => {
@@ -1391,9 +1404,11 @@ export default function ChatPanelEmbedded() {
         step={setupStep}
         templates={WIZARD_TEMPLATES}
         durationPresets={WIZARD_DURATION_PRESETS}
+        renderMethods={WIZARD_RENDER_METHODS}
         selectedTemplateId={selectedTemplateId}
         selectedStyleId={selectedStyleId}
         selectedDuration={selectedDuration}
+        selectedRenderMethod={selectedRenderMethod}
         selectedAutonomousMode={false}
         storyInput={storyInput}
         loading={false}
@@ -1404,6 +1419,7 @@ export default function ChatPanelEmbedded() {
         onSelectTemplate={handleSelectTemplate}
         onSelectStyle={handleSelectStyle}
         onSelectDuration={handleSelectDuration}
+        onSelectRenderMethod={handleSelectRenderMethod}
         onChangeStory={handleChangeStory}
         onSubmitStory={handleSubmitStory}
         onSelectAutonomousMode={handleSelectAutonomousMode}

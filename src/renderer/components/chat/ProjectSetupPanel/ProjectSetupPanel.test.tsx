@@ -25,6 +25,11 @@ const durationPresets = {
   ],
 };
 
+const renderMethods = [
+  { id: 'shot_by_shot', displayName: 'Shot-by-shot', description: 'Per-shot FL2V.' },
+  { id: 'prompt_relay', displayName: 'Prompt relay', description: 'LTX Director continuous render.' },
+];
+
 function renderPanel() {
   const onOpenWizard = jest.fn();
   const onEditSetup = jest.fn();
@@ -43,9 +48,11 @@ function renderPanel() {
       step="autonomous"
       templates={templates}
       durationPresets={durationPresets}
+      renderMethods={renderMethods}
       selectedTemplateId="narrative"
       selectedStyleId="cinematic_realism"
       selectedDuration={120}
+      selectedRenderMethod="shot_by_shot"
       selectedAutonomousMode={false}
       storyInput=""
       loading={false}
@@ -56,6 +63,7 @@ function renderPanel() {
       onSelectTemplate={onSelectTemplate}
       onSelectStyle={onSelectStyle}
       onSelectDuration={onSelectDuration}
+      onSelectRenderMethod={jest.fn()}
       onChangeStory={onChangeStory}
       onSubmitStory={onSubmitStory}
       onSelectAutonomousMode={onSelectAutonomousMode}
@@ -122,9 +130,11 @@ describe('ProjectSetupPanel', () => {
         mode={baseProps.mode}
         templates={baseProps.templates}
         durationPresets={baseProps.durationPresets}
+        renderMethods={renderMethods}
         selectedTemplateId={baseProps.selectedTemplateId}
         selectedStyleId={baseProps.selectedStyleId}
         selectedDuration={baseProps.selectedDuration}
+        selectedRenderMethod="shot_by_shot"
         selectedAutonomousMode={baseProps.selectedAutonomousMode}
         storyInput={baseProps.storyInput}
         loading={baseProps.loading}
@@ -135,6 +145,7 @@ describe('ProjectSetupPanel', () => {
         onSelectTemplate={baseProps.onSelectTemplate}
         onSelectStyle={baseProps.onSelectStyle}
         onSelectDuration={baseProps.onSelectDuration}
+      onSelectRenderMethod={jest.fn()}
         onChangeStory={baseProps.onChangeStory}
         onSubmitStory={baseProps.onSubmitStory}
         onSelectAutonomousMode={baseProps.onSelectAutonomousMode}
@@ -153,9 +164,11 @@ describe('ProjectSetupPanel', () => {
         mode={baseProps.mode}
         templates={baseProps.templates}
         durationPresets={baseProps.durationPresets}
+        renderMethods={renderMethods}
         selectedTemplateId={baseProps.selectedTemplateId}
         selectedStyleId={baseProps.selectedStyleId}
         selectedDuration={baseProps.selectedDuration}
+        selectedRenderMethod="shot_by_shot"
         selectedAutonomousMode={baseProps.selectedAutonomousMode}
         storyInput={baseProps.storyInput}
         loading={baseProps.loading}
@@ -166,6 +179,7 @@ describe('ProjectSetupPanel', () => {
         onSelectTemplate={baseProps.onSelectTemplate}
         onSelectStyle={baseProps.onSelectStyle}
         onSelectDuration={baseProps.onSelectDuration}
+      onSelectRenderMethod={jest.fn()}
         onChangeStory={baseProps.onChangeStory}
         onSubmitStory={baseProps.onSubmitStory}
         onSelectAutonomousMode={baseProps.onSelectAutonomousMode}
@@ -210,9 +224,11 @@ describe('ProjectSetupPanel', () => {
         step="story"
         templates={templates}
         durationPresets={durationPresets}
+      renderMethods={renderMethods}
         selectedTemplateId="narrative"
         selectedStyleId="cinematic_realism"
         selectedDuration={60}
+        selectedRenderMethod="shot_by_shot"
         selectedAutonomousMode={false}
         storyInput={overrides.storyInput ?? ''}
         loading={false}
@@ -223,6 +239,7 @@ describe('ProjectSetupPanel', () => {
         onSelectTemplate={jest.fn()}
         onSelectStyle={jest.fn()}
         onSelectDuration={jest.fn()}
+        onSelectRenderMethod={jest.fn()}
         onChangeStory={onChangeStory}
         onSubmitStory={onSubmitStory}
         onSelectAutonomousMode={jest.fn()}
@@ -235,16 +252,18 @@ describe('ProjectSetupPanel', () => {
 
   // Indicator tests for the collapsed 3-step user flow.
 
-  it('shows "Step 1 of 3" on the style step', () => {
+  it('shows "Step 1 of 4" on the style step', () => {
     render(
       <ProjectSetupPanel
         mode="wizard"
         step="style"
         templates={templates}
         durationPresets={durationPresets}
+      renderMethods={renderMethods}
         selectedTemplateId="narrative"
         selectedStyleId={null}
         selectedDuration={60}
+        selectedRenderMethod="shot_by_shot"
         selectedAutonomousMode={false}
         storyInput=""
         loading={false}
@@ -255,6 +274,7 @@ describe('ProjectSetupPanel', () => {
         onSelectTemplate={jest.fn()}
         onSelectStyle={jest.fn()}
         onSelectDuration={jest.fn()}
+        onSelectRenderMethod={jest.fn()}
         onChangeStory={jest.fn()}
         onSubmitStory={jest.fn()}
         onSelectAutonomousMode={jest.fn()}
@@ -262,20 +282,22 @@ describe('ProjectSetupPanel', () => {
         onBack={jest.fn()}
       />,
     );
-    expect(screen.queryByText('Step 1 of 3')).not.toBeNull();
+    expect(screen.queryByText('Step 1 of 4')).not.toBeNull();
     expect(screen.queryByText('Choose a Style')).not.toBeNull();
   });
 
-  it('shows "Step 2 of 3" on the duration step', () => {
+  it('shows "Step 2 of 4" on the duration step', () => {
     render(
       <ProjectSetupPanel
         mode="wizard"
         step="duration"
         templates={templates}
         durationPresets={durationPresets}
+      renderMethods={renderMethods}
         selectedTemplateId="narrative"
         selectedStyleId="cinematic_realism"
         selectedDuration={null}
+        selectedRenderMethod="shot_by_shot"
         selectedAutonomousMode={false}
         storyInput=""
         loading={false}
@@ -286,6 +308,7 @@ describe('ProjectSetupPanel', () => {
         onSelectTemplate={jest.fn()}
         onSelectStyle={jest.fn()}
         onSelectDuration={jest.fn()}
+        onSelectRenderMethod={jest.fn()}
         onChangeStory={jest.fn()}
         onSubmitStory={jest.fn()}
         onSelectAutonomousMode={jest.fn()}
@@ -293,7 +316,7 @@ describe('ProjectSetupPanel', () => {
         onBack={jest.fn()}
       />,
     );
-    expect(screen.queryByText('Step 2 of 3')).not.toBeNull();
+    expect(screen.queryByText('Step 2 of 4')).not.toBeNull();
     expect(screen.queryByText('Choose Duration')).not.toBeNull();
   });
 
@@ -302,7 +325,7 @@ describe('ProjectSetupPanel', () => {
     // story. Template (step 0) is auto-defaulted to 'narrative';
     // autonomous (post-step) is no longer in the user flow.
     renderStoryStep();
-    expect(screen.queryByText('Step 3 of 3')).not.toBeNull();
+    expect(screen.queryByText('Step 4 of 4')).not.toBeNull();
     expect(screen.queryByText('Tell Us the Story')).not.toBeNull();
     // The textarea is rendered with an aria-label.
     expect(
@@ -362,9 +385,11 @@ describe('ProjectSetupPanel', () => {
         step="autonomous"
         templates={templates}
         durationPresets={durationPresets}
+      renderMethods={renderMethods}
         selectedTemplateId="narrative"
         selectedStyleId="cinematic_realism"
         selectedDuration={120}
+      selectedRenderMethod="shot_by_shot"
         selectedAutonomousMode
         storyInput=""
         loading={false}
@@ -375,6 +400,7 @@ describe('ProjectSetupPanel', () => {
         onSelectTemplate={jest.fn()}
         onSelectStyle={jest.fn()}
         onSelectDuration={jest.fn()}
+        onSelectRenderMethod={jest.fn()}
         onChangeStory={jest.fn()}
         onSubmitStory={jest.fn()}
         onSelectAutonomousMode={jest.fn()}

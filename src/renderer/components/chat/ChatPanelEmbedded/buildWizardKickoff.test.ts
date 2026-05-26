@@ -8,6 +8,7 @@ describe('buildWizardKickoff', () => {
     templateId: 'narrative',
     style: 'anime',
     duration: 60,
+    renderMethod: 'shot_by_shot',
     story: 'A story about two characters on an observation deck.',
   };
 
