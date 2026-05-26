@@ -418,6 +418,21 @@ const fakeElectron = {
       record('project.selectAudioFile', undefined);
       return Promise.resolve(bridgeReturn('project.selectAudioFile', null));
     },
+    selectAttachment: (req: unknown) => {
+      record('project.selectAttachment', req);
+      return Promise.resolve(
+        bridgeReturn('project.selectAttachment', { ok: false }, [req]),
+      );
+    },
+    importCharacterReferences: (req: unknown) => {
+      record('project.importCharacterReferences', req);
+      return Promise.resolve(
+        bridgeReturn('project.importCharacterReferences', {
+          ok: true,
+          attachments: [],
+        }, [req]),
+      );
+    },
     getAudioDuration: () => Promise.resolve(0),
     getAudioWaveform: () => Promise.resolve({ peaks: [], duration: 0 }),
     generateWordCaptions: () => Promise.resolve({ success: false }),

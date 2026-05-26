@@ -75,9 +75,11 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
+import type { Attachment } from '../shared/attachmentTypes';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
 import { exportChatJsonWithDialog } from './services/chatExportService';
+import { importCharacterReferenceAttachments } from './characterReferenceImport';
 import {
   generateCapcutProject,
   type ExportTimelineItem,
@@ -456,15 +458,22 @@ ipcMain.handle('project:select-audio-file', async () => {
   return result.filePaths[0];
 });
 
-// Generic chat-attachment file picker. v1 supports `comfy_workflow`
-// only; the contract accepts a list of kinds so future text/image/
-// video/audio picks reuse the same handler.
+// Generic chat-attachment file picker. The contract accepts a list of
+// kinds so workflow JSON and character-reference images can share the
+// same dialog plumbing.
 ipcMain.handle(
   'project:select-attachment',
   async (
     _event,
     req: {
-      kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
+      kinds: Array<
+        'comfy_workflow' |
+        'character_ref' |
+        'text' |
+        'image' |
+        'video' |
+        'audio'
+      >;
       title?: string;
     },
   ): Promise<{
@@ -474,6 +483,7 @@ ipcMain.handle(
       kind: string;
       path: string;
       name: string;
+      mimeType?: string;
       size?: number;
     };
     error?: string;
@@ -485,6 +495,7 @@ ipcMain.handle(
 
     const KIND_EXTENSIONS: Record<string, string[]> = {
       comfy_workflow: ['json'],
+      character_ref: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
       text: ['txt', 'md'],
       image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
       video: ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'],
@@ -492,6 +503,7 @@ ipcMain.handle(
     };
     const KIND_LABEL: Record<string, string> = {
       comfy_workflow: 'ComfyUI Workflow',
+      character_ref: 'Character Reference',
       text: 'Text File',
       image: 'Image',
       video: 'Video',
@@ -547,9 +559,43 @@ ipcMain.handle(
         kind: pickedKind,
         path: filePath,
         name: path.basename(filePath),
+        ...(pickedKind === 'character_ref'
+          ? { mimeType: `image/${ext === 'jpg' ? 'jpeg' : ext}` }
+          : {}),
         size,
       },
     };
+  },
+);
+
+ipcMain.handle(
+  'project:import-character-references',
+  async (
+    _event,
+    req: {
+      projectDir: string;
+      attachments: Attachment[];
+    },
+  ): Promise<{
+    ok: boolean;
+    attachments?: Attachment[];
+    error?: string;
+  }> => {
+    if (!req?.projectDir) {
+      return { ok: false, error: 'Project directory is required' };
+    }
+    try {
+      const attachments = await importCharacterReferenceAttachments({
+        projectDir: req.projectDir,
+        attachments: req.attachments,
+      });
+      return { ok: true, attachments };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 );
 

@@ -96,7 +96,12 @@ interface dheeListenerSlot {
 }
 
 interface dheeMockState {
-  runTaskCalls: Array<{ sessionId: string; task: string }>;
+  runTaskCalls: Array<{
+    sessionId: string;
+    task: string;
+    attachments?: unknown;
+    projectDir?: string;
+  }>;
   cancelCalls: Array<{ sessionId: string }>;
   listeners: dheeListenerSlot[];
   nextSessionId: string;
@@ -126,7 +131,12 @@ beforeEach(() => {
   (window as unknown as { dhee: unknown }).dhee = {
     createSession: jest.fn(async () => ({ sessionId: mockState.nextSessionId })),
     configureProject: jest.fn(async () => ({ ok: true })),
-    runTask: jest.fn(async (req: { sessionId: string; task: string }) => {
+    runTask: jest.fn(async (req: {
+      sessionId: string;
+      task: string;
+      attachments?: unknown;
+      projectDir?: string;
+    }) => {
       mockState.runTaskCalls.push(req);
       return { ok: true };
     }),
@@ -402,6 +412,83 @@ describe('ChatPanelEmbedded', () => {
     expect(mockState.runTaskCalls[0]).toMatchObject({
       sessionId: 's-1',
       task: 'create a 30s noir story',
+    });
+  });
+
+  it('imports character reference attachments before sending normal chat', async () => {
+    mockWorkspaceProjectName = 'noir';
+    const projectJson = JSON.stringify({
+      templateId: 'narrative',
+      style: 'cinematic_realism',
+      targetDuration: 60,
+      goal: { status: 'open' },
+    });
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_hero',
+        kind: 'character_ref' as const,
+        path: '/Users/me/Desktop/hero.png',
+        name: 'hero.png',
+        mimeType: 'image/png',
+      },
+    }));
+    const importCharacterReferences = jest.fn(async () => ({
+      ok: true,
+      attachments: [{
+        id: 'att_hero',
+        kind: 'character_ref' as const,
+        path: '/tmp/noir.dhee/assets/uploads/characters/hero.png',
+        name: 'hero.png',
+        mimeType: 'image/png',
+        meta: {
+          purpose: 'character_ref',
+          projectRelativePath: 'assets/uploads/characters/hero.png',
+          originalPath: '/Users/me/Desktop/hero.png',
+          originalFilename: 'hero.png',
+        },
+      }],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => projectJson),
+        selectAttachment,
+        importCharacterReferences,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Attach file'));
+    });
+    await waitFor(() => expect(screen.getByText('hero.png')).toBeInTheDocument());
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Use this hero reference.' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(importCharacterReferences).toHaveBeenCalledWith({
+      projectDir: '/tmp/noir.dhee',
+      attachments: [expect.objectContaining({
+        id: 'att_hero',
+        kind: 'character_ref',
+      })],
+    });
+    expect(mockState.runTaskCalls[0]).toMatchObject({
+      task: 'Use this hero reference.',
+      projectDir: '/tmp/noir.dhee',
+      attachments: [expect.objectContaining({
+        kind: 'character_ref',
+        meta: expect.objectContaining({
+          projectRelativePath: 'assets/uploads/characters/hero.png',
+        }),
+      })],
     });
   });
 

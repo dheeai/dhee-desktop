@@ -129,6 +129,57 @@ describe('ChatInput', () => {
       expect(attachments).toHaveLength(1);
     });
 
+    it('allows multiple character reference image attachments', async () => {
+      const onSend = jest.fn();
+      const selectAttachment = jest
+        .fn()
+        .mockResolvedValueOnce({
+          ok: true,
+          attachment: {
+            id: 'att_hero',
+            kind: 'character_ref' as const,
+            path: '/tmp/hero.png',
+            name: 'hero.png',
+          },
+        })
+        .mockResolvedValueOnce({
+          ok: true,
+          attachment: {
+            id: 'att_friend',
+            kind: 'character_ref' as const,
+            path: '/tmp/friend.png',
+            name: 'friend.png',
+          },
+        });
+      Object.defineProperty(window, 'electron', {
+        configurable: true,
+        value: { project: { selectAttachment } },
+      });
+
+      render(
+        <ChatInput
+          onSend={onSend}
+          acceptedAttachmentKinds={['character_ref']}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Attach file'));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Attach file'));
+      });
+
+      await waitFor(() => expect(screen.getByText('hero.png')).toBeInTheDocument());
+      expect(screen.getByText('friend.png')).toBeInTheDocument();
+
+      fireEvent.submit(screen.getByLabelText('Chat input').closest('form')!);
+      expect(onSend).toHaveBeenCalledWith('', [
+        expect.objectContaining({ id: 'att_hero' }),
+        expect.objectContaining({ id: 'att_friend' }),
+      ]);
+    });
+
     it('removes an attachment when the chip x is clicked', async () => {
       const onSend = jest.fn();
       const selectAttachment = jest.fn(async () => ({

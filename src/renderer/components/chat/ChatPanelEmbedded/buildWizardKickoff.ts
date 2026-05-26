@@ -29,6 +29,14 @@ interface BuildWizardKickoffArgs {
   style: string;
   duration: number;
   story: string;
+  characterReferenceImages?: Array<{
+    name: string;
+    relativePath: string;
+    sourcePath?: string;
+    originalFilename?: string;
+    mimeType?: string;
+    size?: number;
+  }>;
 }
 
 interface BuildWizardKickoffResult {
@@ -52,9 +60,17 @@ export function buildWizardKickoff(
     '',
     'Story:',
     trimmedStory,
-    '',
-    'Then start the pipeline.',
   ];
+
+  if (args.characterReferenceImages && args.characterReferenceImages.length > 0) {
+    lines.push(
+      '',
+      'Pass these copied project-local character reference images exactly as the dhee_new characterReferenceImages parameter:',
+      JSON.stringify(args.characterReferenceImages, null, 2),
+    );
+  }
+
+  lines.push('', 'Then start the pipeline.');
 
   return { message: lines.join('\n') };
 }

@@ -41,6 +41,7 @@ export default function ChatInput({
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isPickingAttachment, setIsPickingAttachment] = useState(false);
   const [rows, setRows] = useState(MIN_ROWS);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -111,6 +112,7 @@ export default function ChatInput({
   const handleAttach = async () => {
     setAttachmentError(null);
     notifyQuestionInteraction();
+    setIsPickingAttachment(true);
     try {
       const result = await window.electron.project.selectAttachment({
         kinds: acceptedAttachmentKinds,
@@ -118,20 +120,35 @@ export default function ChatInput({
           acceptedAttachmentKinds.length === 1 &&
           acceptedAttachmentKinds[0] === 'comfy_workflow'
             ? 'Select a ComfyUI Workflow'
-            : 'Select an attachment',
+            : acceptedAttachmentKinds.length === 1 &&
+                acceptedAttachmentKinds[0] === 'character_ref'
+              ? 'Select Character Reference Image'
+              : 'Select an attachment',
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
         return;
       }
       if (result.attachment) {
-        // Cap at one attachment per turn for v1 — keeps the skill
-        // prompt's parsing simple. Lift the cap when batched flows
-        // need it.
-        setAttachments([result.attachment as Attachment]);
+        setAttachments((prev) => {
+          const attachment = result.attachment as Attachment;
+          if (attachment.kind === 'character_ref') {
+            if (prev.some((item) => item.path === attachment.path)) return prev;
+            return [...prev, attachment];
+          }
+          if (attachment.kind === 'comfy_workflow') {
+            return [
+              ...prev.filter((item) => item.kind !== 'comfy_workflow'),
+              attachment,
+            ];
+          }
+          return [...prev, attachment];
+        });
       }
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsPickingAttachment(false);
     }
   };
 
@@ -140,9 +157,9 @@ export default function ChatInput({
   };
 
   const hasContent = value.trim().length > 0 || attachments.length > 0;
-  const canSend = hasContent && !disabled;
+  const canSend = hasContent && !disabled && !isPickingAttachment;
   const canStop = !disabled && isRunning && !isStopping;
-  const canAttach = !disabled && !isRunning;
+  const canAttach = !disabled && !isRunning && !isPickingAttachment;
 
   return (
     <form
@@ -173,7 +190,12 @@ export default function ChatInput({
           disabled={!canAttach}
           className={styles.attachButton}
           aria-label="Attach file"
-          title="Attach a ComfyUI workflow JSON"
+          title={
+            acceptedAttachmentKinds.length === 1 &&
+            acceptedAttachmentKinds[0] === 'comfy_workflow'
+              ? 'Attach a ComfyUI workflow JSON'
+              : 'Attach a file'
+          }
         >
           <Paperclip size={16} />
         </button>

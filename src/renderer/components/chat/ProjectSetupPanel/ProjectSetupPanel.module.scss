@@ -287,6 +287,34 @@
   }
 }
 
+.storyAttachmentToolbar {
+  display: flex;
+  align-items: center;
+  gap: $spacing-sm;
+  margin-bottom: $spacing-xs;
+}
+
+.attachReferenceButton {
+  @include button-secondary;
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  gap: $spacing-xs;
+  font-size: $font-size-xs;
+}
+
+.attachmentPending {
+  color: $color-text-secondary;
+  font-size: $font-size-xs;
+}
+
+.storyAttachmentRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: $spacing-xs;
+  margin-bottom: $spacing-sm;
+}
+
 .continueButton {
   @include button-primary;
   min-width: 120px;

@@ -258,15 +258,14 @@ export interface RunTaskRequest {
   sessionId: string;
   task: string;
   stopAtStage?: string;
+  /** Current project folder. Required when character_ref attachments need project.inputs registration. */
+  projectDir?: string;
   /**
-   * Files the user attached in the chat input. Currently only
-   * `comfy_workflow` is implemented — text/image/video/audio kinds
-   * are reserved (see src/shared/attachmentTypes.ts).
+   * Files the user attached in the chat input.
    *
-   * The main process transforms these into textual hints that
-   * prepend the task message before dhee-core sees it. This keeps
-   * the dhee-core ConversationManager API unchanged while still
-   * being structurally typed across the IPC boundary.
+   * Comfy workflow files become textual hints. Character refs are
+   * registered in project.inputs and appended as prompt context with
+   * their durable project-relative paths.
    */
   attachments?: import('./attachmentTypes').Attachment[];
 }

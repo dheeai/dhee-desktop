@@ -8,6 +8,8 @@
 
 import { describe, expect, it } from '@jest/globals';
 import {
+  appendCharacterReferenceImagesToTask,
+  characterReferenceImagesFromAttachments,
   prefixAttachmentsToTask,
   renderAttachmentHint,
   type Attachment,
@@ -63,9 +65,56 @@ describe('prefixAttachmentsToTask', () => {
     expect(lines[3]).toBe('do the thing');
   });
 
+  it('does not render character refs as generic attachment hints', () => {
+    const ref: Attachment = {
+      id: 'att_ref',
+      kind: 'character_ref',
+      path: '/tmp/project/assets/uploads/characters/hero.png',
+      name: 'hero.png',
+      meta: {
+        purpose: 'character_ref',
+        projectRelativePath: 'assets/uploads/characters/hero.png',
+      },
+    };
+
+    expect(prefixAttachmentsToTask('use this hero', [ref])).toBe('use this hero');
+  });
+
   it('preserves multi-line task bodies', () => {
     const multi = 'line one\nline two';
     const result = prefixAttachmentsToTask(multi, [wfAttachment]);
     expect(result.endsWith('line one\nline two')).toBe(true);
+  });
+});
+
+describe('character reference attachment helpers', () => {
+  it('extracts durable project-local payloads and appends prompt context', () => {
+    const ref: Attachment = {
+      id: 'att_ref',
+      kind: 'character_ref',
+      path: '/tmp/project/assets/uploads/characters/hero.png',
+      name: 'hero.png',
+      mimeType: 'image/png',
+      size: 4,
+      meta: {
+        purpose: 'character_ref',
+        projectRelativePath: 'assets/uploads/characters/hero.png',
+        originalPath: '/Users/me/Desktop/hero.png',
+        originalFilename: 'hero.png',
+      },
+    };
+
+    const images = characterReferenceImagesFromAttachments([wfAttachment, ref]);
+    expect(images).toEqual([{
+      name: 'hero.png',
+      relativePath: 'assets/uploads/characters/hero.png',
+      sourcePath: '/Users/me/Desktop/hero.png',
+      originalFilename: 'hero.png',
+      mimeType: 'image/png',
+      size: 4,
+    }]);
+    expect(appendCharacterReferenceImagesToTask('Make a film', images)).toBe(
+      'Make a film\n\nAttached character reference images:\n- hero.png: assets/uploads/characters/hero.png',
+    );
   });
 });

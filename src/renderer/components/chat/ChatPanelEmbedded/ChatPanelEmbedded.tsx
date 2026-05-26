@@ -32,7 +32,10 @@ import {
   ScanEye,
   X,
 } from 'lucide-react';
-import type { Attachment } from '../../../../shared/attachmentTypes';
+import {
+  characterReferenceImagesFromAttachments,
+  type Attachment,
+} from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { useDheeSession } from '../../../hooks/useDheeSession';
@@ -268,6 +271,23 @@ function resolveMediaSrc(
   return `file://${absolutePath}`;
 }
 
+function mergePickedAttachment(
+  existing: Attachment[],
+  attachment: Attachment,
+): Attachment[] {
+  if (attachment.kind === 'character_ref') {
+    if (existing.some((item) => item.path === attachment.path)) return existing;
+    return [...existing, attachment];
+  }
+  if (attachment.kind === 'comfy_workflow') {
+    return [
+      ...existing.filter((item) => item.kind !== 'comfy_workflow'),
+      attachment,
+    ];
+  }
+  return [...existing, attachment];
+}
+
 function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const entries = Object.entries(args as Record<string, unknown>);
@@ -296,6 +316,9 @@ export default function ChatPanelEmbedded() {
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [setupAttachments, setSetupAttachments] = useState<Attachment[]>([]);
+  const [isImportingChatReferences, setIsImportingChatReferences] = useState(false);
+  const [isImportingSetupReferences, setIsImportingSetupReferences] = useState(false);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   // Header dropdown menu (project name → caret → menu) state.
@@ -785,6 +808,9 @@ export default function ChatPanelEmbedded() {
     setSetupProbeCompleted(false);
     setIsSetupConfigured(false);
     setProjectState(null);
+    setSetupAttachments([]);
+    setChatAttachments([]);
+    setAttachmentError(null);
   }, [projectDirectory]);
 
   // Probe project.json to decide whether this project still needs the
@@ -888,6 +914,38 @@ export default function ChatPanelEmbedded() {
     setStoryInput(value);
   }, []);
 
+  const importCharacterReferencesForProject = useCallback(
+    async (attachments: Attachment[]): Promise<Attachment[]> => {
+      const references = attachments.filter(
+        (attachment) => attachment.kind === 'character_ref',
+      );
+      if (references.length === 0) return attachments;
+      if (!projectDirectory) {
+        throw new Error(
+          'Open a project before attaching character reference images.',
+        );
+      }
+
+      const result = await window.electron.project.importCharacterReferences({
+        projectDir: projectDirectory,
+        attachments: references,
+      });
+      if (!result.ok || !result.attachments) {
+        throw new Error(
+          result.error ?? 'Could not import character reference images.',
+        );
+      }
+
+      const importedById = new Map(
+        result.attachments.map((attachment) => [attachment.id, attachment]),
+      );
+      return attachments.map((attachment) =>
+        importedById.get(attachment.id) ?? attachment,
+      );
+    },
+    [projectDirectory],
+  );
+
   const handleConfirmSetup = useCallback(async () => {
     if (
       !projectDirectory ||
@@ -905,6 +963,18 @@ export default function ChatPanelEmbedded() {
 
     setSetupError(null);
     setIsConfiguringSetup(true);
+    setIsImportingSetupReferences(true);
+
+    let importedSetupAttachments: Attachment[];
+    try {
+      importedSetupAttachments = await importCharacterReferencesForProject(setupAttachments);
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : String(err));
+      setIsConfiguringSetup(false);
+      setIsImportingSetupReferences(false);
+      return;
+    }
+    setIsImportingSetupReferences(false);
 
     // System-B removal: no longer call session.configureProject (which
     // persists style/template/duration via the WS configure_project
@@ -927,6 +997,9 @@ export default function ChatPanelEmbedded() {
       style: selectedStyleId,
       duration: selectedDuration,
       story: trimmedStory,
+      characterReferenceImages: characterReferenceImagesFromAttachments(
+        importedSetupAttachments,
+      ),
     });
     if (!message) {
       setIsConfiguringSetup(false);
@@ -938,6 +1011,7 @@ export default function ChatPanelEmbedded() {
     setIsSetupConfigured(true);
     setIsConfiguringSetup(false);
     setStoryInput('');
+    setSetupAttachments([]);
 
     // Surface the user's intent in the chat as a regular user bubble,
     // matching the way handleSend renders typed input.
@@ -953,7 +1027,9 @@ export default function ChatPanelEmbedded() {
     selectedDuration,
     selectedStyleId,
     selectedTemplateId,
+    importCharacterReferencesForProject,
     session,
+    setupAttachments,
     storyInput,
   ]);
 
@@ -964,7 +1040,10 @@ export default function ChatPanelEmbedded() {
   // Autonomous-mode toggle was removed from the UI; the wizard panel
   // still requires the prop, so this is a fixed no-op that keeps the
   // selection visually pinned to "manual".
-  const handleSelectAutonomousMode = useCallback((_enabled: boolean) => {}, []);
+  const handleSelectAutonomousMode = useCallback(
+    (_enabled: boolean) => {},
+    [],
+  );
 
   const handleSetupBack = useCallback(() => {
     if (setupStep === 'duration') setSetupStep('style');
@@ -985,22 +1064,50 @@ export default function ChatPanelEmbedded() {
   // template step entirely (template defaults to 'narrative').
   const handleSelectTemplate = useCallback(() => {}, []);
 
+  const handleAttachSetupReference = async () => {
+    setSetupError(null);
+    try {
+      const result = await window.electron.project.selectAttachment({
+        kinds: ['character_ref'],
+        title: 'Select Character Reference Image',
+      });
+      if (!result.ok) {
+        if (result.error) setSetupError(result.error);
+        return;
+      }
+      if (result.attachment) {
+        setSetupAttachments((prev) =>
+          mergePickedAttachment(prev, result.attachment as Attachment),
+        );
+      }
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRemoveSetupAttachment = (id: string) => {
+    setSetupAttachments((prev) =>
+      prev.filter((attachment) => attachment.id !== id),
+    );
+  };
+
   const handleAttachClick = async () => {
     setAttachmentError(null);
     try {
       const result = await window.electron.project.selectAttachment({
-        kinds: ['comfy_workflow'],
-        title: 'Select a ComfyUI Workflow',
+        kinds: projectDirectory
+          ? ['comfy_workflow', 'character_ref']
+          : ['comfy_workflow'],
+        title: projectDirectory ? 'Select Attachment' : 'Select a ComfyUI Workflow',
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
         return;
       }
       if (result.attachment) {
-        // v1 caps at one attachment per turn — keeps the skill
-        // prompt's parsing simple. Lift this when batched flows
-        // (e.g. multiple images at once) need it.
-        setChatAttachments([result.attachment as Attachment]);
+        setChatAttachments((prev) =>
+          mergePickedAttachment(prev, result.attachment as Attachment),
+        );
       }
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : String(err));
@@ -1028,6 +1135,17 @@ export default function ChatPanelEmbedded() {
       await session.cancel().catch(() => undefined);
     }
 
+    let sentAttachments: Attachment[];
+    setIsImportingChatReferences(true);
+    try {
+      sentAttachments = await importCharacterReferencesForProject(chatAttachments);
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : String(err));
+      setIsImportingChatReferences(false);
+      return;
+    }
+    setIsImportingChatReferences(false);
+
     // Render the user-visible message — include a small "📎 N
     // attachment(s)" suffix when files were attached, so the chat
     // log reflects what was sent.
@@ -1040,7 +1158,6 @@ export default function ChatPanelEmbedded() {
       ...prev,
       { id: newMessageId(), role: 'user', text: visibleText },
     ]);
-    const sentAttachments = chatAttachments;
     setInput('');
     setChatAttachments([]);
     setAttachmentError(null);
@@ -1048,6 +1165,7 @@ export default function ChatPanelEmbedded() {
 
     const result = await session.runTask(text, {
       attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
+      ...(projectDirectory ? { projectDir: projectDirectory } : {}),
     });
     if (!result.ok) {
       // Don't let a failed dispatch leave the chat in a "user
@@ -1213,7 +1331,10 @@ export default function ChatPanelEmbedded() {
             ? 'Connecting'
             : 'Idle';
 
-  const sendActive = input.trim().length > 0 && isReady;
+  const sendActive =
+    (input.trim().length > 0 || chatAttachments.length > 0) &&
+    isReady &&
+    !isImportingChatReferences;
 
   return (
     <div className={styles.root}>
@@ -1429,6 +1550,8 @@ export default function ChatPanelEmbedded() {
         selectedDuration={selectedDuration}
         selectedAutonomousMode={false}
         storyInput={storyInput}
+        storyAttachments={setupAttachments}
+        storyAttachmentPending={isImportingSetupReferences}
         loading={false}
         configuring={isConfiguringSetup}
         error={setupError}
@@ -1438,6 +1561,8 @@ export default function ChatPanelEmbedded() {
         onSelectStyle={handleSelectStyle}
         onSelectDuration={handleSelectDuration}
         onChangeStory={handleChangeStory}
+        onAttachStoryImage={handleAttachSetupReference}
+        onRemoveStoryAttachment={handleRemoveSetupAttachment}
         onSubmitStory={handleSubmitStory}
         onSelectAutonomousMode={handleSelectAutonomousMode}
         onConfirmSetup={() => void handleConfirmSetup()}
@@ -1526,7 +1651,7 @@ export default function ChatPanelEmbedded() {
                 key={att.id}
                 attachment={att}
                 onRemove={handleRemoveAttachment}
-                disabled={isMainBusy}
+                disabled={isMainBusy || isImportingChatReferences}
               />
             ))}
           </div>
@@ -1539,8 +1664,12 @@ export default function ChatPanelEmbedded() {
             type="button"
             onClick={handleAttachClick}
             aria-label="Attach file"
-            title="Attach a ComfyUI workflow JSON"
-            disabled={!isReady || isMainBusy}
+            title={
+              projectDirectory
+                ? 'Attach a workflow or character reference image'
+                : 'Attach a ComfyUI workflow JSON'
+            }
+            disabled={!isReady || isMainBusy || isImportingChatReferences}
             className={styles.attachButton}
           >
             <Paperclip size={16} />
@@ -1555,18 +1684,23 @@ export default function ChatPanelEmbedded() {
               }
             }}
             placeholder={
-              isMainBusy
-                ? 'Thinking…'
-                : isRunning
-                  ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
-                  : 'Type a task and press Enter…'
+              isImportingChatReferences
+                ? 'Importing character reference…'
+                : isMainBusy
+                  ? 'Thinking…'
+                  : isRunning
+                    ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
+                    : 'Type a task and press Enter…'
             }
             rows={2}
             disabled={!isReady}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim().length > 0 || chatAttachments.length > 0)
+                if (
+                  !isImportingChatReferences &&
+                  (input.trim().length > 0 || chatAttachments.length > 0)
+                )
                   handleSend();
               }
             }}
@@ -1584,6 +1718,7 @@ export default function ChatPanelEmbedded() {
             }
             disabled={
               !isReady ||
+              isImportingChatReferences ||
               (input.trim().length === 0 && chatAttachments.length === 0)
             }
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}

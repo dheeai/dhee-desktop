@@ -15,6 +15,9 @@
  * (records calls). No real Electron is needed.
  */
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   dhee_CHANNELS,
   dhee_EVENT_CHANNEL,
@@ -153,6 +156,55 @@ describe('dheeIpcBridge', () => {
     expect(call?.args[0]).toBe('s-1');
     expect(call?.args[1]).toBe('hi');
     expect(call?.args[2]).toMatchObject({ stopAtStage: 'shot_image' });
+  });
+
+  it('runTask registers character refs and appends durable project paths to task context', async () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'dhee-bridge-charrefs-'));
+    try {
+      const projectDir = join(tmp, 'noir.dhee');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.json'), JSON.stringify({ title: 'noir' }, null, 2));
+
+      registerdheeIpcBridge(
+        fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+        browserWindowMock as unknown as import('electron').BrowserWindow,
+      );
+      const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
+      await handler({} as never, {
+        sessionId: 's-1',
+        task: 'use this person',
+        projectDir,
+        attachments: [{
+          id: 'att_hero',
+          kind: 'character_ref',
+          path: join(projectDir, 'assets/uploads/characters/hero.png'),
+          name: 'hero.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'character_ref',
+            projectRelativePath: 'assets/uploads/characters/hero.png',
+            originalPath: '/Users/me/Desktop/hero.png',
+            originalFilename: 'hero.png',
+          },
+        }],
+      });
+
+      const call = managerCalls.find((c) => c.method === 'runTask');
+      expect(call?.args[1]).toBe(
+        'use this person\n\nAttached character reference images:\n- hero.png: assets/uploads/characters/hero.png',
+      );
+      const project = JSON.parse(readFileSync(join(projectDir, 'project.json'), 'utf-8'));
+      expect(project.inputs).toEqual([
+        expect.objectContaining({
+          purpose: 'character_ref',
+          source: expect.objectContaining({
+            value: 'assets/uploads/characters/hero.png',
+          }),
+        }),
+      ]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('runTask routes events from manager.eventCb to webContents.send(dhee_EVENT_CHANNEL, …)', async () => {

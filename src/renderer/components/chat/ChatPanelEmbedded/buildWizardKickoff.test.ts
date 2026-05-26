@@ -41,6 +41,24 @@ describe('buildWizardKickoff', () => {
     expect(message).toMatch(/start the pipeline/i);
   });
 
+  it('includes copied character reference images as the dhee_new parameter payload', () => {
+    const { message } = buildWizardKickoff({
+      ...baseArgs,
+      characterReferenceImages: [{
+        name: 'hero.png',
+        relativePath: 'assets/uploads/characters/hero.png',
+        sourcePath: '/Users/me/Desktop/hero.png',
+        originalFilename: 'hero.png',
+        mimeType: 'image/png',
+        size: 4,
+      }],
+    });
+
+    expect(message).toContain('characterReferenceImages');
+    expect(message).toContain('"relativePath": "assets/uploads/characters/hero.png"');
+    expect(message).toContain('"sourcePath": "/Users/me/Desktop/hero.png"');
+  });
+
   it('handles names / paths containing spaces correctly', () => {
     const { message } = buildWizardKickoff({
       ...baseArgs,

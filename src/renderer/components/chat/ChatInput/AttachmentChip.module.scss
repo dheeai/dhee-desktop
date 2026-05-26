@@ -18,6 +18,16 @@
   color: $color-text-secondary;
 }
 
+.thumbnail {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  border-radius: $radius-sm;
+  object-fit: cover;
+  background: $color-panel-background;
+  border: 1px solid rgba(var(--color-panel-border-rgb), 0.7);
+}
+
 .name {
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,7 +1,9 @@
 import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, RefreshCw, Settings2, Sparkles } from 'lucide-react';
+import { ChevronLeft, ImagePlus, RefreshCw, Settings2, Sparkles } from 'lucide-react';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
+import type { Attachment } from '../../../../shared/attachmentTypes';
+import AttachmentChip from '../ChatInput/AttachmentChip';
 import styleAnimePreview from '../../../../../assets/previews/style_anime.png';
 import styleCinematicDocumentaryPreview from '../../../../../assets/previews/style_cinematic_documentary.png';
 import styleCinematicRealismPreview from '../../../../../assets/previews/style_cinematic_realism.png';
@@ -89,6 +91,8 @@ interface ProjectSetupPanelProps {
   selectedDuration: number | null;
   selectedAutonomousMode: boolean;
   storyInput: string;
+  storyAttachments?: Attachment[];
+  storyAttachmentPending?: boolean;
   loading: boolean;
   configuring: boolean;
   error: string | null;
@@ -98,6 +102,8 @@ interface ProjectSetupPanelProps {
   onSelectStyle: (styleId: string) => void;
   onSelectDuration: (seconds: number) => void;
   onChangeStory: (value: string) => void;
+  onAttachStoryImage?: () => void;
+  onRemoveStoryAttachment?: (id: string) => void;
   onSubmitStory: () => void;
   onSelectAutonomousMode: (enabled: boolean) => void;
   onConfirmSetup: () => void;
@@ -145,6 +151,8 @@ export default function ProjectSetupPanel({
   selectedDuration,
   selectedAutonomousMode,
   storyInput,
+  storyAttachments = [],
+  storyAttachmentPending = false,
   loading,
   configuring,
   error,
@@ -154,6 +162,8 @@ export default function ProjectSetupPanel({
   onSelectStyle,
   onSelectDuration,
   onChangeStory,
+  onAttachStoryImage,
+  onRemoveStoryAttachment,
   onSubmitStory,
   onSelectAutonomousMode,
   onConfirmSetup,
@@ -561,12 +571,48 @@ export default function ProjectSetupPanel({
                 aria-label="Project story or idea"
                 data-tour-id="setup-story-input"
               />
+              <div className={styles.storyAttachmentToolbar}>
+                <button
+                  type="button"
+                  className={styles.attachReferenceButton}
+                  onClick={onAttachStoryImage}
+                  disabled={
+                    configuring ||
+                    storyAttachmentPending ||
+                    !onAttachStoryImage
+                  }
+                  aria-label="Attach character reference image"
+                  title="Attach character reference image"
+                >
+                  <ImagePlus size={15} />
+                  <span>Character image</span>
+                </button>
+                {storyAttachmentPending && (
+                  <span className={styles.attachmentPending}>Importing...</span>
+                )}
+              </div>
+              {storyAttachments.length > 0 && (
+                <div className={styles.storyAttachmentRow}>
+                  {storyAttachments.map((attachment) => (
+                    <AttachmentChip
+                      key={attachment.id}
+                      attachment={attachment}
+                      onRemove={(id) => onRemoveStoryAttachment?.(id)}
+                      disabled={configuring || storyAttachmentPending}
+                    />
+                  ))}
+                </div>
+              )}
               <div className={styles.autonomousFooter}>
                 <button
                   type="button"
                   className={styles.continueButton}
                   onClick={handleStorySubmit}
-                  disabled={configuring || storyInput.trim().length === 0}
+                  disabled={
+                    configuring ||
+                    storyAttachmentPending ||
+                    storyInput.trim().length === 0
+                  }
                   data-tour-id="setup-story-continue"
                 >
                   Continue

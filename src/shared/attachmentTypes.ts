@@ -1,10 +1,9 @@
 /**
  * Generic file attachment system for the pi-agent chat.
  *
- * v1 implements only `comfy_workflow` — the JSON file the user
- * uploads to add a custom ComfyUI workflow. The other kinds are
- * reserved so the contract doesn't have to change when we add
- * support for text / image / video / audio attachments later.
+ * v1 implemented only `comfy_workflow` — the JSON file the user
+ * uploads to add a custom ComfyUI workflow. `character_ref` is the
+ * image-reference path used by the video graph's character_image nodes.
  *
  * The renderer collects attachments locally; the IPC bridge
  * forwards them as a structured array on `RunTaskRequest`. The
@@ -16,10 +15,23 @@
 
 export type AttachmentKind =
   | 'comfy_workflow'
+  | 'character_ref'
   | 'text'
   | 'image'
   | 'video'
   | 'audio';
+
+export interface CharacterReferenceAttachmentMeta {
+  purpose: 'character_ref';
+  /** Project-relative durable path, e.g. assets/uploads/characters/hero.png. */
+  projectRelativePath: string;
+  /** Absolute path selected by the user before the desktop copied it. */
+  originalPath?: string;
+  /** User-selected filename before sanitization/collision handling. */
+  originalFilename?: string;
+  mimeType?: string;
+  size?: number;
+}
 
 export interface Attachment {
   /**
@@ -37,8 +49,8 @@ export interface Attachment {
   mimeType?: string;
   /** File size in bytes. Used for size-cap UI hints, not enforcement. */
   size?: number;
-  /** Kind-specific metadata. Future: { thumbnailPath, transcript, ... }. */
-  meta?: Record<string, unknown>;
+  /** Kind-specific metadata. */
+  meta?: Record<string, unknown> | CharacterReferenceAttachmentMeta;
 }
 
 /**
@@ -72,6 +84,7 @@ export interface SelectAttachmentResponse {
  */
 export const KIND_EXTENSIONS: Record<AttachmentKind, string[]> = {
   comfy_workflow: ['json'],
+  character_ref: ['png', 'jpg', 'jpeg', 'webp', 'gif'],
   text: ['txt', 'md'],
   image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
   video: ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'],
@@ -80,6 +93,7 @@ export const KIND_EXTENSIONS: Record<AttachmentKind, string[]> = {
 
 export const KIND_DISPLAY_LABEL: Record<AttachmentKind, string> = {
   comfy_workflow: 'ComfyUI Workflow',
+  character_ref: 'Character Reference',
   text: 'Text File',
   image: 'Image',
   video: 'Video',
@@ -110,7 +124,60 @@ export function prefixAttachmentsToTask(
   task: string,
   attachments: Attachment[] | undefined,
 ): string {
-  if (!attachments || attachments.length === 0) return task;
-  const hints = attachments.map(renderAttachmentHint).join('\n');
+  const hintAttachments = (attachments ?? []).filter(
+    (attachment) => attachment.kind !== 'character_ref',
+  );
+  if (hintAttachments.length === 0) return task;
+  const hints = hintAttachments.map(renderAttachmentHint).join('\n');
   return `${hints}\n\n${task}`;
+}
+
+export interface CharacterReferenceImagePayload {
+  name: string;
+  relativePath: string;
+  sourcePath?: string;
+  originalFilename?: string;
+  mimeType?: string;
+  size?: number;
+}
+
+export function isCharacterReferenceAttachment(
+  attachment: Attachment,
+): attachment is Attachment & { meta: CharacterReferenceAttachmentMeta } {
+  if (attachment.kind !== 'character_ref') return false;
+  const meta = attachment.meta as
+    | Partial<CharacterReferenceAttachmentMeta>
+    | undefined;
+  return (
+    typeof meta?.projectRelativePath === 'string' &&
+    meta.projectRelativePath.length > 0
+  );
+}
+
+export function characterReferenceImagesFromAttachments(
+  attachments: Attachment[] | undefined,
+): CharacterReferenceImagePayload[] {
+  return (attachments ?? [])
+    .filter(isCharacterReferenceAttachment)
+    .map((attachment) => ({
+      name: attachment.name,
+      relativePath: attachment.meta.projectRelativePath,
+      sourcePath: attachment.meta.originalPath ?? attachment.path,
+      originalFilename: attachment.meta.originalFilename ?? attachment.name,
+      mimeType: attachment.mimeType ?? attachment.meta.mimeType,
+      size: attachment.size ?? attachment.meta.size,
+    }));
+}
+
+export function appendCharacterReferenceImagesToTask(
+  task: string,
+  images: CharacterReferenceImagePayload[],
+): string {
+  if (images.length === 0) return task;
+  const lines = [
+    'Attached character reference images:',
+    ...images.map((image) => `- ${image.name}: ${image.relativePath}`),
+  ];
+  const trimmedTask = task.trimEnd();
+  return `${trimmedTask}${trimmedTask ? '\n\n' : ''}${lines.join('\n')}`;
 }

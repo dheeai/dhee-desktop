@@ -1,5 +1,6 @@
 import { Paperclip, X } from 'lucide-react';
 import type { Attachment, AttachmentKind } from '../../../../shared/attachmentTypes';
+import { toFileUrl } from '../../../utils/pathResolver';
 import styles from './AttachmentChip.module.scss';
 
 interface AttachmentChipProps {
@@ -10,6 +11,7 @@ interface AttachmentChipProps {
 
 const KIND_BADGE: Record<AttachmentKind, string> = {
   comfy_workflow: 'workflow',
+  character_ref: 'character',
   text: 'text',
   image: 'image',
   video: 'video',
@@ -23,7 +25,15 @@ export default function AttachmentChip({
 }: AttachmentChipProps) {
   return (
     <div className={styles.chip} title={attachment.path}>
-      <Paperclip size={12} className={styles.icon} />
+      {attachment.kind === 'character_ref' ? (
+        <img
+          src={toFileUrl(attachment.path)}
+          alt=""
+          className={styles.thumbnail}
+        />
+      ) : (
+        <Paperclip size={12} className={styles.icon} />
+      )}
       <span className={styles.name}>{attachment.name}</span>
       <span className={styles.badge}>{KIND_BADGE[attachment.kind]}</span>
       <button

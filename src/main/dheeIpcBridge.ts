@@ -52,8 +52,13 @@ import {
   type GetHistoryRequest,
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
-import { prefixAttachmentsToTask } from '../shared/attachmentTypes';
+import {
+  appendCharacterReferenceImagesToTask,
+  characterReferenceImagesFromAttachments,
+  prefixAttachmentsToTask,
+} from '../shared/attachmentTypes';
 import type { dheeCoreManager, dheeCoreEvent } from './dheeCoreManager';
+import { addCharacterReferenceInputsToProject } from './characterReferenceImport';
 
 /**
  * Wire the bridge. Idempotent — if the channels are already registered
@@ -133,11 +138,29 @@ export function registerdheeIpcBridge(
     dhee_CHANNELS.RUN_TASK,
     async (_event, req: RunTaskRequest): Promise<OkResponse> => {
       const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
-      // Attachment hints are prepended to the user's task here so
-      // pi-agent's skill prompts (e.g. comfyui-workflow-integration)
-      // see a one-line marker per attachment and call the right tool
-      // without us having to extend dhee-core's runTask signature.
-      const finalTask = prefixAttachmentsToTask(req.task, req.attachments);
+      const characterReferenceImages = characterReferenceImagesFromAttachments(
+        req.attachments,
+      );
+      if (characterReferenceImages.length > 0) {
+        if (!req.projectDir) {
+          return {
+            ok: false,
+            error: 'Project directory is required for character reference attachments',
+          };
+        }
+        await addCharacterReferenceInputsToProject({
+          projectDir: req.projectDir,
+          attachments: req.attachments ?? [],
+        });
+      }
+
+      // Comfy workflow hints are prepended so pi-agent's skill prompts
+      // can recognize them. Character refs use durable project paths
+      // and are appended as content the graph prompt can read.
+      const finalTask = appendCharacterReferenceImagesToTask(
+        prefixAttachmentsToTask(req.task, req.attachments),
+        characterReferenceImages,
+      );
       const result = await manager.runTask(
         req.sessionId,
         finalTask,
