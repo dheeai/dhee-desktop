@@ -98,16 +98,16 @@ After each release, the build also publishes **fixed-name copies** (via `afterAl
 
 | Platform | Stable asset on Latest |
 |----------|-------------------------|
-| macOS Apple Silicon | `Dhee-mac-arm64.dmg` |
-| macOS Intel | `Dhee-mac-x64.dmg` |
-| Windows x64 | `Dhee-windows-x64-setup.exe` |
-| Linux x86_64 | `Dhee-linux-x86_64.AppImage` |
+| macOS Apple Silicon | `Dhee.Studio-mac-arm64.dmg` |
+| macOS Intel | `Dhee.Studio-mac-x64.dmg` |
+| Windows x64 | `Dhee.Studio-windows-x64-setup.exe` |
+| Linux x86_64 | `Dhee.Studio-linux-x86_64.AppImage` |
 
 Example URLs (after the next successful tagged release):
 
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-arm64.dmg`
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-x64.dmg`
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-windows-x64-setup.exe`
+- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-arm64.dmg`
+- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-x64.dmg`
+- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-windows-x64-setup.exe`
 
 Versioned originals (for support and reproducibility) remain on the same release as today.
 
@@ -118,9 +118,9 @@ The marketing site (`dhee-website`) reads these via environment variables. See t
 Use the `dhee-desktop` latest URLs once the workflow has finished:
 
 ```bash
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-arm64.dmg" | head -n 5
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-mac-x64.dmg" | head -n 5
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-windows-x64-setup.exe" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-arm64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-x64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-windows-x64-setup.exe" | head -n 5
 ```
 
 You should see `HTTP/2 302` (or `301`) with a `location:` header pointing at an object URL or the tagged release asset. If you get `404`, the stable files were not attached—check the Actions logs for the `afterAllArtifactBuild` step.
