@@ -12,9 +12,7 @@ exports.default = async function stableReleaseArtifacts(context) {
     return [];
   }
 
-  const pkgPath = path.join(__dirname, '..', '..', 'package.json');
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-  const product = pkg.build?.productName || 'Dhee';
+  const stablePrefix = 'Dhee.Studio';
 
   const extra = [];
   const dmgs = artifactPaths.filter(
@@ -34,8 +32,8 @@ exports.default = async function stableReleaseArtifacts(context) {
     console.log(`[stable-release-artifacts] ${path.basename(src)} -> ${stableName}`);
   }
 
-  copyStable(armDmg, `${product}-mac-arm64.dmg`);
-  copyStable(intelDmg, `${product}-mac-x64.dmg`);
+  copyStable(armDmg, `${stablePrefix}-mac-arm64.dmg`);
+  copyStable(intelDmg, `${stablePrefix}-mac-x64.dmg`);
 
   const setupExe = artifactPaths.find((p) => {
     const b = path.basename(p);
@@ -45,10 +43,10 @@ exports.default = async function stableReleaseArtifacts(context) {
       /setup/i.test(b)
     );
   });
-  copyStable(setupExe, `${product}-windows-x64-setup.exe`);
+  copyStable(setupExe, `${stablePrefix}-windows-x64-setup.exe`);
 
   const appImage = artifactPaths.find((p) => path.basename(p).endsWith('.AppImage'));
-  copyStable(appImage, `${product}-linux-x86_64.AppImage`);
+  copyStable(appImage, `${stablePrefix}-linux-x86_64.AppImage`);
 
   return extra;
 };
