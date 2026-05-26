@@ -315,6 +315,27 @@
   }
 }
 
+.configureSections {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-lg;
+}
+
+.configureSection {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-sm;
+}
+
+.configureSectionTitle {
+  font-size: $font-size-sm;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: $color-text-secondary;
+  margin: 0;
+}
+
 .methodList {
   display: flex;
   flex-direction: column;

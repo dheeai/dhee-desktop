@@ -427,7 +427,7 @@ export default function ChatPanelEmbedded() {
   }, [agent, session]);
 
   const [setupPanelMode, setSetupPanelMode] = useState<SetupPanelMode>('hidden');
-  const [setupStep, setSetupStep] = useState<SetupStep>('style');
+  const [setupStep, setSetupStep] = useState<SetupStep>('configure');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
     WIZARD_DEFAULT_TEMPLATE_ID,
   );
@@ -845,7 +845,7 @@ export default function ChatPanelEmbedded() {
       return;
     }
     setSetupError(null);
-    setSetupStep('style');
+    setSetupStep('configure');
     setSetupPanelMode('wizard');
   }, [
     projectDirectory,
@@ -857,19 +857,22 @@ export default function ChatPanelEmbedded() {
 
   // ── Wizard step handlers ──────────────────────────────────────────
 
+  // In the combined 'configure' step, selection handlers no longer
+  // auto-advance the wizard — all three sections (style / duration /
+  // method) are visible together and the user moves on via "Submit"
+  // on the story step (the only step after configure). This avoids
+  // the prior 4-step click-through and keeps all decisions visible
+  // at once for last-minute adjustments.
   const handleSelectStyle = useCallback((styleId: string) => {
     setSelectedStyleId(styleId);
-    setSetupStep('duration');
   }, []);
 
   const handleSelectDuration = useCallback((duration: number) => {
     setSelectedDuration(duration);
-    setSetupStep('method');
   }, []);
 
   const handleSelectRenderMethod = useCallback((methodId: string) => {
     setSelectedRenderMethod(methodId);
-    setSetupStep('story');
   }, []);
 
   const handleChangeStory = useCallback((value: string) => {
@@ -953,15 +956,18 @@ export default function ChatPanelEmbedded() {
   // selection visually pinned to "manual".
   const handleSelectAutonomousMode = useCallback((_enabled: boolean) => {}, []);
 
+  const handleConfigureContinue = useCallback(() => {
+    setSetupError(null);
+    setSetupStep('story');
+  }, []);
+
   const handleSetupBack = useCallback(() => {
-    if (setupStep === 'duration') setSetupStep('style');
-    else if (setupStep === 'method') setSetupStep('duration');
-    else if (setupStep === 'story') setSetupStep('method');
+    if (setupStep === 'story') setSetupStep('configure');
   }, [setupStep]);
 
   const handleOpenSetupWizard = useCallback(() => {
     setSetupError(null);
-    setSetupStep('style');
+    setSetupStep('configure');
     setSetupPanelMode('wizard');
   }, []);
 
@@ -1420,6 +1426,7 @@ export default function ChatPanelEmbedded() {
         onSelectStyle={handleSelectStyle}
         onSelectDuration={handleSelectDuration}
         onSelectRenderMethod={handleSelectRenderMethod}
+        onConfigureContinue={handleConfigureContinue}
         onChangeStory={handleChangeStory}
         onSubmitStory={handleSubmitStory}
         onSelectAutonomousMode={handleSelectAutonomousMode}

@@ -75,7 +75,7 @@ const STYLE_PREVIEW_SRC: Record<string, string> = {
   watercolor: styleWatercolorPreview,
 };
 
-export type SetupStep = 'template' | 'style' | 'duration' | 'method' | 'story' | 'autonomous';
+export type SetupStep = 'template' | 'configure' | 'story' | 'autonomous';
 export type SetupPanelMode = 'hidden' | 'banner' | 'wizard' | 'summary';
 
 interface ProjectSetupPanelProps {
@@ -103,6 +103,8 @@ interface ProjectSetupPanelProps {
   onSubmitStory: () => void;
   onSelectAutonomousMode: (enabled: boolean) => void;
   onConfirmSetup: () => void;
+  /** Advance from the combined Configure step to Story. The caller is responsible for blocking the advance when not all three sections are selected; the panel's Continue button is disabled in that case. */
+  onConfigureContinue: () => void;
   onBack: () => void;
 }
 
@@ -162,6 +164,7 @@ export default function ProjectSetupPanel({
   onSubmitStory,
   onSelectAutonomousMode,
   onConfirmSetup,
+  onConfigureContinue,
   onBack,
 }: ProjectSetupPanelProps) {
   const [customDuration, setCustomDuration] = useState('');
@@ -227,14 +230,6 @@ export default function ProjectSetupPanel({
         return;
       }
 
-      if (step === 'style') {
-        const target = styleOptions[index];
-        if (!target) return;
-        event.preventDefault();
-        onSelectStyle(target.id);
-        return;
-      }
-
       if (step === 'autonomous') {
         if (index > 1) return;
         event.preventDefault();
@@ -242,18 +237,10 @@ export default function ProjectSetupPanel({
         return;
       }
 
-      if (step === 'method') {
-        const target = renderMethods[index];
-        if (!target) return;
-        event.preventDefault();
-        onSelectRenderMethod(target.id);
-        return;
-      }
-
-      const target = durationOptions[index];
-      if (!target) return;
-      event.preventDefault();
-      onSelectDuration(target.seconds);
+      // Combined 'configure' step has style + duration + method
+      // sections visible together; keyboard shortcuts are ambiguous
+      // when multiple groups share the same 1..N keys. Skip them in
+      // configure — users click; nothing else stops them.
     };
 
     window.addEventListener('keydown', handleKeyDown);
@@ -370,18 +357,14 @@ export default function ProjectSetupPanel({
           )}
           <span className={styles.wizardStep}>
             {step === 'template' && 'Setup'}
-            {step === 'style' && 'Step 1 of 4'}
-            {step === 'duration' && 'Step 2 of 4'}
-            {step === 'method' && 'Step 3 of 4'}
-            {step === 'story' && 'Step 4 of 4'}
+            {step === 'configure' && 'Step 1 of 2'}
+            {step === 'story' && 'Step 2 of 2'}
             {step === 'autonomous' && 'Setup'}
           </span>
         </div>
         <h3 className={styles.wizardTitle}>
           {step === 'template' && 'Choose a Template'}
-          {step === 'style' && 'Choose a Style'}
-          {step === 'duration' && 'Choose Duration'}
-          {step === 'method' && 'Choose Generation Method'}
+          {step === 'configure' && 'Choose Style, Duration & Method'}
           {step === 'story' && 'Tell Us the Story'}
           {step === 'autonomous' && 'Autonomous Mode'}
         </h3>
@@ -423,105 +406,132 @@ export default function ProjectSetupPanel({
             </div>
           )}
 
-          {step === 'style' && (
-            <div className={styles.cardsGrid}>
-              {styleOptions.map((style, index) => (
-                <button
-                  type="button"
-                  key={style.id}
-                  className={`${styles.card} ${
-                    selectedStyleId === style.id ? styles.cardSelected : ''
-                  }`}
-                  onClick={() => onSelectStyle(style.id)}
-                  disabled={configuring}
-                >
-                  {renderCardPreview(
-                    STYLE_PREVIEW_SRC[style.id],
-                    style.displayName,
-                  )}
-                  <div className={styles.cardContent}>
-                    <span className={styles.cardIndex}>{index + 1}</span>
-                    <span className={styles.cardName}>{style.displayName}</span>
-                    <span className={styles.cardDescription}>
-                      {style.description || 'No description'}
-                    </span>
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
+          {step === 'configure' && (
+            <div className={styles.configureSections}>
+              <section className={styles.configureSection}>
+                <h3 className={styles.configureSectionTitle}>Style</h3>
+                <div className={styles.cardsGrid}>
+                  {styleOptions.map((style, index) => (
+                    <button
+                      type="button"
+                      key={style.id}
+                      className={`${styles.card} ${
+                        selectedStyleId === style.id ? styles.cardSelected : ''
+                      }`}
+                      onClick={() => onSelectStyle(style.id)}
+                      disabled={configuring}
+                    >
+                      {renderCardPreview(
+                        STYLE_PREVIEW_SRC[style.id],
+                        style.displayName,
+                      )}
+                      <div className={styles.cardContent}>
+                        <span className={styles.cardIndex}>{index + 1}</span>
+                        <span className={styles.cardName}>
+                          {style.displayName}
+                        </span>
+                        <span className={styles.cardDescription}>
+                          {style.description || 'No description'}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
 
-          {step === 'duration' && (
-            <>
-              <div className={styles.durationRow}>
-                {durationOptions.map((duration, index) => (
+              <section className={styles.configureSection}>
+                <h3 className={styles.configureSectionTitle}>Duration</h3>
+                <div className={styles.durationRow}>
+                  {durationOptions.map((duration, index) => (
+                    <button
+                      type="button"
+                      key={`${duration.seconds}-${duration.label}`}
+                      className={`${styles.durationButton} ${
+                        selectedDuration === duration.seconds
+                          ? styles.durationSelected
+                          : ''
+                      }`}
+                      onClick={() => onSelectDuration(duration.seconds)}
+                      disabled={configuring}
+                    >
+                      {index + 1}. {duration.label}
+                    </button>
+                  ))}
+                </div>
+                <div className={styles.customDurationRow}>
+                  <input
+                    type="number"
+                    min={1}
+                    className={styles.customInput}
+                    placeholder="seconds"
+                    value={customDuration}
+                    onChange={(event) => setCustomDuration(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        submitCustomDuration();
+                      }
+                    }}
+                    disabled={configuring}
+                  />
                   <button
                     type="button"
-                    key={`${duration.seconds}-${duration.label}`}
-                    className={`${styles.durationButton} ${
-                      selectedDuration === duration.seconds
-                        ? styles.durationSelected
-                        : ''
-                    }`}
-                    onClick={() => onSelectDuration(duration.seconds)}
+                    className={styles.customSet}
+                    onClick={submitCustomDuration}
                     disabled={configuring}
                   >
-                    {index + 1}. {duration.label}
+                    Set
                   </button>
-                ))}
-              </div>
-              <div className={styles.customDurationRow}>
-                <input
-                  type="number"
-                  min={1}
-                  className={styles.customInput}
-                  placeholder="seconds"
-                  value={customDuration}
-                  onChange={(event) => setCustomDuration(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                      submitCustomDuration();
-                    }
-                  }}
-                  disabled={configuring}
-                />
-                <button
-                  type="button"
-                  className={styles.customSet}
-                  onClick={submitCustomDuration}
-                  disabled={configuring}
-                >
-                  Set
-                </button>
-              </div>
-            </>
-          )}
+                </div>
+              </section>
 
-          {step === 'method' && (
-            <div className={styles.methodList}>
-              {renderMethods.map((method, index) => (
+              <section className={styles.configureSection}>
+                <h3 className={styles.configureSectionTitle}>
+                  Generation Method
+                </h3>
+                <div className={styles.methodList}>
+                  {renderMethods.map((method, index) => (
+                    <button
+                      type="button"
+                      key={method.id}
+                      className={`${styles.methodCard} ${
+                        selectedRenderMethod === method.id
+                          ? styles.methodSelected
+                          : ''
+                      }`}
+                      onClick={() => onSelectRenderMethod(method.id)}
+                      disabled={configuring}
+                    >
+                      <div className={styles.methodCardHeader}>
+                        <span className={styles.methodCardIndex}>
+                          {index + 1}.
+                        </span>
+                        <span className={styles.methodCardTitle}>
+                          {method.displayName}
+                        </span>
+                      </div>
+                      <div className={styles.methodCardDescription}>
+                        {method.description}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </section>
+
+              <div className={styles.autonomousFooter}>
                 <button
                   type="button"
-                  key={method.id}
-                  className={`${styles.methodCard} ${
-                    selectedRenderMethod === method.id
-                      ? styles.methodSelected
-                      : ''
-                  }`}
-                  onClick={() => onSelectRenderMethod(method.id)}
-                  disabled={configuring}
+                  className={styles.continueButton}
+                  onClick={onConfigureContinue}
+                  disabled={
+                    configuring ||
+                    !selectedStyleId ||
+                    !selectedDuration ||
+                    !selectedRenderMethod
+                  }
                 >
-                  <div className={styles.methodCardHeader}>
-                    <span className={styles.methodCardIndex}>{index + 1}.</span>
-                    <span className={styles.methodCardTitle}>
-                      {method.displayName}
-                    </span>
-                  </div>
-                  <div className={styles.methodCardDescription}>
-                    {method.description}
-                  </div>
+                  Continue
                 </button>
-              ))}
+              </div>
             </div>
           )}
 

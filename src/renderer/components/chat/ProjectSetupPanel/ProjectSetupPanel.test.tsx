@@ -68,6 +68,7 @@ function renderPanel() {
       onSubmitStory={onSubmitStory}
       onSelectAutonomousMode={onSelectAutonomousMode}
       onConfirmSetup={onConfirmSetup}
+      onConfigureContinue={jest.fn()}
       onBack={onBack}
     />,
   );
@@ -150,6 +151,7 @@ describe('ProjectSetupPanel', () => {
         onSubmitStory={baseProps.onSubmitStory}
         onSelectAutonomousMode={baseProps.onSelectAutonomousMode}
         onConfirmSetup={baseProps.onConfirmSetup}
+        onConfigureContinue={jest.fn()}
         onBack={baseProps.onBack}
       />,
     );
@@ -160,7 +162,7 @@ describe('ProjectSetupPanel', () => {
 
     rerender(
       <ProjectSetupPanel
-        step="style"
+        step="configure"
         mode={baseProps.mode}
         templates={baseProps.templates}
         durationPresets={baseProps.durationPresets}
@@ -184,6 +186,7 @@ describe('ProjectSetupPanel', () => {
         onSubmitStory={baseProps.onSubmitStory}
         onSelectAutonomousMode={baseProps.onSelectAutonomousMode}
         onConfirmSetup={baseProps.onConfirmSetup}
+        onConfigureContinue={jest.fn()}
         onBack={baseProps.onBack}
       />,
     );
@@ -244,6 +247,7 @@ describe('ProjectSetupPanel', () => {
         onSubmitStory={onSubmitStory}
         onSelectAutonomousMode={jest.fn()}
         onConfirmSetup={jest.fn()}
+        onConfigureContinue={jest.fn()}
         onBack={jest.fn()}
       />,
     );
@@ -252,11 +256,11 @@ describe('ProjectSetupPanel', () => {
 
   // Indicator tests for the collapsed 3-step user flow.
 
-  it('shows "Step 1 of 4" on the style step', () => {
+  it('shows "Step 1 of 2" on the configure step', () => {
     render(
       <ProjectSetupPanel
         mode="wizard"
-        step="style"
+        step="configure"
         templates={templates}
         durationPresets={durationPresets}
       renderMethods={renderMethods}
@@ -279,21 +283,22 @@ describe('ProjectSetupPanel', () => {
         onSubmitStory={jest.fn()}
         onSelectAutonomousMode={jest.fn()}
         onConfirmSetup={jest.fn()}
+        onConfigureContinue={jest.fn()}
         onBack={jest.fn()}
       />,
     );
-    expect(screen.queryByText('Step 1 of 4')).not.toBeNull();
-    expect(screen.queryByText('Choose a Style')).not.toBeNull();
+    expect(screen.queryByText('Step 1 of 2')).not.toBeNull();
+    expect(screen.queryByText('Choose Style, Duration & Method')).not.toBeNull();
   });
 
-  it('shows "Step 2 of 4" on the duration step', () => {
+  it('renders all three configure sections (Style, Duration, Method) in the configure step', () => {
     render(
       <ProjectSetupPanel
         mode="wizard"
-        step="duration"
+        step="configure"
         templates={templates}
         durationPresets={durationPresets}
-      renderMethods={renderMethods}
+        renderMethods={renderMethods}
         selectedTemplateId="narrative"
         selectedStyleId="cinematic_realism"
         selectedDuration={null}
@@ -313,19 +318,23 @@ describe('ProjectSetupPanel', () => {
         onSubmitStory={jest.fn()}
         onSelectAutonomousMode={jest.fn()}
         onConfirmSetup={jest.fn()}
+        onConfigureContinue={jest.fn()}
         onBack={jest.fn()}
       />,
     );
-    expect(screen.queryByText('Step 2 of 4')).not.toBeNull();
-    expect(screen.queryByText('Choose Duration')).not.toBeNull();
+    expect(screen.queryByText('Step 1 of 2')).not.toBeNull();
+    expect(screen.queryByText('Choose Style, Duration & Method')).not.toBeNull();
+    expect(screen.queryByText('Style')).not.toBeNull();
+    expect(screen.queryByText('Duration')).not.toBeNull();
+    expect(screen.queryByText('Generation Method')).not.toBeNull();
   });
 
-  it('renders the story step as the third (and final) of three visible steps', () => {
-    // The wizard collapsed to 3 user-facing steps: style → duration →
-    // story. Template (step 0) is auto-defaulted to 'narrative';
-    // autonomous (post-step) is no longer in the user flow.
+  it('renders the story step as the second (and final) of two visible steps', () => {
+    // The wizard collapses to 2 user-facing steps: configure → story.
+    // Template (step 0) is auto-defaulted to 'narrative'; autonomous
+    // (post-step) is no longer in the user flow.
     renderStoryStep();
-    expect(screen.queryByText('Step 4 of 4')).not.toBeNull();
+    expect(screen.queryByText('Step 2 of 2')).not.toBeNull();
     expect(screen.queryByText('Tell Us the Story')).not.toBeNull();
     // The textarea is rendered with an aria-label.
     expect(
@@ -405,6 +414,7 @@ describe('ProjectSetupPanel', () => {
         onSubmitStory={jest.fn()}
         onSelectAutonomousMode={jest.fn()}
         onConfirmSetup={jest.fn()}
+        onConfigureContinue={jest.fn()}
         onBack={jest.fn()}
       />,
     );
