@@ -133,7 +133,7 @@ describe('LandingScreen', () => {
     mockDeleteProject.mockResolvedValue(undefined);
     mockRemoveRecent.mockResolvedValue(undefined);
     mockRefreshRecentProjects.mockResolvedValue(undefined);
-    mockGetVersion.mockResolvedValue('1.0.0');
+    mockGetVersion.mockResolvedValue('0.1.0');
 
     Object.defineProperty(window, 'electron', {
       configurable: true,

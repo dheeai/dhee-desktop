@@ -1,6 +1,6 @@
 {
   "name": "dhee-desktop",
-  "version": "1.2.0",
+  "version": "0.1.0",
   "description": "Desktop application for Dhee Studios video generation",
   "keywords": [
     "dhee",
@@ -399,7 +399,7 @@
     "publish": {
       "provider": "github",
       "owner": "dheeai",
-      "repo": "dhee-studio",
+      "repo": "dhee-desktop",
       "releaseType": "release"
     }
   },
