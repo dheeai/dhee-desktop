@@ -471,6 +471,21 @@ export function applyEnvFromSettings(
   }
   setIfPresent('dhee_PROJECT_DIR', settings.projectDir);
 
+  // ── Named ComfyUI endpoints (DAG bundle architecture) ──
+  // Bundles declare endpoint NAMES (e.g. "self.local"); the URL lives
+  // here per-user. Forward each as ENDPOINT_<name_with_dots_as_underscores>
+  // env var that the kshana-core process reads via resolveEndpointUrl().
+  // Bundle stays portable across users; user keeps full control of
+  // routing. P2P discovery will register additional names here later.
+  for (const [endpointName, endpointUrl] of Object.entries(
+    settings.comfyEndpoints ?? {},
+  )) {
+    const trimmed = typeof endpointUrl === 'string' ? endpointUrl.trim() : '';
+    if (!trimmed) continue;
+    const envKey = `ENDPOINT_${endpointName.replace(/\./g, '_')}`;
+    process.env[envKey] = trimmed;
+  }
+
   // LLM routing — gated by the dedicated `llmBackend` lane (set above
   // as `useCloudLLM`). This is independent of `comfyBackend`: a user
   // can run LLM through cloud while keeping ComfyUI local, or vice

@@ -60,6 +60,12 @@ const defaults: AppSettings = {
   vlmBaseUrl: '',
   vlmApiKey: '',
   vlmModel: '',
+  comfyEndpoints: {
+    // public.cloud has a sensible community default. User-specific
+    // endpoints (self.local, self.cloud) are empty until the user
+    // configures them in Settings → ComfyUI Endpoints.
+    'public.cloud': 'https://cloud.comfy.org/api',
+  },
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...DEFAULT_TIER_CONFIG },
   llmTierLight: { ...DEFAULT_TIER_CONFIG },
@@ -222,6 +228,22 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     ? 'inherit'
     : derivedMode;
 
+  // Named ComfyUI endpoints — each key is a semantic name a bundle can
+  // reference (e.g. "self.local", "public.cloud"). Values must be
+  // non-empty trimmed strings; anything else is dropped. The defaults
+  // block seeds public.cloud; merge user-provided keys over it so a
+  // setting-file edit can override or extend without losing the
+  // default.
+  const rawEndpoints = (value as { comfyEndpoints?: unknown } | null | undefined)?.comfyEndpoints;
+  const comfyEndpoints: Record<string, string> = { 'public.cloud': 'https://cloud.comfy.org/api' };
+  if (rawEndpoints && typeof rawEndpoints === 'object' && !Array.isArray(rawEndpoints)) {
+    for (const [name, url] of Object.entries(rawEndpoints as Record<string, unknown>)) {
+      if (typeof url === 'string' && url.trim().length > 0) {
+        comfyEndpoints[name] = url.trim();
+      }
+    }
+  }
+
   const normalized: AppSettings = {
     backendMode,
     llmBackend,
@@ -230,6 +252,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
     comfyCloudApiKey,
+    comfyEndpoints,
     comfyuiTimeout: FIXED_COMFYUI_TIMEOUT_SECONDS,
     llmProvider,
     lmStudioUrl,
