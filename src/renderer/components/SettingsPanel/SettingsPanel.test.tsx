@@ -138,8 +138,8 @@ describe('SettingsPanel', () => {
     });
     expect(signIn).toHaveBeenCalledTimes(1);
 
-    // Auth bridge reports signed-in. Inline Sign In buttons disappear,
-    // toggles become enabled, and stay un-checked (no auto-flip).
+    // Auth bridge reports signed-in on Free. LLM can use Cloud, but
+    // ComfyUI stays BYO because hosted media is not in Free/Starter.
     await act(async () => {
       onChangeHandler?.({
         email: 'user@example.com',
@@ -151,13 +151,18 @@ describe('SettingsPanel', () => {
       });
     });
 
-    expect(
-      screen.queryAllByRole('button', { name: /^Sign In$/ }),
-    ).toHaveLength(0);
+    expect(screen.queryAllByRole('button', { name: /^Sign In$/ })).toHaveLength(
+      0,
+    );
     expect(llmCloudCheckbox.disabled).toBe(false);
-    expect(comfyCloudCheckbox.disabled).toBe(false);
+    expect(comfyCloudCheckbox.disabled).toBe(true);
     expect(llmCloudCheckbox.checked).toBe(false);
     expect(comfyCloudCheckbox.checked).toBe(false);
+    expect(
+      screen.getByText(
+        /Starter and Free accounts bring their own ComfyUI endpoint/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('shows ComfyUI and provider settings on the Connection tab', async () => {
@@ -339,6 +344,75 @@ describe('SettingsPanel', () => {
       'Use Dhee Cloud for ComfyUI',
     ) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
+  });
+
+  it('resets Starter accounts to BYO ComfyUI and saves ComfyUI as local', async () => {
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        account: {
+          get: jest.fn().mockResolvedValue({
+            userId: 'user_1',
+            email: 'user@example.com',
+            credits: 3000,
+            planId: 'starter_10',
+            planLabel: 'Starter',
+            subscriptionStatus: 'active',
+            token: 'desktop-jwt',
+          }),
+          getBillingUrl: jest.fn().mockResolvedValue(''),
+          signIn: jest.fn(),
+          signOut: jest.fn(),
+          refreshBalance: jest.fn(),
+          openBilling: jest.fn(),
+          onChange: () => () => {},
+        },
+      },
+    });
+    const onSave = jest.fn().mockResolvedValue(true);
+
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={{
+            ...baseSettings,
+            comfyBackend: 'cloud',
+            backendMode: 'cloud',
+          }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSave}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    expect(
+      await screen.findByText(
+        /Starter and Free accounts bring their own ComfyUI endpoint/i,
+      ),
+    ).toBeInTheDocument();
+
+    const comfyCloudCheckbox = screen.getByLabelText(
+      'Use Dhee Cloud for ComfyUI',
+    ) as HTMLInputElement;
+    expect(comfyCloudCheckbox.disabled).toBe(true);
+    expect(comfyCloudCheckbox.checked).toBe(false);
+
+    const urlInput = screen.getByLabelText('ComfyUI URL') as HTMLInputElement;
+    fireEvent.change(urlInput, { target: { value: 'http://127.0.0.1:8188' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));
+
+    expect(onSave).toHaveBeenCalled();
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      backendMode: 'local',
+      comfyBackend: 'local',
+      comfyuiMode: 'custom',
+      comfyuiUrl: 'http://127.0.0.1:8188',
+    });
   });
 
   it('hides ALL LLM provider inputs when "Use Dhee Cloud for LLM" is on', async () => {

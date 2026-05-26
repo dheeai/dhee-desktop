@@ -146,6 +146,27 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   };
 }
 
+function deriveBackendMode(
+  settings: Pick<AppSettings, 'llmBackend' | 'comfyBackend' | 'vlmBackend'>,
+) {
+  return settings.llmBackend === 'cloud' ||
+    settings.comfyBackend === 'cloud' ||
+    settings.vlmBackend === 'cloud'
+    ? 'cloud'
+    : 'local';
+}
+
+function canAccountUseHostedComfy(account: AccountInfo | null): boolean {
+  return (
+    account?.subscriptionStatus === 'active' &&
+    (
+      account.planId === 'standard_20' ||
+      account.planId === 'creator_35' ||
+      account.planId === 'pro_100'
+    )
+  );
+}
+
 function getAccountBridge() {
   return (window.electron as typeof window.electron & {
     account?: typeof window.electron.account;
@@ -203,6 +224,8 @@ export default function SettingsPanel({
   const [providerDiagnostics, setProviderDiagnostics] =
     useState<ProviderDiagnosticsSnapshot | null>(null);
   const [providerDiagnosticsBusy, setProviderDiagnosticsBusy] = useState(false);
+  const canUseHostedComfy = canAccountUseHostedComfy(account);
+  const isComfyBlockedByPlan = Boolean(account) && !canUseHostedComfy;
 
   useEffect(() => {
     if (activeTab !== 'diagnostics') return;
@@ -313,6 +336,15 @@ export default function SettingsPanel({
     });
   }, [isVisible]);
 
+  useEffect(() => {
+    if (!isComfyBlockedByPlan) return;
+    setForm((prev) => {
+      if (prev.comfyBackend !== 'cloud') return prev;
+      const next = { ...prev, comfyBackend: 'local' as const };
+      return { ...next, backendMode: deriveBackendMode(next) };
+    });
+  }, [isComfyBlockedByPlan]);
+
   const handleInlineSignIn = async () => {
     const accountBridge = getAccountBridge();
     if (!accountBridge) {
@@ -348,6 +380,9 @@ export default function SettingsPanel({
     if (isLaneToggle && value === 'cloud' && !account) {
       return;
     }
+    if (key === 'comfyBackend' && value === 'cloud' && !canUseHostedComfy) {
+      return;
+    }
 
     setForm((prev) => ({
       ...prev,
@@ -357,10 +392,12 @@ export default function SettingsPanel({
 
   const saveConnectionSettings = async (nextForm: AppSettings) => {
     const normalized = normalizeConnectionSettings(nextForm);
+    const comfyBackend = canUseHostedComfy ? normalized.comfyBackend : 'local';
+    const backendMode = deriveBackendMode({ ...normalized, comfyBackend });
     await onSaveConnection({
-      backendMode: normalized.backendMode,
+      backendMode,
       llmBackend: normalized.llmBackend,
-      comfyBackend: normalized.comfyBackend,
+      comfyBackend,
       vlmBackend: normalized.vlmBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
@@ -415,9 +452,24 @@ export default function SettingsPanel({
   // comfyBackend='cloud'; LLM provider/url/model/key inputs are inert
   // when llmBackend='cloud'. The two are independent — flipping one
   // doesn't affect the other.
-  const isComfyCloudMode = form.comfyBackend === 'cloud';
+  const isComfyCloudMode =
+    form.comfyBackend === 'cloud' && !isComfyBlockedByPlan;
   const isLlmCloudMode = form.llmBackend === 'cloud';
   const isVlmCloudMode = form.vlmBackend === 'cloud';
+  let comfyCloudToggleTitle: string | undefined;
+  if (!account) {
+    comfyCloudToggleTitle = 'Sign in to Dhee Cloud to enable Cloud mode';
+  } else if (isComfyBlockedByPlan) {
+    comfyCloudToggleTitle =
+      'Your current plan uses bring-your-own ComfyUI for image and video';
+  }
+  let comfyInfoText = 'Image / video jobs run on the ComfyUI server below.';
+  if (isComfyBlockedByPlan) {
+    comfyInfoText =
+      'Starter and Free accounts bring their own ComfyUI endpoint for image and video. Configure your ComfyUI server below.';
+  } else if (isComfyCloudMode) {
+    comfyInfoText = 'Image / video jobs run on Dhee Cloud (uses credits).';
+  }
   const statusLabel = isCloudReady || !isCloudMode ? 'Ready' : 'Sign in';
   const statusBadgeClass = isCloudReady || !isCloudMode
     ? styles.statusBadgeSuccess
@@ -909,16 +961,12 @@ export default function SettingsPanel({
                   >
                     <label
                       className={styles.checkboxLabel}
-                      title={
-                        !account
-                          ? 'Sign in to Dhee Cloud to enable Cloud mode'
-                          : undefined
-                      }
+                      title={comfyCloudToggleTitle}
                     >
                       <input
                         type="checkbox"
                         checked={isComfyCloudMode}
-                        disabled={!account}
+                        disabled={!canUseHostedComfy}
                         onChange={(event) =>
                           handleInput(
                             'comfyBackend',
@@ -941,9 +989,7 @@ export default function SettingsPanel({
                     ) : null}
                   </div>
                   <p className={styles.infoText}>
-                    {isComfyCloudMode
-                      ? 'Image / video jobs run on Dhee Cloud (uses credits).'
-                      : 'Image / video jobs run on the ComfyUI server below.'}
+                    {comfyInfoText}
                   </p>
 
                   {!isComfyCloudMode && (
