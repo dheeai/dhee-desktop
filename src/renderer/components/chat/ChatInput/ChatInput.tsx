@@ -1,6 +1,15 @@
 import { FormEvent, useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { Send, Square, Paperclip } from 'lucide-react';
-import type { Attachment, AttachmentKind } from '../../../../shared/attachmentTypes';
+import type {
+  Attachment,
+  AttachmentKind,
+  ReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
+import {
+  attachmentsFromSelectResponse,
+  isReferenceImageLikeAttachment,
+  withReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
 import AttachmentChip from './AttachmentChip';
 import styles from './ChatInput.module.scss';
 
@@ -25,6 +34,23 @@ interface ChatInputProps {
 const MIN_ROWS = 1;
 const MAX_ROWS = 6;
 const LINE_HEIGHT = 24; // Approximate line height in pixels
+
+function mergePickedAttachment(
+  existing: Attachment[],
+  attachment: Attachment,
+): Attachment[] {
+  if (isReferenceImageLikeAttachment(attachment)) {
+    if (existing.some((item) => item.path === attachment.path)) return existing;
+    return [...existing, attachment];
+  }
+  if (attachment.kind === 'comfy_workflow') {
+    return [
+      ...existing.filter((item) => item.kind !== 'comfy_workflow'),
+      attachment,
+    ];
+  }
+  return [...existing, attachment];
+}
 
 export default function ChatInput({
   disabled = false,
@@ -116,34 +142,28 @@ export default function ChatInput({
     try {
       const result = await window.electron.project.selectAttachment({
         kinds: acceptedAttachmentKinds,
+        multiple: acceptedAttachmentKinds.some(
+          (kind) => kind === 'character_ref' || kind === 'reference_image',
+        ),
         title:
           acceptedAttachmentKinds.length === 1 &&
           acceptedAttachmentKinds[0] === 'comfy_workflow'
             ? 'Select a ComfyUI Workflow'
             : acceptedAttachmentKinds.length === 1 &&
-                acceptedAttachmentKinds[0] === 'character_ref'
-              ? 'Select Character Reference Image'
+                (acceptedAttachmentKinds[0] === 'character_ref' ||
+                  acceptedAttachmentKinds[0] === 'reference_image')
+              ? 'Select Reference Images'
               : 'Select an attachment',
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
         return;
       }
-      if (result.attachment) {
-        setAttachments((prev) => {
-          const attachment = result.attachment as Attachment;
-          if (attachment.kind === 'character_ref') {
-            if (prev.some((item) => item.path === attachment.path)) return prev;
-            return [...prev, attachment];
-          }
-          if (attachment.kind === 'comfy_workflow') {
-            return [
-              ...prev.filter((item) => item.kind !== 'comfy_workflow'),
-              attachment,
-            ];
-          }
-          return [...prev, attachment];
-        });
+      const pickedAttachments = attachmentsFromSelectResponse(result);
+      if (pickedAttachments.length > 0) {
+        setAttachments((prev) =>
+          pickedAttachments.reduce(mergePickedAttachment, prev),
+        );
       }
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : String(err));
@@ -154,6 +174,16 @@ export default function ChatInput({
 
   const handleRemoveAttachment = (id: string) => {
     setAttachments(prev => prev.filter(a => a.id !== id));
+  };
+
+  const handleReferenceRoleChange = (id: string, role: ReferenceImageRole) => {
+    setAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageRole(attachment, role)
+          : attachment,
+      ),
+    );
   };
 
   const hasContent = value.trim().length > 0 || attachments.length > 0;
@@ -173,6 +203,7 @@ export default function ChatInput({
               key={att.id}
               attachment={att}
               onRemove={handleRemoveAttachment}
+              onReferenceRoleChange={handleReferenceRoleChange}
               disabled={isRunning}
             />
           ))}
@@ -194,7 +225,7 @@ export default function ChatInput({
             acceptedAttachmentKinds.length === 1 &&
             acceptedAttachmentKinds[0] === 'comfy_workflow'
               ? 'Attach a ComfyUI workflow JSON'
-              : 'Attach a file'
+              : 'Attach a reference image'
           }
         >
           <Paperclip size={16} />

@@ -207,6 +207,59 @@ describe('dheeIpcBridge', () => {
     }
   });
 
+  it('runTask registers setting refs and appends setting context', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'dhee-bridge-settingrefs-'));
+    try {
+      const projectDir = join(tmp, 'noir.dhee');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.json'), JSON.stringify({ title: 'noir' }, null, 2));
+
+      registerdheeIpcBridge(
+        fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+        browserWindowMock as unknown as import('electron').BrowserWindow,
+      );
+      const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
+      await handler({} as never, {
+        sessionId: 's-1',
+        task: 'use this place',
+        projectDir,
+        attachments: [{
+          id: 'att_field',
+          kind: 'reference_image',
+          path: join(projectDir, 'assets/uploads/settings/field.png'),
+          name: 'field.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'setting_ref',
+            referenceRole: 'setting',
+            projectRelativePath: 'assets/uploads/settings/field.png',
+            originalPath: '/Users/me/Desktop/field.png',
+            originalFilename: 'field.png',
+          },
+        }],
+      });
+
+      const call = managerCalls.find((c) => c.method === 'runTask');
+      expect(call?.args[1]).toBe(
+        'use this place\n\nAttached setting reference images:\n- field.png: assets/uploads/settings/field.png',
+      );
+      const project = JSON.parse(readFileSync(join(projectDir, 'project.json'), 'utf-8'));
+      expect(project.inputs).toEqual([
+        expect.objectContaining({
+          purpose: 'setting_ref',
+          source: expect.objectContaining({
+            value: 'assets/uploads/settings/field.png',
+          }),
+          metadata: expect.objectContaining({
+            referenceRole: 'setting',
+          }),
+        }),
+      ]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it('runTask routes events from manager.eventCb to webContents.send(dhee_EVENT_CHANNEL, …)', async () => {
     registerdheeIpcBridge(
       fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,

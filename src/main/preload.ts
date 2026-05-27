@@ -22,7 +22,11 @@ import type {
   OnboardingState,
 } from '../shared/onboardingTypes';
 import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
-import type { Attachment, AttachmentKind } from '../shared/attachmentTypes';
+import type {
+  Attachment,
+  SelectAttachmentRequest,
+  SelectAttachmentResponse,
+} from '../shared/attachmentTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -181,14 +185,9 @@ const projectBridge = {
    * accepts. Returns the picked
    * attachment shape, or `{ ok: false }` on cancel/error.
    */
-  selectAttachment(req: {
-    kinds: AttachmentKind[];
-    title?: string;
-  }): Promise<{
-    ok: boolean;
-    attachment?: Attachment;
-    error?: string;
-  }> {
+  selectAttachment(
+    req: SelectAttachmentRequest,
+  ): Promise<SelectAttachmentResponse> {
     return ipcRenderer.invoke('project:select-attachment', req);
   },
   importCharacterReferences(req: {
@@ -200,6 +199,16 @@ const projectBridge = {
     error?: string;
   }> {
     return ipcRenderer.invoke('project:import-character-references', req);
+  },
+  importReferenceImages(req: {
+    projectDir: string;
+    attachments: Attachment[];
+  }): Promise<{
+    ok: boolean;
+    attachments?: Attachment[];
+    error?: string;
+  }> {
+    return ipcRenderer.invoke('project:import-reference-images', req);
   },
   getAudioDuration(audioPath: string): Promise<number> {
     return ipcRenderer.invoke('project:get-audio-duration', audioPath);

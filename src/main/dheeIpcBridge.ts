@@ -53,12 +53,12 @@ import {
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
 import {
-  appendCharacterReferenceImagesToTask,
-  characterReferenceImagesFromAttachments,
+  appendReferenceImagesToTask,
   prefixAttachmentsToTask,
+  referenceImagesFromAttachments,
 } from '../shared/attachmentTypes';
 import type { dheeCoreManager, dheeCoreEvent } from './dheeCoreManager';
-import { addCharacterReferenceInputsToProject } from './characterReferenceImport';
+import { addReferenceImageInputsToProject } from './characterReferenceImport';
 
 /**
  * Wire the bridge. Idempotent — if the channels are already registered
@@ -138,28 +138,28 @@ export function registerdheeIpcBridge(
     dhee_CHANNELS.RUN_TASK,
     async (_event, req: RunTaskRequest): Promise<OkResponse> => {
       const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
-      const characterReferenceImages = characterReferenceImagesFromAttachments(
+      const referenceImages = referenceImagesFromAttachments(
         req.attachments,
       );
-      if (characterReferenceImages.length > 0) {
+      if (referenceImages.length > 0) {
         if (!req.projectDir) {
           return {
             ok: false,
-            error: 'Project directory is required for character reference attachments',
+            error: 'Project directory is required for reference image attachments',
           };
         }
-        await addCharacterReferenceInputsToProject({
+        await addReferenceImageInputsToProject({
           projectDir: req.projectDir,
           attachments: req.attachments ?? [],
         });
       }
 
       // Comfy workflow hints are prepended so pi-agent's skill prompts
-      // can recognize them. Character refs use durable project paths
+      // can recognize them. Reference images use durable project paths
       // and are appended as content the graph prompt can read.
-      const finalTask = appendCharacterReferenceImagesToTask(
+      const finalTask = appendReferenceImagesToTask(
         prefixAttachmentsToTask(req.task, req.attachments),
-        characterReferenceImages,
+        referenceImages,
       );
       const result = await manager.runTask(
         req.sessionId,

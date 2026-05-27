@@ -433,6 +433,15 @@ const fakeElectron = {
         }, [req]),
       );
     },
+    importReferenceImages: (req: unknown) => {
+      record('project.importReferenceImages', req);
+      return Promise.resolve(
+        bridgeReturn('project.importReferenceImages', {
+          ok: true,
+          attachments: [],
+        }, [req]),
+      );
+    },
     getAudioDuration: () => Promise.resolve(0),
     getAudioWaveform: () => Promise.resolve({ peaks: [], duration: 0 }),
     generateWordCaptions: () => Promise.resolve({ success: false }),

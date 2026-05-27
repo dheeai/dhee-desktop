@@ -84,6 +84,12 @@ describe('ChatInput', () => {
       });
       // Chip appears with the filename.
       await waitFor(() => expect(screen.getByText('wf.json')).toBeInTheDocument());
+      expect(selectAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kinds: ['comfy_workflow'],
+          multiple: false,
+        }),
+      );
 
       // Type something + send.
       const textarea = screen.getByLabelText('Chat input');
@@ -177,6 +183,112 @@ describe('ChatInput', () => {
       expect(onSend).toHaveBeenCalledWith('', [
         expect.objectContaining({ id: 'att_hero' }),
         expect.objectContaining({ id: 'att_friend' }),
+      ]);
+    });
+
+    it('handles multiple selected reference images from one picker response', async () => {
+      const onSend = jest.fn();
+      const selectAttachment = jest.fn(async () => ({
+        ok: true,
+        attachment: {
+          id: 'att_hero',
+          kind: 'reference_image' as const,
+          path: '/tmp/hero.png',
+          name: 'hero.png',
+        },
+        attachments: [
+          {
+            id: 'att_hero',
+            kind: 'reference_image' as const,
+            path: '/tmp/hero.png',
+            name: 'hero.png',
+          },
+          {
+            id: 'att_field',
+            kind: 'reference_image' as const,
+            path: '/tmp/field.png',
+            name: 'field.png',
+          },
+        ],
+      }));
+      Object.defineProperty(window, 'electron', {
+        configurable: true,
+        value: { project: { selectAttachment } },
+      });
+
+      render(
+        <ChatInput
+          onSend={onSend}
+          acceptedAttachmentKinds={['reference_image']}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Attach file'));
+      });
+
+      await waitFor(() => expect(screen.getByText('hero.png')).toBeInTheDocument());
+      expect(screen.getByText('field.png')).toBeInTheDocument();
+      expect(selectAttachment).toHaveBeenCalledWith(
+        expect.objectContaining({
+          kinds: ['reference_image'],
+          multiple: true,
+        }),
+      );
+
+      fireEvent.submit(screen.getByLabelText('Chat input').closest('form')!);
+      expect(onSend).toHaveBeenCalledWith('', [
+        expect.objectContaining({ id: 'att_hero' }),
+        expect.objectContaining({ id: 'att_field' }),
+      ]);
+    });
+
+    it('shows reference image chips as Auto and lets the role change to Setting', async () => {
+      const onSend = jest.fn();
+      const selectAttachment = jest.fn(async () => ({
+        ok: true,
+        attachment: {
+          id: 'att_field',
+          kind: 'reference_image' as const,
+          path: '/tmp/field.png',
+          name: 'field.png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+      }));
+      Object.defineProperty(window, 'electron', {
+        configurable: true,
+        value: { project: { selectAttachment } },
+      });
+
+      render(
+        <ChatInput
+          onSend={onSend}
+          acceptedAttachmentKinds={['reference_image']}
+        />,
+      );
+
+      await act(async () => {
+        fireEvent.click(screen.getByLabelText('Attach file'));
+      });
+      await waitFor(() => expect(screen.getByText('field.png')).toBeInTheDocument());
+
+      const roleSelect = screen.getByLabelText('Reference role for field.png');
+      expect(roleSelect).toHaveValue('auto');
+      fireEvent.change(roleSelect, { target: { value: 'setting' } });
+
+      fireEvent.submit(screen.getByLabelText('Chat input').closest('form')!);
+      expect(onSend).toHaveBeenCalledWith('', [
+        expect.objectContaining({
+          id: 'att_field',
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            referenceRole: 'setting',
+            purpose: 'setting_ref',
+          }),
+        }),
       ]);
     });
 

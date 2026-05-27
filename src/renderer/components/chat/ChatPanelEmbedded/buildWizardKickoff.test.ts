@@ -41,7 +41,7 @@ describe('buildWizardKickoff', () => {
     expect(message).toMatch(/start the pipeline/i);
   });
 
-  it('includes copied character reference images as the dhee_new parameter payload', () => {
+  it('includes copied character reference images as the generic dhee_new referenceImages payload', () => {
     const { message } = buildWizardKickoff({
       ...baseArgs,
       characterReferenceImages: [{
@@ -54,9 +54,32 @@ describe('buildWizardKickoff', () => {
       }],
     });
 
-    expect(message).toContain('characterReferenceImages');
+    expect(message).toContain('referenceImages');
     expect(message).toContain('"relativePath": "assets/uploads/characters/hero.png"');
+    expect(message).toContain('"purpose": "character_ref"');
+    expect(message).toContain('"referenceRole": "character"');
     expect(message).toContain('"sourcePath": "/Users/me/Desktop/hero.png"');
+  });
+
+  it('includes copied setting reference images as the dhee_new referenceImages payload', () => {
+    const { message } = buildWizardKickoff({
+      ...baseArgs,
+      referenceImages: [{
+        name: 'field.png',
+        relativePath: 'assets/uploads/settings/field.png',
+        purpose: 'setting_ref',
+        referenceRole: 'setting',
+        sourcePath: '/Users/me/Desktop/field.png',
+        originalFilename: 'field.png',
+        mimeType: 'image/png',
+        size: 4,
+      }],
+    });
+
+    expect(message).toContain('referenceImages');
+    expect(message).toContain('"relativePath": "assets/uploads/settings/field.png"');
+    expect(message).toContain('"purpose": "setting_ref"');
+    expect(message).toContain('"referenceRole": "setting"');
   });
 
   it('handles names / paths containing spaces correctly', () => {

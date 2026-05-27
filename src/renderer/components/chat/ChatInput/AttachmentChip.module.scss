@@ -46,6 +46,24 @@
   border-radius: $radius-sm;
 }
 
+.roleSelect {
+  flex-shrink: 0;
+  height: 22px;
+  max-width: 92px;
+  border: 1px solid rgba(var(--color-panel-border-rgb), 0.7);
+  border-radius: $radius-sm;
+  background: $color-panel-background;
+  color: $color-text-primary;
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
 .removeButton {
   flex-shrink: 0;
   background: transparent;

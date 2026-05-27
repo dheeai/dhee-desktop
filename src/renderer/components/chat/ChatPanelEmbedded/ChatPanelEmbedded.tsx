@@ -33,8 +33,12 @@ import {
   X,
 } from 'lucide-react';
 import {
-  characterReferenceImagesFromAttachments,
   type Attachment,
+  type ReferenceImageRole,
+  attachmentsFromSelectResponse,
+  isReferenceImageLikeAttachment,
+  referenceImagesFromAttachments,
+  withReferenceImageRole,
 } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
@@ -275,7 +279,7 @@ function mergePickedAttachment(
   existing: Attachment[],
   attachment: Attachment,
 ): Attachment[] {
-  if (attachment.kind === 'character_ref') {
+  if (isReferenceImageLikeAttachment(attachment)) {
     if (existing.some((item) => item.path === attachment.path)) return existing;
     return [...existing, attachment];
   }
@@ -914,25 +918,28 @@ export default function ChatPanelEmbedded() {
     setStoryInput(value);
   }, []);
 
-  const importCharacterReferencesForProject = useCallback(
+  const importReferenceImagesForProject = useCallback(
     async (attachments: Attachment[]): Promise<Attachment[]> => {
       const references = attachments.filter(
-        (attachment) => attachment.kind === 'character_ref',
+        isReferenceImageLikeAttachment,
       );
       if (references.length === 0) return attachments;
       if (!projectDirectory) {
         throw new Error(
-          'Open a project before attaching character reference images.',
+          'Open a project before attaching reference images.',
         );
       }
 
-      const result = await window.electron.project.importCharacterReferences({
+      const importReferenceImages =
+        window.electron.project.importReferenceImages ??
+        window.electron.project.importCharacterReferences;
+      const result = await importReferenceImages({
         projectDir: projectDirectory,
         attachments: references,
       });
       if (!result.ok || !result.attachments) {
         throw new Error(
-          result.error ?? 'Could not import character reference images.',
+          result.error ?? 'Could not import reference images.',
         );
       }
 
@@ -967,7 +974,7 @@ export default function ChatPanelEmbedded() {
 
     let importedSetupAttachments: Attachment[];
     try {
-      importedSetupAttachments = await importCharacterReferencesForProject(setupAttachments);
+      importedSetupAttachments = await importReferenceImagesForProject(setupAttachments);
     } catch (err) {
       setSetupError(err instanceof Error ? err.message : String(err));
       setIsConfiguringSetup(false);
@@ -997,7 +1004,7 @@ export default function ChatPanelEmbedded() {
       style: selectedStyleId,
       duration: selectedDuration,
       story: trimmedStory,
-      characterReferenceImages: characterReferenceImagesFromAttachments(
+      referenceImages: referenceImagesFromAttachments(
         importedSetupAttachments,
       ),
     });
@@ -1027,7 +1034,7 @@ export default function ChatPanelEmbedded() {
     selectedDuration,
     selectedStyleId,
     selectedTemplateId,
-    importCharacterReferencesForProject,
+    importReferenceImagesForProject,
     session,
     setupAttachments,
     storyInput,
@@ -1068,16 +1075,18 @@ export default function ChatPanelEmbedded() {
     setSetupError(null);
     try {
       const result = await window.electron.project.selectAttachment({
-        kinds: ['character_ref'],
-        title: 'Select Character Reference Image',
+        kinds: ['reference_image'],
+        title: 'Select Reference Images',
+        multiple: true,
       });
       if (!result.ok) {
         if (result.error) setSetupError(result.error);
         return;
       }
-      if (result.attachment) {
+      const pickedAttachments = attachmentsFromSelectResponse(result);
+      if (pickedAttachments.length > 0) {
         setSetupAttachments((prev) =>
-          mergePickedAttachment(prev, result.attachment as Attachment),
+          pickedAttachments.reduce(mergePickedAttachment, prev),
         );
       }
     } catch (err) {
@@ -1091,22 +1100,37 @@ export default function ChatPanelEmbedded() {
     );
   };
 
+  const handleSetupReferenceRoleChange = (
+    id: string,
+    role: ReferenceImageRole,
+  ) => {
+    setSetupAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageRole(attachment, role)
+          : attachment,
+      ),
+    );
+  };
+
   const handleAttachClick = async () => {
     setAttachmentError(null);
     try {
       const result = await window.electron.project.selectAttachment({
         kinds: projectDirectory
-          ? ['comfy_workflow', 'character_ref']
+          ? ['comfy_workflow', 'reference_image']
           : ['comfy_workflow'],
         title: projectDirectory ? 'Select Attachment' : 'Select a ComfyUI Workflow',
+        multiple: Boolean(projectDirectory),
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
         return;
       }
-      if (result.attachment) {
+      const pickedAttachments = attachmentsFromSelectResponse(result);
+      if (pickedAttachments.length > 0) {
         setChatAttachments((prev) =>
-          mergePickedAttachment(prev, result.attachment as Attachment),
+          pickedAttachments.reduce(mergePickedAttachment, prev),
         );
       }
     } catch (err) {
@@ -1116,6 +1140,19 @@ export default function ChatPanelEmbedded() {
 
   const handleRemoveAttachment = (id: string) => {
     setChatAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleChatReferenceRoleChange = (
+    id: string,
+    role: ReferenceImageRole,
+  ) => {
+    setChatAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageRole(attachment, role)
+          : attachment,
+      ),
+    );
   };
 
   const handleSend = async () => {
@@ -1138,7 +1175,7 @@ export default function ChatPanelEmbedded() {
     let sentAttachments: Attachment[];
     setIsImportingChatReferences(true);
     try {
-      sentAttachments = await importCharacterReferencesForProject(chatAttachments);
+      sentAttachments = await importReferenceImagesForProject(chatAttachments);
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : String(err));
       setIsImportingChatReferences(false);
@@ -1563,6 +1600,7 @@ export default function ChatPanelEmbedded() {
         onChangeStory={handleChangeStory}
         onAttachStoryImage={handleAttachSetupReference}
         onRemoveStoryAttachment={handleRemoveSetupAttachment}
+        onChangeStoryAttachmentRole={handleSetupReferenceRoleChange}
         onSubmitStory={handleSubmitStory}
         onSelectAutonomousMode={handleSelectAutonomousMode}
         onConfirmSetup={() => void handleConfirmSetup()}
@@ -1651,6 +1689,7 @@ export default function ChatPanelEmbedded() {
                 key={att.id}
                 attachment={att}
                 onRemove={handleRemoveAttachment}
+                onReferenceRoleChange={handleChatReferenceRoleChange}
                 disabled={isMainBusy || isImportingChatReferences}
               />
             ))}
@@ -1666,7 +1705,7 @@ export default function ChatPanelEmbedded() {
             aria-label="Attach file"
             title={
               projectDirectory
-                ? 'Attach a workflow or character reference image'
+                ? 'Attach a workflow or reference image'
                 : 'Attach a ComfyUI workflow JSON'
             }
             disabled={!isReady || isMainBusy || isImportingChatReferences}
@@ -1685,7 +1724,7 @@ export default function ChatPanelEmbedded() {
             }}
             placeholder={
               isImportingChatReferences
-                ? 'Importing character reference…'
+                ? 'Importing reference image…'
                 : isMainBusy
                   ? 'Thinking…'
                   : isRunning

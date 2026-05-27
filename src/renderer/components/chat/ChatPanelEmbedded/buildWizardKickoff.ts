@@ -37,6 +37,16 @@ interface BuildWizardKickoffArgs {
     mimeType?: string;
     size?: number;
   }>;
+  referenceImages?: Array<{
+    name: string;
+    relativePath: string;
+    purpose: 'character_ref' | 'setting_ref' | 'reference_general';
+    referenceRole: 'auto' | 'character' | 'setting';
+    sourcePath?: string;
+    originalFilename?: string;
+    mimeType?: string;
+    size?: number;
+  }>;
 }
 
 interface BuildWizardKickoffResult {
@@ -62,11 +72,19 @@ export function buildWizardKickoff(
     trimmedStory,
   ];
 
-  if (args.characterReferenceImages && args.characterReferenceImages.length > 0) {
+  const referenceImages =
+    args.referenceImages ??
+    args.characterReferenceImages?.map((image) => ({
+      ...image,
+      purpose: 'character_ref' as const,
+      referenceRole: 'character' as const,
+    }));
+
+  if (referenceImages && referenceImages.length > 0) {
     lines.push(
       '',
-      'Pass these copied project-local character reference images exactly as the dhee_new characterReferenceImages parameter:',
-      JSON.stringify(args.characterReferenceImages, null, 2),
+      'Pass these copied project-local reference images exactly as the dhee_new referenceImages parameter, not characterReferenceImages:',
+      JSON.stringify(referenceImages, null, 2),
     );
   }
 

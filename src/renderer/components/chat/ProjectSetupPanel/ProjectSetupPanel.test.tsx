@@ -219,12 +219,14 @@ describe('ProjectSetupPanel', () => {
       onChangeStory?: jest.Mock;
       onAttachStoryImage?: jest.Mock;
       onRemoveStoryAttachment?: jest.Mock;
+      onChangeStoryAttachmentRole?: jest.Mock;
       onSubmitStory?: jest.Mock;
     } = {},
   ) {
     const onChangeStory = overrides.onChangeStory ?? jest.fn();
     const onAttachStoryImage = overrides.onAttachStoryImage ?? jest.fn();
     const onRemoveStoryAttachment = overrides.onRemoveStoryAttachment ?? jest.fn();
+    const onChangeStoryAttachmentRole = overrides.onChangeStoryAttachmentRole ?? jest.fn();
     const onSubmitStory = overrides.onSubmitStory ?? jest.fn();
     render(
       <ProjectSetupPanel
@@ -239,9 +241,13 @@ describe('ProjectSetupPanel', () => {
         storyInput={overrides.storyInput ?? ''}
         storyAttachments={[{
           id: 'att_hero',
-          kind: 'character_ref',
+          kind: 'reference_image',
           path: '/tmp/hero.png',
           name: 'hero.png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
         }]}
         storyAttachmentPending={overrides.storyAttachmentPending ?? false}
         loading={false}
@@ -255,13 +261,20 @@ describe('ProjectSetupPanel', () => {
         onChangeStory={onChangeStory}
         onAttachStoryImage={onAttachStoryImage}
         onRemoveStoryAttachment={onRemoveStoryAttachment}
+        onChangeStoryAttachmentRole={onChangeStoryAttachmentRole}
         onSubmitStory={onSubmitStory}
         onSelectAutonomousMode={jest.fn()}
         onConfirmSetup={jest.fn()}
         onBack={jest.fn()}
       />,
     );
-    return { onChangeStory, onAttachStoryImage, onRemoveStoryAttachment, onSubmitStory };
+    return {
+      onChangeStory,
+      onAttachStoryImage,
+      onRemoveStoryAttachment,
+      onChangeStoryAttachmentRole,
+      onSubmitStory,
+    };
   }
 
   // Indicator tests for the collapsed 3-step user flow.
@@ -363,16 +376,25 @@ describe('ProjectSetupPanel', () => {
     expect(button.disabled).toBe(false);
   });
 
-  it('shows character reference attachment controls on the story step', () => {
-    const { onAttachStoryImage, onRemoveStoryAttachment } = renderStoryStep({
+  it('shows reference attachment controls on the story step', () => {
+    const {
+      onAttachStoryImage,
+      onRemoveStoryAttachment,
+      onChangeStoryAttachmentRole,
+    } = renderStoryStep({
       storyInput: 'A story.',
     });
 
     fireEvent.click(screen.getByRole('button', {
-      name: 'Attach character reference image',
+      name: 'Attach reference image',
     }));
     expect(onAttachStoryImage).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('hero.png')).not.toBeNull();
+
+    fireEvent.change(screen.getByLabelText('Reference role for hero.png'), {
+      target: { value: 'setting' },
+    });
+    expect(onChangeStoryAttachmentRole).toHaveBeenCalledWith('att_hero', 'setting');
 
     fireEvent.click(screen.getByLabelText('Remove attachment hero.png'));
     expect(onRemoveStoryAttachment).toHaveBeenCalledWith('att_hero');

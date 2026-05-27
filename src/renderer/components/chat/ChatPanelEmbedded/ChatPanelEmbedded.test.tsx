@@ -415,7 +415,7 @@ describe('ChatPanelEmbedded', () => {
     });
   });
 
-  it('imports character reference attachments before sending normal chat', async () => {
+  it('imports multiple reference attachments before sending normal chat', async () => {
     mockWorkspaceProjectName = 'noir';
     const projectJson = JSON.stringify({
       templateId: 'narrative',
@@ -426,34 +426,79 @@ describe('ChatPanelEmbedded', () => {
     const selectAttachment = jest.fn(async () => ({
       ok: true,
       attachment: {
-        id: 'att_hero',
-        kind: 'character_ref' as const,
-        path: '/Users/me/Desktop/hero.png',
-        name: 'hero.png',
-        mimeType: 'image/png',
-      },
-    }));
-    const importCharacterReferences = jest.fn(async () => ({
-      ok: true,
-      attachments: [{
-        id: 'att_hero',
-        kind: 'character_ref' as const,
-        path: '/tmp/noir.dhee/assets/uploads/characters/hero.png',
-        name: 'hero.png',
+        id: 'att_field',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/field.png',
+        name: 'field.png',
         mimeType: 'image/png',
         meta: {
-          purpose: 'character_ref',
-          projectRelativePath: 'assets/uploads/characters/hero.png',
-          originalPath: '/Users/me/Desktop/hero.png',
-          originalFilename: 'hero.png',
+          referenceRole: 'auto',
+          purpose: 'reference_general',
         },
-      }],
+      },
+      attachments: [
+        {
+          id: 'att_field',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/field.png',
+          name: 'field.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+        {
+          id: 'att_mood',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/mood.png',
+          name: 'mood.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+      ],
+    }));
+    const importReferenceImages = jest.fn(async () => ({
+      ok: true,
+      attachments: [
+        {
+          id: 'att_field',
+          kind: 'reference_image' as const,
+          path: '/tmp/noir.dhee/assets/uploads/settings/field.png',
+          name: 'field.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'setting_ref',
+            referenceRole: 'setting',
+            projectRelativePath: 'assets/uploads/settings/field.png',
+            originalPath: '/Users/me/Desktop/field.png',
+            originalFilename: 'field.png',
+          },
+        },
+        {
+          id: 'att_mood',
+          kind: 'reference_image' as const,
+          path: '/tmp/noir.dhee/assets/uploads/references/mood.png',
+          name: 'mood.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'reference_general',
+            referenceRole: 'auto',
+            projectRelativePath: 'assets/uploads/references/mood.png',
+            originalPath: '/Users/me/Desktop/mood.png',
+            originalFilename: 'mood.png',
+          },
+        },
+      ],
     }));
     (window as unknown as { electron: unknown }).electron = {
       project: {
         readFile: jest.fn(async () => projectJson),
         selectAttachment,
-        importCharacterReferences,
+        importReferenceImages,
       },
       logger: { logUserInput: jest.fn() },
     };
@@ -464,32 +509,138 @@ describe('ChatPanelEmbedded', () => {
     await act(async () => {
       fireEvent.click(screen.getByLabelText('Attach file'));
     });
-    await waitFor(() => expect(screen.getByText('hero.png')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('field.png')).toBeInTheDocument());
+    expect(screen.getByText('mood.png')).toBeInTheDocument();
+    expect(selectAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kinds: ['comfy_workflow', 'reference_image'],
+        multiple: true,
+      }),
+    );
+    fireEvent.change(screen.getByLabelText('Reference role for field.png'), {
+      target: { value: 'setting' },
+    });
 
     fireEvent.change(screen.getByRole('textbox'), {
-      target: { value: 'Use this hero reference.' },
+      target: { value: 'Use this setting reference.' },
     });
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
     });
 
-    expect(importCharacterReferences).toHaveBeenCalledWith({
+    expect(importReferenceImages).toHaveBeenCalledWith({
       projectDir: '/tmp/noir.dhee',
-      attachments: [expect.objectContaining({
-        id: 'att_hero',
-        kind: 'character_ref',
-      })],
+      attachments: [
+        expect.objectContaining({
+          id: 'att_field',
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            purpose: 'setting_ref',
+            referenceRole: 'setting',
+          }),
+        }),
+        expect.objectContaining({
+          id: 'att_mood',
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            purpose: 'reference_general',
+            referenceRole: 'auto',
+          }),
+        }),
+      ],
     });
     expect(mockState.runTaskCalls[0]).toMatchObject({
-      task: 'Use this hero reference.',
+      task: 'Use this setting reference.',
       projectDir: '/tmp/noir.dhee',
-      attachments: [expect.objectContaining({
-        kind: 'character_ref',
-        meta: expect.objectContaining({
-          projectRelativePath: 'assets/uploads/characters/hero.png',
+      attachments: [
+        expect.objectContaining({
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            projectRelativePath: 'assets/uploads/settings/field.png',
+            purpose: 'setting_ref',
+          }),
         }),
-      })],
+        expect.objectContaining({
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            projectRelativePath: 'assets/uploads/references/mood.png',
+            purpose: 'reference_general',
+          }),
+        }),
+      ],
     });
+  });
+
+  it('setup prompt can select multiple reference images in one picker action', async () => {
+    mockWorkspaceProjectName = 'fresh';
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_ren',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/Ren.png',
+        name: 'Ren.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'auto',
+          purpose: 'reference_general',
+        },
+      },
+      attachments: [
+        {
+          id: 'att_ren',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/Ren.png',
+          name: 'Ren.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+        {
+          id: 'att_sky',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/Sky.png',
+          name: 'Sky.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+      ],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => JSON.stringify({ title: 'fresh' })),
+        selectAttachment,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByText('Choose a Style'));
+
+    fireEvent.click(screen.getByText('Cinematic Realism'));
+    await waitFor(() => screen.getByText('Choose Duration'));
+    fireEvent.click(screen.getByRole('button', { name: /1 minute/i }));
+    await waitFor(() => screen.getByText('Tell Us the Story'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Attach reference image',
+      }));
+    });
+
+    await waitFor(() => expect(screen.getByText('Ren.png')).toBeInTheDocument());
+    expect(screen.getByText('Sky.png')).toBeInTheDocument();
+    expect(selectAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kinds: ['reference_image'],
+        multiple: true,
+      }),
+    );
   });
 
   it('tool_call events appear in the message list', async () => {

@@ -9,7 +9,11 @@
 import { describe, expect, it } from '@jest/globals';
 import {
   appendCharacterReferenceImagesToTask,
+  appendReferenceImagesToTask,
+  attachmentsFromSelectResponse,
   characterReferenceImagesFromAttachments,
+  referenceImagesFromAttachments,
+  withReferenceImageRole,
   prefixAttachmentsToTask,
   renderAttachmentHint,
   type Attachment,
@@ -80,10 +84,56 @@ describe('prefixAttachmentsToTask', () => {
     expect(prefixAttachmentsToTask('use this hero', [ref])).toBe('use this hero');
   });
 
+  it('does not render generic reference images as generic attachment hints', () => {
+    const ref: Attachment = {
+      id: 'att_ref',
+      kind: 'reference_image',
+      path: '/tmp/project/assets/uploads/references/image.png',
+      name: 'image.png',
+      meta: {
+        purpose: 'reference_general',
+        referenceRole: 'auto',
+        projectRelativePath: 'assets/uploads/references/image.png',
+      },
+    };
+
+    expect(prefixAttachmentsToTask('use this', [ref])).toBe('use this');
+  });
+
   it('preserves multi-line task bodies', () => {
     const multi = 'line one\nline two';
     const result = prefixAttachmentsToTask(multi, [wfAttachment]);
     expect(result.endsWith('line one\nline two')).toBe(true);
+  });
+});
+
+describe('attachmentsFromSelectResponse', () => {
+  it('prefers multi-select attachments over the legacy first attachment field', () => {
+    const first: Attachment = {
+      id: 'att_first',
+      kind: 'reference_image',
+      path: '/tmp/first.png',
+      name: 'first.png',
+    };
+    const second: Attachment = {
+      id: 'att_second',
+      kind: 'reference_image',
+      path: '/tmp/second.png',
+      name: 'second.png',
+    };
+
+    expect(
+      attachmentsFromSelectResponse({
+        attachment: first,
+        attachments: [first, second],
+      }),
+    ).toEqual([first, second]);
+  });
+
+  it('falls back to the single attachment field for old picker responses', () => {
+    expect(attachmentsFromSelectResponse({ attachment: wfAttachment })).toEqual([
+      wfAttachment,
+    ]);
   });
 });
 
@@ -115,6 +165,62 @@ describe('character reference attachment helpers', () => {
     }]);
     expect(appendCharacterReferenceImagesToTask('Make a film', images)).toBe(
       'Make a film\n\nAttached character reference images:\n- hero.png: assets/uploads/characters/hero.png',
+    );
+  });
+
+  it('extracts generic reference payloads and appends grouped prompt context', () => {
+    const autoRef = withReferenceImageRole({
+      id: 'att_auto',
+      kind: 'reference_image',
+      path: '/tmp/project/assets/uploads/references/mood.png',
+      name: 'mood.png',
+      mimeType: 'image/png',
+      size: 4,
+      meta: {
+        projectRelativePath: 'assets/uploads/references/mood.png',
+        originalPath: '/Users/me/Desktop/mood.png',
+        originalFilename: 'mood.png',
+      },
+    }, 'auto');
+    const settingRef = withReferenceImageRole({
+      id: 'att_setting',
+      kind: 'reference_image',
+      path: '/tmp/project/assets/uploads/settings/field.png',
+      name: 'field.png',
+      mimeType: 'image/png',
+      size: 5,
+      meta: {
+        projectRelativePath: 'assets/uploads/settings/field.png',
+        originalPath: '/Users/me/Desktop/field.png',
+        originalFilename: 'field.png',
+      },
+    }, 'setting');
+
+    const images = referenceImagesFromAttachments([autoRef, settingRef]);
+    expect(images).toEqual([
+      expect.objectContaining({
+        name: 'mood.png',
+        purpose: 'reference_general',
+        referenceRole: 'auto',
+        relativePath: 'assets/uploads/references/mood.png',
+      }),
+      expect.objectContaining({
+        name: 'field.png',
+        purpose: 'setting_ref',
+        referenceRole: 'setting',
+        relativePath: 'assets/uploads/settings/field.png',
+      }),
+    ]);
+    expect(appendReferenceImagesToTask('Make a film', images)).toBe(
+      [
+        'Make a film',
+        '',
+        'Attached setting reference images:',
+        '- field.png: assets/uploads/settings/field.png',
+        '',
+        'Attached reference images:',
+        '- mood.png: assets/uploads/references/mood.png',
+      ].join('\n'),
     );
   });
 });

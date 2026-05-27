@@ -2,7 +2,10 @@ import type { ReactElement } from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ImagePlus, RefreshCw, Settings2, Sparkles } from 'lucide-react';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
-import type { Attachment } from '../../../../shared/attachmentTypes';
+import type {
+  Attachment,
+  ReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styleAnimePreview from '../../../../../assets/previews/style_anime.png';
 import styleCinematicDocumentaryPreview from '../../../../../assets/previews/style_cinematic_documentary.png';
@@ -104,6 +107,7 @@ interface ProjectSetupPanelProps {
   onChangeStory: (value: string) => void;
   onAttachStoryImage?: () => void;
   onRemoveStoryAttachment?: (id: string) => void;
+  onChangeStoryAttachmentRole?: (id: string, role: ReferenceImageRole) => void;
   onSubmitStory: () => void;
   onSelectAutonomousMode: (enabled: boolean) => void;
   onConfirmSetup: () => void;
@@ -164,6 +168,7 @@ export default function ProjectSetupPanel({
   onChangeStory,
   onAttachStoryImage,
   onRemoveStoryAttachment,
+  onChangeStoryAttachmentRole,
   onSubmitStory,
   onSelectAutonomousMode,
   onConfirmSetup,
@@ -581,11 +586,11 @@ export default function ProjectSetupPanel({
                     storyAttachmentPending ||
                     !onAttachStoryImage
                   }
-                  aria-label="Attach character reference image"
-                  title="Attach character reference image"
+                  aria-label="Attach reference image"
+                  title="Attach reference image"
                 >
                   <ImagePlus size={15} />
-                  <span>Character image</span>
+                  <span>Reference image</span>
                 </button>
                 {storyAttachmentPending && (
                   <span className={styles.attachmentPending}>Importing...</span>
@@ -598,6 +603,7 @@ export default function ProjectSetupPanel({
                       key={attachment.id}
                       attachment={attachment}
                       onRemove={(id) => onRemoveStoryAttachment?.(id)}
+                      onReferenceRoleChange={onChangeStoryAttachmentRole}
                       disabled={configuring || storyAttachmentPending}
                     />
                   ))}
