@@ -643,6 +643,11 @@ export default function PromptsView() {
         );
         if (cancelled || !raw) return;
         const project = JSON.parse(raw) as {
+          // Legacy executor projects use executorState; bundle-arch
+          // projects use walkState. The node schema is the same
+          // ({outputPath, outputPaths, status}), only the wrapper key
+          // changes. Prefer walkState when present so newer projects
+          // light up correctly.
           executorState?: {
             nodes?: Record<
               string,
@@ -653,8 +658,18 @@ export default function PromptsView() {
               }
             >;
           };
+          walkState?: {
+            nodes?: Record<
+              string,
+              {
+                outputPath?: string;
+                outputPaths?: Record<string, string>;
+                status?: string;
+              }
+            >;
+          };
         };
-        const nodes = project.executorState?.nodes ?? {};
+        const nodes = project.walkState?.nodes ?? project.executorState?.nodes ?? {};
         const map = new Map<string, string>();
         const completed = new Set<string>();
         const motionCompleted = new Set<string>();
@@ -711,10 +726,22 @@ export default function PromptsView() {
     setLoading(true);
     (async () => {
       try {
-        const shotsDir = `${projectDirectory}/prompts/images/shots`;
-        const files = await window.electron.project
-          .listDirectory(shotsDir)
+        // Try the bundle-architecture path first (prompts/shot_image/),
+        // fall back to the legacy executor path (prompts/images/shots/).
+        // Both conventions ship the same per-shot JSON files named
+        // `scene_N_shot_M.json`.
+        const bundleDir = `${projectDirectory}/prompts/shot_image`;
+        const legacyDir = `${projectDirectory}/prompts/images/shots`;
+        let shotsDir = bundleDir;
+        let files = await window.electron.project
+          .listDirectory(bundleDir)
           .catch(() => [] as string[]);
+        if (files.length === 0) {
+          shotsDir = legacyDir;
+          files = await window.electron.project
+            .listDirectory(legacyDir)
+            .catch(() => [] as string[]);
+        }
         // Filenames look like `scene-N-shot-M.json` (or `scene_N_shot_M.json`).
         const ids: Array<{ scene: number; shot: number; file: string }> = [];
         for (const f of files) {
