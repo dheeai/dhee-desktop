@@ -1,17 +1,55 @@
 /**
- * ImageNode — image renderer for the Inspector Canvas.
+ * ImageNode — renders image artifacts via file:// URL.
  *
- * Phase 3 placeholder. Replaced with the real <img>-based renderer
- * in the next commit.
+ * Stage: hero image. Tile: thumbnail with itemId caption + status
+ * overlays (failed border, invalidated stripes).
  */
-export interface ImageNodeProps {
+import { useArtifactUrl } from '../useArtifactText';
+import styles from './ImageNode.module.scss';
+
+export interface ImageStageProps {
   outputPath?: string;
+  headlineField?: string; // ignored
 }
 
-export function ImageNodeStage({ outputPath }: ImageNodeProps) {
-  return <div data-testid="image-stage-placeholder">{outputPath ?? 'pending'}</div>;
+export interface ImageTileProps extends ImageStageProps {
+  itemId?: string;
+  status?: string;
 }
 
-export function ImageNodeTile({ outputPath }: ImageNodeProps) {
-  return <div data-testid="image-tile-placeholder">{outputPath ?? 'pending'}</div>;
+export function ImageNodeStage({ outputPath }: ImageStageProps) {
+  const url = useArtifactUrl(outputPath);
+  if (!outputPath || !url) {
+    return <div className={styles.empty}>not yet generated</div>;
+  }
+  return (
+    <div className={styles.stage}>
+      <img src={url} alt="artifact" className={styles.stageImage} />
+    </div>
+  );
+}
+
+export function ImageNodeTile({ outputPath, itemId, status = 'pending' }: ImageTileProps) {
+  const url = useArtifactUrl(outputPath);
+  const failed = status === 'failed';
+  const invalidated = status === 'invalidated';
+  return (
+    <div
+      className={`${styles.tile} ${failed ? styles.tileFailed : ''} ${invalidated ? styles.tileInvalidated : ''}`}
+      data-testid="image-tile"
+      data-status={status}
+    >
+      <div className={styles.tileThumb}>
+        {url ? (
+          <img src={url} alt={itemId ?? 'artifact'} className={styles.tileImage} />
+        ) : (
+          <div className={styles.tileEmpty}>pending</div>
+        )}
+      </div>
+      <div className={styles.tileLabel}>
+        <span>{itemId ?? '—'}</span>
+        <span className={`${styles.tileDot} ${styles[`dot-${status}`] ?? ''}`} />
+      </div>
+    </div>
+  );
 }

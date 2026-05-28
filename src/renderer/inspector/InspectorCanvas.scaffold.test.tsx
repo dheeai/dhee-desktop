@@ -9,6 +9,14 @@
  */
 import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
+
+// Per-kind renderers call useWorkspace() to resolve outputPath →
+// absolute URL. The scaffold test isolates the dispatcher / canvas
+// mount, so provide a stable projectDirectory.
+jest.mock('../contexts/WorkspaceContext', () => ({
+  useWorkspace: () => ({ projectDirectory: '/tmp/p' }),
+}));
+
 import { InspectorCanvas } from './InspectorCanvas';
 import type { BundleSnapshot } from '../lib/bundleCapability';
 import type { ProjectStateLike } from '../lib/bundleCapability';
