@@ -82,6 +82,18 @@ describe('InspectorCanvas — Phase 2 scaffold', () => {
     expect(container.querySelector('.react-flow')).not.toBeNull();
   });
 
+  it('renders the minimap (xyflow built-in)', () => {
+    const b = bundle({ id: 'plot' }, { id: 'story', inputs: [{ from: 'plot' }] });
+    const { container } = render(<InspectorCanvas bundle={b} walkState={{ nodes: {} }} />);
+    expect(container.querySelector('.react-flow__minimap')).not.toBeNull();
+  });
+
+  it('renders the zoom control cluster (xyflow built-in)', () => {
+    const b = bundle({ id: 'plot' });
+    const { container } = render(<InspectorCanvas bundle={b} walkState={{ nodes: {} }} />);
+    expect(container.querySelector('.react-flow__controls')).not.toBeNull();
+  });
+
   it('shows the node id as the card label on each stub', () => {
     const b = bundle({ id: 'plot' }, { id: 'shot_image', kind: 'collection' });
     render(<InspectorCanvas bundle={b} walkState={{ nodes: {} }} />);

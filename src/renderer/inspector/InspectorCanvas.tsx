@@ -16,7 +16,10 @@ import {
   ReactFlowProvider,
   Background,
   BackgroundVariant,
+  Controls,
+  MiniMap,
   type NodeTypes,
+  type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
@@ -47,6 +50,24 @@ export interface InspectorCanvasProps {
 const NODE_TYPES: NodeTypes = {
   inspector: InspectorNode as unknown as NodeTypes[string],
 };
+
+/**
+ * Minimap node color → walker status. Goal node uses the terracotta
+ * accent so the deliverable is visible at a glance even at minimap
+ * scale.
+ */
+function minimapNodeColor(node: Node): string {
+  const data = node.data as { status?: string; isGoal?: boolean } | undefined;
+  if (data?.isGoal) return '#c97c45';
+  switch (data?.status) {
+    case 'completed': return '#7e9c71';
+    case 'running':   return '#d4a657';
+    case 'failed':    return '#c25450';
+    case 'invalidated': return '#a89c8b';
+    case 'pending':
+    default:          return '#4a4239';
+  }
+}
 
 export function InspectorCanvas({ bundle, walkState, onGoalClick }: InspectorCanvasProps) {
   const graph = useMemo(
@@ -97,6 +118,26 @@ export function InspectorCanvas({ bundle, walkState, onGoalClick }: InspectorCan
               gap={22}
               size={1}
               color="rgba(168, 156, 139, 0.06)"
+            />
+            <MiniMap
+              pannable
+              zoomable
+              nodeColor={minimapNodeColor}
+              nodeStrokeWidth={2}
+              maskColor="rgba(15, 12, 9, 0.6)"
+              style={{
+                backgroundColor: 'rgba(15, 12, 9, 0.85)',
+                border: '1px solid #3d3429',
+                borderRadius: 8,
+              }}
+            />
+            <Controls
+              showInteractive={false}
+              style={{
+                background: 'rgba(15, 12, 9, 0.92)',
+                border: '1px solid #3d3429',
+                borderRadius: 7,
+              }}
             />
           </ReactFlow>
         </ReactFlowProvider>
