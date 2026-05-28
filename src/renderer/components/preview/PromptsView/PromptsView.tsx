@@ -22,6 +22,11 @@ import {
   withMediaVersion,
 } from '../../../hooks/useMediaVersion';
 import { savePromptEdit, type PromptKind } from './savePromptEdit';
+import {
+  findInstanceByCapability,
+  listCompletedItemIds,
+  type BundleSnapshot,
+} from '../../../lib/bundleCapability';
 import AssetRegenerateButton, {
   type AssetRegenerateFrame,
   type AssetRegenerateScope,
@@ -579,6 +584,12 @@ export default function PromptsView() {
   // (once during shot_image_prompt's run, once when the motion node
   // itself runs). No tokens are wasted, but the UX is misleading.
   const [completedMotion, setCompletedMotion] = useState<Set<string>>(new Set());
+  // Bundle snapshot (resolved via window.dhee.resolveBundle) — null when
+  // the project is a legacy executor project (no bundleSource) OR the
+  // bundle can't be resolved. Capability lookups against a null bundle
+  // return empty, and the effect falls back to the legacy directory
+  // scan for backwards compat.
+  const [bundleSnapshot, setBundleSnapshot] = useState<BundleSnapshot | null>(null);
   const [loading, setLoading] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -713,10 +724,48 @@ export default function PromptsView() {
     };
   }, [projectDirectory, refreshTick]);
 
-  // Enumerate every prompt JSON on disk, then load each one + its
-  // sibling motion file. Sorted scene-then-shot. Robust to gaps
-  // (a missing motion file for a shot still shows the image
-  // prompts).
+  // ── Bundle resolution: load once per project, cache for lookups. ──
+  useEffect(() => {
+    if (!projectDirectory) {
+      setBundleSnapshot(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const raw = await window.electron.project.readFile(
+          `${projectDirectory}/project.json`,
+        );
+        if (cancelled || !raw) return;
+        const parsed = JSON.parse(raw) as { bundleSource?: string };
+        if (!parsed.bundleSource) {
+          // Legacy executor project — no bundle. The capability lookup
+          // will fall through to undefined; the rest of the load logic
+          // gracefully no-ops.
+          setBundleSnapshot(null);
+          return;
+        }
+        const resp = await window.dhee.resolveBundle({ bundleSource: parsed.bundleSource });
+        if (cancelled) return;
+        if (resp.ok && resp.bundle) {
+          setBundleSnapshot(resp.bundle);
+        } else {
+          setBundleSnapshot(null);
+        }
+      } catch {
+        if (!cancelled) setBundleSnapshot(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDirectory, refreshTick]);
+
+  // Enumerate every shot whose 'shot.prompt' capability instance is
+  // completed in walkState, then load its prompt JSON + sibling
+  // motion JSON via the capability-recorded paths. The bundle's
+  // node ids and on-disk layout never appear in this code — the
+  // displayCapability tags are the entire contract.
   useEffect(() => {
     if (!projectDirectory) {
       setShots([]);
@@ -726,53 +775,85 @@ export default function PromptsView() {
     setLoading(true);
     (async () => {
       try {
-        // Try the bundle-architecture path first (prompts/shot_image/),
-        // fall back to the legacy executor path (prompts/images/shots/).
-        // Both conventions ship the same per-shot JSON files named
-        // `scene_N_shot_M.json`.
-        const bundleDir = `${projectDirectory}/prompts/shot_image`;
-        const legacyDir = `${projectDirectory}/prompts/images/shots`;
-        let shotsDir = bundleDir;
-        let files = await window.electron.project
-          .listDirectory(bundleDir)
-          .catch(() => [] as string[]);
-        if (files.length === 0) {
-          shotsDir = legacyDir;
-          files = await window.electron.project
-            .listDirectory(legacyDir)
-            .catch(() => [] as string[]);
+        const raw = await window.electron.project.readFile(
+          `${projectDirectory}/project.json`,
+        );
+        if (cancelled) return;
+        const project = raw ? (JSON.parse(raw) as { walkState?: { nodes?: Record<string, { outputPath?: string; status?: string }> }; executorState?: { nodes?: Record<string, { outputPath?: string; status?: string }> } }) : null;
+
+        // Resolve all completed shot prompts via the capability API.
+        // Fall back to the legacy directory scan when the project has
+        // no bundle (legacy executor projects).
+        const promptItemIds = bundleSnapshot
+          ? listCompletedItemIds(bundleSnapshot, project, 'shot.prompt')
+          : [];
+
+        // Legacy fallback: scan the old executor directory if the
+        // bundle path turned up empty (e.g. pre-bundle projects).
+        let legacyShots: Array<{ scene: number; shot: number; file: string; dir: string }> = [];
+        if (promptItemIds.length === 0) {
+          const legacyDir = `${projectDirectory}/prompts/images/shots`;
+          const files = await window.electron.project.listDirectory(legacyDir).catch(() => [] as string[]);
+          for (const f of files) {
+            const match = f.match(/scene[-_](\d+)[-_]shot[-_](\d+)\.json$/i);
+            if (!match) continue;
+            legacyShots.push({
+              scene: parseInt(match[1] ?? '0', 10),
+              shot: parseInt(match[2] ?? '0', 10),
+              file: f,
+              dir: legacyDir,
+            });
+          }
+          legacyShots.sort((a, b) => a.scene - b.scene || a.shot - b.shot);
         }
-        // Filenames look like `scene-N-shot-M.json` (or `scene_N_shot_M.json`).
-        const ids: Array<{ scene: number; shot: number; file: string }> = [];
-        for (const f of files) {
-          const match = f.match(/scene[-_](\d+)[-_]shot[-_](\d+)\.json$/i);
-          if (!match) continue;
-          ids.push({
-            scene: parseInt(match[1] ?? '0', 10),
-            shot: parseInt(match[2] ?? '0', 10),
-            file: f,
-          });
-        }
-        ids.sort((a, b) => a.scene - b.scene || a.shot - b.shot);
 
         const entries: ShotEntry[] = [];
-        for (const { scene, shot, file } of ids) {
+        // Iterate capability-discovered shots OR legacy fallback shots.
+        const work: Array<{ scene: number; shot: number; itemId: string; promptPath: string; motionPath: string | null }> = [];
+        if (promptItemIds.length > 0 && bundleSnapshot) {
+          for (const itemId of promptItemIds) {
+            const m = itemId.match(/^scene_(\d+)_shot_(\d+)$/);
+            if (!m) continue;
+            const scene = parseInt(m[1]!, 10);
+            const shot = parseInt(m[2]!, 10);
+            if (!completedShots.has(itemId)) continue;
+            const promptInst = findInstanceByCapability(bundleSnapshot, project, 'shot.prompt', itemId);
+            if (!promptInst?.outputPath) continue;
+            const motionInst = completedMotion.has(itemId)
+              ? findInstanceByCapability(bundleSnapshot, project, 'shot.motion', itemId)
+              : undefined;
+            work.push({
+              scene,
+              shot,
+              itemId,
+              promptPath: `${projectDirectory}/${promptInst.outputPath}`,
+              motionPath: motionInst?.outputPath ? `${projectDirectory}/${motionInst.outputPath}` : null,
+            });
+          }
+          work.sort((a, b) => a.scene - b.scene || a.shot - b.shot);
+        } else {
+          // Legacy path — kept for pre-bundle projects.
+          for (const { scene, shot, file, dir } of legacyShots) {
+            const itemId = `scene_${scene}_shot_${shot}`;
+            if (!completedShots.has(itemId)) continue;
+            work.push({
+              scene,
+              shot,
+              itemId,
+              promptPath: `${dir}/${file}`,
+              motionPath: completedMotion.has(itemId) ? `${projectDirectory}/prompts/motion/scene_${scene}_shot_${shot}.json` : null,
+            });
+          }
+        }
+
+        for (const { scene, shot, promptPath, motionPath } of work) {
           if (cancelled) return;
-          // Skip shots whose shot_image_prompt node isn't currently
-          // `completed`. After a reset/invalidate the JSON file is still
-          // on disk (resetter preserves outputs) but the node is pending,
-          // and showing the stale prompt would mislead the user.
-          const itemId = `scene_${scene}_shot_${shot}`;
-          if (!completedShots.has(itemId)) continue;
-          const promptPath = `${shotsDir}/${file}`;
-          const motionPath = `${projectDirectory}/prompts/motion/scene_${scene}_shot_${shot}.json`;
-          // Same staleness check as the image prompt above, but for the
-          // motion directive. When the motion node is still pending, the
-          // file on disk is from a prior run — don't fetch or display it.
-          const shouldReadMotion = completedMotion.has(itemId);
+          // motionPath is non-null only when the motion node was
+          // completed (the work-list builder already filtered on
+          // completedMotion). When null, skip reading.
           const [pRaw, mRaw] = await Promise.all([
             window.electron.project.readFile(promptPath).catch(() => null),
-            shouldReadMotion
+            motionPath
               ? window.electron.project.readFile(motionPath).catch(() => null)
               : Promise.resolve(null),
           ]);

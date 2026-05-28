@@ -55,6 +55,8 @@ import {
   type DeleteWorkflowResponse,
   type ValidateWorkflowRequest,
   type ValidateWorkflowResponse,
+  type ResolveBundleRequest,
+  type ResolveBundleResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
   type GetHistoryRequest,
@@ -782,6 +784,16 @@ const dheeBridge = {
     validate(req: ValidateWorkflowRequest): Promise<ValidateWorkflowResponse> {
       return ipcRenderer.invoke(dhee_CHANNELS.VALIDATE_WORKFLOW, req);
     },
+  },
+  /**
+   * Resolve a project.json `bundleSource` value (e.g.
+   * 'built-in:narrative_qwen_chain_relay') to its parsed bundle
+   * definition. Desktop views use the returned bundle's per-node
+   * `displayCapability` tags to discover what artifacts exist —
+   * see docs/display-capabilities.md in dhee-core.
+   */
+  resolveBundle(req: ResolveBundleRequest): Promise<ResolveBundleResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_BUNDLE, req);
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.

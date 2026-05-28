@@ -79,6 +79,15 @@ export const dhee_CHANNELS = {
    * create-time, which would miss any messages streamed since.
    */
   GET_HISTORY: 'dhee:getHistory',
+  /**
+   * Resolve a `bundleSource` string (e.g. 'built-in:narrative_qwen_chain_relay')
+   * to its parsed bundle JSON. Used by desktop views (PromptsView, AssetsView)
+   * to discover what artifacts a bundle produces via `displayCapability`
+   * tags on nodes — without hardcoding any bundle's internal node names
+   * or filesystem paths. The renderer caches the result for the project's
+   * lifetime; main process resolves via dhee-core's bundleSource helpers.
+   */
+  RESOLVE_BUNDLE: 'dhee:resolveBundle',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -427,5 +436,44 @@ export interface ValidateWorkflowResponse {
   inputNodeCount?: number;
   loraCount?: number;
   /** Set when ok=false (an error occurred while attempting validation). */
+  error?: string;
+}
+
+// ── RESOLVE_BUNDLE ────────────────────────────────────────────────────
+
+export interface ResolveBundleRequest {
+  /**
+   * The `bundleSource` field from project.json (e.g.
+   * 'built-in:narrative_qwen_chain_relay'). Parsed and resolved by
+   * dhee-core's bundleSource helpers.
+   */
+  bundleSource: string;
+}
+
+/**
+ * Minimal bundle shape the renderer needs. Mirrors dhee-core's
+ * `DagBundle` for the fields used by desktop views — id, version, and
+ * the node list with each node's id, kind, and displayCapability.
+ *
+ * We intentionally don't ship the full runner config / prompts /
+ * inputs over IPC — desktop views only need to discover what
+ * artifacts exist and what they're tagged as. Runtime concerns
+ * (workflow paths, runner names) stay on the kshana-core side.
+ */
+export interface ResolveBundleResponse {
+  ok: boolean;
+  bundle?: {
+    id: string;
+    version: string;
+    description?: string;
+    goal: string;
+    nodes: Array<{
+      id: string;
+      kind: 'stage' | 'collection';
+      displayCapability?: string;
+      outputs: { format: string; pattern: string };
+    }>;
+  };
+  /** Set when ok=false. */
   error?: string;
 }

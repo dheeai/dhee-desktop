@@ -37,6 +37,8 @@ import {
   type DeleteSessionRequest,
   type InvalidateNodesRequest,
   type InvalidateNodesResponse,
+  type ResolveBundleRequest,
+  type ResolveBundleResponse,
   type ListWorkflowsRequest,
   type ListWorkflowsResponse,
   type GetWorkflowRequest,
@@ -350,6 +352,65 @@ export function registerdheeIpcBridge(
           valid: false,
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    },
+  );
+
+  // Resolve a bundleSource URI to its parsed bundle definition. The
+  // renderer's PromptsView / AssetsView / etc. use this to discover
+  // which nodes produce which capability — keeps the desktop bundle-
+  // agnostic. See docs/display-capabilities.md in dhee-core.
+  ipcMain.handle(
+    dhee_CHANNELS.RESOLVE_BUNDLE,
+    async (_event, req: ResolveBundleRequest): Promise<ResolveBundleResponse> => {
+      try {
+        // Dynamic ESM import — dhee-core/dag is ESM and can't be
+        // require()'d, same pattern as the runners loader.
+        const dagMod = (await import(
+          /* webpackIgnore: true */ 'dhee-core/dag'
+        )) as {
+          parseBundleSource: (s: string) => { scheme: string; id: string };
+          resolveBundleDir: (s: { scheme: string; id: string }) => string;
+          loadBundle: (path: string) => unknown;
+        };
+        const source = dagMod.parseBundleSource(req.bundleSource);
+        const bundleDir = dagMod.resolveBundleDir(source);
+        // resolveBundleDir returns either a directory or a single-file
+        // path. loadBundle handles both layouts.
+        const bundlePath = bundleDir.endsWith('.json')
+          ? bundleDir
+          : path.join(bundleDir, 'bundle.json');
+        const bundle = dagMod.loadBundle(bundlePath) as {
+          id: string;
+          version: string;
+          description?: string;
+          goal: string;
+          nodes: Array<{
+            id: string;
+            kind: 'stage' | 'collection';
+            displayCapability?: string;
+            outputs: { format: string; pattern: string };
+          }>;
+        };
+        // Strip down to only fields the renderer needs (runner config /
+        // prompt templates / inputs stay in dhee-core).
+        return {
+          ok: true,
+          bundle: {
+            id: bundle.id,
+            version: bundle.version,
+            ...(bundle.description ? { description: bundle.description } : {}),
+            goal: bundle.goal,
+            nodes: bundle.nodes.map((n) => ({
+              id: n.id,
+              kind: n.kind,
+              ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
+              outputs: { format: n.outputs.format, pattern: n.outputs.pattern },
+            })),
+          },
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   );
