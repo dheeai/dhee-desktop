@@ -34,7 +34,16 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  min-width: 200px;
+  // Card dimensions are LOAD-BEARING — elk's layout
+  // (src/renderer/inspector/useElkLayout.ts sizeForNode) uses these
+  // exact numbers to pack the graph. Keep CSS + sizeForNode in sync
+  // or cards overlap.
+  width: 220px;
+  max-height: 280px;
+  &[data-kind='collection'] { width: 360px; max-height: 240px; }
+  &[data-format='audio'] { width: 320px; max-height: 160px; }
+  &[data-format='image'][data-kind='stage'] { width: 220px; max-height: 280px; }
+  &[data-format='video'][data-kind='stage'] { width: 260px; max-height: 280px; }
   &[data-status='running'] {
     border-color: #806237;
     box-shadow: 0 0 0 1px #806237,
@@ -167,10 +176,15 @@
 .rail {
   display: grid;
   grid-auto-flow: column;
-  grid-auto-columns: 130px;
-  gap: 6px;
+  grid-auto-columns: 96px;
+  gap: 5px;
   overflow-x: auto;
   align-items: stretch;
+  // Rails live inside a 360px collection card. With body padding
+  // accounted for, the visible scroll area is ~336px. 3 tiles at 96
+  // + 2 gaps + the "+ N more" indicator fits with one tile peeking
+  // for affordance.
+  max-width: 100%;
 }
 
 .railEmpty {

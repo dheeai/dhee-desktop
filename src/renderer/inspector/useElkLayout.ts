@@ -31,25 +31,27 @@ interface ElkEdge {
   targets: string[];
 }
 
-/** Size hint per node — matches sizeFor() in bundleToFlowGraph but
- *  surfaced here so elk can pack the layout tightly. */
+/** Size hint per node — MUST match the CSS dimensions in
+ *  InspectorCanvas.module.scss .node selectors. elk packs the layout
+ *  using these numbers; if they're smaller than the rendered card,
+ *  siblings will overlap. */
 function sizeForNode(node: InspectorFlowNode): { width: number; height: number } {
   const { bundleNode } = node.data;
   if (bundleNode.kind === 'collection') {
-    return { width: 360, height: 220 };
+    return { width: 360, height: 240 };
   }
   switch (bundleNode.outputs.format) {
     case 'image':
-      return { width: 200, height: 240 };
+      return { width: 220, height: 280 };
     case 'video':
-      return { width: 240, height: 240 };
+      return { width: 260, height: 280 };
     case 'audio':
-      return { width: 320, height: 150 };
+      return { width: 320, height: 160 };
     case 'md':
     case 'text':
     case 'json':
     default:
-      return { width: 220, height: 180 };
+      return { width: 220, height: 280 };
   }
 }
 

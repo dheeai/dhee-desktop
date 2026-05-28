@@ -26,10 +26,13 @@ type Props = NodeProps & { data: InspectorNodeData };
 
 /**
  * Visible-tile cap for collection rails. Anything beyond renders as a
- * "+ N more" indicator. 7 matches the mockup's shot_image_prompt rail
- * density at the default zoom level.
+ * "+ N more" indicator. The cap is set so the rail fits inside the
+ * 360px-wide collection card without elk needing to allocate extra
+ * horizontal space. 3 visible tiles + one "+ N more" + horizontal
+ * scroll for the rest covers the zoomed-out view; the user pans
+ * inside the rail to see more.
  */
-const RAIL_VISIBLE_CAP = 7;
+const RAIL_VISIBLE_CAP = 3;
 
 interface KindRenderers {
   Stage: (props: { outputPath?: string; headlineField?: string }) => JSX.Element;
