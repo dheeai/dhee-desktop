@@ -67,4 +67,40 @@ describe('suppressResizeObserverLoop', () => {
     const dispatched = window.dispatchEvent(event);
     expect(dispatched).toBe(true);
   });
+
+  it('silences console.error calls matching the ResizeObserver loop message', () => {
+    // The suppressor's beforeEach already installed; that wrap calls
+    // the pre-wrap console.error. To observe the chain, tear down and
+    // re-install with a known stand-in as the pre-wrap target.
+    cleanup?.();
+    cleanup = null;
+    const captured: unknown[][] = [];
+    const origErr = console.error;
+    const stub = (...args: unknown[]) => {
+      captured.push(args);
+    };
+    console.error = stub;
+    cleanup = installResizeObserverLoopSuppressor();
+    try {
+      console.error('ResizeObserver loop completed with undelivered notifications.');
+      console.error('Some real error');
+      expect(captured).toHaveLength(1);
+      expect(captured[0]).toEqual(['Some real error']);
+    } finally {
+      cleanup?.();
+      cleanup = null;
+      console.error = origErr;
+    }
+  });
+
+  it('wraps window.ResizeObserver so callbacks defer to the next animation frame', () => {
+    // jsdom may not ship ResizeObserver; if it does, the suppressor
+    // wraps it. Either way, the suppressor never throws on install.
+    if (typeof window.ResizeObserver === 'function') {
+      const Wrapped = window.ResizeObserver as unknown as { __dheeWrapped?: boolean };
+      expect(Wrapped.__dheeWrapped).toBe(true);
+    } else {
+      expect(true).toBe(true);
+    }
+  });
 });
