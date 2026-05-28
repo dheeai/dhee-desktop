@@ -61,6 +61,14 @@ jest.mock('../../chat/ChatPanelEmbedded/ChatPanelEmbedded', () => ({
   default: () => <div data-testid="ws-chat">chat</div>,
 }));
 
+// BackendBadges (mounted inside StatusStrip after UX-6) reads
+// useAppSettings(). The WorkspaceLayout test doesn't wrap in
+// AppSettingsProvider — stub to keep the test focused on layout.
+jest.mock('../../backend/BackendBadges', () => ({
+  __esModule: true,
+  default: () => <div data-testid="ws-backend-badges" />,
+}));
+
 describe('WorkspaceLayout — binary workspace', () => {
   it('renders the StatusStrip across the top', () => {
     render(<WorkspaceLayout />);
