@@ -14,6 +14,11 @@ import PreviewPanel from '../../preview/PreviewPanel/PreviewPanel';
 import ChatPanel from '../../chat/ChatPanelEmbedded/ChatPanelEmbedded';
 import StatusBar from '../StatusBar/StatusBar';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import type { RunnerStatusResponse } from '../../../../shared/dheeIpc';
+import {
+  normalizeRunnerProjectPath,
+  runnerBelongsToProject,
+} from '../../../utils/runnerProjectScope';
 import styles from './WorkspaceLayout.module.scss';
 
 function getProjectDisplayName(
@@ -45,24 +50,35 @@ function getProjectDisplayName(
 const RUNNER_STATUS_POLL_MS = 1500;
 
 export default function WorkspaceLayout() {
-  const { closeProject, projectName, projectDirectory } = useWorkspace();
+  const {
+    closeProject,
+    projectName,
+    projectDirectory,
+    registerProjectSwitchGuard,
+  } = useWorkspace();
   const [chatExpanded, setChatExpanded] = useState(true);
-  const [runnerActive, setRunnerActive] = useState(false);
+  const [runnerStatus, setRunnerStatus] = useState<RunnerStatusResponse | null>(
+    null,
+  );
 
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
   const displayProjectName = getProjectDisplayName(
     projectName,
     projectDirectory,
   );
+  const runnerActive = runnerBelongsToProject(runnerStatus, {
+    projectDirectory,
+    projectName,
+  });
 
   useEffect(() => {
     let cancelled = false;
     const tick = async () => {
       try {
         const status = await window.dhee.runnerStatus();
-        if (!cancelled) setRunnerActive(!!status?.active);
+        if (!cancelled) setRunnerStatus(status);
       } catch {
-        if (!cancelled) setRunnerActive(false);
+        if (!cancelled) setRunnerStatus({ active: false });
       }
     };
     tick();
@@ -73,23 +89,55 @@ export default function WorkspaceLayout() {
     };
   }, []);
 
-  const handleBack = useCallback(async () => {
-    if (runnerActive) {
-      // Soft confirm: explicit ack + an immediate cancel-and-exit
-      // path. window.confirm is consistent with the rest of the
-      // app's destructive-action prompts (file delete, etc.).
+  const confirmAndCancelOwnedRunner =
+    useCallback(async (): Promise<boolean> => {
+      const status = await window.dhee
+        .runnerStatus()
+        .catch(() => runnerStatus ?? { active: false });
+      const ownsRunner = runnerBelongsToProject(status, {
+        projectDirectory,
+        projectName,
+      });
+      if (!ownsRunner) return true;
+
+      // Soft confirm: explicit ack + an immediate cancel-and-exit path.
+      // window.confirm is consistent with the rest of the app's
+      // destructive-action prompts (file delete, etc.).
+      // eslint-disable-next-line no-alert
       const ok = window.confirm(
         'A run is in progress on this project. Going back will cancel it. Continue?',
       );
-      if (!ok) return;
+      if (!ok) return false;
       try {
-        await window.dhee.runnerCancel();
+        await window.dhee.runnerCancel(
+          projectDirectory ? { projectDir: projectDirectory } : undefined,
+        );
       } catch {
         /* best-effort — we still want to navigate even if the cancel RPC fails */
       }
-    }
+      return true;
+    }, [projectDirectory, projectName, runnerStatus]);
+
+  useEffect(() => {
+    return registerProjectSwitchGuard(async (context) => {
+      if (
+        normalizeRunnerProjectPath(context.fromProjectDirectory) !==
+        normalizeRunnerProjectPath(projectDirectory)
+      ) {
+        return true;
+      }
+      return confirmAndCancelOwnedRunner();
+    });
+  }, [
+    confirmAndCancelOwnedRunner,
+    projectDirectory,
+    registerProjectSwitchGuard,
+  ]);
+
+  const handleBack = useCallback(async () => {
+    if (!(await confirmAndCancelOwnedRunner())) return;
     closeProject();
-  }, [runnerActive, closeProject]);
+  }, [closeProject, confirmAndCancelOwnedRunner]);
 
   const toggleChat = useCallback(() => {
     const panel = chatPanelRef.current;

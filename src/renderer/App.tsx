@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { WorkspaceProvider, useWorkspace } from './contexts/WorkspaceContext';
 import { TimelineProvider } from './contexts/TimelineContext';
 import { ProjectProvider } from './contexts/ProjectContext';
@@ -21,12 +22,24 @@ function AppContent() {
   return <WorkspaceLayout />;
 }
 
+function ScopedDheeSessionProvider({ children }: { children: ReactNode }) {
+  const { projectDirectory, projectName } = useWorkspace();
+  return (
+    <DheeSessionProvider
+      projectDirectory={projectDirectory}
+      projectName={projectName}
+    >
+      {children}
+    </DheeSessionProvider>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
       <AppSettingsProvider>
-        <DheeSessionProvider>
-          <WorkspaceProvider>
+        <WorkspaceProvider>
+          <ScopedDheeSessionProvider>
             <FirstRunTourProvider>
               <ProjectProvider>
                 <TimelineProvider>
@@ -38,8 +51,8 @@ export default function App() {
                 </TimelineProvider>
               </ProjectProvider>
             </FirstRunTourProvider>
-          </WorkspaceProvider>
-        </DheeSessionProvider>
+          </ScopedDheeSessionProvider>
+        </WorkspaceProvider>
       </AppSettingsProvider>
     </ErrorBoundary>
   );

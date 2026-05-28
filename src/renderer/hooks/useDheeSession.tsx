@@ -48,23 +48,117 @@ import type {
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'connecting';
 
-const RESUME_SESSION_KEY = 'kshana.sessionId';
+const LEGACY_RESUME_SESSION_KEY = 'kshana.sessionId';
+const PROJECT_SESSION_STORAGE_KEY = 'dhee.projectSessions.v1';
 
-function readStoredSessionId(): string | null {
+function normalizeProjectDirectory(
+  projectDirectory: string | null | undefined,
+): string | null {
+  const normalized = (projectDirectory ?? '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .trim();
+  return normalized || null;
+}
+
+function readLegacyStoredSessionId(): string | null {
   try {
-    return window.localStorage.getItem(RESUME_SESSION_KEY);
+    return window.localStorage.getItem(LEGACY_RESUME_SESSION_KEY);
   } catch {
     return null;
   }
 }
 
-function writeStoredSessionId(id: string | null): void {
+function readStoredProjectSessions(): Record<string, string> {
   try {
-    if (id) window.localStorage.setItem(RESUME_SESSION_KEY, id);
-    else window.localStorage.removeItem(RESUME_SESSION_KEY);
+    const raw = window.localStorage.getItem(PROJECT_SESSION_STORAGE_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return {};
+    }
+    return Object.fromEntries(
+      Object.entries(parsed as Record<string, unknown>).filter(
+        (entry): entry is [string, string] =>
+          typeof entry[0] === 'string' &&
+          entry[0].trim().length > 0 &&
+          typeof entry[1] === 'string' &&
+          entry[1].trim().length > 0,
+      ),
+    );
   } catch {
-    // localStorage may be disabled — fail silently. Resume won't work
+    return {};
+  }
+}
+
+function writeStoredProjectSessions(sessions: Record<string, string>): void {
+  try {
+    window.localStorage.setItem(
+      PROJECT_SESSION_STORAGE_KEY,
+      JSON.stringify(sessions),
+    );
+  } catch {
+    // localStorage may be disabled — fail silently. Resume won't work,
     // but the chat itself still does.
+  }
+}
+
+function readStoredSessionIdForProject(
+  projectDirectory: string | null,
+): string | null {
+  if (!projectDirectory) {
+    // Legacy fallback only for the ambient/no-project session. Project
+    // sessions use the scoped map exclusively to avoid cross-project leaks.
+    return readLegacyStoredSessionId();
+  }
+  return readStoredProjectSessions()[projectDirectory] ?? null;
+}
+
+function writeStoredSessionIdForProject(
+  projectDirectory: string | null,
+  id: string,
+): void {
+  if (!projectDirectory) return;
+  const sessions = readStoredProjectSessions();
+  sessions[projectDirectory] = id;
+  writeStoredProjectSessions(sessions);
+}
+
+function deriveProjectName(
+  projectDirectory: string | null,
+  projectName: string | null | undefined,
+): string | null {
+  const trimmedName = projectName?.trim();
+  if (trimmedName) return trimmedName;
+  if (!projectDirectory) return null;
+  return (
+    projectDirectory
+      .split('/')
+      .pop()
+      ?.replace(/\.dhee$/i, '')
+      .trim() || null
+  );
+}
+
+async function focusSessionForProject(params: {
+  sessionId: string;
+  projectDirectory: string | null;
+  projectName: string | null;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!params.projectDirectory || !params.projectName) {
+    return { ok: true };
+  }
+  try {
+    return await window.dhee.focusProject({
+      sessionId: params.sessionId,
+      projectName: params.projectName,
+      projectDir: params.projectDirectory,
+    });
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+    };
   }
 }
 
@@ -93,6 +187,7 @@ function isSessionNotFoundError(err: string | undefined | null): boolean {
  * retried createSession calls.
  */
 function sleep(ms: number): Promise<void> {
+  // eslint-disable-next-line compat/compat
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
@@ -109,26 +204,36 @@ function sleep(ms: number): Promise<void> {
 async function createSessionWithRetry(
   resumeSessionId: string | null,
   shouldAbort: () => boolean,
-): Promise<{ sessionId: string; resumed?: boolean; history?: unknown } | { error: string }> {
+  attempt = 0,
+  lastErr: unknown = null,
+): Promise<
+  | { sessionId: string; resumed?: boolean; history?: unknown }
+  | { error: string }
+> {
   // 100ms, 200ms, 400ms, 800ms, 1600ms — 3.1s total worst case.
   const backoffMs = [0, 100, 200, 400, 800, 1600];
-  let lastErr: unknown = null;
-  for (const delay of backoffMs) {
-    if (shouldAbort()) return { error: 'aborted' };
-    if (delay > 0) await sleep(delay);
-    try {
-      const resp = await window.dhee.createSession({
-        role: 'interactive',
-        ...(resumeSessionId ? { resumeSessionId } : {}),
-      });
-      return resp;
-    } catch (err) {
-      lastErr = err;
-    }
+  const delay = backoffMs[attempt];
+  if (delay === undefined) {
+    return {
+      error: lastErr instanceof Error ? lastErr.message : String(lastErr),
+    };
   }
-  return {
-    error: lastErr instanceof Error ? lastErr.message : String(lastErr),
-  };
+  if (shouldAbort()) return { error: 'aborted' };
+  if (delay > 0) await sleep(delay);
+  try {
+    const resp = await window.dhee.createSession({
+      role: 'interactive',
+      ...(resumeSessionId ? { resumeSessionId } : {}),
+    });
+    return resp;
+  } catch (err) {
+    return createSessionWithRetry(
+      resumeSessionId,
+      shouldAbort,
+      attempt + 1,
+      err,
+    );
+  }
 }
 
 type RunTaskOpts = Omit<RunTaskRequest, 'sessionId' | 'task'>;
@@ -137,6 +242,10 @@ type ConfigureProjectOpts = Omit<ConfigureProjectRequest, 'sessionId'>;
 
 export interface DheeSessionApi {
   sessionId: string | null;
+  /** Normalized active project directory this session is scoped to. */
+  projectDirectory: string | null;
+  /** Active project name this session is focused to, when available. */
+  projectName: string | null;
   status: SessionStatus;
   /** Most recent error message from runTask, or null. */
   error: string | null;
@@ -170,7 +279,10 @@ export interface DheeSessionApi {
    */
   clearChatHistory: () => Promise<{ ok: boolean; error?: string }>;
 
-  runTask: (task: string, opts?: RunTaskOpts) => Promise<{ ok: boolean; error?: string }>;
+  runTask: (
+    task: string,
+    opts?: RunTaskOpts,
+  ) => Promise<{ ok: boolean; error?: string }>;
   cancel: () => Promise<{ cancelled: boolean }>;
   redoNode: (
     nodeId: string,
@@ -184,7 +296,10 @@ export interface DheeSessionApi {
     projectDir?: string,
   ) => Promise<{ ok: boolean; error?: string }>;
   setAutonomous: (enabled: boolean) => Promise<{ ok: boolean; error?: string }>;
-  sendResponse: (response: string, toolCallId?: string) => Promise<{ ok: boolean; error?: string }>;
+  sendResponse: (
+    response: string,
+    toolCallId?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   /**
    * Mark executor nodes pending without resuming the pipeline. Used
    * by the Prompts-tab edit flow after the user saves a per-shot
@@ -219,7 +334,20 @@ export interface DheeSessionApi {
  * provider; callers must not use this directly (call `useDheeSession`
  * to read the session from context instead).
  */
-function useCreateKshanaSession(): DheeSessionApi {
+interface DheeSessionScope {
+  projectDirectory?: string | null;
+  projectName?: string | null;
+}
+
+function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
+  const activeProjectDirectory = useMemo(
+    () => normalizeProjectDirectory(scope.projectDirectory),
+    [scope.projectDirectory],
+  );
+  const activeProjectName = useMemo(
+    () => deriveProjectName(activeProjectDirectory, scope.projectName),
+    [activeProjectDirectory, scope.projectName],
+  );
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [status, setStatus] = useState<SessionStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
@@ -229,21 +357,26 @@ function useCreateKshanaSession(): DheeSessionApi {
   // see the latest value without re-creating themselves.
   const sessionIdRef = useRef<string | null>(null);
   sessionIdRef.current = sessionId;
+  const projectDirectoryRef = useRef<string | null>(activeProjectDirectory);
+  const projectNameRef = useRef<string | null>(activeProjectName);
+  projectDirectoryRef.current = activeProjectDirectory;
+  projectNameRef.current = activeProjectName;
 
-  // Create a session on mount. Hard-coded to the 'interactive' role
-  // so long-running pipeline tools (dhee_run_to / render_scene_bundle
-  // / audit_fidelity) are stripped from this session's tool list —
-  // they belong to a dedicated background session that ChatPanelEmbedded
-  // creates lazily when the user clicks Resume.
-  //
-  // Resume: if localStorage has a remembered sessionId from a prior
-  // app run, ask the main process to reconstruct it. Unknown ids fall
-  // through to a fresh session — the main process tells us which by
-  // returning `resumed`.
+  // Create or resume the session for the current project scope. The
+  // session id is stored per normalized absolute project directory so
+  // opening project B cannot hydrate project A's conversation.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const stored = readStoredSessionId();
+      setSessionId(null);
+      sessionIdRef.current = null;
+      setHistory(null);
+      setError(null);
+      setStatus('connecting');
+
+      const projectDirectory = activeProjectDirectory;
+      const projectName = activeProjectName;
+      const stored = readStoredSessionIdForProject(projectDirectory);
       const resp = await createSessionWithRetry(stored, () => cancelled);
       if (cancelled) return;
       if ('error' in resp) {
@@ -251,8 +384,30 @@ function useCreateKshanaSession(): DheeSessionApi {
         setStatus('error');
         return;
       }
+
+      const focusResult = await focusSessionForProject({
+        sessionId: resp.sessionId,
+        projectDirectory,
+        projectName,
+      });
+      if (cancelled) return;
+      if (!focusResult.ok) {
+        setSessionId(resp.sessionId);
+        sessionIdRef.current = resp.sessionId;
+        if (projectDirectory) {
+          writeStoredSessionIdForProject(projectDirectory, resp.sessionId);
+        }
+        setHistory(null);
+        setError(focusResult.error ?? 'Failed to focus project');
+        setStatus('error');
+        return;
+      }
+
+      sessionIdRef.current = resp.sessionId;
       setSessionId(resp.sessionId);
-      writeStoredSessionId(resp.sessionId);
+      if (projectDirectory) {
+        writeStoredSessionIdForProject(projectDirectory, resp.sessionId);
+      }
       if (resp.resumed && resp.history) {
         setHistory(resp.history as HistorySnapshot);
       } else {
@@ -269,7 +424,7 @@ function useCreateKshanaSession(): DheeSessionApi {
       // still reaps it after its own idle timeout, and the JSONL on
       // disk is what matters for the next launch's resume.
     };
-  }, []);
+  }, [activeProjectDirectory, activeProjectName]);
 
   /**
    * Self-heal wrapper for IPC operations that take a sessionId and
@@ -295,9 +450,11 @@ function useCreateKshanaSession(): DheeSessionApi {
       if (!id) return { ok: false, error: 'Session not yet created' } as R;
       const first = await operation(id);
       if (first.ok || !isSessionNotFoundError(first.error)) return first;
-      // Server lost the session. Resurrect via createSession (resume
-      // path will rebuild from the on-disk JSONL if the id is known).
-      const stored = readStoredSessionId() ?? id;
+      // Server lost the session. Resurrect the session for the active
+      // project scope; do not fall back to another project's id.
+      const projectDirectory = projectDirectoryRef.current;
+      const projectName = projectNameRef.current;
+      const stored = readStoredSessionIdForProject(projectDirectory) ?? id;
       const resp = await createSessionWithRetry(stored, () => false);
       if ('error' in resp) {
         return {
@@ -305,9 +462,23 @@ function useCreateKshanaSession(): DheeSessionApi {
           error: `Session lost and could not be resurrected: ${resp.error}`,
         } as R;
       }
+      const focusResult = await focusSessionForProject({
+        sessionId: resp.sessionId,
+        projectDirectory,
+        projectName,
+      });
+      if (!focusResult.ok) {
+        return {
+          ok: false,
+          error:
+            focusResult.error ?? 'Session resurrected but project focus failed',
+        } as R;
+      }
       sessionIdRef.current = resp.sessionId;
       setSessionId(resp.sessionId);
-      writeStoredSessionId(resp.sessionId);
+      if (projectDirectory) {
+        writeStoredSessionIdForProject(projectDirectory, resp.sessionId);
+      }
       setStatus('idle');
       setError(null);
       return operation(resp.sessionId);
@@ -321,48 +492,68 @@ function useCreateKshanaSession(): DheeSessionApi {
     return snap;
   }, [history]);
 
-  const refreshHistory = useCallback<DheeSessionApi['refreshHistory']>(
-    async () => {
-      const id = sessionIdRef.current;
-      if (!id) return null;
-      try {
-        const resp = await window.dhee.getHistory({ sessionId: id });
-        const snap = resp.history ?? null;
-        setHistory(snap);
-        return snap;
-      } catch {
-        // Refresh failures are non-fatal — the panel just stays on
-        // whatever state it already had. The user can retry by
-        // re-mounting (close-and-reopen project).
+  const refreshHistory = useCallback<
+    DheeSessionApi['refreshHistory']
+  >(async () => {
+    const id = sessionIdRef.current;
+    if (!id) return null;
+    const projectDirectory = projectDirectoryRef.current;
+    try {
+      const resp = await window.dhee.getHistory({ sessionId: id });
+      const snap = resp.history ?? null;
+      if (
+        sessionIdRef.current !== id ||
+        projectDirectoryRef.current !== projectDirectory
+      ) {
         return null;
       }
-    },
-    [],
-  );
+      setHistory(snap);
+      return snap;
+    } catch {
+      // Refresh failures are non-fatal — the panel just stays on
+      // whatever state it already had. The user can retry by
+      // re-mounting (close-and-reopen project).
+      return null;
+    }
+  }, []);
 
-  const clearChatHistory = useCallback<DheeSessionApi['clearChatHistory']>(
-    async () => {
-      const id = sessionIdRef.current;
-      if (!id) return { ok: false, error: 'Session not yet created' };
-      try {
-        const resp = await window.dhee.clearChatHistory({
-          sessionId: id,
-          role: 'interactive',
-        });
-        sessionIdRef.current = resp.newSessionId;
-        setSessionId(resp.newSessionId);
-        writeStoredSessionId(resp.newSessionId);
-        setHistory(null);
-        setStatus('idle');
-        setError(null);
-        return { ok: true };
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        return { ok: false, error: msg };
+  const clearChatHistory = useCallback<
+    DheeSessionApi['clearChatHistory']
+  >(async () => {
+    const id = sessionIdRef.current;
+    if (!id) return { ok: false, error: 'Session not yet created' };
+    try {
+      const projectDirectory = projectDirectoryRef.current;
+      const projectName = projectNameRef.current;
+      const resp = await window.dhee.clearChatHistory({
+        sessionId: id,
+        role: 'interactive',
+      });
+      const focusResult = await focusSessionForProject({
+        sessionId: resp.newSessionId,
+        projectDirectory,
+        projectName,
+      });
+      if (!focusResult.ok) {
+        return {
+          ok: false,
+          error: focusResult.error ?? 'Failed to focus project',
+        };
       }
-    },
-    [],
-  );
+      sessionIdRef.current = resp.newSessionId;
+      setSessionId(resp.newSessionId);
+      if (projectDirectory) {
+        writeStoredSessionIdForProject(projectDirectory, resp.newSessionId);
+      }
+      setHistory(null);
+      setStatus('idle');
+      setError(null);
+      return { ok: true };
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: msg };
+    }
+  }, []);
 
   const runTask = useCallback<DheeSessionApi['runTask']>(
     async (task, opts) => {
@@ -370,8 +561,12 @@ function useCreateKshanaSession(): DheeSessionApi {
       setError(null);
       try {
         const result = await runWithSelfHeal<{ ok: boolean; error?: string }>(
-          (sessionId) => {
-            const req: RunTaskRequest = { sessionId, task, ...(opts ?? {}) };
+          (activeSessionId) => {
+            const req: RunTaskRequest = {
+              sessionId: activeSessionId,
+              task,
+              ...(opts ?? {}),
+            };
             return window.dhee.runTask(req);
           },
         );
@@ -400,25 +595,29 @@ function useCreateKshanaSession(): DheeSessionApi {
 
   const redoNode = useCallback<DheeSessionApi['redoNode']>(
     (nodeId, opts) =>
-      runWithSelfHeal((sessionId) =>
-        window.dhee.redoNode({ sessionId, nodeId, ...(opts ?? {}) }),
+      runWithSelfHeal((activeSessionId) =>
+        window.dhee.redoNode({
+          sessionId: activeSessionId,
+          nodeId,
+          ...(opts ?? {}),
+        }),
       ),
     [runWithSelfHeal],
   );
 
   const configureProject = useCallback<DheeSessionApi['configureProject']>(
     (opts) =>
-      runWithSelfHeal((sessionId) =>
-        window.dhee.configureProject({ sessionId, ...opts }),
+      runWithSelfHeal((activeSessionId) =>
+        window.dhee.configureProject({ sessionId: activeSessionId, ...opts }),
       ),
     [runWithSelfHeal],
   );
 
   const focusProject = useCallback<DheeSessionApi['focusProject']>(
     (projectName, projectDir) =>
-      runWithSelfHeal((sessionId) =>
+      runWithSelfHeal((activeSessionId) =>
         window.dhee.focusProject({
-          sessionId,
+          sessionId: activeSessionId,
           projectName,
           ...(projectDir ? { projectDir } : {}),
         }),
@@ -428,17 +627,17 @@ function useCreateKshanaSession(): DheeSessionApi {
 
   const setAutonomous = useCallback<DheeSessionApi['setAutonomous']>(
     (enabled) =>
-      runWithSelfHeal((sessionId) =>
-        window.dhee.setAutonomous({ sessionId, enabled }),
+      runWithSelfHeal((activeSessionId) =>
+        window.dhee.setAutonomous({ sessionId: activeSessionId, enabled }),
       ),
     [runWithSelfHeal],
   );
 
   const sendResponse = useCallback<DheeSessionApi['sendResponse']>(
     (response, toolCallId) =>
-      runWithSelfHeal((sessionId) =>
+      runWithSelfHeal((activeSessionId) =>
         window.dhee.sendResponse({
-          sessionId,
+          sessionId: activeSessionId,
           response,
           ...(toolCallId ? { toolCallId } : {}),
         }),
@@ -448,9 +647,9 @@ function useCreateKshanaSession(): DheeSessionApi {
 
   const invalidateNodes = useCallback<DheeSessionApi['invalidateNodes']>(
     (nodeIds, opts) =>
-      runWithSelfHeal((sessionId) =>
+      runWithSelfHeal((activeSessionId) =>
         window.dhee.invalidateNodes({
-          sessionId,
+          sessionId: activeSessionId,
           nodeIds,
           ...(opts?.source ? { source: opts.source } : {}),
         }),
@@ -477,31 +676,30 @@ function useCreateKshanaSession(): DheeSessionApi {
   // Ignore events for other sessionIds (multi-window safety).
   useEffect(() => {
     if (!sessionId) return undefined;
-    const unsubscribe = window.dhee.on(
-      'session_status',
-      (event) => {
-        if (event.sessionId !== sessionId) return;
-        const data = event.data as { status?: string } | null;
-        const serverStatus = data?.status;
-        if (!serverStatus) return;
-        if (serverStatus === 'running') {
-          setStatus('running');
-        } else if (serverStatus === 'error') {
-          setStatus('error');
-        } else if (
-          serverStatus === 'completed' ||
-          serverStatus === 'awaiting_input' ||
-          serverStatus === 'idle'
-        ) {
-          setStatus('idle');
-        }
-      },
-    );
+    const unsubscribe = window.dhee.on('session_status', (event) => {
+      if (event.sessionId !== sessionId) return;
+      const data = event.data as { status?: string } | null;
+      const serverStatus = data?.status;
+      if (!serverStatus) return;
+      if (serverStatus === 'running') {
+        setStatus('running');
+      } else if (serverStatus === 'error') {
+        setStatus('error');
+      } else if (
+        serverStatus === 'completed' ||
+        serverStatus === 'awaiting_input' ||
+        serverStatus === 'idle'
+      ) {
+        setStatus('idle');
+      }
+    });
     return unsubscribe;
   }, [sessionId]);
 
   return {
     sessionId,
+    projectDirectory: activeProjectDirectory,
+    projectName: activeProjectName,
     status,
     error,
     history,
@@ -535,43 +733,32 @@ const KshanaSessionContext = createContext<DheeSessionApi | null>(null);
  * means there's only one `createSession` call for the app's lifetime
  * and that race goes away.
  */
-export function DheeSessionProvider({ children }: { children: ReactNode }) {
-  const api = useCreateKshanaSession();
-  // Identity-stable memo by api fields so consumers re-render only on
-  // actual changes, not on every parent render. The api object is
-  // already rebuilt each render anyway (it's a fresh object literal),
-  // so we memoise on the underlying values that matter.
-  const value = useMemo<DheeSessionApi>(() => api, [
-    api.sessionId,
-    api.status,
-    api.error,
-    api.history,
-    api.consumeHistory,
-    api.refreshHistory,
-    api.clearChatHistory,
-    api.runTask,
-    api.cancel,
-    api.redoNode,
-    api.configureProject,
-    api.focusProject,
-    api.setAutonomous,
-    api.sendResponse,
-    api.invalidateNodes,
-    api.subscribe,
-  ]);
+export interface DheeSessionProviderProps extends DheeSessionScope {
+  children: ReactNode;
+}
+
+export function DheeSessionProvider({
+  children,
+  projectDirectory,
+  projectName,
+}: DheeSessionProviderProps) {
+  const api = useCreateKshanaSession({ projectDirectory, projectName });
   return (
-    <KshanaSessionContext.Provider value={value}>
+    <KshanaSessionContext.Provider value={api}>
       {children}
     </KshanaSessionContext.Provider>
   );
 }
 
+DheeSessionProvider.defaultProps = {
+  projectDirectory: null,
+  projectName: null,
+};
+
 export function useDheeSession(): DheeSessionApi {
   const ctx = useContext(KshanaSessionContext);
   if (!ctx) {
-    throw new Error(
-      'useDheeSession must be used within a DheeSessionProvider',
-    );
+    throw new Error('useDheeSession must be used within a DheeSessionProvider');
   }
   return ctx;
 }

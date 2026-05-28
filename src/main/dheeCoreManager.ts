@@ -237,7 +237,12 @@ type RunnersModule = {
     cancel: () => boolean;
     getActive: () => null | {
       id: string;
-      spec: { kind: string; projectName: string; sessionId: string };
+      spec: {
+        kind: string;
+        projectName: string;
+        sessionId: string;
+        params?: Record<string, unknown>;
+      };
       startedAt: number;
     };
     isCancelling?: () => boolean;
@@ -250,6 +255,12 @@ let loadRunnersModule: () => Promise<RunnersModule> = () =>
 /** Test seam — replace the loader so unit tests can supply a fake. */
 export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
   loadRunnersModule = loader;
+}
+
+function normalizeRunnerProjectDir(projectDir: unknown): string | null {
+  if (typeof projectDir !== 'string') return null;
+  const normalized = projectDir.replace(/\\/g, '/').replace(/\/+$/, '').trim();
+  return normalized || null;
 }
 
 /**
@@ -1086,7 +1097,11 @@ export class dheeCoreManager {
     if (!this.cm) return false;
     return (
       this.cm as unknown as {
-        cancelTask: (s: string, p?: unknown, o?: { userInitiated?: boolean }) => boolean;
+        cancelTask: (
+          s: string,
+          p?: unknown,
+          o?: { userInitiated?: boolean },
+        ) => boolean;
       }
     ).cancelTask(sessionId, undefined, { userInitiated: true });
   }
@@ -1097,9 +1112,20 @@ export class dheeCoreManager {
    * button so cancellation is instant even while the main session
    * is mid-reply.
    */
-  async cancelBackgroundTask(): Promise<boolean> {
+  async cancelBackgroundTask(opts?: { projectDir?: string }): Promise<boolean> {
     const mod = await loadRunnersModule();
-    return mod.getBackgroundTaskRunner().cancel();
+    const runner = mod.getBackgroundTaskRunner();
+    const requestedProjectDir = normalizeRunnerProjectDir(opts?.projectDir);
+    if (requestedProjectDir) {
+      const active = runner.getActive();
+      const activeProjectDir = normalizeRunnerProjectDir(
+        active?.spec.params?.projectDir,
+      );
+      if (activeProjectDir && activeProjectDir !== requestedProjectDir) {
+        return false;
+      }
+    }
+    return runner.cancel();
   }
 
   /** Snapshot of the runner's current state (or `{ active: false }`). */
@@ -1109,6 +1135,7 @@ export class dheeCoreManager {
     taskId?: string;
     kind?: string;
     projectName?: string;
+    projectDir?: string;
     startedAt?: number;
     sessionId?: string;
   }> {
@@ -1116,12 +1143,16 @@ export class dheeCoreManager {
     const runner = mod.getBackgroundTaskRunner();
     const active = runner.getActive();
     if (!active) return { active: false };
+    const activeProjectDir = normalizeRunnerProjectDir(
+      active.spec.params?.projectDir,
+    );
     return {
       active: true,
       cancelling: runner.isCancelling?.() ?? false,
       taskId: active.id,
       kind: active.spec.kind,
       projectName: active.spec.projectName,
+      ...(activeProjectDir ? { projectDir: activeProjectDir } : {}),
       startedAt: active.startedAt,
       sessionId: active.spec.sessionId,
     };

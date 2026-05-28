@@ -21,6 +21,7 @@ import {
   type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
   type ConfigureProjectRequest,
@@ -202,8 +203,11 @@ export function registerdheeIpcBridge(
 
   ipcMain.handle(
     dhee_CHANNELS.RUNNER_CANCEL,
-    async (): Promise<RunnerCancelResponse> => {
-      return { cancelled: await manager.cancelBackgroundTask() };
+    async (
+      _event,
+      req?: RunnerCancelRequest,
+    ): Promise<RunnerCancelResponse> => {
+      return { cancelled: await manager.cancelBackgroundTask(req) };
     },
   );
 

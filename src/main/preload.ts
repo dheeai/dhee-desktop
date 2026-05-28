@@ -39,6 +39,7 @@ import {
   type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
   type ConfigureProjectRequest,
@@ -783,8 +784,8 @@ const dheeBridge = {
   getHistory(req: GetHistoryRequest): Promise<GetHistoryResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.GET_HISTORY, req);
   },
-  runnerCancel(): Promise<RunnerCancelResponse> {
-    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL);
+  runnerCancel(req?: RunnerCancelRequest): Promise<RunnerCancelResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL, req);
   },
   runnerStatus(): Promise<RunnerStatusResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_STATUS);

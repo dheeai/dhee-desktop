@@ -62,18 +62,16 @@ describe('shouldResetChatOnProjectChange', () => {
   });
 
   describe("intent='open' — user picked an existing project", () => {
-    it('does NOT reset when switching from one existing project to another (preserve cross-project context)', () => {
-      // The user explicitly asked only about the create-new case
-      // (2026-05-19). For switching we preserve continuity. If product
-      // direction changes later, flip the rule here — that's the
-      // whole point of having one helper.
+    it('resets when switching from one existing project to another', () => {
+      // Chat history is project-scoped. Opening another project must not
+      // leak the previous project's bubbles or LLM context into it.
       expect(
         shouldResetChatOnProjectChange({
           intent: 'open',
           previousProjectDirectory: '/Users/ganaraj/dhee-studios/The Village',
           nextProjectDirectory: '/Users/ganaraj/dhee-studios/Soft Seinen',
         }),
-      ).toBe(false);
+      ).toBe(true);
     });
 
     it('does NOT reset when re-opening the same project', () => {

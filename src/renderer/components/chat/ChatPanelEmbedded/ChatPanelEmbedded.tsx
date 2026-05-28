@@ -51,7 +51,10 @@ import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
-import type { dheeEvent } from '../../../../shared/dheeIpc';
+import type {
+  dheeEvent,
+  RunnerStatusResponse,
+} from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import ProjectSetupPanel, {
   type SetupPanelMode,
@@ -77,6 +80,7 @@ import {
 } from './classifyProjectState';
 import ProjectCTA, { type CTAAction } from './ProjectCTA';
 import ProjectRunButton from './ProjectRunButton';
+import { runnerBelongsToProject } from '../../../utils/runnerProjectScope';
 
 type Role =
   | 'user'
@@ -417,8 +421,10 @@ export default function ChatPanelEmbedded() {
   >([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [setupAttachments, setSetupAttachments] = useState<Attachment[]>([]);
-  const [isImportingChatReferences, setIsImportingChatReferences] = useState(false);
-  const [isImportingSetupReferences, setIsImportingSetupReferences] = useState(false);
+  const [isImportingChatReferences, setIsImportingChatReferences] =
+    useState(false);
+  const [isImportingSetupReferences, setIsImportingSetupReferences] =
+    useState(false);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   // Header dropdown menu (project name → caret → menu) state.
@@ -625,6 +631,8 @@ export default function ChatPanelEmbedded() {
   // button reflects reality regardless of which tool pi-agent fired
   // to start the run.
   const [runnerActive, setRunnerActive] = useState(false);
+  const [otherProjectRunner, setOtherProjectRunner] =
+    useState<RunnerStatusResponse | null>(null);
 
   /**
    * Pi-agent oversight + VLM judge runtime toggles read from
@@ -652,6 +660,26 @@ export default function ChatPanelEmbedded() {
   // results.
   const toolNameByCallIdRef = useRef<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const previousProjectDirectoryRef = useRef<string | null>(
+    projectDirectory?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null,
+  );
+
+  useEffect(() => {
+    const currentProjectDirectory =
+      projectDirectory?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null;
+    const previousProjectDirectory = previousProjectDirectoryRef.current;
+    if (previousProjectDirectory !== currentProjectDirectory) {
+      setMessages([]);
+      setContextUsage(null);
+      setConnectionError(null);
+      setPendingCancel(false);
+      setRunnerActive(false);
+      setOtherProjectRunner(null);
+      streamingMsgIdRef.current = null;
+      toolNameByCallIdRef.current.clear();
+    }
+    previousProjectDirectoryRef.current = currentProjectDirectory;
+  }, [projectDirectory]);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -732,7 +760,12 @@ export default function ChatPanelEmbedded() {
       try {
         const status = await window.dhee.runnerStatus();
         if (cancelled) return;
-        setRunnerActive(!!status?.active);
+        const ownsRunner = runnerBelongsToProject(status, {
+          projectDirectory,
+          projectName,
+        });
+        setRunnerActive(ownsRunner);
+        setOtherProjectRunner(status?.active && !ownsRunner ? status : null);
         // Mirror server-side `cancelling` into local pendingCancel.
         // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"
@@ -742,11 +775,14 @@ export default function ChatPanelEmbedded() {
         // demote): the existing effect at line ~613 that clears
         // pendingCancel once both lanes go idle is still the only
         // path that flips it back to false, so we don't race.
-        if (status?.cancelling) {
+        if (status?.cancelling && ownsRunner) {
           setPendingCancel((prev) => (prev ? prev : true));
         }
       } catch {
-        if (!cancelled) setRunnerActive(false);
+        if (!cancelled) {
+          setRunnerActive(false);
+          setOtherProjectRunner(null);
+        }
       }
     };
     tick();
@@ -755,7 +791,7 @@ export default function ChatPanelEmbedded() {
       cancelled = true;
       clearInterval(handle);
     };
-  }, []);
+  }, [projectDirectory, projectName]);
 
   // Clear the local "Stopping…" flag once BOTH execution lanes report
   // idle: the BackgroundTaskRunner AND the pi-agent chat session.
@@ -1408,10 +1444,14 @@ export default function ChatPanelEmbedded() {
     // optimistic spinner on; the runnerActive poll will reset it.
     setPendingCancel(true);
     await Promise.all([
-      window.dhee.runnerCancel().catch(() => undefined),
+      window.dhee
+        .runnerCancel(
+          projectDirectory ? { projectDir: projectDirectory } : undefined,
+        )
+        .catch(() => undefined),
       session.cancel().catch(() => undefined),
     ]);
-  }, [session]);
+  }, [projectDirectory, session]);
 
   // Build the "resume the pipeline" task and run it on the MAIN
   // session. dhee-core's pi-agent will receive it, call
@@ -1421,7 +1461,7 @@ export default function ChatPanelEmbedded() {
   // (Was a separate bg session in an earlier iteration; the runner
   // singleton replaces that mechanism.)
   const handleStartRun = useCallback(async () => {
-    if (!projectDirectory || !session.sessionId) return;
+    if (!projectDirectory || !session.sessionId || otherProjectRunner) return;
     setBgSessionId(session.sessionId);
 
     const projectDirName =
@@ -1444,7 +1484,7 @@ export default function ChatPanelEmbedded() {
     ]);
     streamingMsgIdRef.current = null;
     await session.runTask(task);
-  }, [projectDirectory, projectName, session]);
+  }, [otherProjectRunner, projectDirectory, projectName, session]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
@@ -1479,6 +1519,13 @@ export default function ChatPanelEmbedded() {
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.
   const isReady = session.sessionId !== null && session.status !== 'connecting';
+  const otherProjectRunnerText = otherProjectRunner
+    ? `Another project is ${otherProjectRunner.cancelling ? 'stopping' : 'running'}${
+        otherProjectRunner.projectName
+          ? `: ${otherProjectRunner.projectName}`
+          : ''
+      }.`
+    : null;
   // The main session's own loop ('running' while it processes a user
   // turn). Used to disable Send during that brief window so we don't
   // pile prompts on top of each other in pi-agent.
@@ -1598,11 +1645,24 @@ export default function ChatPanelEmbedded() {
           <ProjectRunButton
             projectState={projectState}
             running={isRunning}
-            ready={isReady}
+            ready={isReady && !otherProjectRunner}
             pendingCancel={pendingCancel}
             onStart={() => void handleStartRun()}
             onCancel={() => void handleCancel()}
           />
+          {otherProjectRunnerText && (
+            <span
+              role="status"
+              style={{
+                color: 'var(--color-text-muted)',
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+              }}
+              title="A different project owns the background runner"
+            >
+              {otherProjectRunnerText}
+            </span>
+          )}
           {/*
             Pi-agent oversight toggle. Eye when on (watching),
             EyeOff when off. Click flips the local state + persists

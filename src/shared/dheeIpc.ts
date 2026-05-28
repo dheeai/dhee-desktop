@@ -222,6 +222,10 @@ export interface RunnerCancelResponse {
   cancelled: boolean;
 }
 
+export interface RunnerCancelRequest {
+  projectDir?: string;
+}
+
 export interface RunnerStatusResponse {
   active: boolean;
   /**
@@ -236,6 +240,7 @@ export interface RunnerStatusResponse {
   taskId?: string;
   kind?: string;
   projectName?: string;
+  projectDir?: string;
   startedAt?: number;
   sessionId?: string;
 }

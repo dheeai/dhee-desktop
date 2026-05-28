@@ -26,6 +26,9 @@ import type {
   FocusProjectRequest,
   SetAutonomousRequest,
   DeleteSessionRequest,
+  RunnerCancelRequest,
+  RunnerCancelResponse,
+  RunnerStatusResponse,
 } from '../../shared/dheeIpc';
 
 // ── Scenario shape ───────────────────────────────────────────────────
@@ -299,6 +302,14 @@ const fakedhee = {
   cancelTask(req: CancelTaskRequest): Promise<CancelTaskResponse> {
     record('cancelTask', req);
     return Promise.resolve({ cancelled: true });
+  },
+  runnerCancel(req?: RunnerCancelRequest): Promise<RunnerCancelResponse> {
+    record('runnerCancel', req);
+    return Promise.resolve({ cancelled: true });
+  },
+  runnerStatus(): Promise<RunnerStatusResponse> {
+    record('runnerStatus', undefined);
+    return Promise.resolve({ active: false });
   },
   redoNode(req: RedoNodeRequest): Promise<OkResponse> {
     record('redoNode', req);

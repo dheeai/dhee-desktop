@@ -92,6 +92,18 @@ const fakeManager = {
     managerCalls.push({ method: 'cancelTask', args: [sessionId] });
     return sessionId === 's-1';
   },
+  cancelBackgroundTask: async (opts?: unknown) => {
+    managerCalls.push({ method: 'cancelBackgroundTask', args: [opts] });
+    return true;
+  },
+  getBackgroundTaskStatus: async () => {
+    managerCalls.push({ method: 'getBackgroundTaskStatus', args: [] });
+    return {
+      active: true,
+      projectName: 'BurgerEating',
+      projectDir: '/tmp/BurgerEating.dhee',
+    };
+  },
   redoNode: async (sessionId: string, nodeId: string, opts: unknown) => {
     managerCalls.push({ method: 'redoNode', args: [sessionId, nodeId, opts] });
     return { ok: true };
@@ -289,6 +301,32 @@ describe('dheeIpcBridge', () => {
     const handler = handlerRegistry.get(dhee_CHANNELS.CANCEL_TASK)!;
     expect(await handler({} as never, { sessionId: 's-1' })).toEqual({ cancelled: true });
     expect(await handler({} as never, { sessionId: 'unknown' })).toEqual({ cancelled: false });
+  });
+
+  it('runnerCancel forwards the optional projectDir guard to the manager', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUNNER_CANCEL)!;
+    expect(
+      await handler({} as never, { projectDir: '/tmp/BurgerEating.dhee' }),
+    ).toEqual({ cancelled: true });
+    const call = managerCalls.find((c) => c.method === 'cancelBackgroundTask');
+    expect(call?.args).toEqual([{ projectDir: '/tmp/BurgerEating.dhee' }]);
+  });
+
+  it('runnerStatus returns active projectDir metadata from the manager', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUNNER_STATUS)!;
+    await expect(handler({} as never)).resolves.toMatchObject({
+      active: true,
+      projectName: 'BurgerEating',
+      projectDir: '/tmp/BurgerEating.dhee',
+    });
   });
 
   it('invalidateNodes channel forwards (sessionId, nodeIds) and returns the manager result', async () => {
