@@ -20,6 +20,7 @@ import { ImageNodeStage, ImageNodeTile } from './ImageNode';
 import { VideoNodeStage, VideoNodeTile } from './VideoNode';
 import { AudioNodeStage, AudioNodeTile } from './AudioNode';
 import { TextNodeStage, TextNodeTile } from './TextNode';
+import { RegenerateMenu } from './RegenerateMenu';
 import styles from '../InspectorCanvas.module.scss';
 
 type Props = NodeProps & { data: InspectorNodeData };
@@ -62,54 +63,68 @@ export function InspectorNode({ data }: Props) {
   const format = bundleNode.outputs.format;
   const { Stage, Tile } = rendererFor(format);
 
+  const completedInstance = instances.find((i) => i.status === 'completed');
+  // For stages, regen targets the bare nodeId. For collections, the
+  // CARD-level menu (right-click on the rail header) targets the
+  // bundle node id with no item — meaning "rerun every item". Per-
+  // item regen lives on the individual tile (one level below, in
+  // CollectionBody).
+  const cardRegenNodeId = completedInstance || bundleNode.kind === 'collection'
+    ? bundleNode.id
+    : undefined;
+
   const body = bundleNode.kind === 'collection' ? (
     <CollectionBody
+      bundleNodeId={bundleNode.id}
       instances={instances}
       headlineField={bundleNode.headlineField}
       Tile={Tile}
     />
   ) : (
     <Stage
-      outputPath={instances.find((i) => i.status === 'completed')?.outputPath}
+      outputPath={completedInstance?.outputPath}
       headlineField={bundleNode.headlineField}
     />
   );
 
   return (
-    <div
-      className={styles.node}
-      data-testid={`inspector-node-${bundleNode.id}`}
-      data-status={status}
-      data-kind={bundleNode.kind}
-      data-format={format}
-    >
-      <Handle type="target" position={Position.Left} className={styles.handle} />
-      <div className={styles.nodeHead}>
-        <span
-          className={`${styles.statusDot} ${styles[`status-${status}`] ?? ''}`}
-          aria-label={`status: ${status}`}
-        />
-        <span className={styles.nodeName}>{bundleNode.id}</span>
-        <span className={styles.nodeKind}>{format}</span>
-      </div>
-      <div className={styles.nodeBody}>{body}</div>
-      {bundleNode.displayCapability ? (
-        <div className={styles.nodeFoot}>
-          <span className={styles.capabilityTag}>{bundleNode.displayCapability}</span>
+    <RegenerateMenu nodeId={cardRegenNodeId}>
+      <div
+        className={styles.node}
+        data-testid={`inspector-node-${bundleNode.id}`}
+        data-status={status}
+        data-kind={bundleNode.kind}
+        data-format={format}
+      >
+        <Handle type="target" position={Position.Left} className={styles.handle} />
+        <div className={styles.nodeHead}>
+          <span
+            className={`${styles.statusDot} ${styles[`status-${status}`] ?? ''}`}
+            aria-label={`status: ${status}`}
+          />
+          <span className={styles.nodeName}>{bundleNode.id}</span>
+          <span className={styles.nodeKind}>{format}</span>
         </div>
-      ) : null}
-      <Handle type="source" position={Position.Right} className={styles.handle} />
-    </div>
+        <div className={styles.nodeBody}>{body}</div>
+        {bundleNode.displayCapability ? (
+          <div className={styles.nodeFoot}>
+            <span className={styles.capabilityTag}>{bundleNode.displayCapability}</span>
+          </div>
+        ) : null}
+        <Handle type="source" position={Position.Right} className={styles.handle} />
+      </div>
+    </RegenerateMenu>
   );
 }
 
 interface CollectionBodyProps {
+  bundleNodeId: string;
   instances: InspectorNodeData['instances'];
   headlineField?: string;
   Tile: KindRenderers['Tile'];
 }
 
-function CollectionBody({ instances, headlineField, Tile }: CollectionBodyProps) {
+function CollectionBody({ bundleNodeId, instances, headlineField, Tile }: CollectionBodyProps) {
   if (instances.length === 0) {
     return (
       <div className={styles.railEmpty} data-testid="collection-empty">
@@ -121,15 +136,25 @@ function CollectionBody({ instances, headlineField, Tile }: CollectionBodyProps)
   const overflow = instances.length - visible.length;
   return (
     <div className={styles.rail}>
-      {visible.map((inst) => (
-        <Tile
-          key={inst.stateKey}
-          outputPath={inst.outputPath}
-          headlineField={headlineField}
-          itemId={inst.itemId}
-          status={inst.status}
-        />
-      ))}
+      {visible.map((inst) => {
+        // Per-instance regen — collection instance key is the contract
+        // PromptsView + the dhee-core ConversationManager.redoNode
+        // both follow: '<nodeId>:<itemId>' targets one shot, one
+        // character, etc.
+        const tileNodeId = inst.itemId
+          ? `${bundleNodeId}:${inst.itemId}`
+          : undefined;
+        return (
+          <RegenerateMenu key={inst.stateKey} nodeId={tileNodeId}>
+            <Tile
+              outputPath={inst.outputPath}
+              headlineField={headlineField}
+              itemId={inst.itemId}
+              status={inst.status}
+            />
+          </RegenerateMenu>
+        );
+      })}
       {overflow > 0 ? (
         <div className={styles.railMore} data-testid="collection-more">
           + {overflow} more

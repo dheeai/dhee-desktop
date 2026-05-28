@@ -17,6 +17,15 @@ jest.mock('../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({ projectDirectory: '/tmp/p' }),
 }));
 
+// InspectorNode wraps each card in RegenerateMenu which needs the
+// session hook.
+jest.mock('../hooks/useDheeSession', () => ({
+  useDheeSession: () => ({
+    sessionId: 'sess-test',
+    redoNode: jest.fn(),
+  }),
+}));
+
 import { InspectorCanvas } from './InspectorCanvas';
 import type { BundleSnapshot } from '../lib/bundleCapability';
 import type { ProjectStateLike } from '../lib/bundleCapability';
