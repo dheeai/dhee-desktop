@@ -83,6 +83,7 @@ import {
   buildAssFromPromptOverlayCues,
   type PromptOverlayCue,
 } from './services/promptOverlayAss';
+import * as watermarkModule from './video/watermark';
 
 type AppUpdatePhase =
   | 'idle'
@@ -1808,10 +1809,9 @@ interface RenderResolution {
   height: number;
 }
 
-const VIDEO_WATERMARK_TEXT = 'dhee';
-const VIDEO_WATERMARK_FONT_SIZE = 54;
-const VIDEO_WATERMARK_MARGIN_X = 48;
-const VIDEO_WATERMARK_MARGIN_Y = 28;
+// Watermark constants (text, size, margins) live in
+// src/main/video/watermark.ts where the filter is built. Single
+// source of truth for the mandatory watermark — see UX-1.
 const SYSTEM_FONT_CANDIDATES =
   process.platform === 'win32'
     ? ['C:/Windows/Fonts/arial.ttf', 'C:/Windows/Fonts/segoeui.ttf']
@@ -1875,15 +1875,6 @@ async function findAvailableSystemFont(): Promise<string | null> {
   }
 
   return null;
-}
-
-function escapeDrawtextValue(input: string): string {
-  return input
-    .replace(/\\/g, '/')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/%/g, '\\%')
-    .replace(/[\r\n]+/g, ' ');
 }
 
 function parseAspectRatioValue(value: unknown): RenderResolution | null {
@@ -2178,70 +2169,23 @@ async function burnWordCaptionsIntoVideo(
   );
 }
 
+/**
+ * Mandatory watermark — every export path MUST call this before
+ * returning a file path. See src/main/video/watermark.ts for the
+ * implementation and src/main/video/watermarkGuard.test.ts for the
+ * static-source enforcement that catches new export paths that
+ * forget to apply it.
+ */
 async function burnWatermarkIntoVideo(
   inputVideoPath: string,
   outputVideoPath: string,
 ): Promise<void> {
-  const fontPath = await findAvailableSystemFont();
-  const drawtextParts = [
-    `text='${escapeDrawtextValue(VIDEO_WATERMARK_TEXT)}'`,
-    `fontsize=${VIDEO_WATERMARK_FONT_SIZE}`,
-    'fontcolor=white@0.4',
-    'shadowcolor=black@0.6',
-    'shadowx=3',
-    'shadowy=3',
-    `x=w-tw-${VIDEO_WATERMARK_MARGIN_X}`,
-    `y=h-th-${VIDEO_WATERMARK_MARGIN_Y}`,
-  ];
-
-  if (fontPath) {
-    drawtextParts.unshift(`fontfile='${escapeDrawtextValue(fontPath)}'`);
-  } else {
-    console.warn(
-      '[VideoComposition] No system font found for watermark, relying on FFmpeg defaults.',
-    );
-  }
-
-  const filter = `drawtext=${drawtextParts.join(':')}`;
-
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg()
-      .input(inputVideoPath)
-      .videoFilters(filter)
-      .outputOptions([
-        '-map 0:v:0',
-        '-map 0:a?',
-        '-c:v libx264',
-        '-crf 18',
-        '-preset medium',
-        '-c:a copy',
-        '-pix_fmt yuv420p',
-      ])
-      .output(outputVideoPath)
-      .on('start', (cmd) =>
-        console.log(`[VideoComposition] Watermark FFmpeg command: ${cmd}`),
-      )
-      .on('progress', (progress) => {
-        if (progress.percent != null) {
-          console.log(
-            `[VideoComposition] Watermark progress: ${Math.round(progress.percent)}%`,
-          );
-        }
-      })
-      .on('end', () => {
-        console.log('[VideoComposition] Watermark burn completed');
-        resolve();
-      })
-      .on('error', (error, _stdout, stderr) => {
-        if (stderr) {
-          console.error(
-            `[VideoComposition] Watermark FFmpeg stderr: ${stderr.slice(-500)}`,
-          );
-        }
-        reject(error);
-      })
-      .run();
-  });
+  return watermarkModule.burnWatermarkIntoVideo(
+    inputVideoPath,
+    outputVideoPath,
+    findAvailableSystemFont,
+    console,
+  );
 }
 
 ipcMain.handle(
