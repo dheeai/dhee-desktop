@@ -22,7 +22,13 @@ import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
-import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync } from 'fs';
+import {
+  existsSync as fsExistsSync,
+  mkdirSync as fsMkdirSync,
+  readdirSync as fsReaddirSync,
+  statSync as fsStatSync,
+  readFileSync as fsReadFileSync,
+} from 'fs';
 import { app } from 'electron';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
@@ -920,6 +926,18 @@ export class dheeCoreManager {
   }
 
   /**
+   * Test seam — seed an AgentSession entry without going through
+   * chatPrompt's lazy build path. Used by cancellation-order tests
+   * to verify runner.cancel() fires BEFORE session.abort() is awaited.
+   */
+  __setAgentSessionForTesting(
+    sessionId: string,
+    session: { subscribe: (cb: (ev: unknown) => void) => () => void; prompt: (m: string) => Promise<void>; abort?: () => Promise<void>; dispose?: () => void },
+  ): void {
+    this.agentSessions.set(sessionId, { session });
+  }
+
+  /**
    * Phase 6.5: long-lived pi-coding-agent AgentSession per chat
    * sessionId. Built lazily on the first chatPrompt + reused across
    * turns so context + transcript persist for the lifetime of the
@@ -1133,17 +1151,113 @@ export class dheeCoreManager {
    * the id is unknown.
    */
   /**
-   * Phase 6.3 stub: no chat history persisted today. The renderer
-   * treats null as "fresh session, nothing to replay." Real history
-   * comes back in Phase 6.4 alongside pi-agent in-process.
+   * Phase 6.5c.d: rehydrate prior chat from the persisted pi-agent
+   * JSONL. We resolve the session's focused projectDir via the
+   * sessionProjects map (Phase 6.1), find the most-recent JSONL in
+   * userData/pi-sessions/<projectSlug>/, and reconstruct the
+   * HistorySnapshot shape the renderer's chat panel consumes.
+   *
+   * Returns null when there's no focused project yet (chat panel
+   * shows the empty intro card) or when no JSONL exists (fresh
+   * project, never chatted).
    */
-  getSessionHistorySnapshot(_sessionId: string): {
+  getSessionHistorySnapshot(sessionId: string): {
     messages: Array<Record<string, unknown>>;
     toolCalls: Array<Record<string, unknown>>;
     focusedProject?: string;
     compactionCount: number;
   } | null {
-    return null;
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) return null;
+    let sessionsDir: string;
+    try {
+      const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
+      const userData = app.getPath?.('userData');
+      if (!userData) return null;
+      sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+    } catch {
+      return null;
+    }
+    if (!fsExistsSync(sessionsDir)) return null;
+    let latest: { path: string; mtime: number } | null = null;
+    try {
+      for (const f of fsReaddirSync(sessionsDir)) {
+        if (!f.endsWith('.jsonl')) continue;
+        const full = path.join(sessionsDir, f);
+        const stat = fsStatSync(full);
+        if (!latest || stat.mtimeMs > latest.mtime) {
+          latest = { path: full, mtime: stat.mtimeMs };
+        }
+      }
+    } catch {
+      return null;
+    }
+    if (!latest) return null;
+    try {
+      const content = fsReadFileSync(latest.path, 'utf8');
+      const lines = content.split('\n').filter((l) => l.trim().length > 0);
+      const messages: Array<Record<string, unknown>> = [];
+      let compactionCount = 0;
+      for (const line of lines) {
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (parsed['type'] === 'compaction') {
+          compactionCount += 1;
+          continue;
+        }
+        if (parsed['type'] !== 'message') continue;
+        const msg = parsed['message'] as
+          | { role?: string; content?: unknown; timestamp?: number }
+          | undefined;
+        if (!msg) continue;
+        const ts = typeof msg.timestamp === 'number'
+          ? msg.timestamp
+          : (typeof parsed['timestamp'] === 'string'
+              ? Date.parse(parsed['timestamp'] as string)
+              : Date.now());
+        // user content is a string; assistant content is an array of
+        // {type:'text'|'toolCall'|'thinking', text?}. Flatten to plain
+        // text — tool-call envelopes are dropped here (the new chat
+        // panel doesn't render them from history; only live events).
+        let content: string;
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          content = msg.content
+            .filter((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'text')
+            .map((c) => (c as { text?: string }).text ?? '')
+            .join('');
+        } else {
+          continue;
+        }
+        if (!content.trim()) continue;
+        // Synthetic system messages from prior runs are noise; skip
+        // anything starting with [SYSTEM EVENT] or (Active project: …).
+        if (msg.role === 'user' && /^\[SYSTEM EVENT\]|^\(Active project:/.test(content)) {
+          continue;
+        }
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          messages.push({
+            id: (parsed['id'] as string) ?? `${ts}-${messages.length}`,
+            type: msg.role === 'user' ? 'user' : 'agent',
+            content,
+            timestamp: ts,
+          });
+        }
+      }
+      return {
+        messages,
+        toolCalls: [],
+        focusedProject: path.basename(projectDir),
+        compactionCount,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1352,6 +1466,29 @@ export class dheeCoreManager {
    * call more tools even though the user clicked Stop.
    */
   async cancelTask(sessionId: string): Promise<boolean> {
+    // Phase 6.5c.e: order matters. session.abort() WAITS for the
+    // agent to become idle. If the agent's current operation is an
+    // in-flight dhee_run_bundle (which sits on a BackgroundTaskRunner
+    // task), abort() blocks until that task finishes — meaning the
+    // long-running task has to complete before abort returns. So:
+    //
+    // 1. Kick the runner cancel FIRST (fire-and-forget). That makes
+    //    the in-flight tool's terminal event fire promptly.
+    // 2. THEN await session.abort(), which now resolves quickly
+    //    because the tool just got its 'cancelled' event.
+    // 3. The agent is idle. Any pending tool decisions are discarded.
+    //
+    // Without this order the agent kept issuing fresh dhee_run_bundle
+    // calls after Stop because the abort path was waiting on the
+    // very task we hadn't yet cancelled.
+    let runnerCancelled = false;
+    try {
+      const runnersMod = await loadRunnersModule();
+      runnerCancelled = runnersMod.getBackgroundTaskRunner().cancel();
+    } catch {
+      /* best-effort — abort below still fires */
+    }
+
     let aborted = false;
     const agentSession = this.agentSessions.get(sessionId);
     if (agentSession?.session) {
@@ -1362,11 +1499,10 @@ export class dheeCoreManager {
           aborted = true;
         }
       } catch {
-        // Best-effort — runner cancel below still fires.
+        // pi-coding-agent's abort can throw if there's no current
+        // operation; that's fine.
       }
     }
-    const runnersMod = await loadRunnersModule();
-    const runnerCancelled = runnersMod.getBackgroundTaskRunner().cancel();
     return runnerCancelled || aborted;
   }
 

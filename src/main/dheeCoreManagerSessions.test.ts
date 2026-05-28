@@ -9,9 +9,20 @@
  * runtime.
  */
 import { describe, expect, it, jest } from '@jest/globals';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+const userDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dhee-sessions-test-'));
 
 jest.mock('electron', () => ({
-  app: { isPackaged: false },
+  app: {
+    isPackaged: false,
+    getPath: (key: string) => {
+      if (key === 'userData') return userDataRoot;
+      throw new Error(`unexpected app.getPath key: ${key}`);
+    },
+  },
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
@@ -53,9 +64,54 @@ describe('dheeCoreManager.createSession (Phase 6.3)', () => {
 });
 
 describe('dheeCoreManager session-history & cleanup stubs (Phase 6.3)', () => {
-  it('getSessionHistorySnapshot returns null (no chat history persisted yet)', () => {
+  it('getSessionHistorySnapshot returns null when no project is focused', () => {
     const mgr = new dheeCoreManager();
     expect(mgr.getSessionHistorySnapshot('s-x')).toBeNull();
+  });
+
+  it('getSessionHistorySnapshot rehydrates user+assistant turns from the focused project JSONL (Phase 6.5c.d)', async () => {
+    const projectDir = path.join(userDataRoot, 'projects', 'RubyV4');
+    fs.mkdirSync(projectDir, { recursive: true });
+    const sessionsDir = path.join(userDataRoot, 'pi-sessions', 'RubyV4');
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    const jsonl = [
+      JSON.stringify({
+        type: 'message',
+        id: 'm-1',
+        timestamp: '2026-05-29T10:00:00.000Z',
+        message: { role: 'user', content: 'hello', timestamp: 1716981600000 },
+      }),
+      JSON.stringify({
+        type: 'message',
+        id: 'm-2',
+        timestamp: '2026-05-29T10:00:01.000Z',
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'hi there' }],
+          timestamp: 1716981601000,
+        },
+      }),
+      // synthetic seeded user noise — should be filtered
+      JSON.stringify({
+        type: 'message',
+        id: 'm-3',
+        timestamp: '2026-05-29T10:00:02.000Z',
+        message: { role: 'user', content: '[SYSTEM EVENT] dispatched', timestamp: 1716981602000 },
+      }),
+      // compaction marker — bump count, skip from messages
+      JSON.stringify({ type: 'compaction', timestamp: '2026-05-29T10:00:03.000Z' }),
+    ].join('\n');
+    fs.writeFileSync(path.join(sessionsDir, 'sess.jsonl'), jsonl);
+
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-rehydrate', 'RubyV4', projectDir);
+    const snap = mgr.getSessionHistorySnapshot('s-rehydrate');
+    expect(snap).not.toBeNull();
+    expect(snap?.focusedProject).toBe('RubyV4');
+    expect(snap?.compactionCount).toBe(1);
+    expect(snap?.messages).toHaveLength(2);
+    expect(snap?.messages[0]).toMatchObject({ type: 'user', content: 'hello' });
+    expect(snap?.messages[1]).toMatchObject({ type: 'agent', content: 'hi there' });
   });
 
   it('clearChatHistory mints a fresh session id and does not throw', () => {

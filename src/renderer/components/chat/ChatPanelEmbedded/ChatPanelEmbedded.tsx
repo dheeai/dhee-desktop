@@ -732,8 +732,24 @@ export default function ChatPanelEmbedded() {
     // Pass the absolute project directory so the embedded core
     // looks in the same parent the user opened from — even when
     // that's outside the dhee-ink package's default getProjectsDir().
-    session.focusProject(projectName, projectDirectory ?? undefined).catch(() => {});
-  }, [session.sessionId, projectName, projectDirectory, session.focusProject]);
+    //
+    // Phase 6.5c.d: refreshHistory ONCE focusProject has mapped the
+    // session → projectDir on the main side. Without this chained
+    // refresh, the earlier mount-time refreshHistory call (line ~300)
+    // races focusProject and the main side has no projectDir yet, so
+    // the JSONL never rehydrates into the chat panel.
+    let cancelled = false;
+    session
+      .focusProject(projectName, projectDirectory ?? undefined)
+      .then(() => {
+        if (cancelled) return;
+        return session.refreshHistory();
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [session.sessionId, projectName, projectDirectory, session.focusProject, session.refreshHistory]);
 
   // Auto-scroll to the latest message. (jsdom in tests omits scrollIntoView.)
   useEffect(() => {
