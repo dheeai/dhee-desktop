@@ -1141,12 +1141,11 @@ export default function ChatPanelEmbedded() {
     if (!projectDirectory || !session.sessionId) return;
     setBgSessionId(session.sessionId);
 
-    const projectDirName =
-      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') ||
-      projectName ||
-      'project';
-    const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
-    const task = `Continue running the dhee pipeline for ${params} all the way to completion. Use dhee_run_to with no stage so it runs to the end. Stream progress as nodes finish.`;
+    // Phase 6.5c.c: route Resume through the pi-agent so the agent
+    // is the consistent entry point for bundle runs. Pi-agent's
+    // dhee_run_bundle (post-6.5c.c) dispatches via BackgroundTaskRunner,
+    // so progress events still surface in the status strip.
+    const task = `Continue running the bundle for the current project to completion. Call dhee_run_bundle with projectDir="${projectDirectory}". Stream progress as nodes finish, and once it completes call dhee_show_node_output for the goal node so I can see the result.`;
 
     setMessages((prev) => [
       ...prev,
@@ -1157,8 +1156,19 @@ export default function ChatPanelEmbedded() {
       },
     ]);
     streamingMsgIdRef.current = null;
-    await session.runTask(task);
-  }, [projectDirectory, projectName, session]);
+    const result = await session.chatPrompt(task);
+    if (!result.ok) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
+          notificationLevel: 'error',
+        },
+      ]);
+    }
+  }, [projectDirectory, session]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
