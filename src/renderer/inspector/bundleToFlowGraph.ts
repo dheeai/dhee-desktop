@@ -11,7 +11,7 @@
  * left → right. Concrete pixel positions come back on each FlowNode's
  * `position`, ready for xyflow.
  */
-import dagre from 'dagre';
+import { graphlib, layout as dagreLayout } from 'dagre';
 import type {
   BundleSnapshot,
   BundleNode,
@@ -181,7 +181,7 @@ function layoutNodes(
   bundle: BundleSnapshot,
   edges: InspectorFlowEdge[],
 ): Map<string, { x: number; y: number }> {
-  const g = new dagre.graphlib.Graph();
+  const g = new graphlib.Graph();
   g.setGraph(LAYOUT_OPTS);
   g.setDefaultEdgeLabel(() => ({}));
   for (const node of bundle.nodes) {
@@ -190,7 +190,7 @@ function layoutNodes(
   for (const edge of edges) {
     g.setEdge(edge.source, edge.target);
   }
-  dagre.layout(g);
+  dagreLayout(g);
   const out = new Map<string, { x: number; y: number }>();
   for (const node of bundle.nodes) {
     const pos = g.node(node.id);
