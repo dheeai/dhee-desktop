@@ -11,13 +11,6 @@
  * left → right. Concrete pixel positions come back on each FlowNode's
  * `position`, ready for xyflow.
  */
-// @dagrejs/dagre ships CJS-only. Under webpack's ESM interop the
-// `import * as dagre` namespace shape doesn't reliably expose
-// `.graphlib`/`.layout` (the keys land on the synthesized default
-// instead). require() picks up the unwrapped module.exports object
-// directly, which is what we want.
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const dagre = require('@dagrejs/dagre') as typeof import('@dagrejs/dagre');
 import type {
   BundleSnapshot,
   BundleNode,
@@ -147,14 +140,26 @@ function collectInstances(
 }
 
 // ---------------------------------------------------------------------------
-// Layout (dagre)
+// Layout — simple topological columnar layout
 // ---------------------------------------------------------------------------
+//
+// The bundle graph is tiny (≤30 nodes) so a hand-rolled topo layout
+// fits perfectly and dodges the CJS/ESM interop problems we had with
+// dagre under webpack. Three steps:
+//
+//   1. Compute each node's RANK = 1 + max(rank of upstream nodes).
+//   2. Group nodes by rank (rank 0 = roots, no upstream).
+//   3. Place nodes in columns: x = rank * COLUMN_PITCH, y stacked by
+//      slot * ROW_PITCH (with each rank's nodes centred against the
+//      tallest rank).
+//
+// Parallel branches naturally land on different y because two nodes
+// at the same rank get different slots.
 
 /**
- * Hint to dagre about each node's rendered size. Stage cards are
- * compact (md/json/text/image preview); collection rails are wider
- * because they show multiple tiles. Real pixel sizes will be refined
- * after the per-kind renderers ship in Phase 3.
+ * Hint about each node's rendered size — keeps stages compact and
+ * collection rails wider. The numbers affect layout pitch only;
+ * actual rendered sizes come from CSS.
  */
 function sizeFor(node: BundleNode): { width: number; height: number } {
   if (node.kind === 'collection') {
@@ -175,36 +180,66 @@ function sizeFor(node: BundleNode): { width: number; height: number } {
   }
 }
 
-const LAYOUT_OPTS = {
-  rankdir: 'LR' as const,
-  nodesep: 32,
-  ranksep: 72,
-  marginx: 24,
-  marginy: 24,
-};
+const COLUMN_PITCH = 280;
+const ROW_PITCH = 200;
+const COLUMN_X0 = 60;
+const COLUMN_Y0 = 60;
+
+function computeRanks(
+  bundle: BundleSnapshot,
+  edges: InspectorFlowEdge[],
+): Map<string, number> {
+  const incoming = new Map<string, string[]>();
+  for (const n of bundle.nodes) incoming.set(n.id, []);
+  for (const e of edges) {
+    incoming.get(e.target)?.push(e.source);
+  }
+  const ranks = new Map<string, number>();
+  const visiting = new Set<string>();
+
+  function rankOf(id: string): number {
+    const cached = ranks.get(id);
+    if (cached !== undefined) return cached;
+    if (visiting.has(id)) return 0; // cycle guard — shouldn't happen on a DAG
+    visiting.add(id);
+    const ups = incoming.get(id) ?? [];
+    const r = ups.length === 0 ? 0 : 1 + Math.max(...ups.map(rankOf));
+    visiting.delete(id);
+    ranks.set(id, r);
+    return r;
+  }
+
+  for (const n of bundle.nodes) rankOf(n.id);
+  return ranks;
+}
 
 function layoutNodes(
   bundle: BundleSnapshot,
   edges: InspectorFlowEdge[],
 ): Map<string, { x: number; y: number }> {
-  const g = new dagre.graphlib.Graph();
-  g.setGraph(LAYOUT_OPTS);
-  g.setDefaultEdgeLabel(() => ({}));
-  for (const node of bundle.nodes) {
-    g.setNode(node.id, sizeFor(node));
+  const ranks = computeRanks(bundle, edges);
+  // Bucket by rank, preserving the bundle's declaration order within
+  // each rank so siblings show up in a stable order.
+  const byRank = new Map<number, BundleNode[]>();
+  for (const n of bundle.nodes) {
+    const r = ranks.get(n.id) ?? 0;
+    if (!byRank.has(r)) byRank.set(r, []);
+    byRank.get(r)!.push(n);
   }
-  for (const edge of edges) {
-    g.setEdge(edge.source, edge.target);
-  }
-  dagre.layout(g);
+  const tallestRank = Math.max(...Array.from(byRank.values(), (col) => col.length));
   const out = new Map<string, { x: number; y: number }>();
-  for (const node of bundle.nodes) {
-    const pos = g.node(node.id);
-    // dagre returns the node's CENTER position; xyflow wants top-left.
-    out.set(node.id, {
-      x: (pos?.x ?? 0) - (pos?.width ?? 0) / 2,
-      y: (pos?.y ?? 0) - (pos?.height ?? 0) / 2,
+  for (const [rank, column] of byRank) {
+    const slotOffset = (tallestRank - column.length) / 2;
+    column.forEach((node, idx) => {
+      out.set(node.id, {
+        x: COLUMN_X0 + rank * COLUMN_PITCH,
+        y: COLUMN_Y0 + (idx + slotOffset) * ROW_PITCH,
+      });
     });
+    // sizeFor isn't used for actual positioning here — kept for
+    // potential future refinement (e.g. variable column pitch). Ref it
+    // so the import + type stays alive.
+    void sizeFor(column[0]!);
   }
   return out;
 }
