@@ -14,6 +14,19 @@ import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron';
 import log from 'electron-log';
+
+// DESKTOP-DRIVE: when DHEE_DEBUG_PORT is set, expose Chromium's
+// remote-debugging-port so a Playwright-based CLI can attach via CDP
+// (see src/dev/desktopDrive.ts). MUST run before app.whenReady().
+// Port stays disabled by default so packaged builds don't expose it.
+const _dheeDebugPort = process.env['DHEE_DEBUG_PORT'];
+if (_dheeDebugPort && /^\d+$/.test(_dheeDebugPort)) {
+  app.commandLine.appendSwitch('remote-debugging-port', _dheeDebugPort);
+  // Localhost-only — defense in depth on top of Electron's default.
+  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+  // eslint-disable-next-line no-console
+  console.log(`[desktop-drive] CDP enabled on http://127.0.0.1:${_dheeDebugPort}`);
+}
 import { autoUpdater } from 'electron-updater';
 import ffmpeg from '@ts-ffmpeg/fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
