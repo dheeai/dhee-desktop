@@ -14,6 +14,37 @@
   color: var(--color-text-primary);
   font-family: var(--inspector-font, 'SF Pro Display', 'Inter', system-ui, sans-serif);
   font-size: 13px;
+
+  // Override xyflow v12's own CSS variables so the minimap, controls,
+  // and edges adopt the app's theme palette. xyflow ships
+  // light + dark defaults via prefers-color-scheme; we force the
+  // desktop's tokens regardless of the OS scheme.
+  --xy-minimap-background-color-default: var(--color-bg-panel-inset);
+  --xy-minimap-background-color: var(--color-bg-panel-inset);
+  --xy-minimap-mask-background-color-default: rgba(0, 0, 0, 0.45);
+  --xy-minimap-mask-background-color: rgba(0, 0, 0, 0.45);
+  --xy-minimap-mask-stroke-color-default: var(--color-accent-primary);
+  --xy-minimap-mask-stroke-color: var(--color-accent-primary);
+  --xy-minimap-mask-stroke-width-default: 1;
+  --xy-minimap-node-background-color-default: var(--color-text-muted);
+  --xy-minimap-node-background-color: var(--color-text-muted);
+  --xy-minimap-node-stroke-color-default: transparent;
+  --xy-minimap-node-stroke-color: transparent;
+  --xy-minimap-node-stroke-width-default: 2;
+
+  --xy-controls-button-background-color-default: var(--color-bg-panel-elevated);
+  --xy-controls-button-background-color: var(--color-bg-panel-elevated);
+  --xy-controls-button-background-color-hover-default: var(--color-bg-panel-soft);
+  --xy-controls-button-background-color-hover: var(--color-bg-panel-soft);
+  --xy-controls-button-color-default: var(--color-text-primary);
+  --xy-controls-button-color: var(--color-text-primary);
+  --xy-controls-button-color-hover-default: var(--color-text-primary);
+  --xy-controls-button-color-hover: var(--color-text-primary);
+  --xy-controls-button-border-color-default: var(--color-border-subtle);
+  --xy-controls-button-border-color: var(--color-border-subtle);
+
+  --xy-edge-stroke-default: var(--color-text-muted);
+  --xy-edge-stroke: var(--color-text-muted);
 }
 
 .empty {
