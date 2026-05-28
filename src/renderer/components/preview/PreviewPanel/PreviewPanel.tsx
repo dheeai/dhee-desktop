@@ -184,7 +184,9 @@ export default function PreviewPanel() {
 
   const renderActiveContent = () => (
     <div className={styles.content}>
-      {activeTab === 'inspector' && <InspectorView />}
+      {activeTab === 'inspector' && (
+        <InspectorView onGoalClick={() => setActiveTab('video-library')} />
+      )}
       {activeTab === 'storyboard' && <StoryboardView />}
       {activeTab === 'prompts' && <PromptsView />}
       {activeTab === 'assets' && <AssetsView />}

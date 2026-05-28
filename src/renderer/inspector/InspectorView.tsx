@@ -14,7 +14,12 @@ import { useWorkspace } from '../contexts/WorkspaceContext';
 import { InspectorCanvas } from './InspectorCanvas';
 import type { ProjectStateLike } from '../lib/bundleCapability';
 
-export function InspectorView() {
+export interface InspectorViewProps {
+  /** Fired when the goal node is clicked (PreviewPanel switches tabs). */
+  onGoalClick?: (nodeId: string) => void;
+}
+
+export function InspectorView({ onGoalClick }: InspectorViewProps = {}) {
   const { bundle } = useProject();
   const { projectDirectory } = useWorkspace();
   const [walkState, setWalkState] = useState<ProjectStateLike | null>(null);
@@ -48,7 +53,13 @@ export function InspectorView() {
     };
   }, [projectDirectory]);
 
-  return <InspectorCanvas bundle={bundle} walkState={walkState} />;
+  return (
+    <InspectorCanvas
+      bundle={bundle}
+      walkState={walkState}
+      {...(onGoalClick ? { onGoalClick } : {})}
+    />
+  );
 }
 
 export default InspectorView;

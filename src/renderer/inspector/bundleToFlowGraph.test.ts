@@ -273,6 +273,28 @@ describe('bundleToFlowGraph', () => {
     });
   });
 
+  describe('isGoal flag', () => {
+    it('marks the node whose id matches bundle.goal', () => {
+      const b = makeBundle([
+        { id: 'plot' },
+        { id: 'final_video' },
+      ], 'final_video');
+      const { nodes } = bundleToFlowGraph(b, { nodes: {} });
+      const byId = Object.fromEntries(nodes.map((n) => [n.id, n.data]));
+      expect(byId['final_video']!.isGoal).toBe(true);
+      expect(byId['plot']!.isGoal).toBe(false);
+    });
+
+    it('handles bundle with no matching goal node (isGoal=false everywhere)', () => {
+      const b = makeBundle([
+        { id: 'a' },
+        { id: 'b' },
+      ], 'nonexistent');
+      const { nodes } = bundleToFlowGraph(b, { nodes: {} });
+      for (const n of nodes) expect(n.data.isGoal).toBe(false);
+    });
+  });
+
   describe('layout', () => {
     it('assigns positions to every node', () => {
       const b = makeBundle([

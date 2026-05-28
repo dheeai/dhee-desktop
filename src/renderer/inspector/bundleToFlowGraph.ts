@@ -42,6 +42,13 @@ export interface InspectorNodeData {
    *   - collection nodes → 0..N instances, each with an itemId
    */
   instances: CapabilityInstance[];
+  /**
+   * True when this node's id matches the bundle's declared `goal`.
+   * The Inspector card uses this to (a) paint the goal-node accent
+   * border (mockup's "GOAL" flag) and (b) deep-link to the Watch tab
+   * when clicked, instead of playing inline.
+   */
+  isGoal: boolean;
   /** xyflow requires Node.data to satisfy Record<string, unknown>. */
   [key: string]: unknown;
 }
@@ -289,6 +296,7 @@ export function bundleToFlowGraph(
         bundleNode,
         status,
         instances,
+        isGoal: bundle.goal === bundleNode.id,
       },
     };
   });

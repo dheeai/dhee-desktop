@@ -21,6 +21,7 @@ import { VideoNodeStage, VideoNodeTile } from './VideoNode';
 import { AudioNodeStage, AudioNodeTile } from './AudioNode';
 import { TextNodeStage, TextNodeTile } from './TextNode';
 import { RegenerateMenu } from './RegenerateMenu';
+import { useInspectorActions } from '../InspectorActionContext';
 import styles from '../InspectorCanvas.module.scss';
 
 type Props = NodeProps & { data: InspectorNodeData };
@@ -59,9 +60,10 @@ function rendererFor(format: string): KindRenderers {
 }
 
 export function InspectorNode({ data }: Props) {
-  const { bundleNode, status, instances } = data;
+  const { bundleNode, status, instances, isGoal } = data;
   const format = bundleNode.outputs.format;
   const { Stage, Tile } = rendererFor(format);
+  const { onGoalClick } = useInspectorActions();
 
   const completedInstance = instances.find((i) => i.status === 'completed');
   // For stages, regen targets the bare nodeId. For collections, the
@@ -87,15 +89,24 @@ export function InspectorNode({ data }: Props) {
     />
   );
 
+  // Goal-node click: fire the deep-link callback (e.g. open Watch
+  // tab). Wired to the body div, not the head — the head exposes
+  // status info + capability tag the user might want to read.
+  const onBodyClick = isGoal && onGoalClick
+    ? () => onGoalClick(bundleNode.id)
+    : undefined;
+
   return (
     <RegenerateMenu nodeId={cardRegenNodeId}>
       <div
-        className={styles.node}
+        className={`${styles.node} ${isGoal ? styles.goal : ''}`}
         data-testid={`inspector-node-${bundleNode.id}`}
         data-status={status}
         data-kind={bundleNode.kind}
         data-format={format}
+        data-goal={isGoal ? 'true' : undefined}
       >
+        {isGoal ? <div className={styles.goalFlag}>Goal</div> : null}
         <Handle type="target" position={Position.Left} className={styles.handle} />
         <div className={styles.nodeHead}>
           <span
@@ -105,7 +116,12 @@ export function InspectorNode({ data }: Props) {
           <span className={styles.nodeName}>{bundleNode.id}</span>
           <span className={styles.nodeKind}>{format}</span>
         </div>
-        <div className={styles.nodeBody}>{body}</div>
+        <div
+          className={`${styles.nodeBody} ${onBodyClick ? styles.clickable : ''}`}
+          onClick={onBodyClick}
+        >
+          {body}
+        </div>
         {bundleNode.displayCapability ? (
           <div className={styles.nodeFoot}>
             <span className={styles.capabilityTag}>{bundleNode.displayCapability}</span>

@@ -23,6 +23,7 @@ import '@xyflow/react/dist/style.css';
 import { bundleToFlowGraph } from './bundleToFlowGraph';
 import { useElkLayout } from './useElkLayout';
 import { InspectorNode } from './nodes/InspectorNode';
+import { InspectorActionContext } from './InspectorActionContext';
 import type {
   BundleSnapshot,
   ProjectStateLike,
@@ -32,6 +33,13 @@ import styles from './InspectorCanvas.module.scss';
 export interface InspectorCanvasProps {
   bundle: BundleSnapshot | null | undefined;
   walkState: ProjectStateLike | null | undefined;
+  /**
+   * Fired when the user clicks the bundle's declared goal node body
+   * (PreviewPanel wires this to switch to the Watch tab — final
+   * video preview). Optional; bundles whose goal isn't video can
+   * leave it unwired and clicking falls through to inline play.
+   */
+  onGoalClick?: (nodeId: string) => void;
 }
 
 // Registered node types — Phase 2 has one entry; Phase 3 will expand to
@@ -40,10 +48,14 @@ const NODE_TYPES: NodeTypes = {
   inspector: InspectorNode as unknown as NodeTypes[string],
 };
 
-export function InspectorCanvas({ bundle, walkState }: InspectorCanvasProps) {
+export function InspectorCanvas({ bundle, walkState, onGoalClick }: InspectorCanvasProps) {
   const graph = useMemo(
     () => bundleToFlowGraph(bundle ?? null, walkState ?? null),
     [bundle, walkState],
+  );
+  const actions = useMemo(
+    () => (onGoalClick ? { onGoalClick } : {}),
+    [onGoalClick],
   );
   // elk runs async — graph.nodes carry the topo-columnar fallback
   // positions while elk computes; once it returns, the layouted
@@ -65,28 +77,30 @@ export function InspectorCanvas({ bundle, walkState }: InspectorCanvasProps) {
 
   return (
     <div className={styles.canvas}>
-      <ReactFlowProvider>
-        <ReactFlow
-          nodes={nodes}
-          edges={graph.edges}
-          nodeTypes={NODE_TYPES}
-          // Phase 2 is read-only: no drag, no connect, no fitView delay.
-          nodesDraggable={false}
-          nodesConnectable={false}
-          edgesFocusable={false}
-          fitView
-          minZoom={0.25}
-          maxZoom={2}
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background
-            variant={BackgroundVariant.Dots}
-            gap={22}
-            size={1}
-            color="rgba(168, 156, 139, 0.06)"
-          />
-        </ReactFlow>
-      </ReactFlowProvider>
+      <InspectorActionContext.Provider value={actions}>
+        <ReactFlowProvider>
+          <ReactFlow
+            nodes={nodes}
+            edges={graph.edges}
+            nodeTypes={NODE_TYPES}
+            // Phase 2 is read-only: no drag, no connect, no fitView delay.
+            nodesDraggable={false}
+            nodesConnectable={false}
+            edgesFocusable={false}
+            fitView
+            minZoom={0.25}
+            maxZoom={2}
+            proOptions={{ hideAttribution: true }}
+          >
+            <Background
+              variant={BackgroundVariant.Dots}
+              gap={22}
+              size={1}
+              color="rgba(168, 156, 139, 0.06)"
+            />
+          </ReactFlow>
+        </ReactFlowProvider>
+      </InspectorActionContext.Provider>
     </div>
   );
 }

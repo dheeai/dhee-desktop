@@ -104,4 +104,60 @@ describe('InspectorCanvas — Phase 2 scaffold', () => {
     // failed instance wins for the collection's aggregate status
     expect(screen.getByTestId('inspector-node-shot_image')).toHaveAttribute('data-status', 'failed');
   });
+
+  describe('onGoalClick deep-link', () => {
+    const goalBundle = (): BundleSnapshot => ({
+      id: 'fixture',
+      version: '0.1.0',
+      goal: 'final_video',
+      nodes: [
+        {
+          id: 'plot',
+          kind: 'stage',
+          outputs: { format: 'md', pattern: 'plans/plot.md' },
+          inputs: [],
+        },
+        {
+          id: 'final_video',
+          kind: 'stage',
+          outputs: { format: 'video', pattern: 'final.mp4' },
+          inputs: [{ from: 'plot' }],
+        },
+      ],
+    });
+
+    it('fires onGoalClick when the goal card body is clicked', () => {
+      const onGoalClick = jest.fn();
+      const b = goalBundle();
+      const s = state({
+        plot: { status: 'completed', outputPath: 'plans/plot.md' },
+        final_video: { status: 'completed', outputPath: 'final.mp4' },
+      });
+      const { container } = render(
+        <InspectorCanvas bundle={b} walkState={s} onGoalClick={onGoalClick} />,
+      );
+      // The goal card body — first .clickable inside the goal node.
+      const goalCard = screen.getByTestId('inspector-node-final_video');
+      const body = goalCard.querySelector('[class*="clickable"]') as HTMLElement | null;
+      expect(body).not.toBeNull();
+      body!.click();
+      expect(onGoalClick).toHaveBeenCalledWith('final_video');
+      // Suppress unused-binding lint
+      expect(container).toBeDefined();
+    });
+
+    it('does not fire onGoalClick on non-goal card clicks', () => {
+      const onGoalClick = jest.fn();
+      const b = goalBundle();
+      const s = state({
+        plot: { status: 'completed', outputPath: 'plans/plot.md' },
+        final_video: { status: 'completed', outputPath: 'final.mp4' },
+      });
+      render(<InspectorCanvas bundle={b} walkState={s} onGoalClick={onGoalClick} />);
+      const plotCard = screen.getByTestId('inspector-node-plot');
+      const body = plotCard.querySelector('[class*="nodeBody"]') as HTMLElement | null;
+      body?.click();
+      expect(onGoalClick).not.toHaveBeenCalled();
+    });
+  });
 });

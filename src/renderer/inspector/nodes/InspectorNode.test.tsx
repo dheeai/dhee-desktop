@@ -51,6 +51,7 @@ const baseData = (
   },
   status: 'completed',
   instances: [],
+  isGoal: false,
   ...overrides,
 });
 
@@ -289,6 +290,23 @@ describe('InspectorNode — kind dispatcher (Phase 3)', () => {
       }));
       expect(screen.getByTestId('image-tile')).toBeInTheDocument();
       expect(screen.queryByTestId('json-tile')).toBeNull();
+    });
+  });
+
+  describe('goal node', () => {
+    it('paints the goal-flag badge when isGoal=true', () => {
+      renderNode(baseData({
+        nodeOverrides: { id: 'final_video', outputs: { format: 'video', pattern: 'final.mp4' } },
+        isGoal: true,
+        instances: [{ stateKey: 'final_video', status: 'completed', outputPath: 'final.mp4' }],
+      }));
+      expect(screen.getByTestId('inspector-node-final_video')).toHaveAttribute('data-goal', 'true');
+      expect(screen.getByText(/^goal$/i)).toBeInTheDocument();
+    });
+
+    it('does not paint the goal-flag badge on non-goal nodes', () => {
+      renderNode(baseData({ isGoal: false }));
+      expect(screen.queryByText(/^goal$/i)).toBeNull();
     });
   });
 });
