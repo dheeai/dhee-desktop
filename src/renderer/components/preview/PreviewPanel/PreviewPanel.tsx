@@ -6,17 +6,11 @@ import {
   useMemo,
   type MouseEvent as ReactMouseEvent,
 } from 'react';
-// FolderKanban (Assets) and Layers (Storyboard) icons retained for the
-// deprecated tabs — kept imported so re-enabling those tabs is a
-// single-line change in the `tabs` array below.
-import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers, Workflow } from 'lucide-react';
+import { ChevronUp, Clapperboard, FileCode2, Workflow } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
 import type { SceneVersions } from '../../../types/dhee/timeline';
-import AssetsView from '../AssetsView/AssetsView';
-import StoryboardView from '../StoryboardView/StoryboardView';
-import PromptsView from '../PromptsView/PromptsView';
 import VideoLibraryView from '../VideoLibraryView/VideoLibraryView';
 import PlansView from '../PlansView/PlansView';
 import { InspectorView } from '../../../inspector/InspectorView';
@@ -25,14 +19,13 @@ import TimelinePanel from '../TimelinePanel/TimelinePanel';
 import { TimelineDockIcon } from '../EditorIcons';
 import styles from './PreviewPanel.module.scss';
 
-type Tab = 'inspector' | 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
+type Tab = 'inspector' | 'video-library' | 'preview';
 
 export default function PreviewPanel() {
-  // Default to Prompts — the per-shot prompt + media inspector is the
-  // primary workspace surface as of 2026-05-06. Storyboard and Assets
-  // are deprecated (still importable / renderable in this file so we
-  // can re-enable later), but excluded from the visible tab list
-  // below.
+  // Inspector is the primary workspace surface as of 2026-05-28 (Phase 5
+  // of the Inspector Canvas migration). Prompts / Storyboard / Assets
+  // tabs were deleted — the Inspector renders every artifact kind
+  // in-place via the bundle DAG.
   const [activeTab, setActiveTab] = useState<Tab>('inspector');
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [timelineHeight, setTimelineHeight] = useState(320);
@@ -58,11 +51,6 @@ export default function PreviewPanel() {
         id: 'inspector' as const,
         label: 'Inspector',
         icon: Workflow,
-      },
-      {
-        id: 'prompts' as const,
-        label: 'Prompts',
-        icon: FileText,
       },
       {
         id: 'video-library' as const,
@@ -187,9 +175,6 @@ export default function PreviewPanel() {
       {activeTab === 'inspector' && (
         <InspectorView onGoalClick={() => setActiveTab('video-library')} />
       )}
-      {activeTab === 'storyboard' && <StoryboardView />}
-      {activeTab === 'prompts' && <PromptsView />}
-      {activeTab === 'assets' && <AssetsView />}
       {activeTab === 'video-library' && (
         <VideoLibraryView
           playbackTime={playbackTime}

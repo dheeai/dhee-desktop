@@ -81,11 +81,12 @@ export const dhee_CHANNELS = {
   GET_HISTORY: 'dhee:getHistory',
   /**
    * Resolve a `bundleSource` string (e.g. 'built-in:narrative_qwen_chain_relay')
-   * to its parsed bundle JSON. Used by desktop views (PromptsView, AssetsView)
-   * to discover what artifacts a bundle produces via `displayCapability`
-   * tags on nodes — without hardcoding any bundle's internal node names
-   * or filesystem paths. The renderer caches the result for the project's
-   * lifetime; main process resolves via dhee-core's bundleSource helpers.
+   * to its parsed bundle JSON. Used by the Inspector Canvas and the
+   * landing-screen tile metadata to discover what artifacts a bundle
+   * produces via `displayCapability` tags on nodes — without hardcoding
+   * any bundle's internal node names or filesystem paths. The renderer
+   * caches the result in ProjectContext; main process resolves via
+   * dhee-core's bundleSource helpers.
    */
   RESOLVE_BUNDLE: 'dhee:resolveBundle',
 } as const;
