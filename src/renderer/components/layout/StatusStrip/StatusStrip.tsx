@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { useRunnerStatus } from '../../../hooks/useRunnerStatus';
 import { useOverlay, type OverlayKey } from '../../../overlays/OverlayContext';
+import BackendBadges from '../../backend/BackendBadges';
 import styles from './StatusStrip.module.scss';
 
 export interface StatusStripProps {
@@ -117,6 +118,15 @@ export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps)
       </div>
 
       <div className={styles.right}>
+        <button
+          type="button"
+          className={styles.badgesButton}
+          onClick={() => open('settings')}
+          aria-label="Engine connection status — click to configure"
+          title="Engine connection status — click to configure"
+        >
+          <BackendBadges />
+        </button>
         {launchers.map(({ key, label, Icon }) => (
           <button
             key={key}

@@ -51,6 +51,21 @@
   border-color: var(--color-border-subtle);
 }
 
+.badgesButton {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 3px 6px;
+  cursor: pointer;
+  margin-right: 6px;
+}
+.badgesButton:hover {
+  background: var(--color-bg-panel-soft);
+  border-color: var(--color-border-subtle);
+}
+
 .project {
   display: flex;
   align-items: baseline;

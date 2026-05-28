@@ -11,6 +11,13 @@
  */
 import '@testing-library/jest-dom';
 import { render, screen, act } from '@testing-library/react';
+// Mock BackendBadges to avoid pulling AppSettings + account IPC into
+// the StatusStrip unit tests. The badge component has its own tests.
+jest.mock('../../backend/BackendBadges', () => ({
+  __esModule: true,
+  default: () => <div data-testid="backend-badges-stub" />,
+}));
+
 import { StatusStrip } from './StatusStrip';
 import { OverlayProvider, useOverlay } from '../../../overlays/OverlayContext';
 
@@ -143,6 +150,26 @@ describe('StatusStrip', () => {
     const back = screen.getByRole('button', { name: /back/i });
     await act(async () => { back.click(); });
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('renders the backend badges (UX-6) and opens Settings when clicked', async () => {
+    renderStrip();
+    await act(async () => { await Promise.resolve(); });
+    // Badge group mounted
+    expect(screen.getByTestId('backend-badges-stub')).toBeInTheDocument();
+    // Click the wrapping button → Settings overlay opens
+    const wrap = screen.getByRole('button', { name: /engine connection/i });
+    await act(async () => { wrap.click(); });
+    expect(screen.getByTestId('current-overlay')).toHaveTextContent('settings');
+  });
+
+  // Ensure the badge button doesn't clash with the existing Settings
+  // launcher icon button or the Back button.
+  it('badge button label is distinct from Back and Settings labels', () => {
+    renderStrip({ onBack: jest.fn() });
+    expect(screen.getByRole('button', { name: /engine connection/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /^settings$/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /back to landing/i })).toBeInTheDocument();
   });
 
   it('hides the Back button when onBack is not provided (e.g. landing)', () => {
