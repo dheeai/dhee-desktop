@@ -11,7 +11,7 @@
  * left → right. Concrete pixel positions come back on each FlowNode's
  * `position`, ready for xyflow.
  */
-import * as dagre from 'dagre';
+import * as dagre from '@dagrejs/dagre';
 import type {
   BundleSnapshot,
   BundleNode,
