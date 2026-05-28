@@ -21,6 +21,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { bundleToFlowGraph } from './bundleToFlowGraph';
+import { useElkLayout } from './useElkLayout';
 import { InspectorNode } from './nodes/InspectorNode';
 import type {
   BundleSnapshot,
@@ -44,6 +45,11 @@ export function InspectorCanvas({ bundle, walkState }: InspectorCanvasProps) {
     () => bundleToFlowGraph(bundle ?? null, walkState ?? null),
     [bundle, walkState],
   );
+  // elk runs async — graph.nodes carry the topo-columnar fallback
+  // positions while elk computes; once it returns, the layouted
+  // positions replace them. Hook must be called unconditionally
+  // (React rules-of-hooks).
+  const nodes = useElkLayout(graph.nodes, graph.edges);
 
   if (!bundle || graph.nodes.length === 0) {
     return (
@@ -61,7 +67,7 @@ export function InspectorCanvas({ bundle, walkState }: InspectorCanvasProps) {
     <div className={styles.canvas}>
       <ReactFlowProvider>
         <ReactFlow
-          nodes={graph.nodes}
+          nodes={nodes}
           edges={graph.edges}
           nodeTypes={NODE_TYPES}
           // Phase 2 is read-only: no drag, no connect, no fitView delay.
