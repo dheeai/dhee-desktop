@@ -97,7 +97,10 @@ export function InspectorNode({ data }: Props) {
     : undefined;
 
   return (
-    <RegenerateMenu nodeId={cardRegenNodeId}>
+    <RegenerateMenu
+      nodeId={cardRegenNodeId}
+      outputPath={completedInstance?.outputPath}
+    >
       <div
         className={`${styles.node} ${isGoal ? styles.goal : ''}`}
         data-testid={`inspector-node-${bundleNode.id}`}
@@ -161,7 +164,11 @@ function CollectionBody({ bundleNodeId, instances, headlineField, Tile }: Collec
           ? `${bundleNodeId}:${inst.itemId}`
           : undefined;
         return (
-          <RegenerateMenu key={inst.stateKey} nodeId={tileNodeId}>
+          <RegenerateMenu
+            key={inst.stateKey}
+            nodeId={tileNodeId}
+            outputPath={inst.outputPath}
+          >
             <Tile
               outputPath={inst.outputPath}
               headlineField={headlineField}

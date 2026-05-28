@@ -12,6 +12,10 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import { RegenerateMenu } from './RegenerateMenu';
 
 const redoNodeMock = jest.fn();
+const invalidateNodesMock = jest.fn();
+const revealInFinderMock = jest.fn();
+const writeTextMock = jest.fn();
+
 jest.mock('../../hooks/useDheeSession', () => ({
   useDheeSession: () => ({
     sessionId: 'sess-1',
@@ -19,9 +23,30 @@ jest.mock('../../hooks/useDheeSession', () => ({
   }),
 }));
 
+jest.mock('../../contexts/WorkspaceContext', () => ({
+  useWorkspace: () => ({ projectDirectory: '/tmp/p' }),
+}));
+
+beforeAll(() => {
+  (window as unknown as { dhee: unknown }).dhee = {
+    invalidateNodes: (req: unknown) => invalidateNodesMock(req),
+  };
+  (window as unknown as { electron: unknown }).electron = {
+    project: { revealInFinder: (p: string) => revealInFinderMock(p) },
+  };
+  Object.defineProperty(navigator, 'clipboard', {
+    value: { writeText: (t: string) => writeTextMock(t) },
+    configurable: true,
+  });
+});
+
 beforeEach(() => {
   redoNodeMock.mockReset();
   redoNodeMock.mockResolvedValue({ ok: true });
+  invalidateNodesMock.mockReset();
+  invalidateNodesMock.mockResolvedValue({ ok: true });
+  revealInFinderMock.mockReset();
+  writeTextMock.mockReset();
 });
 
 describe('RegenerateMenu', () => {
@@ -102,5 +127,59 @@ describe('RegenerateMenu', () => {
     );
     fireEvent.contextMenu(screen.getByTestId('card'));
     expect(screen.queryByText(/regenerate/i)).toBeNull();
+  });
+
+  describe('extended menu items (UX-8)', () => {
+    it('Open in Finder calls revealInFinder with the absolute path', () => {
+      render(
+        <RegenerateMenu nodeId="plot" outputPath="plans/plot.md">
+          <div data-testid="card">card</div>
+        </RegenerateMenu>,
+      );
+      fireEvent.contextMenu(screen.getByTestId('card'));
+      fireEvent.click(screen.getByText(/open in finder/i));
+      expect(revealInFinderMock).toHaveBeenCalledWith('/tmp/p/plans/plot.md');
+    });
+
+    it('Copy path writes the absolute path to the clipboard', () => {
+      render(
+        <RegenerateMenu nodeId="plot" outputPath="plans/plot.md">
+          <div data-testid="card">card</div>
+        </RegenerateMenu>,
+      );
+      fireEvent.contextMenu(screen.getByTestId('card'));
+      fireEvent.click(screen.getByText(/copy path/i));
+      expect(writeTextMock).toHaveBeenCalledWith('/tmp/p/plans/plot.md');
+    });
+
+    it('Open in Finder + Copy path are disabled when no outputPath', () => {
+      render(
+        <RegenerateMenu nodeId="plot">
+          <div data-testid="card">card</div>
+        </RegenerateMenu>,
+      );
+      fireEvent.contextMenu(screen.getByTestId('card'));
+      const reveal = screen.getByText(/open in finder/i);
+      const copy = screen.getByText(/copy path/i);
+      expect(reveal).toBeDisabled();
+      expect(copy).toBeDisabled();
+    });
+
+    it('Invalidate calls invalidateNodes with the right sessionId + nodeId', () => {
+      render(
+        <RegenerateMenu nodeId="shot_image:scene_1_shot_1" outputPath="a.png">
+          <div data-testid="card">card</div>
+        </RegenerateMenu>,
+      );
+      fireEvent.contextMenu(screen.getByTestId('card'));
+      fireEvent.click(screen.getByText(/invalidate/i));
+      expect(invalidateNodesMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionId: 'sess-1',
+          nodeIds: ['shot_image:scene_1_shot_1'],
+          source: 'inspector_context_menu',
+        }),
+      );
+    });
   });
 });

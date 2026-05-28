@@ -37,3 +37,26 @@
   background: var(--color-bg-panel-soft);
   color: var(--color-accent-primary);
 }
+.item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--color-text-muted);
+}
+.item:disabled:hover {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.itemDestructive {
+  color: var(--color-error);
+}
+.itemDestructive:hover {
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+}
+
+.divider {
+  height: 1px;
+  background: var(--color-border-subtle);
+  margin: 2px 0;
+}

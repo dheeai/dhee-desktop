@@ -26,13 +26,16 @@ jest.mock('@xyflow/react', () => ({
 }));
 
 // InspectorNode now wraps every card with RegenerateMenu, which calls
-// useDheeSession(). The dispatcher test doesn't exercise the menu,
-// but it needs the hook to not throw.
+// useDheeSession() + useWorkspace(). The dispatcher test doesn't
+// exercise the menu, but it needs both hooks to not throw.
 jest.mock('../../hooks/useDheeSession', () => ({
   useDheeSession: () => ({
     sessionId: 'sess-test',
     redoNode: jest.fn(),
   }),
+}));
+jest.mock('../../contexts/WorkspaceContext', () => ({
+  useWorkspace: () => ({ projectDirectory: '/tmp/p' }),
 }));
 
 import { InspectorNode } from './InspectorNode';
