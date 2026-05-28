@@ -14,6 +14,7 @@
  * entry yet), the menu is suppressed — there's nothing to regenerate.
  */
 import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useDheeSession } from '../../hooks/useDheeSession';
 import styles from './RegenerateMenu.module.scss';
 
@@ -68,29 +69,39 @@ export function RegenerateMenu({ nodeId, children }: RegenerateMenuProps) {
   return (
     <div onContextMenu={onContextMenu} className={styles.target}>
       {children}
-      {menu.open ? (
-        <>
-          <div
-            className={styles.backdrop}
-            data-testid="regenerate-backdrop"
-            onClick={dismiss}
-          />
-          <div
-            className={styles.menu}
-            style={{ left: menu.x, top: menu.y }}
-            role="menu"
-          >
-            <button
-              type="button"
-              role="menuitem"
-              className={styles.item}
-              onClick={onRegenerate}
+      {menu.open
+        // Portal to document.body so the menu escapes any ancestor
+        // with a CSS transform. xyflow's viewport is transformed
+        // (translate + scale); inside the transform `position: fixed`
+        // is relative to the transformed parent, not the viewport,
+        // so the menu would land offset from the cursor. Portal lifts
+        // it into the body where `fixed` matches clientX/Y as
+        // expected.
+        ? createPortal(
+          <>
+            <div
+              className={styles.backdrop}
+              data-testid="regenerate-backdrop"
+              onClick={dismiss}
+            />
+            <div
+              className={styles.menu}
+              style={{ left: menu.x, top: menu.y }}
+              role="menu"
             >
-              Regenerate
-            </button>
-          </div>
-        </>
-      ) : null}
+              <button
+                type="button"
+                role="menuitem"
+                className={styles.item}
+                onClick={onRegenerate}
+              >
+                Regenerate
+              </button>
+            </div>
+          </>,
+          document.body,
+        )
+        : null}
     </div>
   );
 }
