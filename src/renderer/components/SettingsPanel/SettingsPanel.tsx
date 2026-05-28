@@ -9,9 +9,11 @@ import type {
 import { DESKTOP_THEMES } from '../../themes';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
+import { QuickstartTab } from './QuickstartTab';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsTab =
+  | 'quickstart'
   | 'account'
   | 'appearance'
   | 'connection'
@@ -161,7 +163,7 @@ export default function SettingsPanel({
   const [form, setForm] = useState<AppSettings>(
     normalizeConnectionSettings(settings),
   );
-  const [activeTab, setActiveTab] = useState<SettingsTab>('appearance');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('quickstart');
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
@@ -548,6 +550,14 @@ export default function SettingsPanel({
         <aside className={styles.sidebar}>
           <button
             type="button"
+            className={`${styles.tabButton} ${activeTab === 'quickstart' ? styles.tabButtonActive : ''}`}
+            onClick={() => setActiveTab('quickstart')}
+          >
+            <span className={styles.tabLabel}>Quickstart</span>
+            <span className={styles.tabDescription}>Set one API key, done</span>
+          </button>
+          <button
+            type="button"
             className={`${styles.tabButton} ${activeTab === 'account' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('account')}
           >
@@ -598,7 +608,12 @@ export default function SettingsPanel({
 
         <form className={styles.form} onSubmit={handleSubmit}>
           <section className={styles.section}>
-            {activeTab === 'account' ? (
+            {activeTab === 'quickstart' ? (
+              <QuickstartTab
+                onSave={onSaveConnection}
+                isSaving={!!isSavingConnection}
+              />
+            ) : activeTab === 'account' ? (
               <AccountTab />
             ) : activeTab === 'appearance' ? (
               <>
