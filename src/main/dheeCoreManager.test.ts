@@ -577,18 +577,12 @@ describe('dheeCoreManager', () => {
     expect(mgr.cancelTask('does-not-exist')).toBe(false);
   });
 
-  it('redoNode forwards editedPrompt unchanged to the underlying ConversationManager', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    const { id: sessionId } = mgr.createSession();
-    const result = await mgr.redoNode(sessionId, 'shot_image:scene_1_shot_4', {
-      editedPrompt: 'a brand new prompt',
-    });
-    expect(result).toMatchObject({
-      nodeId: 'shot_image:scene_1_shot_4',
-      editedPrompt: 'a brand new prompt',
-    });
-  });
+  // (Removed) `redoNode forwards editedPrompt to ConversationManager`
+  // — Phase 6 rewired redoNode to dhee-core/dag.regenerateNode, which
+  // has no editedPrompt concept. The feature it pinned (Prompts-tab
+  // inline edit) was deleted in Phase 5 (task #34) when Prompts /
+  // Storyboard / Assets were replaced by the Inspector Canvas.
+  // Coverage for the new contract lives in dheeCoreManagerRegen.test.ts.
 
   it('restart() calls shutdown() then constructs a fresh ConversationManager', async () => {
     const mgr = new dheeCoreManager();

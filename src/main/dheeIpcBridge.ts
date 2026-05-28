@@ -200,6 +200,7 @@ export function registerdheeIpcBridge(
         ...(req.editedPrompt ? { editedPrompt: req.editedPrompt } : {}),
         ...(req.frame ? { frame: req.frame } : {}),
         ...(req.scope ? { scope: req.scope } : {}),
+        ...(req.itemId ? { itemId: req.itemId } : {}),
       });
       return result.ok ? { ok: true } : { ok: false, ...(result.error ? { error: result.error } : {}) };
     },
@@ -217,7 +218,11 @@ export function registerdheeIpcBridge(
       if (req.projectDir) {
         process.env['dhee_PROJECTS_DIR'] = path.dirname(req.projectDir);
       }
-      return manager.focusSessionProject(req.sessionId, req.projectName);
+      return manager.focusSessionProject(
+        req.sessionId,
+        req.projectName,
+        req.projectDir,
+      );
     },
   );
 

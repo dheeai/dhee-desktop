@@ -301,6 +301,12 @@ export interface RedoNodeRequest {
   editedPrompt?: string;
   frame?: string;
   scope?: 'prompt' | 'image_only';
+  /**
+   * For collection nodes (e.g. `shot_image`), regenerate just this item.
+   * The walker keys per-item state as `nodeId:itemId`. Used by the
+   * Inspector Canvas right-click on a CollectionRail tile.
+   */
+  itemId?: string;
 }
 
 export interface FocusProjectRequest {

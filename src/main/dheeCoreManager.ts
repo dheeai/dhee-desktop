@@ -253,6 +253,43 @@ export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
 }
 
 /**
+ * Subset of `dhee-core/dag` that owns walker-driven invalidate/regen.
+ * Replaces the dead `ConversationManager.redoNode / invalidateNodes`
+ * facade from BUG-016. See dhee-core/src/dag/projectRegen.ts for the
+ * implementation that both the pi-agent tool and this manager call.
+ */
+type DagModule = {
+  regenerateNode: (opts: {
+    projectDir: string;
+    nodeId: string;
+    itemId?: string;
+    signal?: AbortSignal;
+  }) => Promise<{
+    ok: boolean;
+    nodeId?: string;
+    error?: string;
+    finalVideoAbs?: string;
+  }>;
+  invalidateNodes: (opts: {
+    projectDir: string;
+    nodeIds: string[];
+    source?: string;
+  }) => Promise<{
+    invalidated: string[];
+    notFound: string[];
+    error?: string;
+  }>;
+};
+
+let loadDagModule: () => Promise<DagModule> = () =>
+  import(/* webpackIgnore: true */ 'dhee-core/dag') as Promise<DagModule>;
+
+/** Test seam — replace the loader so unit tests can supply a fake. */
+export function __setDagLoader(loader: () => Promise<DagModule>): void {
+  loadDagModule = loader;
+}
+
+/**
  * Single normalized event the IPC bridge publishes downstream.
  * Mirrors the existing WebSocket `ServerMessage` shape so the renderer
  * doesn't have to learn a new schema — only the transport changes.
@@ -277,6 +314,10 @@ export interface RedoNodeOpts {
   editedPrompt?: string;
   frame?: string;
   scope?: 'prompt' | 'image_only';
+  /** For collection nodes — regenerate just this item (composes the walkState key as `nodeId:itemId`). */
+  itemId?: string;
+  /** Cooperative cancellation forwarded to the runner. */
+  signal?: AbortSignal;
 }
 
 export interface ConfigureProjectOpts {
@@ -749,6 +790,26 @@ export class dheeCoreManager {
   private managerModule: ManagerModule | null = null;
 
   /**
+   * sessionId → absolute projectDir for the project that session is
+   * focused on. Populated by `focusSessionProject` (called from the
+   * renderer when the user opens a project). Read by `redoNode` and
+   * `invalidateNodes` so they know which project's walkState to
+   * mutate — replacing the equivalent session-scoped state that used
+   * to live in the now-defunct `ConversationManager` (BUG-016).
+   */
+  private sessionProjects = new Map<string, string>();
+
+  /** Lazy-loaded dhee-core/dag for the walker-driven invalidate + regen helpers. */
+  private dagModule: DagModule | null = null;
+
+  private async getDagModule(): Promise<DagModule> {
+    if (!this.dagModule) {
+      this.dagModule = await loadDagModule();
+    }
+    return this.dagModule;
+  }
+
+  /**
    * Construct the embedded ConversationManager. Sets process.env
    * from settings BEFORE constructing the manager so any tool that
    * reads env vars at construction time sees the right values.
@@ -1142,6 +1203,18 @@ export class dheeCoreManager {
     };
   }
 
+  /**
+   * Regenerate a single bundle node (or a single collection-item of a
+   * node). Looks up the session's focused projectDir from
+   * `sessionProjects`, then forwards to dhee-core/dag.regenerateNode
+   * — which invalidates the walkState entry, persists the change, and
+   * dispatches `runProjectViaBundle({runOnly:[nodeId]})` so the
+   * walker re-runs that node and its downstream.
+   *
+   * Phase 6 (BUG-016 proper fix): replaces the dead
+   * `ConversationManager.redoNode` facade. Pre-Phase-6 this method
+   * silently threw because the stub manager has no redoNode method.
+   */
   async redoNode(
     sessionId: string,
     nodeId: string,
@@ -1152,42 +1225,53 @@ export class dheeCoreManager {
     editedPrompt?: string;
     error?: string;
   }> {
-    if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
-    return (
-      this.cm as unknown as {
-        redoNode: (
-          s: string,
-          n: string,
-          o?: RedoNodeOpts,
-        ) => Promise<{
-          ok: boolean;
-          nodeId?: string;
-          editedPrompt?: string;
-          error?: string;
-        }>;
-      }
-    ).redoNode(sessionId, nodeId, opts);
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
+      return {
+        ok: false,
+        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
+      };
+    }
+    const dag = await this.getDagModule();
+    const result = await dag.regenerateNode({
+      projectDir,
+      nodeId,
+      ...(opts?.itemId ? { itemId: opts.itemId } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    });
+    return {
+      ok: result.ok,
+      ...(result.nodeId ? { nodeId: result.nodeId } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
   }
 
   /**
-   * Mark executor nodes pending on disk without resuming the
-   * pipeline. Driven by the desktop's Prompts-tab edit flow.
+   * Mark walker nodes as invalidated on disk without dispatching a
+   * re-run. The walker picks them up on the next dispatch.
+   *
+   * Phase 6 (BUG-016 proper fix): replaces the dead
+   * `ConversationManager.invalidateNodes` facade.
    */
   async invalidateNodes(
     sessionId: string,
     nodeIds: string[],
     source?: string,
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
-    if (!this.cm) throw new Error('dheeCoreManager not started');
-    return (
-      this.cm as unknown as {
-        invalidateNodes(
-          s: string,
-          ids: string[],
-          src?: string,
-        ): Promise<{ invalidated: string[]; notFound: string[] }>;
-      }
-    ).invalidateNodes(sessionId, nodeIds, source);
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
+      throw new Error(
+        `no project focused for session ${sessionId} — call focusSessionProject first`,
+      );
+    }
+    const dag = await this.getDagModule();
+    const result = await dag.invalidateNodes({
+      projectDir,
+      nodeIds,
+      ...(source ? { source } : {}),
+    });
+    if (result.error) throw new Error(result.error);
+    return { invalidated: result.invalidated, notFound: result.notFound };
   }
 
   setAutonomousMode(sessionId: string, enabled: boolean): void {
@@ -1265,22 +1349,28 @@ export class dheeCoreManager {
     this.managerModule.deleteWorkflow(id);
   }
 
+  /**
+   * Record which project a session is focused on. The renderer fires
+   * this from `useDheeSession.focusProject(projectName, projectDir)`
+   * when the user opens a project; redoNode / invalidateNodes both
+   * read from the resulting map to know which project's walkState to
+   * mutate (Phase 6 — see sessionProjects field).
+   *
+   * `projectDir` is optional only for backwards compat with the
+   * pre-Phase-6 IPC contract. Newer callers must pass it explicitly.
+   */
   async focusSessionProject(
     sessionId: string,
     projectName: string,
+    projectDir?: string,
   ): Promise<OkResponse> {
-    if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
-    try {
-      await (
-        this.cm as unknown as {
-          focusSessionProject: (s: string, p: string) => Promise<unknown>;
-        }
-      ).focusSessionProject(sessionId, projectName);
-      return { ok: true };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      return { ok: false, error: message };
+    if (projectDir) {
+      this.sessionProjects.set(sessionId, projectDir);
     }
+    // The dead ConversationManager facade used to track project focus
+    // internally; we now own that mapping. Returning ok eagerly is
+    // safe — no other call path depends on the legacy stub anymore.
+    return { ok: true };
   }
 
   deleteSession(sessionId: string): void {
