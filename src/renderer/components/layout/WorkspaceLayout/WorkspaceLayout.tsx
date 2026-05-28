@@ -1,176 +1,116 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+/**
+ * WorkspaceLayout — binary workspace.
+ *
+ * Per the 2026-05-28 architectural pivot, the app is exactly:
+ *   - StatusStrip (top edge) — back, project name, run-status, overlay launchers
+ *   - InspectorView (left, ~70%) — the bundle DAG canvas + agent regen
+ *   - ChatPanelEmbedded (right, ~30%, collapsible) — pi-agent
+ *   - OverlayHost (above all) — Settings / Library / Plans / Timeline as overlays
+ *
+ * Anything that used to be a permanent tab (Watch, Plans, Timeline,
+ * Settings) is now invoked from the StatusStrip launchers OR from
+ * canvas nodes (e.g. final_video → library overlay). One screen, no
+ * tabs.
+ */
+import { useCallback, useEffect, useRef } from 'react';
 import {
   Panel,
   PanelGroup,
   PanelResizeHandle,
   ImperativePanelHandle,
 } from 'react-resizable-panels';
-import { ArrowLeft, MessageSquare } from 'lucide-react';
-import PreviewPanel from '../../preview/PreviewPanel/PreviewPanel';
-// Embedded mode (default since the main process now boots
-// dhee-ink in-process). Legacy WS-backed ChatPanel stays in tree
-// at ../../chat/ChatPanel/ChatPanel until a follow-up cleanup deletes
-// it. To roll back, swap the line below to the old import.
+import { InspectorView } from '../../../inspector/InspectorView';
 import ChatPanel from '../../chat/ChatPanelEmbedded/ChatPanelEmbedded';
-import StatusBar from '../StatusBar/StatusBar';
+import StatusStrip from '../StatusStrip/StatusStrip';
+import { OverlayProvider } from '../../../overlays/OverlayContext';
+import { OverlayHost } from '../../../overlays/OverlayHost';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import { useProject } from '../../../contexts/ProjectContext';
+import { useRunnerStatus } from '../../../hooks/useRunnerStatus';
 import styles from './WorkspaceLayout.module.scss';
 
 function getProjectDisplayName(
   projectName: string | null,
   projectDirectory: string | null,
 ): string | null {
-  if (projectName?.trim()) {
-    return projectName.trim();
-  }
-
-  if (!projectDirectory) {
-    return null;
-  }
-
+  if (projectName?.trim()) return projectName.trim();
+  if (!projectDirectory) return null;
   const folderName = projectDirectory.replace(/\\/g, '/').split('/').pop();
-  if (!folderName) {
-    return null;
-  }
-
+  if (!folderName) return null;
   return folderName.replace(/\.dhee$/i, '');
 }
 
-/**
- * Poll the BackgroundTaskRunner status so the Back-to-Projects button
- * can guard against accidental cancellation of a long pipeline. 1.5s
- * matches ChatPanelEmbedded's poll cadence — a future cleanup could
- * lift this into a shared `useRunnerStatus` hook.
- */
-const RUNNER_STATUS_POLL_MS = 1500;
-
 export default function WorkspaceLayout() {
   const { closeProject, projectName, projectDirectory } = useWorkspace();
-  const [chatExpanded, setChatExpanded] = useState(true);
-  const [runnerActive, setRunnerActive] = useState(false);
-
+  const { bundle } = useProject();
+  const { active: runnerActive, cancel: cancelRunner } = useRunnerStatus();
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
   const displayProjectName = getProjectDisplayName(projectName, projectDirectory);
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const status = await window.dhee.runnerStatus();
-        if (!cancelled) setRunnerActive(!!status?.active);
-      } catch {
-        if (!cancelled) setRunnerActive(false);
-      }
-    };
-    tick();
-    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, []);
-
   const handleBack = useCallback(async () => {
     if (runnerActive) {
-      // Soft confirm: explicit ack + an immediate cancel-and-exit
-      // path. window.confirm is consistent with the rest of the
-      // app's destructive-action prompts (file delete, etc.).
       const ok = window.confirm(
         'A run is in progress on this project. Going back will cancel it. Continue?',
       );
       if (!ok) return;
       try {
-        await window.dhee.runnerCancel();
+        await cancelRunner();
       } catch {
-        /* best-effort — we still want to navigate even if the cancel RPC fails */
+        /* best-effort */
       }
     }
     closeProject();
-  }, [runnerActive, closeProject]);
+  }, [runnerActive, cancelRunner, closeProject]);
 
   const toggleChat = useCallback(() => {
     const panel = chatPanelRef.current;
-    if (panel) {
-      if (panel.isCollapsed()) {
-        panel.expand();
-      } else {
-        panel.collapse();
-      }
-    }
+    if (!panel) return;
+    if (panel.isCollapsed()) panel.expand();
+    else panel.collapse();
   }, []);
 
-  // Keyboard shortcut: Cmd+I for chat
+  // Cmd+I to toggle chat — preserved from the old layout.
   useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
+    const onKey = (e: KeyboardEvent) => {
       const isMac = /mac/i.test(navigator.userAgent);
       const modifier = isMac ? e.metaKey : e.ctrlKey;
-
       if (modifier && e.key.toLowerCase() === 'i') {
         e.preventDefault();
         toggleChat();
       }
     };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
   }, [toggleChat]);
 
   return (
-    <div className={styles.container}>
-      <div className={styles.header}>
-        <div className={styles.headerLeft}>
-          <button
-            type="button"
-            className={styles.backButton}
-            onClick={handleBack}
-            title={
-              runnerActive
-                ? 'A run is in progress — clicking Back will cancel it'
-                : 'Back to Landing'
-            }
-          >
-            <ArrowLeft size={15} />
-            <span>Back</span>
-          </button>
+    <OverlayProvider>
+      <div className={styles.container}>
+        <StatusStrip
+          onBack={handleBack}
+          projectName={displayProjectName ?? undefined}
+          bundleId={bundle?.id}
+        />
+        <div className={styles.workspace}>
+          <PanelGroup direction="horizontal" autoSaveId="workspace-panels-v2">
+            <Panel defaultSize={70} minSize={50}>
+              <InspectorView />
+            </Panel>
+            <PanelResizeHandle className={styles.resizeHandle} />
+            <Panel
+              ref={chatPanelRef}
+              defaultSize={30}
+              minSize={20}
+              maxSize={50}
+              collapsible
+              collapsedSize={0}
+            >
+              <ChatPanel />
+            </Panel>
+          </PanelGroup>
         </div>
-        <span className={styles.title} title={displayProjectName || 'Dhee Studio'}>
-          {displayProjectName || 'Dhee Studio'}
-        </span>
-        <div className={styles.headerRight}>
-          <button
-            type="button"
-            className={`${styles.toggleButton} ${chatExpanded ? styles.active : ''}`}
-            onClick={toggleChat}
-            title="Toggle Chat (⌘I)"
-          >
-            <MessageSquare size={16} />
-          </button>
-        </div>
+        <OverlayHost />
       </div>
-
-      <div className={styles.workspace}>
-        <PanelGroup direction="horizontal" autoSaveId="workspace-panels">
-          <Panel defaultSize={70} minSize={50}>
-            <PreviewPanel />
-          </Panel>
-
-          <PanelResizeHandle className={styles.resizeHandle} />
-          <Panel
-            ref={chatPanelRef}
-            defaultSize={30}
-            minSize={20}
-            maxSize={50}
-            collapsible
-            collapsedSize={0}
-            onCollapse={() => setChatExpanded(false)}
-            onExpand={() => setChatExpanded(true)}
-          >
-            <ChatPanel />
-          </Panel>
-        </PanelGroup>
-      </div>
-
-      <StatusBar />
-    </div>
+    </OverlayProvider>
   );
 }

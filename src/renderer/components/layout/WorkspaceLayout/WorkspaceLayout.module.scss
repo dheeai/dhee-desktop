@@ -1,5 +1,4 @@
 @import '../../../styles/tokens';
-@import '../../../styles/mixins';
 
 .container {
   display: flex;
@@ -7,90 +6,6 @@
   height: 100%;
   width: 100%;
   background: $color-bg-app;
-}
-
-.header {
-  height: $header-height;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 $spacing-lg;
-  background-color: rgba(var(--color-bg-panel-rgb), 0.98);
-  border-bottom: 1px solid rgba(var(--color-border-strong-rgb), 0.6);
-  -webkit-app-region: drag;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
-}
-
-.headerLeft,
-.headerRight {
-  display: flex;
-  align-items: center;
-  gap: $spacing-sm;
-  -webkit-app-region: no-drag;
-}
-
-.backButton {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 30px;
-  padding: 0 $spacing-sm;
-  border: 1px solid rgba(var(--color-border-strong-rgb), 0.65);
-  border-radius: $radius-md;
-  background-color: rgba(var(--color-bg-panel-soft-rgb), 0.65);
-  color: $color-text-secondary;
-  cursor: pointer;
-  transition:
-    background-color $transition-fast,
-    border-color $transition-fast,
-    color $transition-fast;
-
-  &:hover {
-    background-color: rgba(var(--color-bg-panel-soft-rgb), 0.82);
-    border-color: rgba(var(--color-accent-primary-rgb), 0.28);
-    color: $color-text-primary;
-  }
-}
-
-.title {
-  max-width: min(480px, 40vw);
-  min-width: 0;
-  font-size: $font-size-sm;
-  font-weight: $font-weight-semibold;
-  letter-spacing: 0.01em;
-  color: $color-text-primary;
-  @include truncate;
-}
-
-.toggleButton {
-  @include flex-center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid transparent;
-  border-radius: $radius-md;
-  background-color: rgba(var(--color-bg-panel-soft-rgb), 0.36);
-  color: $color-text-muted;
-  cursor: pointer;
-  transition:
-    background-color $transition-fast,
-    border-color $transition-fast,
-    color $transition-fast;
-
-  &:hover {
-    background-color: rgba(var(--color-bg-panel-soft-rgb), 0.72);
-    border-color: rgba(var(--color-border-strong-rgb), 0.75);
-    color: $color-text-secondary;
-  }
-
-  &.active {
-    color: $color-text-primary;
-    background-color: rgba(var(--color-accent-primary-rgb), 0.1);
-    border-color: rgba(var(--color-accent-primary-rgb), 0.24);
-
-    &:hover {
-      background-color: rgba(var(--color-accent-primary-rgb), 0.13);
-    }
-  }
 }
 
 .workspace {
@@ -116,7 +31,7 @@
 
   &:hover {
     background-color: rgba(var(--color-accent-primary-rgb), 0.12);
-    
+
     &::after {
       background-color: rgba(var(--color-accent-primary-rgb), 0.8);
     }
@@ -124,7 +39,7 @@
 
   &[data-resize-handle-active] {
     background-color: rgba(var(--color-accent-primary-rgb), 0.18);
-    
+
     &::after {
       background-color: rgba(var(--color-accent-primary-rgb), 0.92);
     }
