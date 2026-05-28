@@ -36,7 +36,7 @@ import {
 } from './projectMetadataHelpers';
 import { resolveTileDisplay } from '../../../lib/bundleDisplay';
 import { getBackendConfigStatus } from './backendConfigStatus';
-import BackendNotReadyDialog from './BackendNotReadyDialog';
+import { BackendNotReadyBanner } from './BackendNotReadyBanner';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
 import type { AccountInfo } from '../../../../shared/settingsTypes';
 
@@ -368,7 +368,6 @@ export default function LandingScreen() {
     Record<string, ProjectMetadata>
   >({});
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
-  const [showBackendNotReady, setShowBackendNotReady] = useState(false);
   const [renameTarget, setRenameTarget] = useState<PendingProjectAction | null>(
     null,
   );
@@ -513,17 +512,12 @@ export default function LandingScreen() {
 
   const handleCreateNewProject = useCallback(() => {
     setError(null);
-    // Gate creation on at least one working LLM + Comfy. Without
-    // either, the agent literally can't run anything — better to
-    // tell the user up front than let them spin up a project that
-    // dies on the first tool call.
-    const status = getBackendConfigStatus(settings, account);
-    if (!status.allConfigured) {
-      setShowBackendNotReady(true);
-      return;
-    }
+    // Config status is surfaced inline via BackendNotReadyBanner at
+    // the top of the screen — no more modal gate here. The user can
+    // still try to create; if backends aren't configured, the agent
+    // surfaces the failure in chat.
     setIsNewProjectDialogOpen(true);
-  }, [account, settings]);
+  }, []);
 
   const handleAccountSignIn = useCallback(async () => {
     setAuthStatus('waiting');
@@ -756,6 +750,18 @@ export default function LandingScreen() {
           <>
             {error && <p className={styles.error}>{error}</p>}
 
+            <BackendNotReadyBanner
+              unconfiguredLanes={backendStatus.unconfiguredLanes}
+              canSignIn={!account}
+              onOpenSettings={() => {
+                clearError();
+                setActiveView('settings');
+              }}
+              onSignIn={() => {
+                void handleAccountSignIn();
+              }}
+            />
+
             <section className={styles.projectsSection}>
               <div className={styles.projectsHeader}>
                 <h2 className={styles.projectsTitle}>
@@ -839,22 +845,6 @@ export default function LandingScreen() {
           </section>
         )}
       </main>
-
-      <BackendNotReadyDialog
-        isOpen={showBackendNotReady}
-        unconfiguredLanes={backendStatus.unconfiguredLanes}
-        canSignIn={!account}
-        onClose={() => setShowBackendNotReady(false)}
-        onOpenSettings={() => {
-          setShowBackendNotReady(false);
-          clearError();
-          setActiveView('settings');
-        }}
-        onSignIn={() => {
-          setShowBackendNotReady(false);
-          void handleAccountSignIn();
-        }}
-      />
 
       <NewProjectDialog
         isOpen={isNewProjectDialogOpen}
