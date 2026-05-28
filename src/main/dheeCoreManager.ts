@@ -22,6 +22,7 @@ import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
+import { existsSync as fsExistsSync, mkdirSync as fsMkdirSync } from 'fs';
 import { app } from 'electron';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
@@ -268,6 +269,7 @@ type ChatDeps = {
   buildPiSession: (opts: {
     sessionManager: unknown;
     cwd?: string;
+    sessionsDir?: string;
     modelProvider?: string;
     modelId?: string;
     apiKey?: string;
@@ -1343,10 +1345,29 @@ export class dheeCoreManager {
    * Phase 6.2 rewire: cancel the active BackgroundTaskRunner task.
    * Session id is informational only — the runner is global (one
    * task at a time). Returns false when nothing is running.
+   *
+   * Phase 6.5c.e: ALSO aborts the per-session AgentSession (if one
+   * exists) so the Stop button halts pi-agent mid-prompt, not just
+   * the runner task. Without this the agent keeps reasoning + may
+   * call more tools even though the user clicked Stop.
    */
-  async cancelTask(_sessionId: string): Promise<boolean> {
+  async cancelTask(sessionId: string): Promise<boolean> {
+    let aborted = false;
+    const agentSession = this.agentSessions.get(sessionId);
+    if (agentSession?.session) {
+      try {
+        const sess = agentSession.session as { abort?: () => Promise<void> };
+        if (typeof sess.abort === 'function') {
+          await sess.abort();
+          aborted = true;
+        }
+      } catch {
+        // Best-effort — runner cancel below still fires.
+      }
+    }
     const runnersMod = await loadRunnersModule();
-    return runnersMod.getBackgroundTaskRunner().cancel();
+    const runnerCancelled = runnersMod.getBackgroundTaskRunner().cancel();
+    return runnerCancelled || aborted;
   }
 
   /**
@@ -1606,12 +1627,32 @@ export class dheeCoreManager {
         };
       }
       try {
-        // buildPiSession defaults sessionManager to SessionManager.inMemory(cwd)
-        // when omitted — no on-disk transcript today. Phase 6.5c will swap
-        // to SessionManager.create() backed by sessionStore for persistence.
+        // Phase 6.5c.d: persist chat history per project. Pi-coding-
+        // agent's `continueRecent` picks the most recent JSONL in
+        // sessionsDir (or mints a new one); the desktop's chat panel
+        // gets resumable conversations across restarts.
+        //
+        // sessionsDir resolution is fault-tolerant — if app.getPath
+        // isn't available (jest electron-mock doesn't stub it) or
+        // the dir can't be created, we fall through to the in-memory
+        // session manager (no persistence; old behavior).
+        let sessionsDir: string | undefined;
+        try {
+          const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
+          const userData = app.getPath?.('userData');
+          if (userData) {
+            sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+            if (!fsExistsSync(sessionsDir)) {
+              fsMkdirSync(sessionsDir, { recursive: true });
+            }
+          }
+        } catch {
+          sessionsDir = undefined;
+        }
         const built = await deps.buildPiSession({
           sessionManager: undefined as never,
           cwd: projectDir,
+          ...(sessionsDir ? { sessionsDir } : {}),
           modelProvider: piModel.provider,
           modelId: piModel.modelId,
           apiKey: piModel.apiKey,
