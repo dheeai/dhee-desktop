@@ -162,6 +162,12 @@ export async function importReferenceImageAttachments(args: {
       originalFilename,
       mimeType: attachment.mimeType ?? mimeTypeForFilename(finalName),
       size: stat.size,
+      ...(typeof existingMeta?.replacementCharacterId === 'string'
+        ? { replacementCharacterId: existingMeta.replacementCharacterId }
+        : {}),
+      ...(typeof existingMeta?.replacementCharacterName === 'string'
+        ? { replacementCharacterName: existingMeta.replacementCharacterName }
+        : {}),
     };
 
     imported.push({

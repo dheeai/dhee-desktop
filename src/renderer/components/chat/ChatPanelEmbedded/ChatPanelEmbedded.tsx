@@ -34,11 +34,14 @@ import {
 } from 'lucide-react';
 import {
   type Attachment,
+  type ReferenceImageReplacementTarget,
   type ReferenceImageRole,
   attachmentsFromSelectResponse,
+  getReferenceImageReplacementTarget,
   isReferenceImageLikeAttachment,
   referenceImagesFromAttachments,
   withReferenceImageRole,
+  withReferenceImageReplacementTarget,
 } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
@@ -292,6 +295,96 @@ function mergePickedAttachment(
   return [...existing, attachment];
 }
 
+export function parseReplacementCharactersFromProjectJson(
+  raw: string | null | undefined,
+): ReferenceImageReplacementTarget[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+
+  const project = parsed as { characters?: unknown };
+  if (!Array.isArray(project.characters)) return [];
+
+  const seen = new Set<string>();
+  const characters: ReferenceImageReplacementTarget[] = [];
+  for (const item of project.characters) {
+    if (!item || typeof item !== 'object') continue;
+    const character = item as Record<string, unknown>;
+    const id =
+      typeof character.id === 'string'
+        ? character.id
+        : typeof character.slug === 'string'
+          ? character.slug
+          : '';
+    const name =
+      typeof character.name === 'string'
+        ? character.name
+        : typeof character.displayName === 'string'
+          ? character.displayName
+          : id;
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    characters.push({ id, name });
+  }
+  return characters;
+}
+
+function projectNameForTask(
+  projectDirectory: string | null,
+  projectName: string | null,
+): string {
+  const fromDirectory = projectDirectory
+    ?.split('/')
+    .pop()
+    ?.replace(/\.dhee$/i, '');
+  return fromDirectory || projectName || 'project';
+}
+
+export function buildCharacterReplacementTask(args: {
+  text: string;
+  attachments: Attachment[];
+  projectDirectory: string | null;
+  projectName: string | null;
+}): string {
+  if (!args.projectDirectory) return args.text;
+  const replacements = args.attachments.flatMap((attachment) => {
+    const target = getReferenceImageReplacementTarget(attachment);
+    if (!target) return [];
+    const [image] = referenceImagesFromAttachments([attachment]);
+    if (!image?.relativePath) return [];
+    return [{ target, relativePath: image.relativePath }];
+  });
+  if (replacements.length === 0) return args.text;
+
+  const project = projectNameForTask(args.projectDirectory, args.projectName);
+  const base =
+    args.text.trim() ||
+    'Replace the selected character reference and regenerate only affected shots.';
+  return [
+    base,
+    '',
+    'Character reference replacement request:',
+    `Use dhee_status with project=${JSON.stringify(project)} projectDir=${JSON.stringify(args.projectDirectory)}.`,
+    'For each uploaded image, call dhee_replace_character_reference exactly as listed:',
+    ...replacements.map(
+      ({ target, relativePath }) =>
+        `- character=${JSON.stringify(target.id)} (${target.name}) referencePath=${JSON.stringify(relativePath)}`,
+    ),
+    `Then call dhee_run_to with project=${JSON.stringify(project)} projectDir=${JSON.stringify(args.projectDirectory)} scope="last_invalidated".`,
+    'Do not use dhee_invalidate stage=character_image for this replacement.',
+  ].join('\n');
+}
+
+function hasTargetedCharacterReplacement(attachments: Attachment[]): boolean {
+  return attachments.some((attachment) =>
+    Boolean(getReferenceImageReplacementTarget(attachment)),
+  );
+}
+
 function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const entries = Object.entries(args as Record<string, unknown>);
@@ -319,6 +412,9 @@ export default function ChatPanelEmbedded() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
+  const [replacementCharacters, setReplacementCharacters] = useState<
+    ReferenceImageReplacementTarget[]
+  >([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const [setupAttachments, setSetupAttachments] = useState<Attachment[]>([]);
   const [isImportingChatReferences, setIsImportingChatReferences] = useState(false);
@@ -814,8 +910,33 @@ export default function ChatPanelEmbedded() {
     setProjectState(null);
     setSetupAttachments([]);
     setChatAttachments([]);
+    setReplacementCharacters([]);
     setAttachmentError(null);
   }, [projectDirectory]);
+
+  useEffect(() => {
+    if (!projectDirectory) {
+      setReplacementCharacters([]);
+      return undefined;
+    }
+    if (!window.electron?.project?.readFile) {
+      setReplacementCharacters([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const raw = await window.electron.project
+        .readFile(`${projectDirectory}/project.json`)
+        .catch(() => null);
+      if (cancelled) return;
+      setReplacementCharacters(parseReplacementCharactersFromProjectJson(raw));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDirectory, probeNonce]);
 
   // Probe project.json to decide whether this project still needs the
   // setup wizard. Runs every time the user opens a different project,
@@ -1149,7 +1270,25 @@ export default function ChatPanelEmbedded() {
     setChatAttachments((prev) =>
       prev.map((attachment) =>
         attachment.id === id
-          ? withReferenceImageRole(attachment, role)
+          ? role === 'character'
+            ? withReferenceImageRole(attachment, role)
+            : withReferenceImageReplacementTarget(
+                withReferenceImageRole(attachment, role),
+                null,
+              )
+          : attachment,
+      ),
+    );
+  };
+
+  const handleChatReplacementCharacterChange = (
+    id: string,
+    target: ReferenceImageReplacementTarget | null,
+  ) => {
+    setChatAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageReplacementTarget(attachment, target)
           : attachment,
       ),
     );
@@ -1186,10 +1325,17 @@ export default function ChatPanelEmbedded() {
     // Render the user-visible message — include a small "📎 N
     // attachment(s)" suffix when files were attached, so the chat
     // log reflects what was sent.
+    const isCharacterReplacement =
+      hasTargetedCharacterReplacement(sentAttachments);
+    const visibleBaseText =
+      text ||
+      (isCharacterReplacement
+        ? 'Replace selected character reference.'
+        : '');
     const visibleText =
       chatAttachments.length > 0
-        ? `${text}${text ? '\n\n' : ''}📎 ${chatAttachments.map((a) => a.name).join(', ')}`
-        : text;
+        ? `${visibleBaseText}${visibleBaseText ? '\n\n' : ''}📎 ${chatAttachments.map((a) => a.name).join(', ')}`
+        : visibleBaseText;
 
     setMessages((prev) => [
       ...prev,
@@ -1200,7 +1346,14 @@ export default function ChatPanelEmbedded() {
     setAttachmentError(null);
     streamingMsgIdRef.current = null;
 
-    const result = await session.runTask(text, {
+    const taskText = buildCharacterReplacementTask({
+      text,
+      attachments: sentAttachments,
+      projectDirectory,
+      projectName,
+    });
+
+    const result = await session.runTask(taskText, {
       attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
       ...(projectDirectory ? { projectDir: projectDirectory } : {}),
     });
@@ -1690,6 +1843,10 @@ export default function ChatPanelEmbedded() {
                 attachment={att}
                 onRemove={handleRemoveAttachment}
                 onReferenceRoleChange={handleChatReferenceRoleChange}
+                replacementCharacters={replacementCharacters}
+                onReplacementCharacterChange={
+                  handleChatReplacementCharacterChange
+                }
                 disabled={isMainBusy || isImportingChatReferences}
               />
             ))}

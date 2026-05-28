@@ -72,7 +72,10 @@ jest.mock('../../../contexts/ChatQuestionsContext', () => ({
 // that touches ReactMarkdown.
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-import ChatPanelEmbedded from './ChatPanelEmbedded';
+import ChatPanelEmbedded, {
+  buildCharacterReplacementTask,
+  parseReplacementCharactersFromProjectJson,
+} from './ChatPanelEmbedded';
 // eslint-disable-next-line import/first
 import { DheeSessionProvider } from '../../../hooks/useDheeSession';
 
@@ -87,6 +90,55 @@ function renderPanel() {
     </DheeSessionProvider>,
   );
 }
+
+describe('character replacement chat helpers', () => {
+  it('parses existing project characters as replacement targets', () => {
+    expect(
+      parseReplacementCharactersFromProjectJson(
+        JSON.stringify({
+          characters: [
+            { id: 'ren_takahashi', name: 'Ren Takahashi' },
+            { id: 'emna_aoyama', name: 'Emna Aoyama' },
+          ],
+        }),
+      ),
+    ).toEqual([
+      { id: 'ren_takahashi', name: 'Ren Takahashi' },
+      { id: 'emna_aoyama', name: 'Emna Aoyama' },
+    ]);
+  });
+
+  it('builds a deterministic pi-agent task for targeted character replacement', () => {
+    const task = buildCharacterReplacementTask({
+      text: '',
+      projectName: 'Summer-sky-2',
+      projectDirectory: '/Users/me/Downloads/Summer-sky-2',
+      attachments: [
+        {
+          id: 'att_new_emna',
+          kind: 'reference_image',
+          path: '/Users/me/Downloads/Summer-sky-2/assets/uploads/characters/NewEmna.png',
+          name: 'NewEmna.png',
+          meta: {
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            projectRelativePath: 'assets/uploads/characters/NewEmna.png',
+            replacementCharacterId: 'emna_aoyama',
+            replacementCharacterName: 'Emna Aoyama',
+          },
+        },
+      ],
+    });
+
+    expect(task).toContain('dhee_status');
+    expect(task).toContain('dhee_replace_character_reference');
+    expect(task).toContain('character="emna_aoyama"');
+    expect(task).toContain(
+      'referencePath="assets/uploads/characters/NewEmna.png"',
+    );
+    expect(task).toContain('scope="last_invalidated"');
+  });
+});
 
 type EventListener = (e: dheeEvent) => void;
 interface dheeListenerSlot {
@@ -569,6 +621,129 @@ describe('ChatPanelEmbedded', () => {
         }),
       ],
     });
+  });
+
+  it('sends a targeted character replacement task from a selected character upload', async () => {
+    mockWorkspaceProjectName = 'Summer-sky-2';
+    const projectJson = JSON.stringify({
+      templateId: 'narrative',
+      style: 'anime',
+      targetDuration: 60,
+      goal: { status: 'complete' },
+      characters: [
+        { id: 'ren_takahashi', name: 'Ren Takahashi' },
+        { id: 'emna_aoyama', name: 'Emna Aoyama' },
+      ],
+    });
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_new_emna',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/NewEmna.png',
+        name: 'NewEmna.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'auto',
+          purpose: 'reference_general',
+        },
+      },
+    }));
+    const importReferenceImages = jest.fn(async (req: {
+      attachments: Array<{
+        id: string;
+        kind: 'reference_image';
+        path: string;
+        name: string;
+        mimeType?: string;
+        meta?: Record<string, unknown>;
+      }>;
+    }) => ({
+      ok: true,
+      attachments: req.attachments.map((attachment) => ({
+        ...attachment,
+        path: `/tmp/Summer-sky-2.dhee/assets/uploads/characters/${attachment.name}`,
+        meta: {
+          ...(attachment.meta ?? {}),
+          projectRelativePath: `assets/uploads/characters/${attachment.name}`,
+          originalPath: attachment.path,
+          originalFilename: attachment.name,
+        },
+      })),
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => projectJson),
+        selectAttachment,
+        importReferenceImages,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Attach file'));
+    });
+    await waitFor(() =>
+      expect(screen.getByText('NewEmna.png')).toBeInTheDocument(),
+    );
+
+    fireEvent.change(screen.getByLabelText('Reference role for NewEmna.png'), {
+      target: { value: 'character' },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Replacement target for NewEmna.png'),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.change(
+      screen.getByLabelText('Replacement target for NewEmna.png'),
+      { target: { value: 'emna_aoyama' } },
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(importReferenceImages).toHaveBeenCalledWith({
+      projectDir: '/tmp/Summer-sky-2.dhee',
+      attachments: [
+        expect.objectContaining({
+          id: 'att_new_emna',
+          meta: expect.objectContaining({
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            replacementCharacterId: 'emna_aoyama',
+            replacementCharacterName: 'Emna Aoyama',
+          }),
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls[0]).toMatchObject({
+      projectDir: '/tmp/Summer-sky-2.dhee',
+      attachments: [
+        expect.objectContaining({
+          meta: expect.objectContaining({
+            projectRelativePath: 'assets/uploads/characters/NewEmna.png',
+            replacementCharacterId: 'emna_aoyama',
+          }),
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'dhee_replace_character_reference',
+    );
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'character="emna_aoyama"',
+    );
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'referencePath="assets/uploads/characters/NewEmna.png"',
+    );
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'scope="last_invalidated"',
+    );
   });
 
   it('setup prompt can select multiple reference images in one picker action', async () => {

@@ -12,7 +12,9 @@ import {
   appendReferenceImagesToTask,
   attachmentsFromSelectResponse,
   characterReferenceImagesFromAttachments,
+  getReferenceImageReplacementTarget,
   referenceImagesFromAttachments,
+  withReferenceImageReplacementTarget,
   withReferenceImageRole,
   prefixAttachmentsToTask,
   renderAttachmentHint,
@@ -166,6 +168,32 @@ describe('character reference attachment helpers', () => {
     expect(appendCharacterReferenceImagesToTask('Make a film', images)).toBe(
       'Make a film\n\nAttached character reference images:\n- hero.png: assets/uploads/characters/hero.png',
     );
+  });
+
+  it('stores and clears a selected replacement character target', () => {
+    const ref: Attachment = {
+      id: 'att_ref',
+      kind: 'reference_image',
+      path: '/tmp/hero.png',
+      name: 'hero.png',
+      meta: {
+        referenceRole: 'character',
+        purpose: 'character_ref',
+      },
+    };
+
+    const targeted = withReferenceImageReplacementTarget(ref, {
+      id: 'emna_aoyama',
+      name: 'Emna Aoyama',
+    });
+    expect(getReferenceImageReplacementTarget(targeted)).toEqual({
+      id: 'emna_aoyama',
+      name: 'Emna Aoyama',
+    });
+
+    const cleared = withReferenceImageReplacementTarget(targeted, null);
+    expect(getReferenceImageReplacementTarget(cleared)).toBeNull();
+    expect(cleared.meta).not.toHaveProperty('replacementCharacterId');
   });
 
   it('extracts generic reference payloads and appends grouped prompt context', () => {

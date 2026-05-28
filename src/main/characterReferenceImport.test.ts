@@ -136,6 +136,38 @@ describe('characterReferenceImport', () => {
     expect(existsSync(join(projectDir, 'assets/uploads/references/mood.png'))).toBe(true);
   });
 
+  it('preserves selected replacement character metadata while importing', async () => {
+    const sourcePath = join(tempDir, 'new-emna.png');
+    writeFileSync(sourcePath, 'image');
+
+    const [imported] = await importReferenceImageAttachments({
+      projectDir,
+      attachments: [
+        {
+          id: 'att_new_emna',
+          kind: 'reference_image',
+          path: sourcePath,
+          name: 'new-emna.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            replacementCharacterId: 'emna_aoyama',
+            replacementCharacterName: 'Emna Aoyama',
+          },
+        },
+      ],
+    });
+
+    expect(imported.meta).toEqual(expect.objectContaining({
+      purpose: 'character_ref',
+      referenceRole: 'character',
+      projectRelativePath: 'assets/uploads/characters/new-emna.png',
+      replacementCharacterId: 'emna_aoyama',
+      replacementCharacterName: 'Emna Aoyama',
+    }));
+  });
+
   it('adds imported refs to project.inputs without duplicates', async () => {
     writeFileSync(join(projectDir, 'project.json'), JSON.stringify({ title: 'demo' }, null, 2));
     const imported = await importCharacterReferenceAttachments({

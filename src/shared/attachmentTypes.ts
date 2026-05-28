@@ -30,6 +30,11 @@ export type ReferenceImagePurpose =
   | 'setting_ref'
   | 'reference_general';
 
+export interface ReferenceImageReplacementTarget {
+  id: string;
+  name: string;
+}
+
 export interface CharacterReferenceAttachmentMeta {
   purpose: 'character_ref';
   referenceRole?: 'character';
@@ -41,6 +46,9 @@ export interface CharacterReferenceAttachmentMeta {
   originalFilename?: string;
   mimeType?: string;
   size?: number;
+  /** Existing project character this uploaded image should replace. */
+  replacementCharacterId?: string;
+  replacementCharacterName?: string;
 }
 
 export interface ReferenceImageAttachmentMeta {
@@ -54,6 +62,9 @@ export interface ReferenceImageAttachmentMeta {
   originalFilename?: string;
   mimeType?: string;
   size?: number;
+  /** Existing project character this uploaded image should replace. */
+  replacementCharacterId?: string;
+  replacementCharacterName?: string;
 }
 
 export interface Attachment {
@@ -264,6 +275,39 @@ export function withReferenceImageRole(
       referenceRole,
       purpose: purposeForReferenceRole(referenceRole),
     },
+  };
+}
+
+export function getReferenceImageReplacementTarget(
+  attachment: Attachment,
+): ReferenceImageReplacementTarget | null {
+  if (!isReferenceImageLikeAttachment(attachment)) return null;
+  const meta = attachment.meta as Record<string, unknown> | undefined;
+  const id = meta?.replacementCharacterId;
+  const name = meta?.replacementCharacterName;
+  if (typeof id !== 'string' || id.trim().length === 0) return null;
+  if (typeof name !== 'string' || name.trim().length === 0) {
+    return { id, name: id };
+  }
+  return { id, name };
+}
+
+export function withReferenceImageReplacementTarget(
+  attachment: Attachment,
+  target: ReferenceImageReplacementTarget | null,
+): Attachment {
+  if (!isReferenceImageLikeAttachment(attachment)) return attachment;
+  const existingMeta = attachment.meta as Record<string, unknown> | undefined;
+  const meta = { ...(existingMeta ?? {}) };
+  delete meta.replacementCharacterId;
+  delete meta.replacementCharacterName;
+  if (target) {
+    meta.replacementCharacterId = target.id;
+    meta.replacementCharacterName = target.name;
+  }
+  return {
+    ...attachment,
+    meta,
   };
 }
 

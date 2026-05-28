@@ -10,7 +10,7 @@
   border-radius: $radius-md;
   font-size: 12px;
   color: $color-text-primary;
-  max-width: 240px;
+  max-width: min(520px, 100%);
 }
 
 .icon {
@@ -46,10 +46,37 @@
   border-radius: $radius-sm;
 }
 
+.controls {
+  flex-shrink: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .roleSelect {
   flex-shrink: 0;
   height: 22px;
   max-width: 92px;
+  border: 1px solid rgba(var(--color-panel-border-rgb), 0.7);
+  border-radius: $radius-sm;
+  background: $color-panel-background;
+  color: $color-text-primary;
+  font-size: 11px;
+  padding: 0 4px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.targetSelect {
+  flex-shrink: 1;
+  height: 22px;
+  max-width: 170px;
+  min-width: 0;
   border: 1px solid rgba(var(--color-panel-border-rgb), 0.7);
   border-radius: $radius-sm;
   background: $color-panel-background;
