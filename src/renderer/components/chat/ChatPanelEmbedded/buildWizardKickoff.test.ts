@@ -51,4 +51,21 @@ describe('buildWizardKickoff', () => {
     expect(message).toContain('"Better Image V2"');
     expect(message).toContain('/Users/dev/my projects/Better Image V2');
   });
+
+  it('emits the resolved bundleSource so pi-agent does not have to map renderMethod itself', () => {
+    const shot = buildWizardKickoff({ ...baseArgs, renderMethod: 'shot_by_shot' });
+    expect(shot.message).toContain('built-in:narrative_shot_by_shot');
+
+    const relay = buildWizardKickoff({ ...baseArgs, renderMethod: 'prompt_relay' });
+    expect(relay.message).toContain('built-in:narrative_prompt_relay');
+
+    const qwen = buildWizardKickoff({ ...baseArgs, renderMethod: 'qwen_chain' });
+    expect(qwen.message).toContain('built-in:narrative_qwen_chain_relay');
+  });
+
+  it('passes both renderMethod and bundleSource to dhee_new in the call instruction', () => {
+    const { message } = buildWizardKickoff({ ...baseArgs, renderMethod: 'qwen_chain' });
+    expect(message).toMatch(/renderMethod="qwen_chain"/);
+    expect(message).toMatch(/bundleSource="built-in:narrative_qwen_chain_relay"/);
+  });
 });

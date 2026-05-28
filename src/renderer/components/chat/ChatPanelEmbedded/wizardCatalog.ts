@@ -74,6 +74,26 @@ export const WIZARD_RENDER_METHODS: SetupRenderMethodOption[] = [
     description:
       'Render whole scenes continuously via LTX Director. Better cross-shot motion fidelity and identity continuity, lower per-frame resolution. Requires the local Comfy box (cloud Comfy lacks the LTX Director custom nodes + LoRAs).',
   },
+  {
+    id: 'qwen_chain',
+    displayName: 'Qwen chain',
+    description:
+      'Iterative chained image edits: each shot is built by editing a prior shot (LLM picks which one) via Qwen Image Edit 2511 + Multi-Angle LoRA. Preserves character/setting continuity across shots much more strongly than fresh-render approaches. Same LTX Director video stage as Prompt Relay.',
+  },
 ];
 
 export const WIZARD_DEFAULT_RENDER_METHOD = 'shot_by_shot';
+
+/**
+ * renderMethod → bundleSource mapping. The desktop is the source of
+ * truth for this translation; the chat kickoff message includes the
+ * resolved `bundleSource` so pi-agent doesn't have to infer it.
+ *
+ * Keep entries in sync with WIZARD_RENDER_METHODS above and with the
+ * bundle ids in `kshana-core/src/dag/bundles/`.
+ */
+export const RENDER_METHOD_TO_BUNDLE_SOURCE: Record<string, string> = {
+  shot_by_shot: 'built-in:narrative_shot_by_shot',
+  prompt_relay: 'built-in:narrative_prompt_relay',
+  qwen_chain: 'built-in:narrative_qwen_chain_relay',
+};
