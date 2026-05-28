@@ -223,13 +223,15 @@ beforeEach(() => {
 });
 
 describe('dheeCoreManager', () => {
-  it('start() writes LLM_PROVIDER and OPENAI_API_KEY to process.env BEFORE constructing ConversationManager', async () => {
+  it('start() writes LLM_PROVIDER and OPENAI_API_KEY to process.env', async () => {
+    // Phase 6.4: pre-deletion the assertion was "env was set BEFORE
+    // ConversationManager constructed" (snapshotted inside the fake CM
+    // ctor). No more CM → assert directly on process.env post-start.
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
 
-    expect(mockState.envSnapshots).toHaveLength(1);
-    expect(mockState.envSnapshots[0]?.LLM_PROVIDER).toBe('openai');
-    expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_API_KEY']).toBe('sk-test');
   });
 
   it('start() forwards PostHog runtime settings to embedded core', async () => {
@@ -280,7 +282,12 @@ describe('dheeCoreManager', () => {
     expect(process.env['dhee_CLOUD_URL']).toBeUndefined();
   });
 
-  it('local mode: COMFYUI_BASE_URL is in process.env BEFORE ConversationManager constructs (env-set order matters for dhee-core caching)', async () => {
+  it('local mode: COMFYUI_BASE_URL is in process.env after start()', async () => {
+    // Phase 6.4: the original test relied on the FakeConversationManager
+    // constructor capturing env at the right moment. With no CM in the
+    // path, asserting env post-start is the equivalent contract — env
+    // is written synchronously in applyEnvFromSettings before start()
+    // resolves.
     const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
@@ -289,10 +296,7 @@ describe('dheeCoreManager', () => {
       comfyCloudApiKey: '',
     });
 
-    expect(mockState.envSnapshots).toHaveLength(1);
-    // The snapshot is captured inside the FakeConversationManager
-    // constructor — proves env was written *before* construction.
-    expect(mockState.envSnapshots[0]?.COMFYUI_BASE_URL).toBe('http://127.0.0.1:8188');
+    expect(process.env['COMFYUI_BASE_URL']).toBe('http://127.0.0.1:8188');
   });
 
   it('direct cloud mode (no dhee auth): routes to user-configured cloud.comfy.org with the user-supplied key', async () => {
@@ -583,14 +587,17 @@ describe('dheeCoreManager', () => {
   // Storyboard / Assets were replaced by the Inspector Canvas.
   // Coverage for the new contract lives in dheeCoreManagerRegen.test.ts.
 
-  it('restart() calls shutdown() then constructs a fresh ConversationManager', async () => {
+  it('restart() flips env to the new settings (no embedded CM to shutdown — Phase 6.4)', async () => {
+    // Pre-Phase-6.4 the test pinned (a) CM was shutdown and (b) a fresh
+    // CM was constructed with new env. With the CM deleted, the
+    // equivalent observable contract is: after restart(), process.env
+    // reflects the NEW settings.
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
-    expect(mockState.envSnapshots).toHaveLength(1);
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
     await mgr.restart({ ...baseSettings, llmProvider: 'gemini', googleApiKey: 'g-key' });
-    expect(mockState.shutdownCalls).toBe(1);
-    expect(mockState.envSnapshots).toHaveLength(2);
-    expect(mockState.envSnapshots[1]?.LLM_PROVIDER).toBe('gemini');
+    expect(process.env['LLM_PROVIDER']).toBe('gemini');
+    expect(mgr.isStarted()).toBe(true);
   });
 
   it('runTask without a focused project returns an error-shaped result rather than throwing', async () => {
@@ -609,14 +616,17 @@ describe('dheeCoreManager', () => {
     expect(result.error).toMatch(/no project focused/i);
   });
 
-  it('stop() calls shutdown() and subsequent runTask returns failed (no project focused)', async () => {
+  it('stop() flips isStarted false; subsequent runTask still fails (no project focused)', async () => {
+    // Phase 6.4: there's no CM to shutdown — stop() just clears the
+    // started flag. The session→project map is preserved on the
+    // instance (sessions long-term should be in sessionStore anyway).
+    // A fresh session that was never focused on a project still fails
+    // runTask with "no project focused."
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     mgr.stop();
-    expect(mockState.shutdownCalls).toBe(1);
-    // After stop(), sessionProjects is preserved on the instance but the
-    // session was never focused, so runTask fails on the project lookup.
+    expect(mgr.isStarted()).toBe(false);
     const result = await mgr.runTask(sessionId, 'task', {}, () => {});
     expect(result.status).toBe('failed');
   });

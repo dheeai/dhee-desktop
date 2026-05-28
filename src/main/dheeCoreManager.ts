@@ -22,7 +22,6 @@ import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
-import fs from 'fs';
 import { app } from 'electron';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
@@ -39,15 +38,12 @@ type LLMClientConfig = {
   model?: string;
 };
 
-type ConversationManagerConfig = {
-  llmConfig: LLMClientConfig;
-};
-
+// Phase 6.4: ConversationManagerConfig + ConversationManager types
+// removed — no embedded manager to type against. ConversationEvents
+// kept as a loose record because buildEventsAdapter (still exported
+// for the IPC bridge regression test) needs to declare the callback
+// surface it returns.
 type ConversationEvents = Record<string, (...args: any[]) => void>;
-
-type ConversationManager = {
-  shutdown: () => void;
-};
 
 type AnalyticsIdentity = {
   distinctId?: string;
@@ -55,13 +51,19 @@ type AnalyticsIdentity = {
   userId?: string;
 };
 
-const dhee_CORE_MANAGER_MODULE = 'dhee-core/manager';
+// Phase 6.4: import the embed-host helpers from the main `dhee-core`
+// barrel. The legacy `./manager` entry (which exported a no-op
+// ConversationManager + analytics + dev-env) is being deleted now
+// that nothing in the manager construction path remains.
+const dhee_CORE_MANAGER_MODULE = 'dhee-core';
 
 function getPackagedManagerModuleUrl(): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (!resourcesPath) return null;
 
+  // Phase 6.4: the packaged fallback now points at dhee-core's main
+  // dist entry (was ./dist/server/manager.js, gone in Phase 6.4).
   return pathToFileURL(
     path.join(
       resourcesPath,
@@ -69,16 +71,16 @@ function getPackagedManagerModuleUrl(): string | null {
       'node_modules',
       'dhee-core',
       'dist',
-      'server',
-      'manager.js',
+      'index.js',
     ),
   ).href;
 }
 
+// Phase 6.4: narrowed to the host-helper surface that survives the
+// ConversationManager / workflow-registry deletion. The dhee-core
+// barrel still exports these so dheeCoreManager can configure analytics
+// + load the dev .env at startup.
 type ManagerModule = {
-  ConversationManager: new (
-    config: ConversationManagerConfig,
-  ) => ConversationManager;
   captureAnalyticsEvent?: (
     event: string,
     properties?: Record<string, unknown>,
@@ -126,50 +128,16 @@ type ManagerModule = {
     projectsDir: string;
   };
 
-  // ── Custom ComfyUI workflow management ─────────────────────────────
-  /**
-   * Pin the directory where user-uploaded workflows + manifests live.
-   * Must be called before the WorkflowModeRegistry singleton is first
-   * accessed — dhee-core throws if called too late.
-   */
-  setUserWorkflowsDir?: (path: string) => void;
-  /**
-   * Force the WorkflowModeRegistry to re-scan + re-apply the
-   * COMFY_MODE filter. Must be called after any process.env change
-   * that affects manifest visibility — flipping local↔cloud is the
-   * common case during settings updates.
-   */
-  refreshWorkflowRegistry?: () => void;
-  validateWorkflowFile?: (path: string) =>
-    | { ok: true; parsed: { totalNodes: number; detectedPipeline: string; inputNodes: unknown[]; loraNodes: unknown[] } }
-    | { ok: false; reason: string };
-  listWorkflows?: (opts?: { userOnly?: boolean }) => Array<{
-    id: string;
-    displayName: string;
-    pipeline: string;
-    builtIn: boolean;
-    isOverride: boolean;
-    active: boolean;
-  }>;
-  getWorkflow?: (id: string) => Record<string, unknown> | undefined;
-  updateWorkflow?: (id: string, patch: Record<string, unknown>) => Record<string, unknown>;
-  deleteWorkflow?: (id: string) => void;
-
-  // ── Session persistence ─────────────────────────────────────────
-  /**
-   * Returns a HistoryData snapshot for a sessionId by reading the
-   * on-disk pi-coding-agent transcript. Returns null when the id is
-   * unknown to the index. Optional in old dhee-core versions —
-   * callers must null-check.
-   */
-  getSessionHistorySnapshot?: (sessionId: string) => {
-    messages: Array<Record<string, unknown>>;
-    toolCalls: Array<Record<string, unknown>>;
-    focusedProject?: string;
-    compactionCount: number;
-  } | null;
-  /** Hard-delete the JSONL transcript and forget the index entry. Idempotent. */
-  clearSessionHistory?: (sessionId: string) => void;
+  // Phase 6.4: workflow CRUD + WorkflowModeRegistry + chat-session
+  // persistence are no longer exposed by dhee-core (the underlying
+  // services/comfyui/workflowIntegration.ts and
+  // services/providers/WorkflowModeRegistry.ts were deleted in
+  // d6f11bd). Workflow CRUD is stubbed in dheeCoreManager so the
+  // Settings → Workflows panel doesn't crash; real implementation
+  // returns when the bundle architecture re-introduces custom
+  // workflow support. Chat-session persistence (getSessionHistorySnapshot
+  // / clearSessionHistory) now lives in dheeCoreManager itself (Phase
+  // 6.3 stubs) — no need to thread through the embedded core.
 };
 
 /**
@@ -785,7 +753,13 @@ export function buildEventsAdapter(
 }
 
 export class dheeCoreManager {
-  private cm: ConversationManager | null = null;
+  /**
+   * Phase 6.4: replaces the old `cm: ConversationManager | null` field.
+   * The embedded ConversationManager was deleted along with the legacy
+   * pi-coding-agent stack (d6f11bd); started state is now just a flag
+   * the IPC bridge can poll via `isStarted()`.
+   */
+  private started = false;
 
   private managerModule: ManagerModule | null = null;
 
@@ -872,68 +846,31 @@ export class dheeCoreManager {
       process.env.dhee_PROJECTS_DIR = devEnv.projectsDir;
     }
 
-    // Pin the user-workflows directory under userData/ so custom
-    // ComfyUI workflows uploaded by the user (via the chat or the
-    // Settings → Workflows tab) live in a writable, per-install
-    // location. Must happen BEFORE ConversationManager is constructed
-    // — once the WorkflowModeRegistry singleton is accessed, dhee-
-    // core refuses further setUserWorkflowsDir calls.
-    if (this.managerModule.setUserWorkflowsDir) {
-      const userWorkflowsDir = path.join(
-        app.getPath('userData'),
-        'workflows',
-        'user',
-      );
-      try {
-        if (!fs.existsSync(userWorkflowsDir)) {
-          fs.mkdirSync(userWorkflowsDir, { recursive: true });
-        }
-        this.managerModule.setUserWorkflowsDir(userWorkflowsDir);
-        log.info(`[dheeCoreManager] User workflows dir: ${userWorkflowsDir}`);
-      } catch (err) {
-        log.warn(
-          `[dheeCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
-        );
-      }
-    }
+    // Phase 6.4: WorkflowModeRegistry + ConversationManager were
+    // deleted with the legacy stack. We no longer need to:
+    //   - pin a user-workflows dir (no registry to feed)
+    //   - refresh the WorkflowModeRegistry after a COMFY_MODE flip
+    //   - construct a ConversationManager (the embed-host helpers
+    //     we still use are pure functions exported from dhee-core).
 
     applyEnvFromSettings(settings, cloudAuth);
 
-    // applyEnvFromSettings may have just flipped COMFY_MODE
-    // (local ↔ cloud). The WorkflowModeRegistry's mode-filtered
-    // view is computed at refresh() time, not on every lookup, so
-    // without an explicit refresh the previous mode's filter
-    // state would persist after restart() — making custom
-    // workflows look "missing" until the next process restart.
-    try {
-      this.managerModule.refreshWorkflowRegistry?.();
-    } catch (err) {
-      log.warn(
-        `[dheeCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
-      );
-    }
-
-    const config: ConversationManagerConfig = {
-      llmConfig: buildLLMConfig(settings),
-    };
-    this.cm = new this.managerModule.ConversationManager(config);
-    // Seed core's process-wide oversightState from the persisted
-    // AppSettings on the very first run. Subsequent updates flow
-    // through main.ts's `settings:update` IPC handler, which
-    // calls setPiOversight / setVlmJudge directly. Without this
-    // seed, a fresh manager would default both to true and then
-    // immediately get overwritten on the user's next settings
-    // change — fine in practice but the symmetry's nicer.
+    // Seed process-wide oversight + VLM flags from persisted
+    // AppSettings on the very first run. Pi-agent-in-process
+    // consumers (Phase 6.5) will read these per-session via
+    // setPiOversight / setVlmJudge.
     this.setPiOversight('', settings.piOversight);
     this.setVlmJudge('', settings.vlmJudge);
+    this.started = true;
   }
 
-  /** Tear down the manager. Safe to call when not started. */
+  /**
+   * Tear down. Safe to call when not started. Phase 6.4: there's no
+   * embedded ConversationManager to shutdown anymore — just flip the
+   * started flag so isStarted() reflects reality.
+   */
   stop(): void {
-    if (this.cm) {
-      this.cm.shutdown();
-      this.cm = null;
-    }
+    this.started = false;
   }
 
   /** Replace the manager (used when settings change). */
@@ -945,9 +882,9 @@ export class dheeCoreManager {
     await this.start(settings, cloudAuth);
   }
 
-  /** Whether `start()` has run and the manager is alive. */
+  /** Whether `start()` has run. */
   isStarted(): boolean {
-    return this.cm !== null;
+    return this.started;
   }
 
   configureAnalytics(input: {
@@ -1389,29 +1326,25 @@ export class dheeCoreManager {
   }
 
   // ── Custom ComfyUI workflow management ─────────────────────────────
-  // Pass-through to dhee-core's workflowIntegration helpers. Same
-  // helpers the pi-agent tools wrap, so a workflow saved via the
-  // Settings UI shows up in chat-driven generations and vice versa.
+  // Phase 6.4 stubs. The underlying services/comfyui/workflowIntegration.ts
+  // + services/providers/WorkflowModeRegistry.ts were deleted in d6f11bd
+  // (full legacy cleanup). Until the bundle architecture reintroduces
+  // a workflow registry, these methods keep the Settings → Workflows
+  // panel from crashing by reporting "no workflows" / "not supported."
+  // Re-enabling is tracked separately from BUG-016.
 
-  validateWorkflow(workflowPath: string):
+  validateWorkflow(_workflowPath: string):
     | { ok: true; totalNodes: number; detectedPipeline: string; inputNodeCount: number; loraCount: number }
     | { ok: false; reason: string }
     | { ok: false; reason: string; error: true } {
-    if (!this.managerModule?.validateWorkflowFile) {
-      return { ok: false, reason: 'dhee-core not started yet', error: true };
-    }
-    const result = this.managerModule.validateWorkflowFile(workflowPath);
-    if (!result.ok) return { ok: false, reason: result.reason };
     return {
-      ok: true,
-      totalNodes: result.parsed.totalNodes,
-      detectedPipeline: result.parsed.detectedPipeline,
-      inputNodeCount: result.parsed.inputNodes.length,
-      loraCount: result.parsed.loraNodes.length,
+      ok: false,
+      reason: 'Custom workflow validation is temporarily disabled (Phase 6.4 cleanup; reintroduces in the bundle-native workflow registry).',
+      error: true,
     };
   }
 
-  listWorkflows(opts?: { userOnly?: boolean }): Array<{
+  listWorkflows(_opts?: { userOnly?: boolean }): Array<{
     id: string;
     displayName: string;
     pipeline: string;
@@ -1419,27 +1352,23 @@ export class dheeCoreManager {
     isOverride: boolean;
     active: boolean;
   }> {
-    if (!this.managerModule?.listWorkflows) return [];
-    return this.managerModule.listWorkflows(opts);
+    return [];
   }
 
-  getWorkflow(id: string): Record<string, unknown> | undefined {
-    if (!this.managerModule?.getWorkflow) return undefined;
-    return this.managerModule.getWorkflow(id);
+  getWorkflow(_id: string): Record<string, unknown> | undefined {
+    return undefined;
   }
 
-  updateWorkflow(id: string, patch: Record<string, unknown>): Record<string, unknown> {
-    if (!this.managerModule?.updateWorkflow) {
-      throw new Error('dhee-core not started yet');
-    }
-    return this.managerModule.updateWorkflow(id, patch);
+  updateWorkflow(_id: string, _patch: Record<string, unknown>): Record<string, unknown> {
+    throw new Error(
+      'Custom workflow CRUD is temporarily disabled (Phase 6.4 cleanup; returns with the bundle-native workflow registry).',
+    );
   }
 
-  deleteWorkflow(id: string): void {
-    if (!this.managerModule?.deleteWorkflow) {
-      throw new Error('dhee-core not started yet');
-    }
-    this.managerModule.deleteWorkflow(id);
+  deleteWorkflow(_id: string): void {
+    throw new Error(
+      'Custom workflow CRUD is temporarily disabled (Phase 6.4 cleanup; returns with the bundle-native workflow registry).',
+    );
   }
 
   /**
@@ -1454,7 +1383,7 @@ export class dheeCoreManager {
    */
   async focusSessionProject(
     sessionId: string,
-    projectName: string,
+    _projectName: string,
     projectDir?: string,
   ): Promise<OkResponse> {
     if (projectDir) {
@@ -1475,10 +1404,7 @@ export class dheeCoreManager {
     this.sessionFlags.delete(sessionId);
   }
 
-  private requireStarted(): ConversationManager {
-    if (!this.cm) {
-      throw new Error('dheeCoreManager not started — call start() first.');
-    }
-    return this.cm;
-  }
+  // Phase 6.4: requireStarted() removed — no embedded ConversationManager
+  // to require. Methods that need the started state read `this.started`
+  // directly.
 }
