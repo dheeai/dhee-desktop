@@ -171,6 +171,18 @@ export interface DheeSessionApi {
   clearChatHistory: () => Promise<{ ok: boolean; error?: string }>;
 
   runTask: (task: string, opts?: RunTaskOpts) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Phase 6.5c: chat-input path. Sends a user message to the in-
+   * process pi-agent (NOT BackgroundTaskRunner) and returns the
+   * assistant's reply + any tools the agent called. One-shot for
+   * now — streaming will come in 6.5c.b.
+   */
+  chatPrompt: (
+    message: string,
+  ) => Promise<
+    | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
+    | { ok: false; error: string }
+  >;
   cancel: () => Promise<{ cancelled: boolean }>;
   redoNode: (
     nodeId: string,
@@ -398,6 +410,20 @@ function useCreateKshanaSession(): DheeSessionApi {
     return window.dhee.cancelTask({ sessionId: id });
   }, []);
 
+  /**
+   * Phase 6.5c: chat-input path. Distinct from runTask which dispatches
+   * bundle runs via BackgroundTaskRunner. chatPrompt drives the per-
+   * session pi-agent and returns its reply.
+   */
+  const chatPrompt = useCallback<DheeSessionApi['chatPrompt']>(
+    async (message) => {
+      const id = sessionIdRef.current;
+      if (!id) return { ok: false, error: 'no active session' };
+      return window.dhee.chatPrompt({ sessionId: id, message });
+    },
+    [],
+  );
+
   const redoNode = useCallback<DheeSessionApi['redoNode']>(
     (nodeId, opts) =>
       runWithSelfHeal((sessionId) =>
@@ -509,6 +535,7 @@ function useCreateKshanaSession(): DheeSessionApi {
     refreshHistory,
     clearChatHistory,
     runTask,
+    chatPrompt,
     cancel,
     redoNode,
     configureProject,
@@ -550,6 +577,7 @@ export function DheeSessionProvider({ children }: { children: ReactNode }) {
     api.refreshHistory,
     api.clearChatHistory,
     api.runTask,
+    api.chatPrompt,
     api.cancel,
     api.redoNode,
     api.configureProject,

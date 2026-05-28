@@ -199,12 +199,14 @@ describe('useDheeSession', () => {
       unsubscribe = api!.subscribe('tool_call', handler);
     });
 
-    expect(mockState.listeners).toHaveLength(1);
-    expect(mockState.listeners[0]?.eventName).toBe('tool_call');
-    expect(mockState.listeners[0]?.active).toBe(true);
+    // Filter to the user-added 'tool_call' listener; the hook itself
+    // also registers a 'session_status' listener internally.
+    const userSlots = mockState.listeners.filter((l) => l.eventName === 'tool_call');
+    expect(userSlots).toHaveLength(1);
+    expect(userSlots[0]?.active).toBe(true);
 
     unsubscribe!();
-    expect(mockState.listeners[0]?.active).toBe(false);
+    expect(userSlots[0]?.active).toBe(false);
   });
 
   // ── Resilience: createSession startup race ──────────────────────────────

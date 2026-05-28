@@ -1038,13 +1038,26 @@ export default function ChatPanelEmbedded() {
     setAttachmentError(null);
     streamingMsgIdRef.current = null;
 
-    const result = await session.runTask(text, {
-      attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
-    });
+    // Phase 6.5c: chat input now drives pi-agent directly via
+    // chatPrompt (NOT runTask, which is for bundle-runner dispatches —
+    // Resume button etc.). One-shot exchange: send → wait → append
+    // the assistant_text as a single bubble. Streaming + tool-call
+    // surfacing comes in 6.5c.b. Attachments are not threaded through
+    // chatPrompt yet — they continue working only when sent via the
+    // Resume / runTask path. Surfaced as a system message for now so
+    // the user knows.
+    if (sentAttachments.length > 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: 'Attachments aren\'t yet supported on the new chat path (Phase 6.5c.b). The text was sent; the attachment(s) were ignored.',
+        },
+      ]);
+    }
+    const result = await session.chatPrompt(text);
     if (!result.ok) {
-      // Don't let a failed dispatch leave the chat in a "user
-      // typed, nothing happened" state — surface the error so the
-      // user can react (retry, restart, etc).
       setMessages((prev) => [
         ...prev,
         {
@@ -1053,7 +1066,16 @@ export default function ChatPanelEmbedded() {
           text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
         },
       ]);
+      return;
     }
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newMessageId(),
+        role: 'assistant',
+        text: result.assistant_text || '(no response)',
+      },
+    ]);
   };
 
   /**
