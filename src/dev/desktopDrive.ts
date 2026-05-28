@@ -189,13 +189,30 @@ async function connectToDesktop(opts: { port: number; titleHint?: string }): Pro
       `No pages found at CDP endpoint http://localhost:${opts.port}. Is the desktop running with DHEE_DEBUG_PORT=${opts.port}?`,
     );
   }
-  let picked = pages[0];
+  // Prefer the live renderer page. Electron exposes multiple CDP
+  // targets (renderer, devtools panels, sometimes service workers);
+  // closed-but-not-yet-reaped targets still appear in pages() and
+  // throw "Target page has been closed" on the first real round-trip.
+  // The renderer's URL contains the dev server (http://localhost:<port>)
+  // or, in packaged builds, a `file://.../index.html`. Filter
+  // accordingly and probe with isClosed() to skip dead targets.
+  const rendererCandidates = pages.filter((p) => {
+    if (p.isClosed()) return false;
+    const u = p.url();
+    return /^https?:\/\/localhost:\d+/.test(u) || u.endsWith('/index.html') || u.includes('index.html');
+  });
+  let picked = rendererCandidates[0] ?? pages.find((p) => !p.isClosed()) ?? pages[0];
   if (opts.titleHint) {
-    for (const p of pages) {
-      const t = await p.title();
-      if (t.includes(opts.titleHint)) {
-        picked = p;
-        break;
+    for (const p of rendererCandidates.length > 0 ? rendererCandidates : pages) {
+      if (p.isClosed()) continue;
+      try {
+        const t = await p.title();
+        if (t.includes(opts.titleHint)) {
+          picked = p;
+          break;
+        }
+      } catch {
+        // dead target — keep looking
       }
     }
   }
@@ -263,20 +280,25 @@ async function dispatch(args: CliArgs): Promise<unknown> {
   } catch (e) {
     return err(e);
   }
+  // CRITICAL: every case must `await` its handler before returning.
+  // The `finally` block closes the CDP connection, and an unawaited
+  // promise in `return P` is settled AFTER the finally — so the page
+  // is gone by the time `page.title() / page.evaluate()` actually
+  // round-trips. (Only `screenshot` was awaited originally; everything
+  // else returned "Target page has been closed".)
   try {
     switch (args.command) {
       case 'screenshot': {
         const out = (args.flags['out'] as string) ?? args.positional[0];
         if (!out) return { ok: false, error: 'screenshot needs --out <path>' };
-        const r = await cmdScreenshot(conn.page, { out, fullPage: !!args.flags['full'] });
-        return r;
+        return await cmdScreenshot(conn.page, { out, fullPage: !!args.flags['full'] });
       }
       case 'click': {
         const target = args.positional[0];
         if (!target) return { ok: false, error: 'click needs a target' };
         const role = args.flags['role'] as string | undefined;
         const timeoutMs = args.flags['timeout'] ? Number(args.flags['timeout']) : undefined;
-        return cmdClick(conn.page, {
+        return await cmdClick(conn.page, {
           target,
           ...(role ? { role } : {}),
           ...(timeoutMs ? { timeoutMs } : {}),
@@ -287,27 +309,27 @@ async function dispatch(args: CliArgs): Promise<unknown> {
         if (!selector || text === undefined) {
           return { ok: false, error: 'type needs <selector> <text>' };
         }
-        return cmdType(conn.page, { selector, text });
+        return await cmdType(conn.page, { selector, text });
       }
       case 'eval': {
         const expression = args.positional[0];
         if (!expression) return { ok: false, error: 'eval needs an expression' };
-        return cmdEval(conn.page, { expression });
+        return await cmdEval(conn.page, { expression });
       }
       case 'text': {
         const selector = args.flags['selector'] as string | undefined;
-        return cmdGetText(conn.page, selector ? { selector } : {});
+        return await cmdGetText(conn.page, selector ? { selector } : {});
       }
       case 'wait-for': {
         const selector = args.positional[0];
         if (!selector) return { ok: false, error: 'wait-for needs a selector' };
         const timeoutMs = args.flags['timeout'] ? Number(args.flags['timeout']) : 30_000;
-        return cmdWaitFor(conn.page, { selector, timeoutMs });
+        return await cmdWaitFor(conn.page, { selector, timeoutMs });
       }
       case 'url':
-        return cmdUrl(conn.page);
+        return await cmdUrl(conn.page);
       case 'title':
-        return cmdTitle(conn.page);
+        return await cmdTitle(conn.page);
       default:
         return { ok: false, error: `Unknown command '${args.command}'\n\n${usage()}` };
     }
