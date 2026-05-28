@@ -478,6 +478,16 @@ export interface BundleDisplay {
   }>;
 }
 
+/**
+ * Per-node `inputs[].from` reference — the upstream node id this node
+ * depends on. The renderer uses these to draw edges in the Inspector
+ * Canvas; runtime concerns (usage / scope / aggregate) stay on the
+ * dhee-core side.
+ */
+export interface BundleNodeInputRef {
+  from: string;
+}
+
 export interface ResolveBundleResponse {
   ok: boolean;
   bundle?: {
@@ -489,7 +499,22 @@ export interface ResolveBundleResponse {
       id: string;
       kind: 'stage' | 'collection';
       displayCapability?: string;
+      /**
+       * Optional dot-path into the node's JSON output naming the field
+       * the Inspector Canvas renders as the per-tile headline. Ignored
+       * for non-json kinds. See dhee-core NodeDef.headlineField.
+       */
+      headlineField?: string;
       outputs: { format: string; pattern: string };
+      /**
+       * Upstream dependencies — used by the Inspector Canvas to draw
+       * edges. Each entry's `from` is the upstream bundle node id.
+       * The bridge always populates this field (empty array when the
+       * node declares no inputs) so consumers can treat it as
+       * non-null, but it's typed as optional here to preserve back-
+       * compat with renderer-side fixtures that omit it.
+       */
+      inputs?: BundleNodeInputRef[];
     }>;
     display?: BundleDisplay;
   };

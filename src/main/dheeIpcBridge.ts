@@ -389,15 +389,19 @@ export function registerdheeIpcBridge(
             id: string;
             kind: 'stage' | 'collection';
             displayCapability?: string;
+            headlineField?: string;
             outputs: { format: string; pattern: string };
+            inputs?: Array<{ from: string }>;
           }>;
           display?: {
             thumbnail?: { from: string; pick?: 'first_completed' | 'random_completed' | 'latest_completed' };
             stats?: Array<{ label: string; source: string; count_completed?: boolean; path?: string }>;
           };
         };
-        // Strip down to only fields the renderer needs (runner config /
-        // prompt templates / inputs stay in dhee-core).
+        // Strip to fields the renderer needs. We ship `inputs[].from`
+        // for edges (Inspector Canvas) and `headlineField` for tile
+        // headlines; runner config + prompt templates stay in
+        // dhee-core.
         return {
           ok: true,
           bundle: {
@@ -409,7 +413,9 @@ export function registerdheeIpcBridge(
               id: n.id,
               kind: n.kind,
               ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
+              ...(n.headlineField ? { headlineField: n.headlineField } : {}),
               outputs: { format: n.outputs.format, pattern: n.outputs.pattern },
+              inputs: (n.inputs ?? []).map((i) => ({ from: i.from })),
             })),
             ...(bundle.display ? { display: bundle.display } : {}),
           },

@@ -9,7 +9,7 @@ import {
 // FolderKanban (Assets) and Layers (Storyboard) icons retained for the
 // deprecated tabs — kept imported so re-enabling those tabs is a
 // single-line change in the `tabs` array below.
-import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers } from 'lucide-react';
+import { ChevronUp, FolderKanban, Clapperboard, FileCode2, FileText, Layers, Workflow } from 'lucide-react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
@@ -19,12 +19,13 @@ import StoryboardView from '../StoryboardView/StoryboardView';
 import PromptsView from '../PromptsView/PromptsView';
 import VideoLibraryView from '../VideoLibraryView/VideoLibraryView';
 import PlansView from '../PlansView/PlansView';
+import { InspectorView } from '../../../inspector/InspectorView';
 import RedoFromMenu from '../RedoFromMenu/RedoFromMenu';
 import TimelinePanel from '../TimelinePanel/TimelinePanel';
 import { TimelineDockIcon } from '../EditorIcons';
 import styles from './PreviewPanel.module.scss';
 
-type Tab = 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
+type Tab = 'inspector' | 'storyboard' | 'prompts' | 'assets' | 'video-library' | 'preview';
 
 export default function PreviewPanel() {
   // Default to Prompts — the per-shot prompt + media inspector is the
@@ -32,7 +33,7 @@ export default function PreviewPanel() {
   // are deprecated (still importable / renderable in this file so we
   // can re-enable later), but excluded from the visible tab list
   // below.
-  const [activeTab, setActiveTab] = useState<Tab>('prompts');
+  const [activeTab, setActiveTab] = useState<Tab>('inspector');
   const [timelineOpen, setTimelineOpen] = useState(true);
   const [timelineHeight, setTimelineHeight] = useState(320);
 
@@ -53,6 +54,11 @@ export default function PreviewPanel() {
   // the panel.
   const tabs = useMemo(
     () => [
+      {
+        id: 'inspector' as const,
+        label: 'Inspector',
+        icon: Workflow,
+      },
       {
         id: 'prompts' as const,
         label: 'Prompts',
@@ -178,6 +184,7 @@ export default function PreviewPanel() {
 
   const renderActiveContent = () => (
     <div className={styles.content}>
+      {activeTab === 'inspector' && <InspectorView />}
       {activeTab === 'storyboard' && <StoryboardView />}
       {activeTab === 'prompts' && <PromptsView />}
       {activeTab === 'assets' && <AssetsView />}

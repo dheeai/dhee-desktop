@@ -1,10 +1,11 @@
 /**
  * Tab visibility + ordering for the workspace preview panel.
  *
- * Spec (2026-05-06): the project's primary surface is the per-shot
- * Prompts view — every other tab is secondary. Storyboard and Assets
- * are deprecated (kept in source so we can re-enable later, but hidden
- * from the user). Library moves to the second slot, behind Prompts.
+ * Spec (2026-05-28): the Inspector Canvas (bundle-DAG view) is the
+ * primary workspace surface — replaces the per-tab artifact readers.
+ * Prompts stays in the transitional release behind Inspector;
+ * Storyboard and Assets remain deprecated/hidden. Watch and Content
+ * follow.
  *
  * GIVEN-WHEN-THEN structure pins the visible-tab contract from the
  * user's perspective: which tab labels appear, in which order, and
@@ -52,20 +53,29 @@ jest.mock('../EditorIcons', () => ({ TimelineDockIcon: () => null }));
 // has its own test file (RedoFromMenu/redoFromStages.test.ts) for
 // the data layer.
 jest.mock('../RedoFromMenu/RedoFromMenu', () => () => null);
+jest.mock('../../../inspector/InspectorView', () => ({
+  InspectorView: () => null,
+}));
 
 describe('PreviewPanel — tab visibility and default selection', () => {
   describe('GIVEN a project is open', () => {
     describe('WHEN the workspace tab bar renders', () => {
-      it('THEN Prompts is the first tab', () => {
+      it('THEN Inspector is the first tab', () => {
         render(<PreviewPanel />);
         const tabs = screen.getAllByRole('tab');
-        expect(tabs[0]).toHaveTextContent(/^Prompts$/);
+        expect(tabs[0]).toHaveTextContent(/^Inspector$/);
       });
 
-      it('THEN Watch is the second tab', () => {
+      it('THEN Prompts is the second tab (transitional — Phase 5 will delete it)', () => {
         render(<PreviewPanel />);
         const tabs = screen.getAllByRole('tab');
-        expect(tabs[1]).toHaveTextContent(/^Watch$/);
+        expect(tabs[1]).toHaveTextContent(/^Prompts$/);
+      });
+
+      it('THEN Watch is the third tab', () => {
+        render(<PreviewPanel />);
+        const tabs = screen.getAllByRole('tab');
+        expect(tabs[2]).toHaveTextContent(/^Watch$/);
       });
 
       it('THEN Storyboard is NOT visible', () => {
@@ -80,10 +90,10 @@ describe('PreviewPanel — tab visibility and default selection', () => {
         expect(screen.queryByRole('tab', { name: /^Assets$/i })).toBeNull();
       });
 
-      it('THEN Content is the third tab (renamed from Files)', () => {
+      it('THEN Content is the fourth tab (renamed from Files)', () => {
         render(<PreviewPanel />);
         const tabs = screen.getAllByRole('tab');
-        expect(tabs[2]).toHaveTextContent(/^Content$/);
+        expect(tabs[3]).toHaveTextContent(/^Content$/);
       });
 
       it('THEN the deprecated "Files" label is no longer present', () => {
@@ -91,10 +101,10 @@ describe('PreviewPanel — tab visibility and default selection', () => {
         expect(screen.queryByRole('tab', { name: /^Files$/ })).toBeNull();
       });
 
-      it('THEN Prompts is the active (default) tab', () => {
+      it('THEN Inspector is the active (default) tab', () => {
         render(<PreviewPanel />);
-        const promptsTab = screen.getByRole('tab', { name: /^Prompts$/ });
-        expect(promptsTab).toHaveAttribute('aria-selected', 'true');
+        const inspector = screen.getByRole('tab', { name: /^Inspector$/ });
+        expect(inspector).toHaveAttribute('aria-selected', 'true');
       });
     });
   });
