@@ -245,8 +245,17 @@
     "@electron/rebuild": "^3.7.1"
   },
   "build": {
-    "productName": "Dhee Studio",
+    "productName": "Dhee",
     "appId": "com.dheeai.desktop",
+    "protocols": [
+      {
+        "name": "Dhee",
+        "role": "Viewer",
+        "schemes": [
+          "dhee"
+        ]
+      }
+    ],
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
     "afterAllArtifactBuild": ".erb/scripts/stable-release-artifacts.cjs",
