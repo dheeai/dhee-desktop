@@ -268,6 +268,9 @@ type ChatDeps = {
   buildPiSession: (opts: {
     sessionManager: unknown;
     cwd?: string;
+    modelProvider?: string;
+    modelId?: string;
+    apiKey?: string;
   }) => Promise<{
     session: {
       sessionId?: string;
@@ -301,6 +304,44 @@ async function loadChatDeps(): Promise<ChatDeps> {
 /** Test seam — replace the chat helpers so jest doesn't boot a real LLM. */
 export function __setChatDeps(deps: ChatDeps): void {
   chatDeps = deps;
+}
+
+/**
+ * Phase 6.5b: derive the {provider, modelId, apiKey} pi-agent needs
+ * from AppSettings. Returns null when no usable provider is configured —
+ * the chatPrompt caller surfaces a clean "no LLM configured" error
+ * instead of letting pi-coding-agent's auto-discovery silently no-op.
+ *
+ * Settings → pi-ai mapping (no chained imports of pi-ai's model
+ * tables — provider/model ids are strings, validated downstream by
+ * getModel()):
+ *   - llmProvider='gemini' + googleApiKey → { google, geminiModel, googleApiKey }
+ *   - llmProvider='openai' + openaiBaseUrl contains 'openrouter.ai'
+ *     + openaiApiKey + openaiModel → { openrouter, openaiModel, openaiApiKey }
+ *     The 'openai-compat-to-openrouter' detour is load-bearing —
+ *     many users keep llmProvider='openai' for backwards compat with
+ *     dhee-core's LLM dispatcher and rely on the base-URL override.
+ *   - llmProvider='openai' otherwise → { openai, openaiModel, openaiApiKey }
+ *
+ * Exported for unit testing.
+ */
+export function resolvePiModelFromSettings(
+  s: AppSettings,
+): { provider: string; modelId: string; apiKey: string } | null {
+  if (s.llmProvider === 'gemini') {
+    const apiKey = s.googleApiKey?.trim();
+    const modelId = (s.geminiModel || 'gemini-2.5-flash').trim();
+    if (!apiKey || !modelId) return null;
+    return { provider: 'google', modelId, apiKey };
+  }
+  // openai (default)
+  const apiKey = s.openaiApiKey?.trim();
+  const modelId = (s.openaiModel || 'gpt-4o').trim();
+  if (!apiKey || !modelId) return null;
+  if (s.openaiBaseUrl?.toLowerCase().includes('openrouter.ai')) {
+    return { provider: 'openrouter', modelId, apiKey };
+  }
+  return { provider: 'openai', modelId, apiKey };
 }
 
 /**
@@ -576,6 +617,29 @@ export function applyEnvFromSettings(
     }
   }
 
+  // Phase 6.5b: bridge the user's settings to pi-ai's per-provider
+  // env-var discovery. Pi-ai's `findEnvKeys()` reads canonical names
+  // (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, …); without
+  // these set explicitly, pi-coding-agent silently picks no model and
+  // session.prompt() either errors with "No API key found" or returns
+  // an empty stream.
+  //
+  // Cast wide: set every key the user has configured. Multiple keys
+  // CAN coexist — pi-ai picks the one matching the selected model.
+  //
+  // OpenRouter is the load-bearing case: many users configure it via
+  // settings.llmProvider='openai' + openaiBaseUrl pointing at
+  // openrouter.ai. Detect that pattern and forward the key.
+  if (
+    settings.openaiApiKey?.trim() &&
+    settings.openaiBaseUrl?.toLowerCase().includes('openrouter.ai')
+  ) {
+    setIfPresent('OPENROUTER_API_KEY', settings.openaiApiKey);
+  }
+  setIfPresent('OPENROUTER_API_KEY', settings.openRouterApiKey);
+  setIfPresent('GEMINI_API_KEY', settings.googleApiKey);
+  setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
+
   // VLM (vision judge) env wiring:
   //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
   //     (dev users with VLM_* in dhee-core/.env) survives. Production
@@ -834,6 +898,26 @@ export class dheeCoreManager {
   private dagModule: DagModule | null = null;
 
   /**
+   * Phase 6.5b: most recent AppSettings handed to start() / restart().
+   * chatPrompt reads `llmProvider` / `openaiApiKey` / `openaiBaseUrl` /
+   * `openaiModel` / `googleApiKey` / `geminiModel` etc. from here to
+   * derive the {provider, modelId, apiKey} triple it passes to
+   * buildPiSession. Necessary because pi-coding-agent's
+   * `findInitialModel` heuristic doesn't reliably pick up env-only
+   * credentials.
+   */
+  private lastSettings: AppSettings | null = null;
+
+  /**
+   * Test seam — seed `lastSettings` without going through start().
+   * Tests inject minimal AppSettings so chatPrompt's resolver can
+   * return a model triple. Production callers go through start().
+   */
+  __setLastSettingsForTesting(s: AppSettings): void {
+    this.lastSettings = s;
+  }
+
+  /**
    * Phase 6.5: long-lived pi-coding-agent AgentSession per chat
    * sessionId. Built lazily on the first chatPrompt + reused across
    * turns so context + transcript persist for the lifetime of the
@@ -919,6 +1003,10 @@ export class dheeCoreManager {
     //     we still use are pure functions exported from dhee-core).
 
     applyEnvFromSettings(settings, cloudAuth);
+
+    // Phase 6.5b: cache settings so chatPrompt can derive
+    // {provider, modelId, apiKey} for the pi-agent.
+    this.lastSettings = settings;
 
     // Seed process-wide oversight + VLM flags from persisted
     // AppSettings on the very first run. Pi-agent-in-process
@@ -1497,11 +1585,36 @@ export class dheeCoreManager {
 
     let entry = this.agentSessions.get(sessionId);
     if (!entry) {
+      // Phase 6.5b: derive the explicit {provider, modelId, apiKey} so
+      // pi-coding-agent doesn't fall back to its silent-no-op
+      // auto-discovery. Hard-fail with a clear message when settings
+      // don't yield a usable provider — better than the previous
+      // "ok:true with empty assistant_text" silent failure.
+      if (!this.lastSettings) {
+        return {
+          ok: false,
+          error: 'dheeCoreManager not started yet — chatPrompt needs cached settings.',
+        };
+      }
+      const piModel = resolvePiModelFromSettings(this.lastSettings);
+      if (!piModel) {
+        return {
+          ok: false,
+          error:
+            "No LLM provider configured. Open Settings → Quickstart to add an API key (OpenRouter / OpenAI / Gemini), then send the message again.",
+        };
+      }
       try {
         // buildPiSession defaults sessionManager to SessionManager.inMemory(cwd)
         // when omitted — no on-disk transcript today. Phase 6.5c will swap
         // to SessionManager.create() backed by sessionStore for persistence.
-        const built = await deps.buildPiSession({ sessionManager: undefined as never, cwd: projectDir });
+        const built = await deps.buildPiSession({
+          sessionManager: undefined as never,
+          cwd: projectDir,
+          modelProvider: piModel.provider,
+          modelId: piModel.modelId,
+          apiKey: piModel.apiKey,
+        });
         entry = { session: built.session };
         this.agentSessions.set(sessionId, entry);
       } catch (err) {

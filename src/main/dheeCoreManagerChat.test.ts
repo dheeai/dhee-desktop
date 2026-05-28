@@ -33,6 +33,23 @@ __setChatDeps({
   runAgentTurn: runTurnSpy as never,
 });
 
+// Phase 6.5b: chatPrompt now derives model + apiKey from cached
+// settings. Tests seed a minimal AppSettings via the test seam.
+const TEST_SETTINGS = {
+  llmProvider: 'openai',
+  openaiApiKey: 'sk-test-key',
+  openaiBaseUrl: 'https://openrouter.ai/api/v1',
+  openaiModel: 'deepseek/deepseek-v4-flash',
+  googleApiKey: '',
+  geminiModel: '',
+} as never;
+
+function makeMgr() {
+  const m = new dheeCoreManager();
+  m.__setLastSettingsForTesting(TEST_SETTINGS);
+  return m;
+}
+
 beforeEach(() => {
   buildSessionSpy.mockReset();
   runTurnSpy.mockReset();
@@ -54,7 +71,7 @@ beforeEach(() => {
 
 describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
   it('builds an AgentSession on the first prompt, focused on the session\'s projectDir, and reuses it on subsequent prompts', async () => {
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     await mgr.focusSessionProject('s-1', 'Ruby V4', '/tmp/projects/Ruby_V4');
 
     const r1 = await mgr.chatPrompt('s-1', 'hello');
@@ -71,7 +88,7 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
   });
 
   it('returns the assistant_text and tool_calls envelope from runAgentTurn', async () => {
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     await mgr.focusSessionProject('s-2', 'p', '/tmp/p');
 
     const r = await mgr.chatPrompt('s-2', 'do the thing');
@@ -83,7 +100,7 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
   });
 
   it('passes keepAlive=true so the long-lived chat session is NOT disposed between turns', async () => {
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     await mgr.focusSessionProject('s-3', 'p', '/tmp/p');
     await mgr.chatPrompt('s-3', 'x');
     const opts = runTurnSpy.mock.calls[0]![2] as { keepAlive?: boolean } | undefined;
@@ -91,7 +108,7 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
   });
 
   it('errors clearly when chatPrompt is called for a session that has never been focused on a project', async () => {
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     const r = await mgr.chatPrompt('s-orphan', 'hi');
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.error).toMatch(/no project focused/i);
@@ -100,7 +117,7 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
 
   it('surfaces the buildPiSession error so the renderer can show a clean failure (e.g. provider unauthed)', async () => {
     buildSessionSpy.mockRejectedValueOnce(new Error('No provider available'));
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     await mgr.focusSessionProject('s-4', 'p', '/tmp/p');
     const r = await mgr.chatPrompt('s-4', 'hi');
     expect(r.ok).toBe(false);
@@ -109,7 +126,7 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
 
   it('surfaces the runAgentTurn error verbatim', async () => {
     runTurnSpy.mockResolvedValueOnce({ ok: false, error: 'LLM rate limit' });
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     await mgr.focusSessionProject('s-5', 'p', '/tmp/p');
     const r = await mgr.chatPrompt('s-5', 'hi');
     expect(r.ok).toBe(false);
@@ -127,7 +144,7 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
         dispose,
       },
     });
-    const mgr = new dheeCoreManager();
+    const mgr = makeMgr();
     await mgr.focusSessionProject('s-6', 'p', '/tmp/p');
     await mgr.chatPrompt('s-6', 'first');
     mgr.deleteSession('s-6');
