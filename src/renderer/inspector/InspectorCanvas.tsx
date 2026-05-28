@@ -10,7 +10,7 @@
  * `bundleToFlowGraph` transform — this component is the React shell
  * around it.
  */
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -18,15 +18,18 @@ import {
   BackgroundVariant,
   Controls,
   MiniMap,
+  useReactFlow,
   type NodeTypes,
   type Node,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 
-import { bundleToFlowGraph } from './bundleToFlowGraph';
+import { bundleToFlowGraph, type InspectorFlowNode } from './bundleToFlowGraph';
 import { useElkLayout } from './useElkLayout';
 import { InspectorNode } from './nodes/InspectorNode';
 import { InspectorActionContext } from './InspectorActionContext';
+import { InspectorLegend } from './InspectorLegend';
+import { InspectorSearch } from './InspectorSearch';
 import type {
   BundleSnapshot,
   ProjectStateLike,
@@ -133,11 +136,37 @@ export function InspectorCanvas({ bundle, walkState, onGoalClick }: InspectorCan
               ariaLabel="Inspector minimap"
             />
             <Controls showInteractive={false} />
+            <SearchInsideFlow nodes={nodes} />
           </ReactFlow>
+          <InspectorLegend />
         </ReactFlowProvider>
       </InspectorActionContext.Provider>
     </div>
   );
+}
+
+/**
+ * SearchInsideFlow — child of <ReactFlow> so it can call
+ * useReactFlow().setCenter to pan/zoom the viewport to the selected
+ * match. Lives inline because InspectorCanvas already mounts the
+ * ReactFlowProvider exactly once.
+ */
+function SearchInsideFlow({ nodes }: { nodes: InspectorFlowNode[] }) {
+  const reactFlow = useReactFlow();
+  const onSelect = useCallback(
+    (nodeId: string) => {
+      const match = nodes.find((n) => n.id === nodeId);
+      if (!match) return;
+      // Use the current zoom — moving the user vertically/horizontally
+      // without rescaling matches macOS Finder's "scroll to file" feel.
+      reactFlow.setCenter(match.position.x, match.position.y, {
+        zoom: reactFlow.getZoom(),
+        duration: 400,
+      });
+    },
+    [nodes, reactFlow],
+  );
+  return <InspectorSearch nodes={nodes} onSelect={onSelect} />;
 }
 
 export default InspectorCanvas;
