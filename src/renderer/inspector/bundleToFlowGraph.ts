@@ -11,7 +11,13 @@
  * left → right. Concrete pixel positions come back on each FlowNode's
  * `position`, ready for xyflow.
  */
-import * as dagre from '@dagrejs/dagre';
+// @dagrejs/dagre ships CJS-only. Under webpack's ESM interop the
+// `import * as dagre` namespace shape doesn't reliably expose
+// `.graphlib`/`.layout` (the keys land on the synthesized default
+// instead). require() picks up the unwrapped module.exports object
+// directly, which is what we want.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const dagre = require('@dagrejs/dagre') as typeof import('@dagrejs/dagre');
 import type {
   BundleSnapshot,
   BundleNode,
