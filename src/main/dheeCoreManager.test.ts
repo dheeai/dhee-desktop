@@ -95,7 +95,22 @@ jest.mock('electron', () => ({
 
 // Imported AFTER the jest.mock calls so the mock binds.
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { dheeCoreManager, __setManagerLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
+const { dheeCoreManager, __setManagerLoader, __setRunnersLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
+
+// Phase 6.2: cancelTask + getBackgroundTaskStatus + runTask now lazy-
+// load `dhee-core/runners`. Tests in this file don't exercise the
+// runner end-to-end, but the dynamic import has to be stubbed so jest
+// doesn't try to parse the ESM dist (which uses createRequire banners
+// jest can't handle).
+__setRunnersLoader(async () => ({
+  getBackgroundTaskRunner: () => ({
+    cancel: () => false,
+    getActive: () => null,
+    isCancelling: () => false,
+    dispatch: () => ({ status: 'started' as const, taskId: 't-stub' }),
+    on: () => () => {},
+  }),
+}) as never);
 
 // Inject the FakeConversationManager via the loader seam — production code
 // uses a `webpackIgnore` dynamic import to load the real ESM bundle;
@@ -544,38 +559,22 @@ describe('dheeCoreManager', () => {
     expect(process.env['OPENAI_BASE_URL']).toBeUndefined();
   });
 
-  it('runTask forwards onToolCall events to the supplied eventCb with the original payload', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    const { id: sessionId } = mgr.createSession();
-    const events: Array<{ eventName: string; sessionId: string; data: unknown }> = [];
+  // (Removed) `runTask forwards onToolCall events from ConversationManager`
+  // — Phase 6.2 rewired runTask to dispatch via BackgroundTaskRunner and
+  // translate ITS event vocabulary (tool / result / notification / asset
+  // / terminal) into dheeCoreEvents. The new event-translation contract
+  // is exercised in dheeCoreManagerRunTask.test.ts.
 
-    await mgr.runTask(sessionId, 'a task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
+  // (Removed) `runTask forwards onAgentText events as stream chunks` —
+  // ConversationManager's text streaming is no longer in the runTask
+  // path. Phase 6.2b (chat-as-pi-agent rebuild) will reintroduce text
+  // streaming via the pi-coding-agent session event bus.
 
-    const toolCallEvent = events.find((e) => e.eventName === 'tool_call');
-    expect(toolCallEvent).toBeDefined();
-    expect(toolCallEvent?.sessionId).toBe('s-1');
-    expect(toolCallEvent?.data).toMatchObject({ toolName: 'dhee_run_to', toolCallId: 'tc-1' });
-  });
-
-  it('runTask forwards onAgentText events as stream chunks', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    const { id: sessionId } = mgr.createSession();
-    const events: Array<{ eventName: string; data: unknown }> = [];
-
-    await mgr.runTask(sessionId, 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
-
-    const streamEvent = events.find((e) => e.eventName === 'stream_chunk');
-    expect(streamEvent).toBeDefined();
-    expect(streamEvent?.data).toMatchObject({ content: 'done', done: true });
-  });
-
-  it('cancelTask returns false when the session does not exist', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    expect(mgr.cancelTask('does-not-exist')).toBe(false);
-  });
+  // (Removed) `cancelTask returns false when the session does not
+  // exist` — pre-Phase-6.2 cancellation was per-session via CM. The
+  // runner is now global (one task at a time); cancelTask returns
+  // false when nothing is running, regardless of sessionId. New
+  // contract pinned in dheeCoreManagerRunTask.test.ts.
 
   // (Removed) `redoNode forwards editedPrompt to ConversationManager`
   // — Phase 6 rewired redoNode to dhee-core/dag.regenerateNode, which
@@ -594,20 +593,30 @@ describe('dheeCoreManager', () => {
     expect(mockState.envSnapshots[1]?.LLM_PROVIDER).toBe('gemini');
   });
 
-  it('runTask before start() returns an error-shaped result rather than throwing', async () => {
+  it('runTask without a focused project returns an error-shaped result rather than throwing', async () => {
+    // Phase 6.2: instead of "manager not started," the error is "no
+    // project focused" — runTask now requires focusSessionProject to
+    // have populated the session→project map.
     const mgr = new dheeCoreManager();
     const events: Array<{ eventName: string; data: unknown }> = [];
-    const result = await mgr.runTask('any', 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
+    const result = await mgr.runTask(
+      'any',
+      'task',
+      {},
+      (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e),
+    );
     expect(result.status).toBe('failed');
-    expect(result.error).toMatch(/not started|start\(\) first/i);
+    expect(result.error).toMatch(/no project focused/i);
   });
 
-  it('stop() calls shutdown() and subsequent runTask returns failed', async () => {
+  it('stop() calls shutdown() and subsequent runTask returns failed (no project focused)', async () => {
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     mgr.stop();
     expect(mockState.shutdownCalls).toBe(1);
+    // After stop(), sessionProjects is preserved on the instance but the
+    // session was never focused, so runTask fails on the project lookup.
     const result = await mgr.runTask(sessionId, 'task', {}, () => {});
     expect(result.status).toBe('failed');
   });

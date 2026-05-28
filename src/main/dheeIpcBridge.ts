@@ -173,8 +173,8 @@ export function registerdheeIpcBridge(
 
   ipcMain.handle(
     dhee_CHANNELS.CANCEL_TASK,
-    (_event, req: CancelTaskRequest): CancelTaskResponse => {
-      const cancelled = manager.cancelTask(req.sessionId);
+    async (_event, req: CancelTaskRequest): Promise<CancelTaskResponse> => {
+      const cancelled = await manager.cancelTask(req.sessionId);
       return { cancelled };
     },
   );

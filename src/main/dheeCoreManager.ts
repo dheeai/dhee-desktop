@@ -1096,75 +1096,164 @@ export class dheeCoreManager {
    * hasn't been started — the caller (IPC bridge) shouldn't have to
    * try/catch every call.
    */
+  /**
+   * Phase 6.2 rewire: dispatch a bundle DAG run via the
+   * BackgroundTaskRunner singleton — no longer routes through the
+   * dead ConversationManager.runTask facade. The `task` string is
+   * informational only (the runner reads the spec's projectDir +
+   * stage; it doesn't interpret natural language). For pi-agent-
+   * driven chat where the model picks tools, Phase 6.2b will hang
+   * pi-agent in-process and have it call dhee_run_bundle.
+   *
+   * Translates the runner's typed events (tool / result /
+   * notification / asset / terminal) into dheeCoreEvents matching
+   * the existing renderer vocabulary (tool_call / tool_result /
+   * status / asset / etc).
+   */
   async runTask(
     sessionId: string,
-    task: string,
+    _task: string,
     opts: RunTaskOpts,
     eventCb: dheeCoreEventCallback,
   ): Promise<RunResult> {
-    if (!this.cm) {
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
       return {
         status: 'failed',
-        error: 'dheeCoreManager not started — call start() first.',
+        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
       };
     }
-    const events = buildEventsAdapter(eventCb);
-    // Pin the events bridge for the lifetime of this session — server-
-    // initiated turns (supervisor pi-agent on runner `completed`) call
-    // runTask without an eventCb, and the manager's persistentEvents
-    // fallback uses this bridge so their tool calls / streaming text
-    // still reach the renderer. Idempotent: last bind wins (renderer
-    // reload swaps in a fresh webContents.send closure).
-    try {
-      (
-        this.cm as unknown as {
-          bindSessionEventBridge?: (s: string, e: ConversationEvents) => void;
-        }
-      ).bindSessionEventBridge?.(sessionId, events);
-    } catch {
-      /* older dhee-core without the bridge API — runTask still works */
-    }
-    try {
-      const result = await (
-        this.cm as unknown as {
-          runTask: (
-            sessionId: string,
-            task: string,
-            events?: ConversationEvents,
-            opts?: RunTaskOpts,
-          ) => Promise<{ status: string; output?: string; error?: string }>;
-        }
-      ).runTask(sessionId, task, events, opts);
-      return {
-        status: result.status as RunResult['status'],
-        ...(result.output ? { output: result.output } : {}),
-        ...(result.error ? { error: result.error } : {}),
-      };
-    } catch (err) {
+    const projectName = path.basename(projectDir);
+
+    const runnersMod = await loadRunnersModule();
+    const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+      dispatch: (spec: {
+        kind: 'run_to';
+        projectName: string;
+        params: { projectDir: string; stage?: string };
+        sessionId: string;
+      }) =>
+        | { status: 'started'; taskId: string }
+        | {
+            status: 'rejected';
+            reason: 'task_already_running';
+            activeTaskId: string;
+            activeTaskKind: string;
+            activeProjectName: string;
+          };
+      on: (event: string, handler: (payload: unknown) => void) => () => void;
+    };
+
+    const dispatchResult = runner.dispatch({
+      kind: 'run_to',
+      projectName,
+      params: {
+        projectDir,
+        ...(opts.stopAtStage ? { stage: opts.stopAtStage } : {}),
+      },
+      sessionId,
+    });
+
+    if (dispatchResult.status === 'rejected') {
       return {
         status: 'failed',
-        error: err instanceof Error ? err.message : String(err),
+        error: `task already running on project '${dispatchResult.activeProjectName}' (taskId ${dispatchResult.activeTaskId})`,
       };
     }
+
+    const taskId = dispatchResult.taskId;
+    const emit = (eventName: string, data: unknown) =>
+      eventCb({ eventName, sessionId, data });
+
+    return new Promise<RunResult>((resolve) => {
+      const offs: Array<() => void> = [];
+      const cleanup = () => {
+        for (const off of offs) off();
+      };
+      const matches = (e: unknown): e is { task?: { id?: string } } =>
+        typeof e === 'object' && e !== null && (e as { task?: { id?: string } }).task?.id === taskId;
+
+      offs.push(
+        runner.on('tool', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { toolName?: string; nodeId?: string };
+          emit('tool_call', {
+            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+            toolName: evt.toolName,
+            arguments: {},
+            status: 'in_progress',
+          });
+        }),
+      );
+      offs.push(
+        runner.on('result', (e) => {
+          if (!matches(e)) return;
+          const evt = e as {
+            toolName?: string;
+            nodeId?: string;
+            filePath?: string;
+            status?: string;
+            error?: string;
+          };
+          emit('tool_result', {
+            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+            toolName: evt.toolName,
+            result: {
+              filePath: evt.filePath,
+              status: evt.status,
+              error: evt.error,
+            },
+            isError: evt.status === 'error' || !!evt.error,
+          });
+        }),
+      );
+      offs.push(
+        runner.on('notification', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { level?: string; message?: string };
+          emit('status', { status: 'info', level: evt.level, message: evt.message });
+        }),
+      );
+      offs.push(
+        runner.on('asset', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { kind?: string; filePath?: string; nodeId?: string };
+          emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
+        }),
+      );
+      offs.push(
+        runner.on('completed', (e) => {
+          if (!matches(e)) return;
+          cleanup();
+          resolve({ status: 'completed' });
+        }),
+      );
+      offs.push(
+        runner.on('failed', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { error?: string };
+          cleanup();
+          resolve({ status: 'failed', error: evt.error });
+        }),
+      );
+      offs.push(
+        runner.on('cancelled', (e) => {
+          if (!matches(e)) return;
+          cleanup();
+          resolve({ status: 'cancelled' });
+        }),
+      );
+    });
   }
 
   /**
-   * Mirror of ConversationManager.cancelTask. Tagged userInitiated
-   * because the IPC bridge only invokes this when the user clicks
-   * Stop in the chat header — server-side auto-cancels in the
-   * back-to-back runTask path call ConversationManager.cancelTask
-   * directly. The flag tells the silent-agent escape hatch in
-   * runTask to suppress the "Agent didn't respond — interrupted"
-   * notification (the user already knows; the extra warning is
-   * noise).
+   * Phase 6.2 rewire: cancel the active BackgroundTaskRunner task.
+   * Session id is informational only — the runner is global (one
+   * task at a time). Returns false when nothing is running.
    */
-  cancelTask(sessionId: string): boolean {
-    if (!this.cm) return false;
-    return (
-      this.cm as unknown as {
-        cancelTask: (s: string, p?: unknown, o?: { userInitiated?: boolean }) => boolean;
-      }
-    ).cancelTask(sessionId, undefined, { userInitiated: true });
+  async cancelTask(_sessionId: string): Promise<boolean> {
+    const runnersMod = await loadRunnersModule();
+    return runnersMod.getBackgroundTaskRunner().cancel();
   }
 
   /**
