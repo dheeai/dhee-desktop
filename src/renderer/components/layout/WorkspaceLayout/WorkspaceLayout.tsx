@@ -24,6 +24,7 @@ import ChatPanel from '../../chat/ChatPanelEmbedded/ChatPanelEmbedded';
 import StatusStrip from '../StatusStrip/StatusStrip';
 import { OverlayProvider } from '../../../overlays/OverlayContext';
 import { OverlayHost } from '../../../overlays/OverlayHost';
+import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useRunnerStatus } from '../../../hooks/useRunnerStatus';
@@ -85,6 +86,7 @@ export default function WorkspaceLayout() {
 
   return (
     <OverlayProvider>
+     <TimelineDataProvider>
       <div className={styles.container}>
         <StatusStrip
           onBack={handleBack}
@@ -111,6 +113,7 @@ export default function WorkspaceLayout() {
         </div>
         <OverlayHost />
       </div>
+     </TimelineDataProvider>
     </OverlayProvider>
   );
 }

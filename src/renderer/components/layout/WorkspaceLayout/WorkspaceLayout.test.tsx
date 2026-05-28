@@ -69,6 +69,12 @@ jest.mock('../../backend/BackendBadges', () => ({
   default: () => <div data-testid="ws-backend-badges" />,
 }));
 
+// TimelineDataProvider uses useTimelineData which depends on
+// project IPC. Stub for the layout-only test.
+jest.mock('../../../contexts/TimelineDataContext', () => ({
+  TimelineDataProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 describe('WorkspaceLayout — binary workspace', () => {
   it('renders the StatusStrip across the top', () => {
     render(<WorkspaceLayout />);
