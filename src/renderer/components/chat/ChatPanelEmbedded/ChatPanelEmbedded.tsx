@@ -1056,6 +1056,11 @@ export default function ChatPanelEmbedded() {
         },
       ]);
     }
+    // Phase 6.5c.b: the agent's reply now streams via stream_chunk
+    // events handled by handleEvent — the existing streamingMsgIdRef
+    // path accumulates into a single bubble. We only need to surface
+    // the END-OF-TURN summary if streaming produced nothing (e.g. the
+    // provider returned tools-only or the model output was empty).
     const result = await session.chatPrompt(text);
     if (!result.ok) {
       setMessages((prev) => [
@@ -1068,14 +1073,20 @@ export default function ChatPanelEmbedded() {
       ]);
       return;
     }
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: newMessageId(),
-        role: 'assistant',
-        text: result.assistant_text || '(no response)',
-      },
-    ]);
+    const streamed = streamingMsgIdRef.current !== null;
+    if (!streamed && result.assistant_text) {
+      // Fallback: provider didn't emit text_delta events; show the
+      // final envelope so the chat doesn't look broken.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'assistant',
+          text: result.assistant_text,
+        },
+      ]);
+    }
+    streamingMsgIdRef.current = null;
   };
 
   /**

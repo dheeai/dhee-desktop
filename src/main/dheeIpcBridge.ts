@@ -157,10 +157,16 @@ export function registerdheeIpcBridge(
   // Phase 6.5: chat-input messages route here (NOT through RUN_TASK).
   // RunTask still dispatches bundle runs via BackgroundTaskRunner;
   // ChatPrompt drives the per-session pi-agent.
+  //
+  // Phase 6.5c.b: events from pi-agent (text deltas, tool calls,
+  // tool results) flow back during the turn via the same
+  // 'dhee:event' channel runTask uses. The chat panel's existing
+  // listeners pick them up for streaming text + inline media.
   ipcMain.handle(
     dhee_CHANNELS.CHAT_PROMPT,
     async (_event, req: ChatPromptRequest): Promise<ChatPromptResponse> => {
-      return manager.chatPrompt(req.sessionId, req.message);
+      const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
+      return manager.chatPrompt(req.sessionId, req.message, eventCb);
     },
   );
 

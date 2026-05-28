@@ -283,7 +283,7 @@ type ChatDeps = {
   runAgentTurn: (
     session: unknown,
     message: string,
-    opts?: { keepAlive?: boolean },
+    opts?: { keepAlive?: boolean; onEvent?: (ev: unknown) => void },
   ) => Promise<
     | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
     | { ok: false; error: string }
@@ -1563,6 +1563,7 @@ export class dheeCoreManager {
   async chatPrompt(
     sessionId: string,
     message: string,
+    eventCb?: dheeCoreEventCallback,
   ): Promise<
     | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
     | { ok: false; error: string }
@@ -1622,7 +1623,103 @@ export class dheeCoreManager {
       }
     }
 
-    const result = await deps.runAgentTurn(entry.session, message, { keepAlive: true });
+    // Phase 6.5c.b: translate pi-agent events into dheeCoreEvents
+    // the renderer's chat panel already knows how to handle. Streaming
+    // text becomes 'stream_chunk' events; tool_execution_start
+    // becomes 'tool_call'; tool_execution_end becomes 'tool_result'
+    // (with details.file_path forwarded so the show_* tools render
+    // inline media). The chat panel's existing listeners (subscribe
+    // via window.dhee.on) pick these up; no panel changes needed.
+    let toolCallCounter = 0;
+    const onEvent = eventCb
+      ? (ev: unknown) => {
+          const e = ev as {
+            type?: string;
+            assistantMessageEvent?: { type?: string; delta?: string };
+            toolName?: string;
+            toolCallId?: string;
+            args?: unknown;
+            arguments?: unknown;
+            result?: unknown;
+            isError?: boolean;
+            details?: unknown;
+          };
+          if (e.type === 'message_update' && e.assistantMessageEvent?.type === 'text_delta') {
+            const delta = e.assistantMessageEvent.delta ?? '';
+            if (delta) {
+              eventCb({
+                eventName: 'stream_chunk',
+                sessionId,
+                data: { content: delta, done: false },
+              });
+            }
+            return;
+          }
+          if (e.type === 'tool_execution_start') {
+            toolCallCounter += 1;
+            // Pi's ToolExecutionStartEvent uses `args` (not `arguments`)
+            // for the parsed parameters. ToolCallCard.summarizeArgs
+            // expects the renderer-side `arguments` key, so map.
+            const toolCallId = e.toolCallId ?? `tc-${sessionId}-${toolCallCounter}`;
+            const startEvt = ev as { args?: unknown };
+            eventCb({
+              eventName: 'tool_call',
+              sessionId,
+              data: {
+                toolCallId,
+                toolName: e.toolName ?? 'unknown',
+                arguments: startEvt.args ?? {},
+                status: 'in_progress',
+              },
+            });
+            return;
+          }
+          if (e.type === 'tool_execution_end') {
+            // Pi's ToolExecutionEndEvent.result is the AgentToolResult
+            // returned by the tool's execute() — has shape
+            // `{content: [...], details: {...}}`. ToolCallCard.tsx
+            // looks for `result.file_path` (top-level), so flatten
+            // details onto result so dhee_show_* tools' file_path
+            // surfaces inline.
+            const piResult = e.result as
+              | { content?: Array<{ type?: string; text?: string }>; details?: Record<string, unknown> }
+              | undefined;
+            const flatResult: Record<string, unknown> = {
+              ...(piResult?.details ?? {}),
+              ...(Array.isArray(piResult?.content) && piResult.content[0]?.type === 'text'
+                ? { content: piResult.content[0].text }
+                : {}),
+            };
+            eventCb({
+              eventName: 'tool_result',
+              sessionId,
+              data: {
+                toolCallId: e.toolCallId,
+                toolName: e.toolName,
+                result: flatResult,
+                isError: e.isError ?? false,
+              },
+            });
+            return;
+          }
+        }
+      : undefined;
+
+    const result = await deps.runAgentTurn(entry.session, message, {
+      keepAlive: true,
+      ...(onEvent ? { onEvent } : {}),
+    });
+
+    // Emit a final stream_chunk(done:true) so the renderer can close
+    // any open streaming bubble. Idempotent — no-op if the chat panel
+    // didn't open one.
+    if (eventCb) {
+      eventCb({
+        eventName: 'stream_chunk',
+        sessionId,
+        data: { content: '', done: true },
+      });
+    }
     return result;
   }
 
