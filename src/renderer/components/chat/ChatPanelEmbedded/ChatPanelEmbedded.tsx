@@ -1924,15 +1924,38 @@ function handleEvent(
       const data = event.data as {
         toolCallId?: string;
         isError?: boolean;
+        result?: { file_path?: string; asset_type?: string };
       };
       // Update the matching tool card in place (NOT a new card).
-      setMessages((prev) =>
-        prev.map((m) =>
+      const newStatus: ToolStatus = data.isError ? 'error' : 'completed';
+      setMessages((prev) => {
+        const updated: ChatMessage[] = prev.map((m) =>
           m.role === 'tool' && m.toolCallId === data.toolCallId
-            ? { ...m, toolStatus: data.isError ? 'error' : 'completed' }
+            ? { ...m, toolStatus: newStatus }
             : m,
-        ),
-      );
+        );
+        // Phase 6.5c.b: when a tool result has a file_path (dhee_show_*
+        // tools), append a `media` row so the chat renders the image/
+        // video inline.
+        const filePath = data.result?.file_path;
+        if (!data.isError && filePath) {
+          const ext = filePath.toLowerCase().match(/\.(\w+)$/)?.[1] ?? '';
+          const isImage = /^(png|jpg|jpeg|gif|webp|bmp)$/i.test(ext);
+          const isVideo = /^(mp4|mov|webm|mkv|m4v)$/i.test(ext);
+          if (isImage || isVideo) {
+            return [
+              ...updated,
+              {
+                id: newMessageId(),
+                role: 'media' as const,
+                mediaKind: (isImage ? 'image' : 'video') as 'image' | 'video',
+                mediaPath: filePath,
+              },
+            ];
+          }
+        }
+        return updated;
+      });
       // If this tool may have mutated project.json's lifecycle fields,
       // ask the chat panel to re-probe. Lookup MUST happen BEFORE the
       // delete below — once the entry is dropped from the map the tool
