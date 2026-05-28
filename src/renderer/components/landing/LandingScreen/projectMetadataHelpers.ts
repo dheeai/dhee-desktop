@@ -132,6 +132,82 @@ export function sumScenesAndShots(
 }
 
 /**
+ * Bundle-format equivalent of sumScenesAndShots.
+ *
+ * Bundle projects (narrative_prompt_relay, narrative_qwen_chain_relay,
+ * etc.) write a single `plans/scenes_plan.json` containing both arrays:
+ *   {
+ *     scenes: [{ id: 'scene_1', ... }, ...],
+ *     shots:  [{ id: 'scene_1_shot_1', scene: 1, shotNumber: 1, ... }, ...]
+ *   }
+ *
+ * scene count = scenes.length OR distinct shot.scene values
+ * shot count  = shots.length
+ *
+ * Returns null when the input doesn't match the expected shape — caller
+ * falls back to the legacy per-scene-file counter.
+ */
+export function sumScenesAndShotsFromPlan(
+  scenesPlan: { scenes?: unknown; shots?: unknown } | null | undefined,
+): { scenes: number; shots: number } | null {
+  if (!scenesPlan || typeof scenesPlan !== 'object') return null;
+  const shots = Array.isArray(scenesPlan.shots) ? scenesPlan.shots : null;
+  const scenes = Array.isArray(scenesPlan.scenes) ? scenesPlan.scenes : null;
+  if (!shots && !scenes) return null;
+  // Prefer scenes.length; if absent, derive from distinct shot.scene.
+  let sceneCount = 0;
+  if (scenes) {
+    sceneCount = scenes.length;
+  } else if (shots) {
+    const seen = new Set<number>();
+    for (const s of shots) {
+      if (s && typeof s === 'object' && typeof (s as { scene?: unknown }).scene === 'number') {
+        seen.add((s as { scene: number }).scene);
+      }
+    }
+    sceneCount = seen.size;
+  }
+  return { scenes: sceneCount, shots: shots ? shots.length : 0 };
+}
+
+/**
+ * Scan walkState (or executorState) for the most recent completed shot
+ * first-frame image. Returns the outputPath (relative to projectDir) or
+ * null. Heuristic: matches any walkState entry whose key looks like
+ * `<nodeId>:scene_N_shot_M`, status === 'completed', and outputPath
+ * ends in `_first.png` OR `_first_frame_*.png`. Doesn't need to know
+ * the bundle's node ids — just the artifact naming convention shared
+ * across all narrative bundles.
+ *
+ * Returns the FIRST hit (which thanks to walker write-order is roughly
+ * the lowest scene/shot — i.e. an opening frame). Callers prepend
+ * projectDir to get an absolute path.
+ */
+export function findShotThumbnailFromWalkState(
+  state: { nodes?: Record<string, { status?: string; outputPath?: string }> } | null | undefined,
+): string | null {
+  const nodes = state?.nodes;
+  if (!nodes) return null;
+  // Find scene_1_shot_1's first frame first if available, then 1_2, etc.
+  // We sort the keys by (scene, shot) for determinism.
+  const candidates: Array<{ scene: number; shot: number; outputPath: string }> = [];
+  for (const [key, node] of Object.entries(nodes)) {
+    if (node.status !== 'completed' || !node.outputPath) continue;
+    if (!/_first(_frame)?[_.]/.test(node.outputPath)) continue;
+    const m = key.match(/scene_(\d+)_shot_(\d+)/);
+    if (!m) continue;
+    candidates.push({
+      scene: parseInt(m[1]!, 10),
+      shot: parseInt(m[2]!, 10),
+      outputPath: node.outputPath,
+    });
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => a.scene - b.scene || a.shot - b.shot);
+  return candidates[0]!.outputPath;
+}
+
+/**
  * From a collection of scene_video_prompt parses (keyed by scene
  * number), extract every `(scene, shot)` pair whose `purpose` is
  * `meet_character`. These are usually hero introductions and make

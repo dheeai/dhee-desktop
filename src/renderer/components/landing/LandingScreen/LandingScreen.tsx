@@ -32,6 +32,8 @@ import {
   extractSceneImages,
   selectSmartThumbnail,
   sumScenesAndShots,
+  sumScenesAndShotsFromPlan,
+  findShotThumbnailFromWalkState,
   type SVPShape,
 } from './projectMetadataHelpers';
 import { getBackendConfigStatus } from './backendConfigStatus';
@@ -209,7 +211,7 @@ async function loadSingleProjectMetadata(
   projectPath: string,
 ): Promise<ProjectMetadata> {
   const metadata: ProjectMetadata = {};
-  const [projectContent, fileThumbnailPath, manifestContent] = await Promise.all([
+  const [projectContent, fileThumbnailPath, manifestContent, scenesPlanContent] = await Promise.all([
     window.electron.project
       .readFile(joinPath(projectPath, 'project.json'))
       .catch(() => null),
@@ -217,76 +219,100 @@ async function loadSingleProjectMetadata(
     window.electron.project
       .readFile(joinPath(projectPath, 'assets/manifest.json'))
       .catch(() => null),
+    // Bundle projects write this single file with both scenes + shots
+    // arrays. Old executor projects don't have it.
+    window.electron.project
+      .readFile(joinPath(projectPath, 'plans/scenes_plan.json'))
+      .catch(() => null),
   ]);
 
+  // Parse project.json once; we need both the title and walkState.
+  let parsedProject: BackendProjectFile & {
+    walkState?: { nodes?: Record<string, { status?: string; outputPath?: string }> };
+    executorState?: { nodes?: Record<string, { status?: string; outputPath?: string }> };
+  } | null = null;
   if (projectContent) {
     try {
-      const project = safeJsonParse<BackendProjectFile>(projectContent);
-      metadata.manifestName = project.title;
-      metadata.description = project.description ?? null;
+      parsedProject = safeJsonParse(projectContent);
+      metadata.manifestName = parsedProject?.title;
+      metadata.description = parsedProject?.description ?? null;
     } catch {
       // Ignore malformed or missing project metadata.
     }
   }
 
-  // Counts come from the planner's per-scene `scene_video_prompt`
-  // files, NOT the asset manifest. The manifest stores asset versions
-  // (regenerating shot 1 eleven times produces 11 manifest entries all
-  // tagged `(scene=1, shot=1)`) so counting unique-pairs from there
-  // undercounts the actual shot count of the project. The planner files
-  // are the authoritative project shape: one file per scene,
-  // file.shots[].length = shot count for that scene.
-  //
-  // We also need the SVP parses for the thumbnail's meet_character
-  // matching below, so combine both passes here.
-  let sceneImages: ReturnType<typeof extractSceneImages> = [];
-  if (manifestContent) {
+  // Scene/shot count.
+  // 1. Bundle path: parse plans/scenes_plan.json — single source of truth.
+  // 2. Legacy path: enumerate prompts/videos/scenes/scene_N.json files.
+  let scenes = 0;
+  let shots = 0;
+  let svps: Record<number, SVPShape | null> = {};
+  if (scenesPlanContent) {
     try {
-      const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
-      sceneImages = extractSceneImages(manifest);
+      const plan = safeJsonParse<{ scenes?: unknown; shots?: unknown }>(scenesPlanContent);
+      const counts = sumScenesAndShotsFromPlan(plan);
+      if (counts) {
+        scenes = counts.scenes;
+        shots = counts.shots;
+      }
     } catch {
-      /* malformed manifest — fall through with empty list */
+      /* malformed — fall through to legacy path */
     }
   }
-
-  // Discover which scenes the planner has produced by enumerating
-  // `prompts/videos/scenes/scene_<N>.json`. We don't know up-front how
-  // many scenes there are, so try a reasonable upper bound (32) in
-  // parallel. Missing files just return null and contribute zero.
-  const MAX_SCENES_TO_PROBE = 32;
-  const svps: Record<number, SVPShape | null> = {};
-  await Promise.all(
-    Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(async (n) => {
-      const content = await window.electron.project
-        .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
-        .catch(() => null);
-      if (!content) return;
-      try {
-        svps[n] = safeJsonParse<SVPShape>(content);
-      } catch {
-        svps[n] = null;
-      }
-    }),
-  );
-
-  const { scenes, shots } = sumScenesAndShots(svps);
+  if (scenes === 0 && shots === 0) {
+    // Legacy path — per-scene file enumeration.
+    const MAX_SCENES_TO_PROBE = 32;
+    await Promise.all(
+      Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(async (n) => {
+        const content = await window.electron.project
+          .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
+          .catch(() => null);
+        if (!content) return;
+        try {
+          svps[n] = safeJsonParse<SVPShape>(content);
+        } catch {
+          svps[n] = null;
+        }
+      }),
+    );
+    const legacyCounts = sumScenesAndShots(svps);
+    scenes = legacyCounts.scenes;
+    shots = legacyCounts.shots;
+  }
   metadata.sceneCount = scenes;
   metadata.shotCount = shots;
 
-  // Thumbnail: prefer the persisted file written by
-  // ensureProjectThumbnailFromManifest at project-open time; otherwise
-  // synthesize a smart pick from the manifest, preferring shots tagged
-  // `meet_character` in their scene_video_prompt (hero introductions
-  // make the most identifiable thumbnails). Falls back to a random
-  // scene_image if no meet_character shots exist.
+  // Thumbnail selection precedence:
+  // 1. Persisted thumbnail file (.dhee/ui/thumbnail.png etc).
+  // 2. Walker-recorded shot first-frame from walkState (bundle projects).
+  // 3. Legacy manifest scene_image picker (executor projects).
+  // 4. null → folder icon placeholder.
   if (fileThumbnailPath) {
     metadata.thumbnailPath = fileThumbnailPath;
-  } else if (sceneImages.length > 0) {
-    const meetCharSet = collectMeetCharacterShots(svps);
-    const pick = selectSmartThumbnail(sceneImages, meetCharSet);
-    metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;
   } else {
-    metadata.thumbnailPath = null;
+    const walkThumb = findShotThumbnailFromWalkState(
+      parsedProject?.walkState ?? parsedProject?.executorState,
+    );
+    if (walkThumb) {
+      metadata.thumbnailPath = joinPath(projectPath, walkThumb);
+    } else {
+      let sceneImages: ReturnType<typeof extractSceneImages> = [];
+      if (manifestContent) {
+        try {
+          const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
+          sceneImages = extractSceneImages(manifest);
+        } catch {
+          /* malformed manifest — fall through with empty list */
+        }
+      }
+      if (sceneImages.length > 0) {
+        const meetCharSet = collectMeetCharacterShots(svps);
+        const pick = selectSmartThumbnail(sceneImages, meetCharSet);
+        metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;
+      } else {
+        metadata.thumbnailPath = null;
+      }
+    }
   }
 
   return metadata;
