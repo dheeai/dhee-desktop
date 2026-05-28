@@ -701,15 +701,19 @@ describe('ChatPanelEmbedded', () => {
         'img[src^="file://"]',
       ) as HTMLImageElement | null;
       expect(img).not.toBeNull();
-      // Inline style, not computed style — we control how it's set in
-      // the component, and JSDOM doesn't run a layout engine to honour
-      // computed CSS.
-      const maxWidth = img!.style.maxWidth;
-      // Either an explicit pixel value <= 240, or a width/maxWidth
-      // pattern that doesn't say "100%".
-      const px = /(\d+)px/.exec(maxWidth);
-      expect(px).not.toBeNull();
-      expect(parseInt(px![1]!, 10)).toBeLessThanOrEqual(240);
+      // The polished media card frames the image edge-to-edge inside
+      // a fixed-max-width parent (.mediaRow). The image itself fills
+      // the frame at width:100% — so we assert the constraint at the
+      // wrapper level, not on the <img>. The wrapper carries a CSS
+      // Modules max-width via the `.mediaRow` class — verify a
+      // mediaRow ancestor exists (it would be missing if the row
+      // failed to render or fell back to a raw <img>).
+      const frame = img!.closest('[class*="mediaRow"]');
+      expect(frame).not.toBeNull();
+      // And the polished card surfaces a kind badge + caption so the
+      // user can identify the artifact without hovering for a tooltip.
+      const badge = frame!.querySelector('[class*="mediaKindBadge"]');
+      expect(badge?.textContent).toBe('image');
     });
   });
 
@@ -839,11 +843,15 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
-    // Compact card: in_progress = ⋯ glyph; completed = ✓.
+    // Polished tool card: status is carried by data-status on both
+    // the card wrapper and the leading dot (the dot pulses while
+    // running). Assert the data attribute, not legacy glyph text —
+    // the visual is a styled dot, not a unicode character.
     await waitFor(() => {
-      expect(container.textContent).toContain('⋯');
+      const card = container.querySelector('[class*="toolCard"]');
+      expect(card?.getAttribute('data-status')).toBe('in_progress');
+      expect(card?.textContent).toContain('dhee_list_items');
     });
-    expect(container.textContent).not.toContain('✓');
 
     act(() => {
       publishEvent('tool_result', {
@@ -855,8 +863,8 @@ describe('ChatPanelEmbedded', () => {
     });
 
     await waitFor(() => {
-      expect(container.textContent).toContain('✓');
-      expect(container.textContent).not.toContain('⋯');
+      const card = container.querySelector('[class*="toolCard"]');
+      expect(card?.getAttribute('data-status')).toBe('completed');
     });
   });
 

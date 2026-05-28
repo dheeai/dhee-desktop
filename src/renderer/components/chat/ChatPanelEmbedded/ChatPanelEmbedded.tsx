@@ -1707,18 +1707,6 @@ function ThinkingRow({ message: m }: { message: ChatMessage }) {
   );
 }
 
-function statusGlyph(status: ToolStatus | undefined): string {
-  switch (status) {
-    case 'completed':
-      return '✓';
-    case 'error':
-      return '✗';
-    case 'in_progress':
-    default:
-      return '⋯';
-  }
-}
-
 function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
   const [expanded, setExpanded] = useState(false);
   const visibleRows = expanded ? rows : rows.slice(-1);
@@ -1750,18 +1738,21 @@ function MessageRow({
   projectDirectory: string | null;
 }) {
   if (m.role === 'tool') {
-    // Compact one-liner: glyph + monospaced tool name + faint args.
-    // Per-line progress for long-running tools (e.g. dhee_run_to)
-    // streams in as separate `progress` rows, one per chunk —
-    // rendered just below this row by the parent message list.
+    // Production-board tag: status dot (pulses while running) +
+    // monospace tool name + optional duration chip. Args render on
+    // a second line, indented under the name so the head row stays
+    // scannable. Per-line progress for long-running tools (e.g.
+    // dhee_run_to) streams in as separate `progress` rows just below
+    // this card.
+    const status = m.toolStatus ?? 'in_progress';
     return (
-      <div className={styles.toolRow}>
-        <span className={styles.toolGlyph} data-status={m.toolStatus ?? 'in_progress'}>
-          {statusGlyph(m.toolStatus)}
-        </span>
-        <span className={styles.toolName}>{m.toolName}</span>
+      <div className={styles.toolCard} data-status={status}>
+        <div className={styles.toolHead}>
+          <span className={styles.toolDot} data-status={status} aria-hidden="true" />
+          <span className={styles.toolName}>{m.toolName}</span>
+        </div>
         {m.toolArgsSummary && (
-          <span className={styles.toolArgs}>{m.toolArgsSummary}</span>
+          <div className={styles.toolArgs}>{m.toolArgsSummary}</div>
         )}
       </div>
     );
@@ -1797,7 +1788,7 @@ function MessageRow({
   if (m.role === 'phase') {
     return (
       <div aria-label="Phase transition" className={styles.phaseRow}>
-        ▶ {m.text}
+        {m.text}
       </div>
     );
   }
@@ -1805,45 +1796,71 @@ function MessageRow({
     const resolvedSrc = m.mediaPath
       ? resolveMediaSrc(m.mediaPath, projectDirectory)
       : '';
+    // Strip the project directory + leading slash so the caption
+    // shows just the artifact-relative path (e.g.
+    // "assets/shot_5/first_frame.png") instead of the absolute
+    // mount path. Falls back to the full path when stripping
+    // doesn't apply.
+    const captionPath = (() => {
+      const p = m.mediaPath ?? '';
+      if (!p) return '';
+      if (projectDirectory && p.startsWith(projectDirectory)) {
+        return p.slice(projectDirectory.length).replace(/^\/+/, '');
+      }
+      const lastSlash = p.lastIndexOf('/');
+      return lastSlash >= 0 ? p.slice(lastSlash + 1) : p;
+    })();
     return (
       <div className={styles.mediaRow}>
-        <div className={styles.mediaLabel}>
-          generated {m.mediaKind} · {m.mediaProject ?? ''}
+        <div className={styles.mediaFrame}>
+          {m.mediaKind === 'image' && resolvedSrc ? (
+            <img
+              src={resolvedSrc}
+              alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
+              className={styles.mediaImage}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : m.mediaKind === 'video' && resolvedSrc ? (
+            <video
+              src={resolvedSrc}
+              controls
+              preload="metadata"
+              className={styles.mediaImage}
+            />
+          ) : (
+            <div style={{ padding: '20px 12px', fontSize: 12, color: 'var(--color-text-muted)' }}>
+              {m.mediaPath}
+            </div>
+          )}
         </div>
-        {m.mediaKind === 'image' && resolvedSrc ? (
-          <img
-            src={resolvedSrc}
-            alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
-            className={styles.mediaImage}
-            style={{ maxWidth: 240 }}
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        ) : m.mediaKind === 'video' && resolvedSrc ? (
-          <video
-            src={resolvedSrc}
-            controls
-            preload="metadata"
-            style={{ maxWidth: '220px', borderRadius: 4 }}
-          />
-        ) : (
-          <div style={{ fontSize: 12 }}>📁 {m.mediaPath}</div>
-        )}
+        <div className={styles.mediaCaption}>
+          <span className={styles.mediaKindBadge}>{m.mediaKind}</span>
+          <span className={styles.mediaCaptionPath}>{captionPath}</span>
+        </div>
       </div>
     );
   }
-  // user / assistant
+  // user / assistant — editorial eyebrow + body.
   if (m.role === 'user') {
-    return <div className={`${styles.bubble} ${styles.bubbleUser}`}>{m.text}</div>;
+    return (
+      <div className={`${styles.bubble} ${styles.bubbleUser}`}>
+        <span className={styles.bubbleEyebrow}>You</span>
+        <div className={styles.bubbleBody}>{m.text}</div>
+      </div>
+    );
   }
   return (
     <div className={`${styles.bubble} ${styles.bubbleAssistant}`}>
-      {/* Render-layer dedup as a safety net: the upstream LLM
-          stream sometimes accumulates the same text twice
-          (stream_chunk arriving with full content twice). Catching
-          it here covers every code path that builds the bubble. */}
-      <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
+      <span className={styles.bubbleEyebrow}>Dhee</span>
+      <div className={styles.bubbleBody}>
+        {/* Render-layer dedup as a safety net: the upstream LLM
+            stream sometimes accumulates the same text twice
+            (stream_chunk arriving with full content twice). Catching
+            it here covers every code path that builds the bubble. */}
+        <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
+      </div>
     </div>
   );
 }
