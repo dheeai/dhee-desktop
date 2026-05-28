@@ -26,6 +26,8 @@ import {
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type ChatPromptRequest,
+  type ChatPromptResponse,
   type SendResponseRequest,
   type CancelTaskRequest,
   type CancelTaskResponse,
@@ -149,6 +151,16 @@ export function registerdheeIpcBridge(
       return result.status === 'failed'
         ? { ok: false, ...(result.error ? { error: result.error } : {}) }
         : { ok: true };
+    },
+  );
+
+  // Phase 6.5: chat-input messages route here (NOT through RUN_TASK).
+  // RunTask still dispatches bundle runs via BackgroundTaskRunner;
+  // ChatPrompt drives the per-session pi-agent.
+  ipcMain.handle(
+    dhee_CHANNELS.CHAT_PROMPT,
+    async (_event, req: ChatPromptRequest): Promise<ChatPromptResponse> => {
+      return manager.chatPrompt(req.sessionId, req.message);
     },
   );
 

@@ -14,6 +14,14 @@ export const dhee_CHANNELS = {
   CREATE_SESSION: 'dhee:createSession',
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',
+  /**
+   * Phase 6.5: send a user message to the chat session's pi-agent
+   * and return {assistant_text, tool_calls}. Distinct from RUN_TASK
+   * which dispatches bundle runs via BackgroundTaskRunner — chat is
+   * for free-form interaction with the LLM, run is for kicking the
+   * walker.
+   */
+  CHAT_PROMPT: 'dhee:chatPrompt',
   SEND_RESPONSE: 'dhee:sendResponse',
   CANCEL_TASK: 'dhee:cancelTask',
   REDO_NODE: 'dhee:redoNode',
@@ -280,6 +288,23 @@ export interface RunTaskRequest {
    */
   attachments?: import('./attachmentTypes').Attachment[];
 }
+
+/** Phase 6.5: chatPrompt IPC contract. */
+export interface ChatPromptRequest {
+  sessionId: string;
+  message: string;
+}
+
+export type ChatPromptResponse =
+  | {
+      ok: true;
+      assistant_text: string;
+      tool_calls: Array<{ name: string }>;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
 
 export interface SendResponseRequest {
   sessionId: string;

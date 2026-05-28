@@ -258,6 +258,52 @@ export function __setDagLoader(loader: () => Promise<DagModule>): void {
 }
 
 /**
+ * Phase 6.5: pi-agent chat surface. The desktop builds a long-lived
+ * AgentSession per chat session and runs each user message through
+ * `runAgentTurn`. Both helpers live in dhee-core; we lazy-import them
+ * via the same dynamic-import pattern as the dag/runners modules so
+ * the ESM-only bundle can load from CJS Electron main.
+ */
+type ChatDeps = {
+  buildPiSession: (opts: {
+    sessionManager: unknown;
+    cwd?: string;
+  }) => Promise<{
+    session: {
+      sessionId?: string;
+      sessionFile?: string;
+      subscribe: (cb: (ev: unknown) => void) => () => void;
+      prompt: (m: string) => Promise<void>;
+      dispose?: () => void;
+    };
+  }>;
+  runAgentTurn: (
+    session: unknown,
+    message: string,
+    opts?: { keepAlive?: boolean },
+  ) => Promise<
+    | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
+    | { ok: false; error: string }
+  >;
+};
+
+let chatDeps: ChatDeps | null = null;
+
+async function loadChatDeps(): Promise<ChatDeps> {
+  if (chatDeps) return chatDeps;
+  const mod = (await import(/* webpackIgnore: true */ 'dhee-core')) as ChatDeps & {
+    SessionManager?: { inMemory: (cwd?: string) => unknown };
+  };
+  chatDeps = { buildPiSession: mod.buildPiSession, runAgentTurn: mod.runAgentTurn };
+  return chatDeps;
+}
+
+/** Test seam — replace the chat helpers so jest doesn't boot a real LLM. */
+export function __setChatDeps(deps: ChatDeps): void {
+  chatDeps = deps;
+}
+
+/**
  * Single normalized event the IPC bridge publishes downstream.
  * Mirrors the existing WebSocket `ServerMessage` shape so the renderer
  * doesn't have to learn a new schema — only the transport changes.
@@ -786,6 +832,25 @@ export class dheeCoreManager {
 
   /** Lazy-loaded dhee-core/dag for the walker-driven invalidate + regen helpers. */
   private dagModule: DagModule | null = null;
+
+  /**
+   * Phase 6.5: long-lived pi-coding-agent AgentSession per chat
+   * sessionId. Built lazily on the first chatPrompt + reused across
+   * turns so context + transcript persist for the lifetime of the
+   * desktop process. Disposed on deleteSession.
+   */
+  private agentSessions = new Map<
+    string,
+    {
+      session: {
+        sessionId?: string;
+        sessionFile?: string;
+        subscribe: (cb: (ev: unknown) => void) => () => void;
+        prompt: (m: string) => Promise<void>;
+        dispose?: () => void;
+      };
+    }
+  >();
 
   private async getDagModule(): Promise<DagModule> {
     if (!this.dagModule) {
@@ -1396,10 +1461,74 @@ export class dheeCoreManager {
   }
 
   /**
-   * Phase 6.3 stub: forget the session→project + session-flags
-   * mappings. No persistent session state to delete.
+   * Phase 6.5: send a user message to the chat session's pi-agent and
+   * return the assistant text + tool-call summary.
+   *
+   * Lazy-builds an AgentSession on the first message of the session
+   * (focused on the project's directory so dhee-agent's tools see the
+   * right cwd). Subsequent messages reuse the same session for
+   * context continuity. Disposal happens in deleteSession.
+   *
+   * Errors are wrapped in {ok:false, error} envelopes so the IPC
+   * bridge can surface them in the chat panel without crashing.
+   */
+  async chatPrompt(
+    sessionId: string,
+    message: string,
+  ): Promise<
+    | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
+    | { ok: false; error: string }
+  > {
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
+      return {
+        ok: false,
+        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
+      };
+    }
+
+    // chatDeps is lazy-loaded from dhee-core; tests inject via __setChatDeps.
+    let deps: ChatDeps;
+    try {
+      deps = await loadChatDeps();
+    } catch (err) {
+      return { ok: false, error: `failed to load pi-agent helpers: ${(err as Error).message}` };
+    }
+
+    let entry = this.agentSessions.get(sessionId);
+    if (!entry) {
+      try {
+        // buildPiSession defaults sessionManager to SessionManager.inMemory(cwd)
+        // when omitted — no on-disk transcript today. Phase 6.5c will swap
+        // to SessionManager.create() backed by sessionStore for persistence.
+        const built = await deps.buildPiSession({ sessionManager: undefined as never, cwd: projectDir });
+        entry = { session: built.session };
+        this.agentSessions.set(sessionId, entry);
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+
+    const result = await deps.runAgentTurn(entry.session, message, { keepAlive: true });
+    return result;
+  }
+
+  /**
+   * Phase 6.5: also dispose the long-lived AgentSession when its
+   * sessionId is deleted. Phase 6.3 just cleared the in-process
+   * mappings; now we also release the pi-agent JSONL handle + any
+   * provider sockets the agent opened.
    */
   deleteSession(sessionId: string): void {
+    const agent = this.agentSessions.get(sessionId);
+    if (agent?.session.dispose) {
+      try {
+        agent.session.dispose();
+      } catch {
+        // Best-effort — never let disposal failure block the IPC handler.
+      }
+    }
+    this.agentSessions.delete(sessionId);
     this.sessionProjects.delete(sessionId);
     this.sessionFlags.delete(sessionId);
   }

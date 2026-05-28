@@ -34,6 +34,8 @@ import {
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type ChatPromptRequest,
+  type ChatPromptResponse,
   type SendResponseRequest,
   type CancelTaskRequest,
   type CancelTaskResponse,
@@ -718,6 +720,9 @@ const dheeBridge = {
   },
   runTask(req: RunTaskRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUN_TASK, req);
+  },
+  chatPrompt(req: ChatPromptRequest): Promise<ChatPromptResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.CHAT_PROMPT, req);
   },
   sendResponse(req: SendResponseRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.SEND_RESPONSE, req);
