@@ -391,6 +391,10 @@ export function registerdheeIpcBridge(
             displayCapability?: string;
             outputs: { format: string; pattern: string };
           }>;
+          display?: {
+            thumbnail?: { from: string; pick?: 'first_completed' | 'random_completed' | 'latest_completed' };
+            stats?: Array<{ label: string; source: string; count_completed?: boolean; path?: string }>;
+          };
         };
         // Strip down to only fields the renderer needs (runner config /
         // prompt templates / inputs stay in dhee-core).
@@ -407,6 +411,7 @@ export function registerdheeIpcBridge(
               ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
               outputs: { format: n.outputs.format, pattern: n.outputs.pattern },
             })),
+            ...(bundle.display ? { display: bundle.display } : {}),
           },
         };
       } catch (err) {

@@ -460,6 +460,24 @@ export interface ResolveBundleRequest {
  * artifacts exist and what they're tagged as. Runtime concerns
  * (workflow paths, runner names) stay on the kshana-core side.
  */
+/**
+ * Bundle-author-declared tile display metadata. Drives the project
+ * tile's thumbnail + summary stats on the landing screen. See
+ * docs/display-capabilities.md in dhee-core for field semantics.
+ */
+export interface BundleDisplay {
+  thumbnail?: {
+    from: string;
+    pick?: 'first_completed' | 'random_completed' | 'latest_completed';
+  };
+  stats?: Array<{
+    label: string;
+    source: string;
+    count_completed?: boolean;
+    path?: string;
+  }>;
+}
+
 export interface ResolveBundleResponse {
   ok: boolean;
   bundle?: {
@@ -473,6 +491,7 @@ export interface ResolveBundleResponse {
       displayCapability?: string;
       outputs: { format: string; pattern: string };
     }>;
+    display?: BundleDisplay;
   };
   /** Set when ok=false. */
   error?: string;

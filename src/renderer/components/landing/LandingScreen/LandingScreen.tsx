@@ -32,10 +32,9 @@ import {
   extractSceneImages,
   selectSmartThumbnail,
   sumScenesAndShots,
-  sumScenesAndShotsFromPlan,
-  findShotThumbnailFromWalkState,
   type SVPShape,
 } from './projectMetadataHelpers';
+import { resolveTileDisplay } from '../../../lib/bundleDisplay';
 import { getBackendConfigStatus } from './backendConfigStatus';
 import BackendNotReadyDialog from './BackendNotReadyDialog';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
@@ -68,6 +67,14 @@ interface ProjectMetadata {
   sceneCount?: number | null;
   shotCount?: number | null;
   thumbnailPath?: string | null;
+  /**
+   * Bundle-declared tile stats — opaque list of {label, value} pairs.
+   * For narrative bundles these duplicate sceneCount/shotCount (kept
+   * for back-compat); for non-narrative bundles (music, 3D, etc.)
+   * these are the only meaningful numbers to render. Empty for
+   * legacy executor projects.
+   */
+  tileStats?: Array<{ label: string; value: number }>;
 }
 
 interface PendingProjectAction {
@@ -211,56 +218,77 @@ async function loadSingleProjectMetadata(
   projectPath: string,
 ): Promise<ProjectMetadata> {
   const metadata: ProjectMetadata = {};
-  const [projectContent, fileThumbnailPath, manifestContent, scenesPlanContent] = await Promise.all([
+  const [projectContent, fileThumbnailPath] = await Promise.all([
     window.electron.project
       .readFile(joinPath(projectPath, 'project.json'))
       .catch(() => null),
     findThumbnailPath(projectPath),
-    window.electron.project
-      .readFile(joinPath(projectPath, 'assets/manifest.json'))
-      .catch(() => null),
-    // Bundle projects write this single file with both scenes + shots
-    // arrays. Old executor projects don't have it.
-    window.electron.project
-      .readFile(joinPath(projectPath, 'plans/scenes_plan.json'))
-      .catch(() => null),
   ]);
 
-  // Parse project.json once; we need both the title and walkState.
-  let parsedProject: BackendProjectFile & {
+  // Parse project.json — title, description, bundleSource, walkState.
+  type ProjectFileShape = BackendProjectFile & {
+    bundleSource?: string;
     walkState?: { nodes?: Record<string, { status?: string; outputPath?: string }> };
     executorState?: { nodes?: Record<string, { status?: string; outputPath?: string }> };
-  } | null = null;
+  };
+  let parsedProject: ProjectFileShape | null = null;
   if (projectContent) {
     try {
       parsedProject = safeJsonParse(projectContent);
       metadata.manifestName = parsedProject?.title;
       metadata.description = parsedProject?.description ?? null;
     } catch {
-      // Ignore malformed or missing project metadata.
+      /* malformed — fall through with null parsedProject */
     }
   }
 
-  // Scene/shot count.
-  // 1. Bundle path: parse plans/scenes_plan.json — single source of truth.
-  // 2. Legacy path: enumerate prompts/videos/scenes/scene_N.json files.
-  let scenes = 0;
-  let shots = 0;
-  let svps: Record<number, SVPShape | null> = {};
-  if (scenesPlanContent) {
+  // Bundle-arch path: ask kshana-core for the bundle definition, then
+  // let the bundle's display block drive thumbnail + stats. Bundle-
+  // specific knowledge (which capability holds the thumbnail, what
+  // labels to show) lives ENTIRELY in bundle.json. The desktop is
+  // generic.
+  let bundleStats: Array<{ label: string; value: number }> = [];
+  let bundleThumbRel: string | null = null;
+  if (parsedProject?.bundleSource) {
     try {
-      const plan = safeJsonParse<{ scenes?: unknown; shots?: unknown }>(scenesPlanContent);
-      const counts = sumScenesAndShotsFromPlan(plan);
-      if (counts) {
-        scenes = counts.scenes;
-        shots = counts.shots;
+      const resp = await window.dhee.resolveBundle({ bundleSource: parsedProject.bundleSource });
+      if (resp.ok && resp.bundle) {
+        const display = await resolveTileDisplay(
+          resp.bundle,
+          { walkState: parsedProject.walkState, executorState: parsedProject.executorState },
+          (relPath) =>
+            window.electron.project
+              .readFile(joinPath(projectPath, relPath))
+              .catch(() => null),
+        );
+        bundleStats = display.stats;
+        bundleThumbRel = display.thumbnailPath;
       }
     } catch {
-      /* malformed — fall through to legacy path */
+      /* bundle resolution failure — fall through to legacy logic */
     }
   }
-  if (scenes === 0 && shots === 0) {
-    // Legacy path — per-scene file enumeration.
+
+  // Legacy fallback for pre-bundle (executor-shaped) projects.
+  // Computes scene/shot count from prompts/videos/scenes/scene_N.json
+  // and thumbnail from assets/manifest.json. Bundle projects skip this
+  // entirely — bundleStats / bundleThumbRel already filled.
+  let svps: Record<number, SVPShape | null> = {};
+  let legacySceneImages: ReturnType<typeof extractSceneImages> = [];
+  if (bundleStats.length === 0 && !bundleThumbRel) {
+    const [manifestContent] = await Promise.all([
+      window.electron.project
+        .readFile(joinPath(projectPath, 'assets/manifest.json'))
+        .catch(() => null),
+    ]);
+    if (manifestContent) {
+      try {
+        const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
+        legacySceneImages = extractSceneImages(manifest);
+      } catch {
+        /* malformed */
+      }
+    }
     const MAX_SCENES_TO_PROBE = 32;
     await Promise.all(
       Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(async (n) => {
@@ -276,43 +304,43 @@ async function loadSingleProjectMetadata(
       }),
     );
     const legacyCounts = sumScenesAndShots(svps);
-    scenes = legacyCounts.scenes;
-    shots = legacyCounts.shots;
+    if (legacyCounts.scenes > 0 || legacyCounts.shots > 0) {
+      bundleStats = [
+        { label: 'scenes', value: legacyCounts.scenes },
+        { label: 'shots', value: legacyCounts.shots },
+      ];
+    }
   }
-  metadata.sceneCount = scenes;
-  metadata.shotCount = shots;
+
+  // Surface the first two computed stats as sceneCount / shotCount on
+  // ProjectMetadata so the existing tile renderer (which renders
+  // "N scenes · M shots") doesn't have to change. Bundles whose
+  // stats use different labels show up via the labels eventually —
+  // for now we keep the legacy two-slot API; tile redesign is a
+  // separate task.
+  if (bundleStats.length > 0) {
+    metadata.sceneCount = bundleStats[0]?.value;
+    metadata.shotCount = bundleStats[1]?.value;
+  }
+  // Expose the labeled stats array so renderers that want richer
+  // display (e.g. "12 tracks · 47 min") can opt in.
+  metadata.tileStats = bundleStats;
 
   // Thumbnail selection precedence:
-  // 1. Persisted thumbnail file (.dhee/ui/thumbnail.png etc).
-  // 2. Walker-recorded shot first-frame from walkState (bundle projects).
-  // 3. Legacy manifest scene_image picker (executor projects).
+  // 1. Persisted file (.dhee/ui/thumbnail.png).
+  // 2. Bundle-display-driven thumbnail (capability lookup).
+  // 3. Legacy manifest scene_image picker.
   // 4. null → folder icon placeholder.
   if (fileThumbnailPath) {
     metadata.thumbnailPath = fileThumbnailPath;
+  } else if (bundleThumbRel) {
+    metadata.thumbnailPath = joinPath(projectPath, bundleThumbRel);
+  } else if (legacySceneImages.length > 0) {
+    const meetCharSet = collectMeetCharacterShots(svps);
+    const pick = selectSmartThumbnail(legacySceneImages, meetCharSet);
+    metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;
   } else {
-    const walkThumb = findShotThumbnailFromWalkState(
-      parsedProject?.walkState ?? parsedProject?.executorState,
-    );
-    if (walkThumb) {
-      metadata.thumbnailPath = joinPath(projectPath, walkThumb);
-    } else {
-      let sceneImages: ReturnType<typeof extractSceneImages> = [];
-      if (manifestContent) {
-        try {
-          const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
-          sceneImages = extractSceneImages(manifest);
-        } catch {
-          /* malformed manifest — fall through with empty list */
-        }
-      }
-      if (sceneImages.length > 0) {
-        const meetCharSet = collectMeetCharacterShots(svps);
-        const pick = selectSmartThumbnail(sceneImages, meetCharSet);
-        metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;
-      } else {
-        metadata.thumbnailPath = null;
-      }
-    }
+    metadata.thumbnailPath = null;
   }
 
   return metadata;
