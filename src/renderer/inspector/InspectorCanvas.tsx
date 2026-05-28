@@ -52,20 +52,24 @@ const NODE_TYPES: NodeTypes = {
 };
 
 /**
- * Minimap node color → walker status. Goal node uses the terracotta
- * accent so the deliverable is visible at a glance even at minimap
- * scale.
+ * Minimap node color → walker status. Pulls from the live theme CSS
+ * variables so the minimap recolors when the user switches themes.
+ * Goal node uses the accent so the deliverable is visible at a
+ * glance even at minimap scale.
  */
 function minimapNodeColor(node: Node): string {
   const data = node.data as { status?: string; isGoal?: boolean } | undefined;
-  if (data?.isGoal) return '#c97c45';
+  const css = getComputedStyle(document.documentElement);
+  const v = (name: string, fallback: string) =>
+    css.getPropertyValue(name).trim() || fallback;
+  if (data?.isGoal) return v('--color-accent-primary', '#5f88b2');
   switch (data?.status) {
-    case 'completed': return '#7e9c71';
-    case 'running':   return '#d4a657';
-    case 'failed':    return '#c25450';
-    case 'invalidated': return '#a89c8b';
+    case 'completed':   return v('--color-success', '#6d8f7a');
+    case 'running':     return v('--color-warning', '#907b58');
+    case 'failed':      return v('--color-error', '#a56d6f');
+    case 'invalidated': return v('--color-text-secondary', '#a9b0ba');
     case 'pending':
-    default:          return '#4a4239';
+    default:            return v('--color-text-muted', '#7d848e');
   }
 }
 
@@ -123,22 +127,12 @@ export function InspectorCanvas({ bundle, walkState, onGoalClick }: InspectorCan
               pannable
               zoomable
               nodeColor={minimapNodeColor}
-              nodeStrokeWidth={2}
-              maskColor="rgba(15, 12, 9, 0.6)"
-              style={{
-                backgroundColor: 'rgba(15, 12, 9, 0.85)',
-                border: '1px solid #3d3429',
-                borderRadius: 8,
-              }}
+              nodeStrokeColor={minimapNodeColor}
+              nodeStrokeWidth={3}
+              maskColor="rgba(0, 0, 0, 0.35)"
+              ariaLabel="Inspector minimap"
             />
-            <Controls
-              showInteractive={false}
-              style={{
-                background: 'rgba(15, 12, 9, 0.92)',
-                border: '1px solid #3d3429',
-                borderRadius: 7,
-              }}
-            />
+            <Controls showInteractive={false} />
           </ReactFlow>
         </ReactFlowProvider>
       </InspectorActionContext.Provider>

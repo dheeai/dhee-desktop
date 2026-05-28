@@ -1,16 +1,18 @@
-/* ─────────────── Inspector Canvas — Phase 2 scaffold styles ───────────────
+/* ─────────────── Inspector Canvas — themed styles ───────────────
  *
- * Palette + typography lifted from docs/mockups/inspector-canvas-v1.html.
- * Phase 3 will fork these tokens per-kind renderer.
+ * All colors / shadows pull from the app's theme tokens (defined in
+ * src/renderer/styles/global.scss). When the user switches themes
+ * (studio-neutral, deep-forest-gold, etc.) the Inspector picks the
+ * new palette automatically.
  */
 
 .canvas {
   position: relative;
   width: 100%;
   height: 100%;
-  background: #15110e;
-  color: #ece4d7;
-  font-family: 'Manrope', system-ui, sans-serif;
+  background: var(--color-bg-app);
+  color: var(--color-text-primary);
+  font-family: var(--inspector-font, 'SF Pro Display', 'Inter', system-ui, sans-serif);
   font-size: 13px;
 }
 
@@ -19,18 +21,16 @@
   inset: 0;
   display: grid;
   place-items: center;
-  color: #6e6253;
+  color: var(--color-text-muted);
   font-size: 13px;
   letter-spacing: -0.005em;
 }
 
 .node {
-  background: #1c1814;
-  border: 1px solid #2d2620;
+  background: var(--color-bg-panel-elevated);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 9px;
-  box-shadow: 0 1px 0 rgba(255, 240, 220, 0.025) inset,
-    0 8px 24px -8px rgba(0, 0, 0, 0.5),
-    0 2px 6px -2px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-md);
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -45,15 +45,14 @@
   &[data-format='image'][data-kind='stage'] { width: 220px; max-height: 280px; }
   &[data-format='video'][data-kind='stage'] { width: 260px; max-height: 280px; }
   &[data-status='running'] {
-    border-color: #806237;
-    box-shadow: 0 0 0 1px #806237,
-      0 0 18px -2px rgba(212, 166, 87, 0.18);
+    border-color: var(--color-warning);
+    box-shadow: 0 0 0 1px var(--color-warning),
+      0 0 18px -2px rgba(var(--color-warning-rgb), 0.22);
     animation: pulse 1.8s ease-in-out infinite;
   }
   &[data-status='failed'] {
-    border-color: #6e302e;
-    box-shadow: 0 0 0 1px #6e302e,
-      0 8px 24px -8px rgba(0, 0, 0, 0.5);
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 1px var(--color-error), var(--shadow-md);
   }
   &[data-status='invalidated'] {
     background-image: repeating-linear-gradient(
@@ -66,12 +65,12 @@
 
 @keyframes pulse {
   0%, 100% {
-    box-shadow: 0 0 0 1px #806237,
-      0 0 16px -4px rgba(212, 166, 87, 0.16);
+    box-shadow: 0 0 0 1px var(--color-warning),
+      0 0 16px -4px rgba(var(--color-warning-rgb), 0.18);
   }
   50% {
-    box-shadow: 0 0 0 1px #d4a657,
-      0 0 24px -2px rgba(212, 166, 87, 0.32);
+    box-shadow: 0 0 0 1px var(--color-warning),
+      0 0 24px -2px rgba(var(--color-warning-rgb), 0.36);
   }
 }
 
@@ -81,10 +80,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: linear-gradient(180deg, rgba(255, 240, 220, 0.025), transparent);
-  border-bottom: 1px solid #221d18;
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
   font-size: 11px;
-  color: #a89c8b;
+  color: var(--color-text-secondary);
 }
 
 .statusDot {
@@ -92,19 +91,19 @@
   height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
-  background: #4a4239;
-  &.status-completed { background: #7e9c71; }
-  &.status-running { background: #d4a657; box-shadow: 0 0 6px #d4a657; }
-  &.status-failed { background: #c25450; }
-  &.status-invalidated { background: #a89c8b; }
-  &.status-pending { background: #4a4239; border: 1px solid #6e6253; }
+  background: var(--color-text-muted);
+  &.status-completed { background: var(--color-success); }
+  &.status-running { background: var(--color-warning); box-shadow: 0 0 6px var(--color-warning); }
+  &.status-failed { background: var(--color-error); }
+  &.status-invalidated { background: var(--color-text-secondary); }
+  &.status-pending { background: var(--color-text-muted); border: 1px solid var(--color-text-muted); }
 }
 
 .nodeName {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
   font-size: 11px;
   font-weight: 500;
-  color: #ece4d7;
+  color: var(--color-text-primary);
   letter-spacing: -0.01em;
   flex: 1;
   overflow: hidden;
@@ -114,14 +113,14 @@
 
 .nodeKind {
   font-size: 10px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
-  color: #6e6253;
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  color: var(--color-text-muted);
   padding: 0 5px;
   height: 16px;
   line-height: 14px;
-  border: 1px solid #2d2620;
+  border: 1px solid var(--color-border-subtle);
   border-radius: 3px;
-  background: #100c09;
+  background: var(--color-bg-panel-inset);
   text-transform: lowercase;
 }
 
@@ -129,14 +128,14 @@
   padding: 10px 12px;
   flex: 1;
   overflow: hidden;
-  color: #ece4d7;
+  color: var(--color-text-primary);
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
 .muted {
-  color: #a89c8b;
+  color: var(--color-text-secondary);
   font-size: 11px;
   letter-spacing: -0.005em;
   overflow: hidden;
@@ -145,61 +144,59 @@
 }
 
 .capabilityTag {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
   font-size: 9.5px;
-  color: #a89c8b;
+  color: var(--color-text-secondary);
   padding: 1px 6px;
-  background: #100c09;
-  border: 1px solid #221d18;
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 3px;
   align-self: flex-start;
   letter-spacing: -0.01em;
 }
 
 .handle {
-  /* Decorative — xyflow needs handles to anchor edges. Make them tiny
-   * and color-matched so they don't dominate the card. */
-  background: #4a4239;
+  background: var(--color-text-muted);
   width: 6px;
   height: 6px;
   border: none;
 }
 
-// Goal node — bundle.goal target (mockup's "GOAL"-flagged final card).
+// Goal node — bundle.goal target.
 .goal {
-  border: 1px solid #8a5530;
-  box-shadow: 0 0 0 1px #8a5530,
-    0 0 36px -4px rgba(201, 124, 69, 0.25),
-    0 16px 36px -10px rgba(0, 0, 0, 0.65);
+  border: 1px solid var(--color-accent-primary);
+  box-shadow: 0 0 0 1px var(--color-accent-primary),
+    0 0 36px -4px var(--color-accent-primary-dim),
+    var(--shadow-lg);
 }
 .goalFlag {
   position: absolute;
   top: -8px;
   left: 11px;
-  background: #c97c45;
-  color: #15110e;
+  background: var(--color-accent-primary);
+  color: var(--color-bg-app);
   font-size: 9.5px;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   padding: 2px 7px;
   border-radius: 3px;
-  box-shadow: 0 4px 10px -2px rgba(201, 124, 69, 0.45);
+  box-shadow: 0 4px 10px -2px var(--color-accent-primary-dim);
   z-index: 1;
 }
 .clickable {
   cursor: pointer;
 }
 .clickable:hover {
-  background: #221c17;
+  background: var(--color-bg-panel-soft);
 }
 
 .nodeFoot {
   padding: 6px 10px 8px;
   display: flex;
   gap: 6px;
-  border-top: 1px solid #221d18;
-  background: #100c09;
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel-inset);
 }
 
 .rail {
@@ -209,15 +206,11 @@
   gap: 5px;
   overflow-x: auto;
   align-items: stretch;
-  // Rails live inside a 360px collection card. With body padding
-  // accounted for, the visible scroll area is ~336px. 3 tiles at 96
-  // + 2 gaps + the "+ N more" indicator fits with one tile peeking
-  // for affordance.
   max-width: 100%;
 }
 
 .railEmpty {
-  color: #6e6253;
+  color: var(--color-text-muted);
   font-size: 11px;
   font-style: italic;
   padding: 8px 0;
@@ -228,17 +221,43 @@
   display: grid;
   place-items: center;
   min-width: 64px;
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
   font-size: 10.5px;
-  color: #a89c8b;
-  border: 1px dashed #3d3429;
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border-strong);
   border-radius: 5px;
   padding: 8px;
   letter-spacing: -0.01em;
 }
 
-/* Edge styling — react-flow v12 reads CSS vars / class overrides. */
+// xyflow edge styling — keep edges subtle.
 :global(.react-flow__edge-path) {
-  stroke: rgba(168, 156, 139, 0.28);
+  stroke: var(--color-text-muted);
   stroke-width: 1;
+  opacity: 0.45;
+}
+
+// xyflow minimap: ensure the surrounding mask doesn't cover the whole
+// background. Theme the node fills via nodeColor prop in
+// InspectorCanvas.tsx.
+:global(.react-flow__minimap) {
+  background: var(--color-bg-panel-inset) !important;
+  border: 1px solid var(--color-border-subtle) !important;
+}
+
+// xyflow controls cluster.
+:global(.react-flow__controls) {
+  background: var(--color-bg-panel-elevated) !important;
+  border: 1px solid var(--color-border-subtle) !important;
+}
+:global(.react-flow__controls-button) {
+  background: var(--color-bg-panel-elevated) !important;
+  color: var(--color-text-primary) !important;
+  border-bottom: 1px solid var(--color-border-subtle) !important;
+}
+:global(.react-flow__controls-button:hover) {
+  background: var(--color-bg-panel-soft) !important;
+}
+:global(.react-flow__controls-button svg) {
+  fill: var(--color-text-primary) !important;
 }

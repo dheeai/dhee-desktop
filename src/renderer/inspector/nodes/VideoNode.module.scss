@@ -2,16 +2,16 @@
   width: 100%;
   border-radius: 6px;
   overflow: hidden;
-  background: #0d0a08;
+  background: var(--color-bg-panel-inset);
 }
 .stageVideo {
   width: 100%;
   max-height: 220px;
   display: block;
-  background: #0d0a08;
+  background: var(--color-bg-panel-inset);
 }
 .empty {
-  color: #6e6253;
+  color: var(--color-text-muted);
   font-size: 11.5px;
   font-style: italic;
   padding: 6px 0;
@@ -19,8 +19,8 @@
 }
 
 .tile {
-  background: #221c17;
-  border: 1px solid #221d18;
+  background: var(--color-bg-panel-soft);
+  border: 1px solid var(--color-border-subtle);
   border-radius: 6px;
   padding: 4px;
   display: flex;
@@ -31,8 +31,8 @@
   position: relative;
 }
 .tileFailed {
-  border-color: #c25450;
-  box-shadow: 0 0 0 1px #6e302e;
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 1px var(--color-error);
 }
 .tileInvalidated::after {
   content: '';
@@ -44,7 +44,7 @@
 .tileThumb {
   width: 100%;
   aspect-ratio: 16 / 9;
-  background: #0d0a08;
+  background: var(--color-bg-panel-inset);
   border-radius: 4px;
   overflow: hidden;
   position: relative;
@@ -63,24 +63,24 @@
   transform: translate(-50%, -50%);
   width: 22px; height: 22px;
   border-radius: 50%;
-  background: rgba(15,11,8,0.78);
-  border: 1px solid rgba(236,228,215,0.18);
+  background: rgba(0, 0, 0, 0.65);
+  border: 1px solid rgba(var(--color-text-primary-rgb), 0.2);
   display: grid;
   place-items: center;
-  color: #ece4d7;
+  color: var(--color-text-primary);
   pointer-events: none;
 }
 .tileEmpty {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 10px;
-  color: #6e6253;
+  color: var(--color-text-muted);
   letter-spacing: 0.04em;
   text-transform: lowercase;
 }
 .tileLabel {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-size: 9.5px;
-  color: #6e6253;
+  color: var(--color-text-muted);
   letter-spacing: -0.01em;
   display: flex;
   justify-content: space-between;
@@ -91,9 +91,9 @@
   width: 5px;
   height: 5px;
   border-radius: 50%;
-  background: #7e9c71;
-  &.dot-pending { background: #4a4239; }
-  &.dot-running { background: #d4a657; }
-  &.dot-failed { background: #c25450; }
-  &.dot-invalidated { background: #a89c8b; }
+  background: var(--color-success);
+  &.dot-pending { background: var(--color-text-muted); }
+  &.dot-running { background: var(--color-warning); }
+  &.dot-failed { background: var(--color-error); }
+  &.dot-invalidated { background: var(--color-text-secondary); }
 }
