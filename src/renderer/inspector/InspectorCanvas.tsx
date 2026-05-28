@@ -21,7 +21,7 @@ import {
 import '@xyflow/react/dist/style.css';
 
 import { bundleToFlowGraph } from './bundleToFlowGraph';
-import { StubNode } from './nodes/StubNode';
+import { InspectorNode } from './nodes/InspectorNode';
 import type {
   BundleSnapshot,
   ProjectStateLike,
@@ -36,7 +36,7 @@ export interface InspectorCanvasProps {
 // Registered node types — Phase 2 has one entry; Phase 3 will expand to
 // one per kind and dispatch in the renderer.
 const NODE_TYPES: NodeTypes = {
-  inspector: StubNode as unknown as NodeTypes[string],
+  inspector: InspectorNode as unknown as NodeTypes[string],
 };
 
 export function InspectorCanvas({ bundle, walkState }: InspectorCanvasProps) {

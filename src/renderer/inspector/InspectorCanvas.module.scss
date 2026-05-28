@@ -156,6 +156,44 @@
   border: none;
 }
 
+.nodeFoot {
+  padding: 6px 10px 8px;
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid #221d18;
+  background: #100c09;
+}
+
+.rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 130px;
+  gap: 6px;
+  overflow-x: auto;
+  align-items: stretch;
+}
+
+.railEmpty {
+  color: #6e6253;
+  font-size: 11px;
+  font-style: italic;
+  padding: 8px 0;
+  letter-spacing: -0.005em;
+}
+
+.railMore {
+  display: grid;
+  place-items: center;
+  min-width: 64px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: #a89c8b;
+  border: 1px dashed #3d3429;
+  border-radius: 5px;
+  padding: 8px;
+  letter-spacing: -0.01em;
+}
+
 /* Edge styling — react-flow v12 reads CSS vars / class overrides. */
 :global(.react-flow__edge-path) {
   stroke: rgba(168, 156, 139, 0.28);
