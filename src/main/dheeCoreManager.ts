@@ -799,6 +799,17 @@ export class dheeCoreManager {
    */
   private sessionProjects = new Map<string, string>();
 
+  /**
+   * Phase 6.3: per-session boolean flags (autonomous mode, pi
+   * oversight, VLM judge) the renderer sets via IPC. No consumer
+   * reads them in this manager today — they're held for the
+   * eventual pi-agent-in-process integration to consume.
+   */
+  private sessionFlags = new Map<
+    string,
+    { autonomousMode?: boolean; piOversight?: boolean; vlmJudge?: boolean }
+  >();
+
   /** Lazy-loaded dhee-core/dag for the walker-driven invalidate + regen helpers. */
   private dagModule: DagModule | null = null;
 
@@ -1003,25 +1014,25 @@ export class dheeCoreManager {
    * create — `id` will differ from the request and `resumed` will
    * be false.
    */
+  /**
+   * Phase 6.3 stub: synthetic session id, no embedded chat state.
+   *
+   * The renderer's chat panel calls this on mount to get a sessionId
+   * it then uses as the key for focusProject / runTask / redoNode /
+   * etc. Real session state (pi-coding-agent persistence, history
+   * replay) returns in Phase 6.4 when the chat panel is rebuilt to
+   * drive pi-agent in-process. Until then we hand back an id that's
+   * good enough to thread through the IPC layer.
+   */
   createSession(
-    role?: 'interactive' | 'background',
+    _role?: 'interactive' | 'background',
     resumeSessionId?: string,
   ): { id: string; resumed: boolean } {
-    const cm = this.requireStarted();
-    // ConversationManager.createSession(mode, remoteFs, role, existingSessionId) —
-    // 4th arg added by the persistence work; older builds will ignore it.
-    const session = (
-      cm as unknown as {
-        createSession: (
-          mode?: 'local' | 'remote',
-          remoteFs?: undefined,
-          role?: 'interactive' | 'background',
-          existingSessionId?: string,
-        ) => { id: string };
-      }
-    ).createSession('local', undefined, role ?? 'interactive', resumeSessionId);
-    const resumed = !!resumeSessionId && session.id === resumeSessionId;
-    return { id: session.id, resumed };
+    if (resumeSessionId) {
+      return { id: resumeSessionId, resumed: true };
+    }
+    const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    return { id, resumed: false };
   }
 
   /**
@@ -1029,20 +1040,18 @@ export class dheeCoreManager {
    * when dhee-core doesn't expose the helper (older version) or
    * the id is unknown.
    */
-  getSessionHistorySnapshot(sessionId: string): {
+  /**
+   * Phase 6.3 stub: no chat history persisted today. The renderer
+   * treats null as "fresh session, nothing to replay." Real history
+   * comes back in Phase 6.4 alongside pi-agent in-process.
+   */
+  getSessionHistorySnapshot(_sessionId: string): {
     messages: Array<Record<string, unknown>>;
     toolCalls: Array<Record<string, unknown>>;
     focusedProject?: string;
     compactionCount: number;
   } | null {
-    const fn = this.managerModule?.getSessionHistorySnapshot;
-    if (typeof fn !== 'function') return null;
-    try {
-      return fn(sessionId);
-    } catch (err) {
-      log.warn('[dheeCoreManager] getSessionHistorySnapshot failed:', err);
-      return null;
-    }
+    return null;
   }
 
   /**
@@ -1050,40 +1059,34 @@ export class dheeCoreManager {
    * session for the renderer to switch to. Returns the new id. Tears
    * down any in-memory ActiveSession for the old id along the way.
    */
+  /**
+   * Phase 6.3 stub: no persisted history to clear; drop the in-memory
+   * session→project mapping and mint a fresh sessionId.
+   */
   clearChatHistory(
     oldSessionId: string,
     role?: 'interactive' | 'background',
   ): { newSessionId: string } {
-    const cm = this.requireStarted();
-    // Drop the in-memory state (cancels any in-flight task).
-    try {
-      (cm as unknown as { deleteSession?: (id: string) => void }).deleteSession?.(oldSessionId);
-    } catch (err) {
-      log.warn('[dheeCoreManager] deleteSession during clearChatHistory failed:', err);
-    }
-    // Wipe the JSONL + sessionStore index.
-    try {
-      this.managerModule?.clearSessionHistory?.(oldSessionId);
-    } catch (err) {
-      log.warn('[dheeCoreManager] clearSessionHistory failed:', err);
-    }
+    this.sessionProjects.delete(oldSessionId);
+    this.sessionFlags.delete(oldSessionId);
     const fresh = this.createSession(role);
     return { newSessionId: fresh.id };
   }
 
+  /**
+   * Phase 6.3 stub: pin the session→projectDir mapping. Mirrors
+   * focusSessionProject — both IPC paths land in the same map so
+   * runTask + redoNode + invalidateNodes find the projectDir
+   * regardless of which one the renderer fired.
+   */
   async configureSessionForProject(
     sessionId: string,
     opts: ConfigureProjectOpts,
   ): Promise<void> {
-    const cm = this.requireStarted();
-    // Pass through whatever ConversationManager expects. The actual
-    // shape may differ per dhee-ink version; we forward the opts
-    // object as-is and let the manager validate.
-    await (
-      cm as unknown as {
-        configureSessionForProject: (...a: unknown[]) => Promise<void>;
-      }
-    ).configureSessionForProject(sessionId, opts);
+    if (opts.projectDir) {
+      this.sessionProjects.set(sessionId, opts.projectDir);
+    }
+    return;
   }
 
   /**
@@ -1363,25 +1366,26 @@ export class dheeCoreManager {
     return { invalidated: result.invalidated, notFound: result.notFound };
   }
 
+  // Phase 6.3 stubs — store the flags per session so the IPC handlers
+  // don't throw on the now-dead ConversationManager. No consumer reads
+  // them in this manager today; pi-agent-in-process (Phase 6.4) will.
+
   setAutonomousMode(sessionId: string, enabled: boolean): void {
-    if (!this.cm) return;
-    (
-      this.cm as unknown as {
-        setAutonomousMode: (s: string, e: boolean) => void;
-      }
-    ).setAutonomousMode(sessionId, enabled);
+    const f = this.sessionFlags.get(sessionId) ?? {};
+    f.autonomousMode = enabled;
+    this.sessionFlags.set(sessionId, f);
   }
 
   setPiOversight(sessionId: string, enabled: boolean): void {
-    if (!this.cm) return;
-    const fn = (this.cm as unknown as { setPiOversight?: (s: string, e: boolean) => void }).setPiOversight;
-    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
+    const f = this.sessionFlags.get(sessionId) ?? {};
+    f.piOversight = enabled;
+    this.sessionFlags.set(sessionId, f);
   }
 
   setVlmJudge(sessionId: string, enabled: boolean): void {
-    if (!this.cm) return;
-    const fn = (this.cm as unknown as { setVLMJudge?: (s: string, e: boolean) => void }).setVLMJudge;
-    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
+    const f = this.sessionFlags.get(sessionId) ?? {};
+    f.vlmJudge = enabled;
+    this.sessionFlags.set(sessionId, f);
   }
 
   // ── Custom ComfyUI workflow management ─────────────────────────────
@@ -1462,11 +1466,13 @@ export class dheeCoreManager {
     return { ok: true };
   }
 
+  /**
+   * Phase 6.3 stub: forget the session→project + session-flags
+   * mappings. No persistent session state to delete.
+   */
   deleteSession(sessionId: string): void {
-    if (!this.cm) return;
-    (
-      this.cm as unknown as { deleteSession: (s: string) => void }
-    ).deleteSession(sessionId);
+    this.sessionProjects.delete(sessionId);
+    this.sessionFlags.delete(sessionId);
   }
 
   private requireStarted(): ConversationManager {
