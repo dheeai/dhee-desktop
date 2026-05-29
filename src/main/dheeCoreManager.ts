@@ -1814,6 +1814,14 @@ export class dheeCoreManager {
     // inline media). The chat panel's existing listeners (subscribe
     // via window.dhee.on) pick these up; no panel changes needed.
     let toolCallCounter = 0;
+    // Hard cap on tool calls per user message. The agent can drift
+    // into tight polling loops (most common: spamming dhee_get_status
+    // while a long-running render finishes elsewhere) which both burns
+    // LLM tokens and floods the chat with footnotes. The cap aborts
+    // the session when exceeded — SKILL.md tells the agent how to
+    // behave well, this enforces it as a hard ceiling regardless.
+    const MAX_TOOL_CALLS_PER_TURN = 12;
+    let capTriggered = false;
     const onEvent = eventCb
       ? (ev: unknown) => {
           const e = ev as {
@@ -1855,6 +1863,30 @@ export class dheeCoreManager {
                 status: 'in_progress',
               },
             });
+            // Hard cap enforcement: when the agent crosses the
+            // threshold, abort the session + emit a system notice
+            // so the user sees what happened. Subsequent tool_call
+            // events from in-flight calls still flow through to
+            // the chat (the abort is async); the cap is one-shot.
+            if (!capTriggered && toolCallCounter > MAX_TOOL_CALLS_PER_TURN) {
+              capTriggered = true;
+              log.warn(
+                `[chatPrompt] tool-call cap exceeded (${toolCallCounter} > ${MAX_TOOL_CALLS_PER_TURN}) — aborting session ${sessionId}`,
+              );
+              eventCb({
+                eventName: 'system_notice',
+                sessionId,
+                data: {
+                  level: 'warning',
+                  text: `Agent hit the per-turn tool-call cap (${MAX_TOOL_CALLS_PER_TURN}). Stopping to keep things sane — ask again if you need more.`,
+                },
+              });
+              const sess = (this.agentSessions.get(sessionId)?.session
+                ?? null) as { abort?: () => Promise<void> } | null;
+              if (sess?.abort) {
+                void sess.abort().catch(() => {});
+              }
+            }
             return;
           }
           if (e.type === 'tool_execution_end') {
