@@ -566,11 +566,17 @@ export function applyEnvFromSettings(
     // skipped. See ComfyUIClient.getComfyConfig.
     if (isComfyCloudUrl(comfyUiUrl)) {
       process.env.COMFY_MODE = 'cloud';
-      if (settings.comfyCloudApiKey.trim()) {
-        process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
-      }
     } else {
       process.env.COMFY_MODE = 'local';
+    }
+    // Always export the user's cloud API key when present — bundles
+    // can declare per-node endpoints (e.g. `public.cloud`) that point
+    // at cloud.comfy.org even when the default `comfyuiUrl` is local.
+    // Gating the key behind `isComfyCloudUrl(comfyuiUrl)` made those
+    // per-node cloud calls fail with "COMFY_CLOUD_API_KEY is required"
+    // even though the key was set in Settings.
+    if (settings.comfyCloudApiKey.trim()) {
+      process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
     }
   }
   setIfPresent('dhee_PROJECT_DIR', settings.projectDir);
