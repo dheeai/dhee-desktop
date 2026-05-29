@@ -340,99 +340,83 @@
 }
 
 // ── Message row: tool call ────────────────────────────────────────────────────
-// Production-board tag: status dot (pulses while running) · monospace
-// tool name · duration chip pulled to the right · args on a second line
-// when present. Reads like a build-log entry, not a debugger trace.
+// Marginalia. A handwritten footnote in the margin of a page — the
+// reader's eye glides over it unless they look directly at it. No
+// fill, no border, no duration chip, no animated pulse. Status is
+// silent in the common case (running / completed look the same);
+// only failure surfaces, and even then it's the smallest possible
+// interruption (a tiny red ✕ in the leading glyph).
+//
+// The row is intentionally a SINGLE flowing line where possible —
+// `<glyph> tool_name args_trailing` — so when the user scans down
+// the chat, tool calls look like ghost annotations rather than
+// boxed cards. Args wrap inline with hanging indent if long, but
+// still don't draw the eye.
 
 .toolCard {
-  margin: 4px 0 4px 16px;
-  padding: 6px 10px 6px 12px;
-  background: rgba(var(--color-text-primary-rgb), 0.025);
-  border: 1px solid $color-border-subtle;
-  border-radius: 6px;
-  font-size: $font-size-xs;
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  transition: border-color 200ms ease, background 200ms ease;
-  position: relative;
-
-  &[data-status='in_progress'] {
-    border-color: rgba(var(--color-warning-rgb), 0.45);
-    background: rgba(var(--color-warning-rgb), 0.05);
-  }
-
+  margin: 2px 0 2px 16px;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-family: $font-family-mono;
+  font-size: 10.5px;
+  line-height: 1.55;
+  font-weight: $font-weight-normal;
+  color: $color-text-muted;
+  opacity: 0.65;
+  letter-spacing: 0;
+  display: block;
+  // Status differentiation is intentionally subtle. Errors are the
+  // only state worth surfacing visually; everything else stays muted.
   &[data-status='error'] {
-    border-color: rgba(var(--color-error-rgb), 0.42);
-    background: rgba(var(--color-error-rgb), 0.05);
+    color: $color-error;
+    opacity: 0.85;
   }
-
-  &[data-status='completed'] {
-    border-color: rgba(var(--color-success-rgb), 0.32);
+  // Hover slightly lifts opacity so a user CAN read these clearly
+  // if they want — but at rest they recede.
+  &:hover {
+    opacity: 0.92;
   }
 }
 
 .toolHead {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  display: inline;
 }
 
 .toolDot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: $color-text-muted;
-  flex: 0 0 auto;
-  transition: background 200ms ease, box-shadow 200ms ease;
-
-  &[data-status='completed'] { background: $color-success; }
-  &[data-status='error']     { background: $color-error; }
-  &[data-status='in_progress'] {
-    background: $color-warning;
-    animation: dhee-tool-pulse 1.2s ease-in-out infinite;
+  display: inline-block;
+  width: 0.8em;
+  margin-right: 0.25em;
+  text-align: center;
+  color: inherit;
+  // Tiny middle-dot glyph as the only "this is a tool call"
+  // affordance. Becomes a small ✕ on error via the JSX.
+  &::before {
+    content: '·';
+  }
+  &[data-status='error']::before {
+    content: '✕';
   }
 }
 
-@keyframes dhee-tool-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(var(--color-warning-rgb), 0.55); }
-  50%      { box-shadow: 0 0 0 5px rgba(var(--color-warning-rgb), 0); }
-}
-
 .toolName {
-  font-family: $font-family-mono;
-  font-size: 11px;
-  font-weight: $font-weight-semibold;
-  color: $color-text-primary;
-  letter-spacing: -0.01em;
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.toolDuration {
-  margin-left: auto;
-  font-family: $font-family-mono;
-  font-size: 10px;
-  color: $color-text-muted;
-  font-variant-numeric: tabular-nums;
-  flex: 0 0 auto;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: rgba(var(--color-text-primary-rgb), 0.05);
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  color: inherit;
+  letter-spacing: 0;
 }
 
 .toolArgs {
-  margin-left: 14px;
-  font-family: $font-family-mono;
-  font-size: 10px;
-  color: $color-text-muted;
+  display: inline;
+  margin-left: 0.6em;
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
   opacity: 0.75;
   overflow-wrap: anywhere;
   word-break: break-word;
-  line-height: 1.5;
 }
 
 // ── Message row: thinking ─────────────────────────────────────────────────────
