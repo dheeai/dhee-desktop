@@ -12,6 +12,7 @@
 /** Channel names for `ipcMain.handle` / `ipcRenderer.invoke` request/response calls. */
 export const dhee_CHANNELS = {
   CREATE_SESSION: 'dhee:createSession',
+  CREATE_PROJECT: 'dhee:createProject',
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',
   SEND_RESPONSE: 'dhee:sendResponse',
@@ -254,9 +255,24 @@ export interface ConfigureProjectRequest {
   autonomousMode?: boolean;
 }
 
+export interface CreateProjectRequest {
+  projectName: string;
+  projectDir: string;
+  templateId: string;
+  style: string;
+  duration: number;
+  input: string;
+  referenceImages?: import('./attachmentTypes').ReferenceImagePayload[];
+}
+
 export interface OkResponse {
   ok: boolean;
   error?: string;
+}
+
+export interface CreateProjectResponse extends OkResponse {
+  projectDir?: string;
+  resolvedStyle?: string;
 }
 
 export interface RunTaskRequest {

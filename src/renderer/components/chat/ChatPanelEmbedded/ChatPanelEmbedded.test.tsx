@@ -162,6 +162,15 @@ interface dheeListenerSlot {
 }
 
 interface dheeMockState {
+  createProjectCalls: Array<{
+    projectName: string;
+    projectDir: string;
+    templateId: string;
+    style: string;
+    duration: number;
+    input: string;
+    referenceImages?: unknown;
+  }>;
   runTaskCalls: Array<{
     sessionId: string;
     task: string;
@@ -194,6 +203,7 @@ beforeEach(() => {
   mockWorkspaceProjectName = null;
   mockSavedConnectionSettings = [];
   mockState = {
+    createProjectCalls: [],
     runTaskCalls: [],
     cancelCalls: [],
     listeners: [],
@@ -201,6 +211,18 @@ beforeEach(() => {
   };
   (window as unknown as { dhee: unknown }).dhee = {
     createSession: jest.fn(async () => ({ sessionId: mockState.nextSessionId })),
+    createProject: jest.fn(async (req: {
+      projectName: string;
+      projectDir: string;
+      templateId: string;
+      style: string;
+      duration: number;
+      input: string;
+      referenceImages?: unknown;
+    }) => {
+      mockState.createProjectCalls.push(req);
+      return { ok: true, projectDir: req.projectDir, resolvedStyle: req.style };
+    }),
     configureProject: jest.fn(async () => ({ ok: true })),
     runTask: jest.fn(async (req: {
       sessionId: string;
@@ -640,6 +662,14 @@ describe('ChatPanelEmbedded', () => {
         }),
       ],
     });
+    expect(screen.getByAltText('field.png')).toHaveAttribute(
+      'src',
+      'file:///tmp/noir.dhee/assets/uploads/settings/field.png',
+    );
+    expect(screen.getByAltText('mood.png')).toHaveAttribute(
+      'src',
+      'file:///tmp/noir.dhee/assets/uploads/references/mood.png',
+    );
   });
 
   it('sends a targeted character replacement task from a selected character upload', async () => {
@@ -835,6 +865,138 @@ describe('ChatPanelEmbedded', () => {
         multiple: true,
       }),
     );
+  });
+
+  it('creates the project directly and shows a thumbnail prompt instead of agent setup metadata', async () => {
+    mockWorkspaceProjectName = 'fresh';
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_boy',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/boy.png',
+        name: 'boy.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'character',
+          purpose: 'character_ref',
+        },
+      },
+    }));
+    const importedAttachment = {
+      id: 'att_boy',
+      kind: 'reference_image' as const,
+      path: '/tmp/fresh.dhee/assets/uploads/characters/boy.png',
+      name: 'boy.png',
+      mimeType: 'image/png',
+      size: 123,
+      meta: {
+        referenceRole: 'character',
+        purpose: 'character_ref',
+        projectRelativePath: 'assets/uploads/characters/boy.png',
+        originalPath: '/Users/me/Desktop/boy.png',
+        originalFilename: 'boy.png',
+      },
+    };
+    const importReferenceImages = jest.fn(async () => ({
+      ok: true,
+      attachments: [importedAttachment],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => JSON.stringify({ title: 'fresh' })),
+        selectAttachment,
+        importReferenceImages,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByText('Choose a Style'));
+
+    fireEvent.click(screen.getByText('Cinematic Realism'));
+    await waitFor(() => screen.getByText('Choose Duration'));
+    fireEvent.click(screen.getByRole('button', { name: /1 minute/i }));
+    await waitFor(() => screen.getByText('Tell Us the Story'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Attach reference image',
+      }));
+    });
+    fireEvent.change(screen.getByLabelText('Project story or idea'), {
+      target: { value: 'create a movie on this character' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+
+    await waitFor(() => expect(mockState.createProjectCalls).toHaveLength(1));
+    expect(mockState.createProjectCalls[0]).toMatchObject({
+      projectName: 'fresh',
+      projectDir: '/tmp/fresh.dhee',
+      templateId: 'narrative',
+      style: 'cinematic_realism',
+      duration: 60,
+      input: 'create a movie on this character',
+      referenceImages: [
+        expect.objectContaining({
+          name: 'boy.png',
+          relativePath: 'assets/uploads/characters/boy.png',
+          purpose: 'character_ref',
+          referenceRole: 'character',
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls).toHaveLength(1);
+    expect(mockState.runTaskCalls[0].task).toMatch(
+      /Run the pipeline for the current project/i,
+    );
+    expect(mockState.runTaskCalls[0].task).not.toContain(
+      'Create the dhee project',
+    );
+    expect(mockState.runTaskCalls[0].task).not.toContain('referenceImages');
+
+    expect(
+      screen.getByText('create a movie on this character'),
+    ).toBeInTheDocument();
+    expect(screen.getByAltText('boy.png')).toHaveAttribute(
+      'src',
+      'file:///tmp/fresh.dhee/assets/uploads/characters/boy.png',
+    );
+    expect(screen.queryByText(/existingDir/i)).toBeNull();
+    expect(screen.queryByText(/assets\/uploads\/characters\/boy\.png/i)).toBeNull();
+  });
+
+  it('shows setup errors before starting the agent when app-owned project creation fails', async () => {
+    mockWorkspaceProjectName = 'fresh';
+    (window as unknown as { dhee: { createProject: jest.Mock } }).dhee.createProject =
+      jest.fn(async () => ({ ok: false, error: 'disk is read-only' }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => JSON.stringify({ title: 'fresh' })),
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByText('Choose a Style'));
+
+    fireEvent.click(screen.getByText('Cinematic Realism'));
+    await waitFor(() => screen.getByText('Choose Duration'));
+    fireEvent.click(screen.getByRole('button', { name: /1 minute/i }));
+    await waitFor(() => screen.getByText('Tell Us the Story'));
+    fireEvent.change(screen.getByLabelText('Project story or idea'), {
+      target: { value: 'create a movie on this character' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+
+    expect(await screen.findByText('disk is read-only')).toBeInTheDocument();
+    expect(mockState.runTaskCalls).toHaveLength(0);
   });
 
   it('tool_call events appear in the message list', async () => {

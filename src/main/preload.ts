@@ -42,6 +42,8 @@ import {
   type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
+  type CreateProjectRequest,
+  type CreateProjectResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
@@ -745,6 +747,9 @@ const accountBridge = {
 const dheeBridge = {
   createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CREATE_SESSION, req);
+  },
+  createProject(req: CreateProjectRequest): Promise<CreateProjectResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.CREATE_PROJECT, req);
   },
   configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CONFIGURE_PROJECT, req);

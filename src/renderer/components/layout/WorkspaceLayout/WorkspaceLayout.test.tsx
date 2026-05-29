@@ -12,8 +12,17 @@ import WorkspaceLayout from './WorkspaceLayout';
 
 const mockCloseProject = jest.fn();
 const mockRegisterProjectSwitchGuard = jest.fn();
+const mockExecutionCancel = jest.fn();
 let mockProjectDirectory: string | null = '/tmp/BurgerEating.dhee';
 let mockProjectName: string | null = 'BurgerEating';
+let mockExecution = {
+  active: false,
+  runnerActive: false,
+  chatBusy: false,
+  pendingCancel: false,
+  otherProjectRunner: null,
+  cancel: mockExecutionCancel,
+};
 
 jest.mock('../../../contexts/WorkspaceContext', () => ({
   useWorkspace: () => ({
@@ -21,6 +30,12 @@ jest.mock('../../../contexts/WorkspaceContext', () => ({
     projectName: mockProjectName,
     projectDirectory: mockProjectDirectory,
     registerProjectSwitchGuard: mockRegisterProjectSwitchGuard,
+  }),
+}));
+
+jest.mock('../../../hooks/useDheeSession', () => ({
+  useDheeSession: () => ({
+    execution: mockExecution,
   }),
 }));
 
@@ -81,12 +96,20 @@ describe('WorkspaceLayout runner cancellation guards', () => {
   beforeEach(() => {
     mockCloseProject.mockClear();
     mockRegisterProjectSwitchGuard.mockClear();
+    mockExecutionCancel.mockClear();
     mockProjectDirectory = '/tmp/BurgerEating.dhee';
     mockProjectName = 'BurgerEating';
+    mockExecution = {
+      active: false,
+      runnerActive: false,
+      chatBusy: false,
+      pendingCancel: false,
+      otherProjectRunner: null,
+      cancel: mockExecutionCancel,
+    };
     jest.spyOn(window, 'confirm').mockReturnValue(true);
     (window as unknown as { dhee: unknown }).dhee = {
       runnerStatus: jest.fn(async () => ({ active: false })),
-      runnerCancel: jest.fn(async () => ({ cancelled: true })),
     };
   });
 
@@ -95,21 +118,24 @@ describe('WorkspaceLayout runner cancellation guards', () => {
   });
 
   it('Back from the owning project confirms, calls guarded cancel, then closes', async () => {
-    const runnerCancel = jest.fn(async () => ({ cancelled: true }));
+    mockExecution = {
+      ...mockExecution,
+      active: true,
+      runnerActive: true,
+    };
     (window as unknown as { dhee: Record<string, unknown> }).dhee = {
       runnerStatus: jest.fn(async () => ({
         active: true,
         projectName: 'BurgerEating',
         projectDir: '/tmp/BurgerEating.dhee',
       })),
-      runnerCancel,
     };
 
     render(<WorkspaceLayout />);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /back/i })).toHaveAttribute(
         'title',
-        expect.stringMatching(/cancel/i),
+        expect.stringMatching(/stop/i),
       ),
     );
 
@@ -118,29 +144,51 @@ describe('WorkspaceLayout runner cancellation guards', () => {
     });
 
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(runnerCancel).toHaveBeenCalledWith({
-      projectDir: '/tmp/BurgerEating.dhee',
+    expect(mockExecutionCancel).toHaveBeenCalledTimes(1);
+    expect(mockCloseProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('Back from a busy chat/setup session confirms even when the runner is idle', async () => {
+    mockExecution = {
+      ...mockExecution,
+      active: true,
+      chatBusy: true,
+    };
+
+    render(<WorkspaceLayout />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /back/i }));
     });
+
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(window.confirm).toHaveBeenCalledWith(
+      'Dhee is still working on this project. Going back will stop the current work. Continue?',
+    );
+    expect(mockExecutionCancel).toHaveBeenCalledTimes(1);
     expect(mockCloseProject).toHaveBeenCalledTimes(1);
   });
 
   it('Back leaves the owning project open when the user declines cancellation', async () => {
     (window.confirm as jest.Mock).mockReturnValue(false);
-    const runnerCancel = jest.fn(async () => ({ cancelled: true }));
+    mockExecution = {
+      ...mockExecution,
+      active: true,
+      runnerActive: true,
+    };
     (window as unknown as { dhee: Record<string, unknown> }).dhee = {
       runnerStatus: jest.fn(async () => ({
         active: true,
         projectName: 'BurgerEating',
         projectDir: '/tmp/BurgerEating.dhee',
       })),
-      runnerCancel,
     };
 
     render(<WorkspaceLayout />);
     await waitFor(() =>
       expect(screen.getByRole('button', { name: /back/i })).toHaveAttribute(
         'title',
-        expect.stringMatching(/cancel/i),
+        expect.stringMatching(/stop/i),
       ),
     );
 
@@ -149,19 +197,22 @@ describe('WorkspaceLayout runner cancellation guards', () => {
     });
 
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(runnerCancel).not.toHaveBeenCalled();
+    expect(mockExecutionCancel).not.toHaveBeenCalled();
     expect(mockCloseProject).not.toHaveBeenCalled();
   });
 
   it('registers the same confirm-and-cancel guard for project-to-project switches', async () => {
-    const runnerCancel = jest.fn(async () => ({ cancelled: true }));
+    mockExecution = {
+      ...mockExecution,
+      active: true,
+      runnerActive: true,
+    };
     (window as unknown as { dhee: Record<string, unknown> }).dhee = {
       runnerStatus: jest.fn(async () => ({
         active: true,
         projectName: 'BurgerEating',
         projectDir: '/tmp/BurgerEating.dhee',
       })),
-      runnerCancel,
     };
 
     render(<WorkspaceLayout />);
@@ -178,20 +229,16 @@ describe('WorkspaceLayout runner cancellation guards', () => {
 
     expect(result).toBe(true);
     expect(window.confirm).toHaveBeenCalledTimes(1);
-    expect(runnerCancel).toHaveBeenCalledWith({
-      projectDir: '/tmp/BurgerEating.dhee',
-    });
+    expect(mockExecutionCancel).toHaveBeenCalledTimes(1);
   });
 
   it('does not cancel a runner owned by another project from the current screen', async () => {
-    const runnerCancel = jest.fn(async () => ({ cancelled: true }));
     (window as unknown as { dhee: Record<string, unknown> }).dhee = {
       runnerStatus: jest.fn(async () => ({
         active: true,
         projectName: 'SummerSky',
         projectDir: '/tmp/SummerSky.dhee',
       })),
-      runnerCancel,
     };
 
     render(<WorkspaceLayout />);
@@ -207,7 +254,37 @@ describe('WorkspaceLayout runner cancellation guards', () => {
     });
 
     expect(window.confirm).not.toHaveBeenCalled();
-    expect(runnerCancel).not.toHaveBeenCalled();
+    expect(mockExecutionCancel).not.toHaveBeenCalled();
+    expect(mockCloseProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('Back closes without warning when both runner and session are idle', async () => {
+    render(<WorkspaceLayout />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /back/i }));
+    });
+
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(mockExecutionCancel).not.toHaveBeenCalled();
+    expect(mockCloseProject).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not warn for stale local active state when a fresh runner check is idle', async () => {
+    mockExecution = {
+      ...mockExecution,
+      active: true,
+      runnerActive: true,
+    };
+
+    render(<WorkspaceLayout />);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /back/i }));
+    });
+
+    expect(window.confirm).not.toHaveBeenCalled();
+    expect(mockExecutionCancel).not.toHaveBeenCalled();
     expect(mockCloseProject).toHaveBeenCalledTimes(1);
   });
 });

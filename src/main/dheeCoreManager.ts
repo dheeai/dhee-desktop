@@ -79,6 +79,29 @@ type ManagerModule = {
   ConversationManager: new (
     config: ConversationManagerConfig,
   ) => ConversationManager;
+  createProjectInProcess?: (opts: {
+    name: string;
+    input: string;
+    style: string;
+    duration: number;
+    basePath: string;
+    templateId?: string;
+    existingDir?: string;
+    referenceImages?: Array<{
+      name: string;
+      relativePath: string;
+      purpose?: 'character_ref' | 'setting_ref' | 'reference_general';
+      referenceRole?: 'auto' | 'character' | 'setting';
+      sourcePath?: string;
+      originalFilename?: string;
+      mimeType?: string;
+      size?: number;
+    }>;
+  }) => {
+    projectDir: string;
+    resolvedStyle: string;
+    project: unknown;
+  };
   captureAnalyticsEvent?: (
     event: string,
     properties?: Record<string, unknown>,
@@ -1019,6 +1042,39 @@ export class dheeCoreManager {
         configureSessionForProject: (...a: unknown[]) => Promise<void>;
       }
     ).configureSessionForProject(sessionId, opts);
+  }
+
+  async createProjectInProcess(opts: {
+    name: string;
+    input: string;
+    style: string;
+    duration: number;
+    basePath: string;
+    templateId?: string;
+    existingDir?: string;
+    referenceImages?: Array<{
+      name: string;
+      relativePath: string;
+      purpose?: 'character_ref' | 'setting_ref' | 'reference_general';
+      referenceRole?: 'auto' | 'character' | 'setting';
+      sourcePath?: string;
+      originalFilename?: string;
+      mimeType?: string;
+      size?: number;
+    }>;
+  }): Promise<{ projectDir: string; resolvedStyle: string }> {
+    if (!this.managerModule) {
+      this.managerModule = await loadManagerModule();
+    }
+    const createProject = this.managerModule.createProjectInProcess;
+    if (!createProject) {
+      throw new Error('dhee-core createProjectInProcess is unavailable');
+    }
+    const result = createProject(opts);
+    return {
+      projectDir: result.projectDir,
+      resolvedStyle: result.resolvedStyle,
+    };
   }
 
   /**

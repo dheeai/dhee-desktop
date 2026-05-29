@@ -42,9 +42,11 @@ import type {
   HistorySnapshot,
   dheeEvent,
   dheeEventName,
+  RunnerStatusResponse,
   RunTaskRequest,
   RedoNodeRequest,
 } from '../../shared/dheeIpc';
+import { runnerBelongsToProject } from '../utils/runnerProjectScope';
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'connecting';
 
@@ -193,6 +195,24 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
+function sameRunnerStatus(
+  a: RunnerStatusResponse | null,
+  b: RunnerStatusResponse | null,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.active === b.active &&
+    a.cancelling === b.cancelling &&
+    a.taskId === b.taskId &&
+    a.kind === b.kind &&
+    a.projectName === b.projectName &&
+    a.projectDir === b.projectDir &&
+    a.startedAt === b.startedAt &&
+    a.sessionId === b.sessionId
+  );
+}
+
 /**
  * Call `window.dhee.createSession` with retry-on-rejection. The
  * rejection case is almost always "IPC handler not registered yet" —
@@ -240,6 +260,17 @@ type RunTaskOpts = Omit<RunTaskRequest, 'sessionId' | 'task'>;
 type RedoNodeOpts = Omit<RedoNodeRequest, 'sessionId' | 'nodeId'>;
 type ConfigureProjectOpts = Omit<ConfigureProjectRequest, 'sessionId'>;
 
+const RUNNER_STATUS_POLL_MS = 1500;
+
+export interface DheeSessionExecution {
+  active: boolean;
+  runnerActive: boolean;
+  chatBusy: boolean;
+  pendingCancel: boolean;
+  otherProjectRunner: RunnerStatusResponse | null;
+  cancel: () => Promise<void>;
+}
+
 export interface DheeSessionApi {
   sessionId: string | null;
   /** Normalized active project directory this session is scoped to. */
@@ -249,6 +280,8 @@ export interface DheeSessionApi {
   status: SessionStatus;
   /** Most recent error message from runTask, or null. */
   error: string | null;
+  /** Unified execution state used by Stop controls and navigation guards. */
+  execution: DheeSessionExecution;
   /**
    * Persisted chat snapshot returned by the main process when this
    * session was reconstructed from disk. Null on a fresh session.
@@ -352,6 +385,10 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
   const [status, setStatus] = useState<SessionStatus>('connecting');
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<HistorySnapshot | null>(null);
+  const [runnerStatus, setRunnerStatus] = useState<RunnerStatusResponse | null>(
+    null,
+  );
+  const [pendingCancel, setPendingCancel] = useState(false);
 
   // Track session id in a ref so callbacks captured in dependency lists
   // see the latest value without re-creating themselves.
@@ -361,6 +398,13 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
   const projectNameRef = useRef<string | null>(activeProjectName);
   projectDirectoryRef.current = activeProjectDirectory;
   projectNameRef.current = activeProjectName;
+  const runnerActive = runnerBelongsToProject(runnerStatus, {
+    projectDirectory: activeProjectDirectory,
+    projectName: activeProjectName,
+  });
+  const otherProjectRunner =
+    runnerStatus?.active && !runnerActive ? runnerStatus : null;
+  const chatBusy = status === 'running';
 
   // Create or resume the session for the current project scope. The
   // session id is stored per normalized absolute project directory so
@@ -593,6 +637,19 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
     return window.dhee.cancelTask({ sessionId: id });
   }, []);
 
+  const cancelExecution = useCallback(async () => {
+    setPendingCancel(true);
+    const projectDirectory = projectDirectoryRef.current;
+    const runnerCancel = window.dhee
+      .runnerCancel(
+        projectDirectory ? { projectDir: projectDirectory } : undefined,
+      )
+      .catch(() => undefined);
+    const chatCancel = cancel().catch(() => undefined);
+    await runnerCancel;
+    await chatCancel;
+  }, [cancel]);
+
   const redoNode = useCallback<DheeSessionApi['redoNode']>(
     (nodeId, opts) =>
       runWithSelfHeal((activeSessionId) =>
@@ -696,12 +753,75 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
     return unsubscribe;
   }, [sessionId]);
 
+  useEffect(() => {
+    setRunnerStatus(null);
+    setPendingCancel(false);
+
+    let cancelled = false;
+    const tick = async () => {
+      try {
+        const nextStatus = await window.dhee.runnerStatus();
+        if (cancelled) return;
+        const ownsRunner = runnerBelongsToProject(nextStatus, {
+          projectDirectory: activeProjectDirectory,
+          projectName: activeProjectName,
+        });
+        setRunnerStatus((prev) =>
+          sameRunnerStatus(prev, nextStatus) ? prev : nextStatus,
+        );
+        if (nextStatus?.cancelling && ownsRunner) {
+          setPendingCancel(true);
+        }
+      } catch {
+        if (!cancelled) {
+          const idleStatus: RunnerStatusResponse = { active: false };
+          setRunnerStatus((prev) => {
+            if (sameRunnerStatus(prev, idleStatus)) return prev;
+            return idleStatus;
+          });
+        }
+      }
+    };
+
+    tick();
+    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(handle);
+    };
+  }, [activeProjectDirectory, activeProjectName]);
+
+  useEffect(() => {
+    if (!runnerActive && !chatBusy && pendingCancel) {
+      setPendingCancel(false);
+    }
+  }, [runnerActive, chatBusy, pendingCancel]);
+
+  const execution = useMemo<DheeSessionExecution>(
+    () => ({
+      active: runnerActive || chatBusy || pendingCancel,
+      runnerActive,
+      chatBusy,
+      pendingCancel,
+      otherProjectRunner,
+      cancel: cancelExecution,
+    }),
+    [
+      runnerActive,
+      chatBusy,
+      pendingCancel,
+      otherProjectRunner,
+      cancelExecution,
+    ],
+  );
+
   return {
     sessionId,
     projectDirectory: activeProjectDirectory,
     projectName: activeProjectName,
     status,
     error,
+    execution,
     history,
     consumeHistory,
     refreshHistory,

@@ -11,84 +11,57 @@ describe('buildWizardKickoff', () => {
     story: 'A story about two characters on an observation deck.',
   };
 
-  it('produces a single message containing all metadata the agent needs to call dhee_new', () => {
-    const { message } = buildWizardKickoff(baseArgs);
-    expect(message).toContain('Better Image');
-    expect(message).toContain('narrative');
-    expect(message).toContain('anime');
-    expect(message).toContain('60');
-    expect(message).toContain('/Users/dev/dhee-studios/Better Image');
-    expect(message).toContain('existingDir');
-    expect(message).toContain('A story about two characters');
+  it('returns display text for the user and a minimal pipeline task for the agent', () => {
+    const result = buildWizardKickoff(baseArgs);
+    expect(result.displayText).toBe(
+      'A story about two characters on an observation deck.',
+    );
+    expect(result.agentTask).toMatch(
+      /Run the pipeline for the current project/i,
+    );
+    expect(result.agentTask).toContain('dhee_run_to');
   });
 
-  it('returns an empty message when story is blank — caller short-circuits the dispatch', () => {
-    expect(buildWizardKickoff({ ...baseArgs, story: '' }).message).toBe('');
-    expect(buildWizardKickoff({ ...baseArgs, story: '   \n\t  ' }).message).toBe('');
+  it('does not leak project setup metadata into the user-visible text', () => {
+    const { displayText } = buildWizardKickoff({
+      ...baseArgs,
+      referenceImages: [
+        {
+          name: 'field.png',
+          relativePath: 'assets/uploads/settings/field.png',
+          purpose: 'setting_ref',
+          referenceRole: 'setting',
+          sourcePath: '/Users/me/Desktop/field.png',
+          originalFilename: 'field.png',
+          mimeType: 'image/png',
+          size: 4,
+        },
+      ],
+    });
+
+    expect(displayText).toBe(baseArgs.story);
+    expect(displayText).not.toContain('dhee_new');
+    expect(displayText).not.toContain('existingDir');
+    expect(displayText).not.toContain('referenceImages');
+    expect(displayText).not.toContain('/Users/me/Desktop/field.png');
   });
 
-  it('trims surrounding whitespace from the story before embedding', () => {
-    const { message } = buildWizardKickoff({
+  it('returns empty fields when story is blank so the caller can short-circuit', () => {
+    expect(buildWizardKickoff({ ...baseArgs, story: '' })).toEqual({
+      displayText: '',
+      agentTask: '',
+    });
+    expect(buildWizardKickoff({ ...baseArgs, story: '   \n\t  ' })).toEqual({
+      displayText: '',
+      agentTask: '',
+    });
+  });
+
+  it('trims surrounding whitespace from the display text', () => {
+    const { displayText } = buildWizardKickoff({
       ...baseArgs,
       story: '\n\n  A story body.  \n\n',
     });
-    expect(message).toContain('A story body.');
-    expect(message).not.toContain('\n\n  A story body.');
-  });
-
-  it('ends with a clear instruction to start the pipeline so the agent knows to dispatch dhee_run_to', () => {
-    const { message } = buildWizardKickoff(baseArgs);
-    expect(message).toMatch(/start the pipeline/i);
-  });
-
-  it('includes copied character reference images as the generic dhee_new referenceImages payload', () => {
-    const { message } = buildWizardKickoff({
-      ...baseArgs,
-      characterReferenceImages: [{
-        name: 'hero.png',
-        relativePath: 'assets/uploads/characters/hero.png',
-        sourcePath: '/Users/me/Desktop/hero.png',
-        originalFilename: 'hero.png',
-        mimeType: 'image/png',
-        size: 4,
-      }],
-    });
-
-    expect(message).toContain('referenceImages');
-    expect(message).toContain('"relativePath": "assets/uploads/characters/hero.png"');
-    expect(message).toContain('"purpose": "character_ref"');
-    expect(message).toContain('"referenceRole": "character"');
-    expect(message).toContain('"sourcePath": "/Users/me/Desktop/hero.png"');
-  });
-
-  it('includes copied setting reference images as the dhee_new referenceImages payload', () => {
-    const { message } = buildWizardKickoff({
-      ...baseArgs,
-      referenceImages: [{
-        name: 'field.png',
-        relativePath: 'assets/uploads/settings/field.png',
-        purpose: 'setting_ref',
-        referenceRole: 'setting',
-        sourcePath: '/Users/me/Desktop/field.png',
-        originalFilename: 'field.png',
-        mimeType: 'image/png',
-        size: 4,
-      }],
-    });
-
-    expect(message).toContain('referenceImages');
-    expect(message).toContain('"relativePath": "assets/uploads/settings/field.png"');
-    expect(message).toContain('"purpose": "setting_ref"');
-    expect(message).toContain('"referenceRole": "setting"');
-  });
-
-  it('handles names / paths containing spaces correctly', () => {
-    const { message } = buildWizardKickoff({
-      ...baseArgs,
-      projectName: 'Better Image V2',
-      projectDir: '/Users/dev/my projects/Better Image V2',
-    });
-    expect(message).toContain('"Better Image V2"');
-    expect(message).toContain('/Users/dev/my projects/Better Image V2');
+    expect(displayText).toBe('A story body.');
   });
 });

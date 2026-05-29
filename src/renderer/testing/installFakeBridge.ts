@@ -16,6 +16,7 @@ import type {
   dheeEvent,
   dheeEventName,
   CreateSessionResponse,
+  CreateProjectRequest,
   ConfigureProjectRequest,
   OkResponse,
   RunTaskRequest,
@@ -280,6 +281,10 @@ const fakedhee = {
   createSession(): Promise<CreateSessionResponse> {
     record('createSession', undefined);
     return Promise.resolve({ sessionId: state.sessionId });
+  },
+  createProject(req: CreateProjectRequest): Promise<OkResponse> {
+    record('createProject', req);
+    return Promise.resolve({ ok: true });
   },
   configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
     record('configureProject', req);

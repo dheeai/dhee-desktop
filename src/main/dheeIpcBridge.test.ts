@@ -78,6 +78,19 @@ const fakeManager = {
   configureSessionForProject: async (sessionId: string, opts: unknown) => {
     managerCalls.push({ method: 'configureSessionForProject', args: [sessionId, opts] });
   },
+  createProjectInProcess: async (opts: {
+    name: string;
+    input: string;
+    style: string;
+    duration: number;
+    basePath: string;
+    templateId?: string;
+    existingDir?: string;
+    referenceImages?: unknown[];
+  }) => {
+    managerCalls.push({ method: 'createProjectInProcess', args: [opts] });
+    return { projectDir: opts.existingDir ?? `${opts.basePath}/${opts.name}`, resolvedStyle: opts.style };
+  },
   runTask: async (
     sessionId: string,
     task: string,
@@ -154,6 +167,51 @@ describe('dheeIpcBridge', () => {
     const handler = handlerRegistry.get(dhee_CHANNELS.CREATE_SESSION)!;
     const result = await handler({} as never);
     expect(result).toEqual({ sessionId: 's-1', resumed: false });
+  });
+
+  it('createProject channel calls createProjectInProcess with existingDir and pins the projects dir', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.CREATE_PROJECT)!;
+    const result = await handler({} as never, {
+      projectName: 'fresh',
+      projectDir: '/tmp/fresh.dhee',
+      templateId: 'narrative',
+      style: 'cinematic_realism',
+      duration: 60,
+      input: 'A boy playing football',
+      referenceImages: [{
+        name: 'boy.png',
+        relativePath: 'assets/uploads/characters/boy.png',
+        purpose: 'character_ref',
+        referenceRole: 'character',
+      }],
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      projectDir: '/tmp/fresh.dhee',
+      resolvedStyle: 'cinematic_realism',
+    });
+    expect(process.env['dhee_PROJECTS_DIR']).toBe('/tmp');
+    const call = managerCalls.find((c) => c.method === 'createProjectInProcess');
+    expect(call).toBeDefined();
+    expect(call?.args[0]).toMatchObject({
+        name: 'fresh',
+        input: 'A boy playing football',
+        style: 'cinematic_realism',
+        duration: 60,
+        basePath: '/tmp',
+        templateId: 'narrative',
+        existingDir: '/tmp/fresh.dhee',
+        referenceImages: [
+          expect.objectContaining({
+            relativePath: 'assets/uploads/characters/boy.png',
+          }),
+        ],
+      });
   });
 
   it('runTask channel forwards (sessionId, task, opts) to dheeCoreManager.runTask', async () => {

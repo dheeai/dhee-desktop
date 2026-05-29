@@ -14,7 +14,7 @@ import PreviewPanel from '../../preview/PreviewPanel/PreviewPanel';
 import ChatPanel from '../../chat/ChatPanelEmbedded/ChatPanelEmbedded';
 import StatusBar from '../StatusBar/StatusBar';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
-import type { RunnerStatusResponse } from '../../../../shared/dheeIpc';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import {
   normalizeRunnerProjectPath,
   runnerBelongsToProject,
@@ -41,14 +41,6 @@ function getProjectDisplayName(
   return folderName.replace(/\.dhee$/i, '');
 }
 
-/**
- * Poll the BackgroundTaskRunner status so the Back-to-Projects button
- * can guard against accidental cancellation of a long pipeline. 1.5s
- * matches ChatPanelEmbedded's poll cadence — a future cleanup could
- * lift this into a shared `useRunnerStatus` hook.
- */
-const RUNNER_STATUS_POLL_MS = 1500;
-
 export default function WorkspaceLayout() {
   const {
     closeProject,
@@ -56,67 +48,43 @@ export default function WorkspaceLayout() {
     projectDirectory,
     registerProjectSwitchGuard,
   } = useWorkspace();
+  const session = useDheeSession();
   const [chatExpanded, setChatExpanded] = useState(true);
-  const [runnerStatus, setRunnerStatus] = useState<RunnerStatusResponse | null>(
-    null,
-  );
 
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
   const displayProjectName = getProjectDisplayName(
     projectName,
     projectDirectory,
   );
-  const runnerActive = runnerBelongsToProject(runnerStatus, {
-    projectDirectory,
-    projectName,
-  });
+  const { execution } = session;
 
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const status = await window.dhee.runnerStatus();
-        if (!cancelled) setRunnerStatus(status);
-      } catch {
-        if (!cancelled) setRunnerStatus({ active: false });
-      }
-    };
-    tick();
-    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, []);
-
-  const confirmAndCancelOwnedRunner =
-    useCallback(async (): Promise<boolean> => {
-      const status = await window.dhee
-        .runnerStatus()
-        .catch(() => runnerStatus ?? { active: false });
-      const ownsRunner = runnerBelongsToProject(status, {
+  const confirmAndCancelActiveWork = useCallback(async (): Promise<boolean> => {
+    let ownsRunner = execution.runnerActive;
+    try {
+      const status = await window.dhee.runnerStatus();
+      ownsRunner = runnerBelongsToProject(status, {
         projectDirectory,
         projectName,
       });
-      if (!ownsRunner) return true;
+    } catch {
+      // Keep the cached execution state if the just-in-time status
+      // check fails. That avoids silently leaving an active run.
+    }
+    const hasActiveWork =
+      ownsRunner || execution.chatBusy || execution.pendingCancel;
+    if (!hasActiveWork) return true;
 
-      // Soft confirm: explicit ack + an immediate cancel-and-exit path.
-      // window.confirm is consistent with the rest of the app's
-      // destructive-action prompts (file delete, etc.).
-      // eslint-disable-next-line no-alert
-      const ok = window.confirm(
-        'A run is in progress on this project. Going back will cancel it. Continue?',
-      );
-      if (!ok) return false;
-      try {
-        await window.dhee.runnerCancel(
-          projectDirectory ? { projectDir: projectDirectory } : undefined,
-        );
-      } catch {
-        /* best-effort — we still want to navigate even if the cancel RPC fails */
-      }
-      return true;
-    }, [projectDirectory, projectName, runnerStatus]);
+    // Soft confirm: explicit ack + an immediate cancel-and-exit path.
+    // window.confirm is consistent with the rest of the app's
+    // destructive-action prompts (file delete, etc.).
+    // eslint-disable-next-line no-alert
+    const ok = window.confirm(
+      'Dhee is still working on this project. Going back will stop the current work. Continue?',
+    );
+    if (!ok) return false;
+    await execution.cancel();
+    return true;
+  }, [execution, projectDirectory, projectName]);
 
   useEffect(() => {
     return registerProjectSwitchGuard(async (context) => {
@@ -126,18 +94,18 @@ export default function WorkspaceLayout() {
       ) {
         return true;
       }
-      return confirmAndCancelOwnedRunner();
+      return confirmAndCancelActiveWork();
     });
   }, [
-    confirmAndCancelOwnedRunner,
+    confirmAndCancelActiveWork,
     projectDirectory,
     registerProjectSwitchGuard,
   ]);
 
   const handleBack = useCallback(async () => {
-    if (!(await confirmAndCancelOwnedRunner())) return;
+    if (!(await confirmAndCancelActiveWork())) return;
     closeProject();
-  }, [closeProject, confirmAndCancelOwnedRunner]);
+  }, [closeProject, confirmAndCancelActiveWork]);
 
   const toggleChat = useCallback(() => {
     const panel = chatPanelRef.current;
@@ -175,8 +143,8 @@ export default function WorkspaceLayout() {
             className={styles.backButton}
             onClick={handleBack}
             title={
-              runnerActive
-                ? 'A run is in progress — clicking Back will cancel it'
+              execution.active
+                ? 'Dhee is still working — clicking Back will ask before stopping it'
                 : 'Back to Landing'
             }
           >

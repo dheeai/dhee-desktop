@@ -548,6 +548,43 @@
   white-space: pre-wrap;
 }
 
+.userAttachmentGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.userAttachmentImage {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: $radius-sm;
+  border: 1px solid rgba(var(--color-text-primary-rgb), 0.12);
+  background: $color-bg-subtle;
+  display: block;
+}
+
+.userAttachmentFile {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 1px solid rgba(var(--color-text-primary-rgb), 0.12);
+  border-radius: $radius-sm;
+  background: rgba(var(--color-text-primary-rgb), 0.05);
+  font-size: $font-size-xs;
+
+  span {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+  }
+}
+
 .bubbleAssistant {
   background: $color-bg-subtle;
   align-self: flex-start;

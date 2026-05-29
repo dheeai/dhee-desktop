@@ -23,6 +23,7 @@ import type {
   dheeEventName,
   FocusProjectRequest,
   HistorySnapshot,
+  RunnerStatusResponse,
 } from '../../shared/dheeIpc';
 
 type EventListener = (e: dheeEvent) => void;
@@ -40,6 +41,7 @@ interface dheeMockState {
   configureProjectArgs: Array<{ sessionId: string; projectDir: string }>;
   focusProjectArgs: FocusProjectRequest[];
   clearChatHistoryArgs: ClearChatHistoryRequest[];
+  runnerCancelArgs: Array<{ projectDir?: string } | undefined>;
   listeners: Array<{
     eventName: dheeEventName | '*';
     cb: EventListener;
@@ -48,6 +50,7 @@ interface dheeMockState {
   nextSessionId: string;
   clearChatHistoryNextSessionId: string;
   runTaskResult: { ok: boolean; error?: string };
+  runnerStatusResult: RunnerStatusResponse;
   historyBySessionId: Record<string, HistorySnapshot | null>;
 }
 
@@ -63,10 +66,12 @@ function resetMockState(): void {
     configureProjectArgs: [],
     focusProjectArgs: [],
     clearChatHistoryArgs: [],
+    runnerCancelArgs: [],
     listeners: [],
     nextSessionId: 's-1',
     clearChatHistoryNextSessionId: 's-cleared',
     runTaskResult: { ok: true },
+    runnerStatusResult: { active: false },
     historyBySessionId: {},
   };
 }
@@ -106,6 +111,11 @@ beforeEach(() => {
     ),
     cancelTask: jest.fn(async (req: { sessionId: string }) => {
       mockState.cancelTaskArgs.push(req);
+      return { cancelled: true };
+    }),
+    runnerStatus: jest.fn(async () => mockState.runnerStatusResult),
+    runnerCancel: jest.fn(async (req?: { projectDir?: string }) => {
+      mockState.runnerCancelArgs.push(req);
       return { cancelled: true };
     }),
     redoNode: jest.fn(
@@ -443,6 +453,133 @@ describe('useDheeSession', () => {
     });
     expect(mockState.cancelTaskArgs).toHaveLength(1);
     expect(mockState.cancelTaskArgs[0]?.sessionId).toBe('s-1');
+  });
+
+  it('execution tracks a runner owned by the active project', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    await waitFor(() => expect(api!.execution.runnerActive).toBe(true));
+    expect(api!.execution.active).toBe(true);
+    expect(api!.execution.otherProjectRunner).toBeNull();
+  });
+
+  it('execution exposes another active project without marking this project active', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-b',
+      projectDir: '/tmp/project-b',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    await waitFor(() =>
+      expect(api!.execution.otherProjectRunner?.projectName).toBe('project-b'),
+    );
+    expect(api!.execution.runnerActive).toBe(false);
+    expect(api!.execution.active).toBe(false);
+  });
+
+  it('execution.cancel cancels both the runner and the chat session', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    await waitFor(() => expect(api!.execution.runnerActive).toBe(true));
+
+    await act(async () => {
+      await api!.execution.cancel();
+    });
+
+    expect(mockState.runnerCancelArgs).toEqual([
+      { projectDir: '/tmp/project-a' },
+    ]);
+    expect(mockState.cancelTaskArgs).toEqual([{ sessionId: 's-1' }]);
+    expect(api!.execution.pendingCancel).toBe(true);
+    expect(api!.execution.active).toBe(true);
+  });
+
+  it('execution.pendingCancel clears after runner and chat both go idle', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    await waitFor(() => expect(api!.execution.runnerActive).toBe(true));
+
+    await act(async () => {
+      await api!.execution.cancel();
+    });
+    expect(api!.execution.pendingCancel).toBe(true);
+
+    mockState.runnerStatusResult = { active: false };
+
+    await waitFor(
+      () => {
+        expect(api!.execution.runnerActive).toBe(false);
+        expect(api!.execution.pendingCancel).toBe(false);
+        expect(api!.execution.active).toBe(false);
+      },
+      { timeout: 3000 },
+    );
   });
 
   it('redoNode delegates with sessionId and editedPrompt', async () => {
