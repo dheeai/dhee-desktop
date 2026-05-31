@@ -121,8 +121,8 @@ const fakeManager = {
     managerCalls.push({ method: 'redoNode', args: [sessionId, nodeId, opts] });
     return { ok: true };
   },
-  focusSessionProject: async (sessionId: string, projectName: string) => {
-    managerCalls.push({ method: 'focusSessionProject', args: [sessionId, projectName] });
+  focusSessionProject: async (sessionId: string, projectName: string, projectDir?: string) => {
+    managerCalls.push({ method: 'focusSessionProject', args: [sessionId, projectName, projectDir] });
     return { ok: true as const };
   },
   setAutonomousMode: (sessionId: string, enabled: boolean) => {
@@ -505,6 +505,11 @@ describe('dheeIpcBridge', () => {
       projectDir: '/Users/foo/MyVideos/storyA.dhee',
     });
     expect(process.env['dhee_PROJECTS_DIR']).toBe('/Users/foo/MyVideos');
+    expect(managerCalls.find((c) => c.method === 'focusSessionProject')?.args).toEqual([
+      's-1',
+      'storyA',
+      '/Users/foo/MyVideos/storyA.dhee',
+    ]);
     expect(focusResult).toEqual({ ok: true });
   });
 

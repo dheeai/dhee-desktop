@@ -1340,14 +1340,15 @@ export class dheeCoreManager {
   async focusSessionProject(
     sessionId: string,
     projectName: string,
+    projectDir?: string,
   ): Promise<OkResponse> {
     if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
     try {
       await (
         this.cm as unknown as {
-          focusSessionProject: (s: string, p: string) => Promise<unknown>;
+          focusSessionProject: (s: string, p: string, d?: string) => Promise<unknown>;
         }
-      ).focusSessionProject(sessionId, projectName);
+      ).focusSessionProject(sessionId, projectName, projectDir);
       return { ok: true };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

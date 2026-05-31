@@ -129,6 +129,7 @@ interface ChatMessage {
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
+  mediaProjectDir?: string;
   /** Streaming bubbles aren't yet finalized; agent_response replaces text. */
   streaming?: boolean;
   /** agent_question fields */
@@ -529,6 +530,7 @@ export default function ChatPanelEmbedded() {
             mediaKind: m.media.kind,
             mediaPath: m.media.path,
             mediaProject: m.media.project,
+            mediaProjectDir: m.media.projectDir,
           },
         });
         continue;
@@ -2141,7 +2143,7 @@ function MessageRow({
   }
   if (m.role === 'media') {
     const resolvedSrc = m.mediaPath
-      ? resolveMediaSrc(m.mediaPath, projectDirectory)
+      ? resolveMediaSrc(m.mediaPath, m.mediaProjectDir ?? projectDirectory)
       : '';
     return (
       <div className={styles.mediaRow}>
@@ -2545,6 +2547,7 @@ function handleEvent(
         kind?: 'image' | 'video';
         path?: string;
         project?: string;
+        projectDir?: string;
       };
       streamingMsgIdRef.current = null;
       setMessages((prev) => [
@@ -2555,6 +2558,7 @@ function handleEvent(
           mediaKind: data.kind ?? 'image',
           mediaPath: data.path,
           mediaProject: data.project,
+          mediaProjectDir: data.projectDir,
         },
       ]);
       return;

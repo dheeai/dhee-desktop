@@ -281,7 +281,7 @@ export function registerdheeIpcBridge(
       if (req.projectDir) {
         process.env['dhee_PROJECTS_DIR'] = path.dirname(req.projectDir);
       }
-      return manager.focusSessionProject(req.sessionId, req.projectName);
+      return manager.focusSessionProject(req.sessionId, req.projectName, req.projectDir);
     },
   );
 

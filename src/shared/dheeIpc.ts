@@ -167,6 +167,7 @@ export interface HistorySnapshot {
       kind: 'image' | 'video';
       path: string;
       project: string;
+      projectDir?: string;
       source?: string;
     };
   }>;
