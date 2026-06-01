@@ -36,6 +36,7 @@ import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
+import { extractToolResultFilePath, cacheBustMediaSrc } from './mediaResolution';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
@@ -93,6 +94,15 @@ interface ChatMessage {
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
+  /**
+   * Optional ms-timestamp from the tool's `details.created_at` (or
+   * mtime). Threaded into the file:// URL as `?v=<key>` so the
+   * Electron renderer fetches fresh bytes when the canonical
+   * artifact has been overwritten since the bubble was first
+   * created. Without this, the browser keeps serving the cached
+   * first-version bytes and the user sees the "old mangled hands."
+   */
+  mediaCreatedAt?: number;
   /** Streaming bubbles aren't yet finalized; agent_response replaces text. */
   streaming?: boolean;
   /** agent_question fields */
@@ -1725,9 +1735,10 @@ function MessageRow({
     );
   }
   if (m.role === 'media') {
-    const resolvedSrc = m.mediaPath
+    const rawSrc = m.mediaPath
       ? resolveMediaSrc(m.mediaPath, projectDirectory)
       : '';
+    const resolvedSrc = cacheBustMediaSrc(rawSrc, m.mediaCreatedAt ?? null);
     // Strip the project directory + leading slash so the caption
     // shows just the artifact-relative path (e.g.
     // "assets/shot_5/first_frame.png") instead of the absolute
@@ -1899,7 +1910,12 @@ function handleEvent(
       const data = event.data as {
         toolCallId?: string;
         isError?: boolean;
-        result?: { file_path?: string; asset_type?: string; content?: Array<{ type?: string; text?: string }> };
+        result?: {
+          file_path?: string;
+          asset_type?: string;
+          content?: Array<{ type?: string; text?: string }>;
+          details?: { file_path?: string; asset_type?: string; created_at?: number };
+        };
       };
       // Update the matching tool card in place (NOT a new card).
       const newStatus: ToolStatus = data.isError ? 'error' : 'completed';
@@ -1942,8 +1958,10 @@ function handleEvent(
         }
         // Phase 6.5c.b: when a tool result has a file_path (dhee_show_*
         // tools), append a `media` row so the chat renders the image/
-        // video inline.
-        const filePath = data.result?.file_path;
+        // video inline. Path lives under result.details.file_path for
+        // dhee custom tools; extractToolResultFilePath handles both
+        // shapes (and the legacy flat one) so the lookup doesn't miss.
+        const { filePath, createdAt } = extractToolResultFilePath(data.result);
         if (!data.isError && filePath) {
           const ext = filePath.toLowerCase().match(/\.(\w+)$/)?.[1] ?? '';
           const isImage = /^(png|jpg|jpeg|gif|webp|bmp)$/i.test(ext);
@@ -1955,8 +1973,13 @@ function handleEvent(
                 id: newMessageId(),
                 role: 'media' as const,
                 mediaKind: (isImage ? 'image' : 'video') as 'image' | 'video',
+                // Stamp the createdAt on the mediaPath as a cache-bust
+                // key so the renderer fetches fresh bytes when the
+                // canonical artifact has been overwritten since the
+                // last render of this file:// URL.
                 mediaPath: filePath,
-              },
+                ...(createdAt ? { mediaCreatedAt: createdAt } : {}),
+              } as ChatMessage,
             ];
           }
         }

@@ -56,7 +56,7 @@ const CARD_W = 320;
 const CARD_H = 220;
 
 function InstanceCardImpl({ data }: { data: InstanceCardData }) {
-  const { nodeId, itemId, status, outputPath, tool, cached, error } = data;
+  const { nodeId, itemId, status, outputPath, tool, cached, error, ts } = data;
   const projectDir = useProjectDir();
   const { hoveredKey, highlighted } = useInstanceHoverState();
   const myKey = keyOf(nodeId, itemId);
@@ -83,7 +83,16 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
       : '0 3px 10px rgba(0,0,0,0.25)';
 
   const isCompleted = status === 'completed' && outputPath && projectDir;
-  const bodyProps = { projectDir, outputPath: outputPath ?? null };
+  const bodyProps = {
+    projectDir,
+    outputPath: outputPath ?? null,
+    // ts (node.completed event timestamp from the projection) → used
+    // by image/video body components as a cache-bust key on the
+    // file:// URL. When the canonical artifact is overwritten by a
+    // regen, ts changes, URL changes, browser fetches fresh bytes
+    // instead of serving the stale cached version.
+    completedAt: ts ?? null,
+  };
 
   return (
     <div
