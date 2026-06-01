@@ -307,8 +307,8 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         type: 'smoothstep',
         animated: isHighlighted,
         style: {
-          stroke: isHighlighted ? '#f2c97a' : isDimmed ? 'rgba(168, 156, 139, 0.08)' : 'rgba(168, 156, 139, 0.35)',
-          strokeWidth: isHighlighted ? 2 : 1,
+          stroke: isHighlighted ? '#ff9248' : isDimmed ? 'rgba(168, 156, 139, 0.05)' : 'rgba(168, 156, 139, 0.25)',
+          strokeWidth: isHighlighted ? 2.5 : 1,
         },
         zIndex: isHighlighted ? 2 : 0,
       };

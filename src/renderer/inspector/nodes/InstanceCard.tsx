@@ -65,16 +65,21 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
   const isDimmed = hoveredKey !== null && !isHovered && !isDependent;
 
   const fmt = inferFormat(outputPath);
+  // Visual signal hierarchy: hovered card is the focus (warm yellow,
+  // strong glow), dependents glow saturated orange (3px ring) and
+  // stay full opacity, everything else dims hard to 0.2 so the
+  // blast-radius chain reads instantly even at zoom-out.
   const borderColor = isHovered
     ? '#f2c97a'
     : isDependent
-      ? '#a3553b'
+      ? '#ff9248'
       : statusColor(status);
-  const opacity = isDimmed ? 0.4 : 1;
+  const borderWidth = isHovered || isDependent ? 3 : 1.5;
+  const opacity = isDimmed ? 0.18 : 1;
   const boxShadow = isHovered
-    ? '0 0 0 2px #f2c97a, 0 10px 28px rgba(0,0,0,0.55)'
+    ? '0 0 0 3px #f2c97a, 0 0 32px rgba(242, 201, 122, 0.55), 0 12px 30px rgba(0,0,0,0.6)'
     : isDependent
-      ? '0 0 0 1.5px #a3553b, 0 6px 16px rgba(0,0,0,0.4)'
+      ? '0 0 0 2px #ff9248, 0 0 22px rgba(255, 146, 72, 0.45), 0 6px 18px rgba(0,0,0,0.4)'
       : '0 3px 10px rgba(0,0,0,0.25)';
 
   const isCompleted = status === 'completed' && outputPath && projectDir;
@@ -86,7 +91,7 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
         width: CARD_W,
         height: CARD_H,
         background: '#161821',
-        border: `1.5px solid ${borderColor}`,
+        border: `${borderWidth}px solid ${borderColor}`,
         borderRadius: 10,
         color: '#e5e1d8',
         fontFamily: 'system-ui, -apple-system, sans-serif',
