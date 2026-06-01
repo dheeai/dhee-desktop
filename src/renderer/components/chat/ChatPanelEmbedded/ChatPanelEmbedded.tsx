@@ -1787,6 +1787,17 @@ function MessageRow({
       </div>
     );
   }
+  // Render-layer guard: skip empty/whitespace-only assistant bubbles.
+  // Multiple upstream paths can land an empty assistant message (a
+  // trailing empty stream_chunk after agent_response cleared the ref,
+  // a duplicate agent_response with no output, the chatPrompt fallback
+  // when assistant_text comes back blank). Showing a bubble with just
+  // the "Dhee" eyebrow and no body is the visible bug. Catching it
+  // here covers every producer.
+  const assistantText = dedupeDoubled(m.text ?? '');
+  if (!assistantText.trim()) {
+    return null;
+  }
   return (
     <div className={`${styles.bubble} ${styles.bubbleAssistant}`}>
       <span className={styles.bubbleEyebrow}>Dhee</span>
@@ -1795,7 +1806,7 @@ function MessageRow({
             stream sometimes accumulates the same text twice
             (stream_chunk arriving with full content twice). Catching
             it here covers every code path that builds the bubble. */}
-        <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
+        <MarkdownContent text={assistantText} />
       </div>
     </div>
   );

@@ -145,30 +145,71 @@ describe('clearProjectSessions', () => {
     expect(r.archived).toBe(1);
   });
 
-  it('archive-not-delete: live JSONL renamed; .archived.jsonl preserved on disk', () => {
+  it('archive-not-delete: live JSONL renamed to `.archived` (no .jsonl); preserved on disk', () => {
     const userData = setupUserDataDir({
       'pi-sessions/Foo/x.jsonl': 'x-content',
     });
     dirs.push(userData);
     clearProjectSessions(userData, '/anywhere/Foo');
-    // Live JSONL is gone, archived twin is present + holds the content.
+    // Live JSONL is gone, archived twin (no .jsonl suffix) holds the content.
     expect(existsSync(join(userData, 'pi-sessions/Foo/x.jsonl'))).toBe(false);
-    expect(existsSync(join(userData, 'pi-sessions/Foo/x.archived.jsonl'))).toBe(true);
+    expect(existsSync(join(userData, 'pi-sessions/Foo/x.archived'))).toBe(true);
   });
 
-  it('repeated clears do not double-suffix (skips .archived.jsonl)', () => {
+  it('archived files use a non-.jsonl suffix so pi-coding-agent does not re-pickup them', () => {
+    // The bug this guards: clearProjectSessions used to rename to
+    // `.archived.jsonl`, which still ends in `.jsonl`. pi-coding-agent's
+    // SessionManager.continueRecent scans for *.jsonl and picked the
+    // archived file as the most recent, then continued writing to it.
+    // Meanwhile getSessionHistorySnapshot's filter skipped the archived
+    // file, so the UI showed blank chat even though pi was writing.
+    // The fix: archives no longer end in `.jsonl`.
     const userData = setupUserDataDir({
-      'pi-sessions/Foo/x.archived.jsonl': 'old',
+      'pi-sessions/Foo/sess.jsonl': 'live',
+    });
+    dirs.push(userData);
+    clearProjectSessions(userData, '/anywhere/Foo');
+    const entries = readdirSync(join(userData, 'pi-sessions/Foo'));
+    for (const e of entries) {
+      if (e === 'sess.jsonl') {
+        throw new Error(`Live JSONL not renamed: ${e}`);
+      }
+      expect(e.endsWith('.jsonl')).toBe(false);
+    }
+  });
+
+  it('repeated clears do not double-suffix (skips already-archived files)', () => {
+    const userData = setupUserDataDir({
+      'pi-sessions/Foo/x.archived': 'old',
       'pi-sessions/Foo/y.jsonl': 'new',
     });
     dirs.push(userData);
     const r = clearProjectSessions(userData, '/anywhere/Foo');
     expect(r.archived).toBe(1);
     expect(r.files).toEqual(['y.jsonl']);
-    // The pre-existing .archived.jsonl stays put.
-    expect(existsSync(join(userData, 'pi-sessions/Foo/x.archived.jsonl'))).toBe(true);
-    // The new one is now archived (single suffix).
-    expect(existsSync(join(userData, 'pi-sessions/Foo/y.archived.jsonl'))).toBe(true);
-    expect(existsSync(join(userData, 'pi-sessions/Foo/y.archived.archived.jsonl'))).toBe(false);
+    // The pre-existing archived stays put.
+    expect(existsSync(join(userData, 'pi-sessions/Foo/x.archived'))).toBe(true);
+    // The new one is now archived (single suffix, no .jsonl).
+    expect(existsSync(join(userData, 'pi-sessions/Foo/y.archived'))).toBe(true);
+    expect(existsSync(join(userData, 'pi-sessions/Foo/y.archived.archived'))).toBe(false);
+  });
+
+  it('migrates legacy `.archived.jsonl` files to the new `.archived` suffix on first call', () => {
+    // Users upgrading from the old scheme have `.archived.jsonl` files
+    // that pi-coding-agent keeps re-pickup'ing (the bug). On the next
+    // clearProjectSessions call, rename them to `.archived` so the
+    // problem stops perpetuating.
+    const userData = setupUserDataDir({
+      'pi-sessions/Foo/old.archived.jsonl': 'legacy archived content',
+      'pi-sessions/Foo/live.jsonl': 'current live',
+    });
+    dirs.push(userData);
+    clearProjectSessions(userData, '/anywhere/Foo');
+    // Legacy migrated.
+    expect(existsSync(join(userData, 'pi-sessions/Foo/old.archived.jsonl'))).toBe(false);
+    expect(existsSync(join(userData, 'pi-sessions/Foo/old.archived'))).toBe(true);
+    // Current archived under the new suffix.
+    expect(existsSync(join(userData, 'pi-sessions/Foo/live.jsonl'))).toBe(false);
+    expect(existsSync(join(userData, 'pi-sessions/Foo/live.archived'))).toBe(true);
   });
 });

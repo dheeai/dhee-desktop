@@ -1189,12 +1189,13 @@ export class dheeCoreManager {
     let latest: { path: string; mtime: number } | null = null;
     try {
       for (const f of fsReaddirSync(sessionsDir)) {
-        if (!f.endsWith('.jsonl')) continue;
         // Skip archived sessions — clearChatHistory renames the live
-        // JSONL to .archived.jsonl as a soft delete. The on-disk file
-        // is preserved for audit / future history-browser; the chat
-        // panel should treat it as if it didn't exist.
+        // JSONL to `.archived` (no `.jsonl` suffix in the new scheme)
+        // as a soft delete. We also still skip legacy `.archived.jsonl`
+        // files for projects that haven't migrated yet.
+        if (f.endsWith('.archived')) continue;
         if (f.endsWith('.archived.jsonl')) continue;
+        if (!f.endsWith('.jsonl')) continue;
         const full = path.join(sessionsDir, f);
         const stat = fsStatSync(full);
         if (!latest || stat.mtimeMs > latest.mtime) {
@@ -1307,6 +1308,21 @@ export class dheeCoreManager {
         // best-effort; clearing in-memory state below still proceeds.
       }
     }
+    // Dispose any in-memory pi AgentSession for this sessionId BEFORE
+    // dropping the entry. Without this, the AgentSession still holds
+    // a pi SessionManager pointing at the now-archived JSONL — and pi
+    // keeps writing future turns into the soft-deleted file. The next
+    // chatPrompt would rebuild via `continueRecent`, but only AFTER
+    // the manager is disposed (see chatPrompt's lazy-build path).
+    const agentEntry = this.agentSessions.get(oldSessionId);
+    if (agentEntry?.session) {
+      try {
+        agentEntry.session.dispose?.();
+      } catch {
+        // best-effort dispose
+      }
+    }
+    this.agentSessions.delete(oldSessionId);
     this.sessionProjects.delete(oldSessionId);
     this.sessionFlags.delete(oldSessionId);
     const fresh = this.createSession(role);

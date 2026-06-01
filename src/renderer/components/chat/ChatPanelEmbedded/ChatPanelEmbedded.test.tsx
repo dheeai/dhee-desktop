@@ -438,6 +438,106 @@ describe('ChatPanelEmbedded', () => {
     });
   });
 
+  it('BUG: stream_chunk + agent_response + trailing empty chunk produces exactly one DHEE bubble (no phantom)', async () => {
+    // Real-world repro: agent finishes with an assistant text reply.
+    // Whatever upstream sequence the provider takes — trailing empty
+    // stream_chunks, duplicate agent_responses, thinking-only chunks —
+    // the chat must render exactly ONE assistant bubble. Empty-text
+    // bubbles must not surface (lonely "DHEE" eyebrow with no body).
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('tool_call', {
+        toolCallId: 'tc-show',
+        toolName: 'dhee_show_node_output',
+        arguments: { nodeId: 'final_video' },
+        status: 'in_progress',
+      });
+      publishEvent('tool_result', {
+        toolCallId: 'tc-show',
+        isError: false,
+        result: {
+          content: [{ type: 'text', text: '/abs/path/final.mp4 (video, 1 bytes)' }],
+          details: { file_path: '/abs/path/final.mp4', asset_type: 'video' },
+        },
+      });
+      publishEvent('stream_chunk', {
+        content: 'Here you go — the updated final cut.',
+      });
+      publishEvent('agent_response', {
+        output: 'Here you go — the updated final cut.',
+        status: 'completed',
+      });
+      // Trailing empty chunk AFTER agent_response. streamingMsgIdRef
+      // was cleared; the handler sees ref=null + empty content. The
+      // OLD handler created a phantom assistant bubble with empty
+      // text → lonely "DHEE" eyebrow.
+      publishEvent('stream_chunk', { content: '' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/updated final cut/i)).toBeInTheDocument();
+    });
+
+    // Empty-text assistant bubbles must NOT render an eyebrow. The
+    // renderer treats empty/whitespace text as "no content to show"
+    // and skips the whole row.
+    const dheeEyebrows = screen.queryAllByText(/^Dhee$/i);
+    expect(dheeEyebrows.length).toBe(1);
+  });
+
+  it('BUG: an assistant message with empty text does not render an eyebrow (renderer-layer guard)', async () => {
+    // Render-layer safety net independent of how the empty bubble got
+    // into state. Multiple upstream paths can land an empty assistant
+    // message (a trailing stream_chunk, the chatPrompt fallback when
+    // assistant_text resolves to empty, a duplicate agent_response).
+    // The renderer must NEVER show a bubble with no body — that's the
+    // visual bug. Test exercises the render path directly: push an
+    // empty assistant bubble + a populated one; assert only the
+    // populated one's eyebrow is on screen.
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      // First a populated assistant turn.
+      publishEvent('stream_chunk', { content: 'Real answer here.' });
+      publishEvent('agent_response', { output: 'Real answer here.', status: 'completed' });
+      // Then an empty agent_response that the OLD handler would
+      // append as a new empty bubble (if the canonical lookup
+      // missed). Force the worst case by tool_call'ing in between
+      // to clear the streaming ref and break the canonical-lookup
+      // assumption.
+      publishEvent('tool_call', {
+        toolCallId: 'tc-mid',
+        toolName: 'dhee_show_node_output',
+        arguments: { nodeId: 'x' },
+        status: 'in_progress',
+      });
+      publishEvent('tool_result', {
+        toolCallId: 'tc-mid',
+        isError: false,
+        result: { content: [{ type: 'text', text: 'ok' }] },
+      });
+      // Empty assistant text arriving via stream_chunk after a tool
+      // result. The OLD handler created a fresh empty bubble.
+      publishEvent('stream_chunk', { content: '   \n  ' });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Real answer here/i)).toBeInTheDocument();
+    });
+
+    const eyebrows = screen.queryAllByText(/^Dhee$/i);
+    expect(eyebrows.length).toBe(1);
+  });
+
   it('agent_response events show as assistant messages', async () => {
     renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
