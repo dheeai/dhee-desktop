@@ -38,6 +38,9 @@ import type {
 } from '../../shared/dheeIpc';
 import { InstanceCard } from './nodes/InstanceCard';
 import { StageGroupLabel } from './nodes/StageGroupLabel';
+import { computeStageRows, computeInstanceLayout, forwardDependents } from './instanceLayout';
+import { CardDetailModal } from './CardDetailModal';
+import { type CardAction } from './cardDetailModel';
 import styles from './InspectorCanvas.module.scss';
 
 /**
@@ -71,75 +74,20 @@ const NODE_TYPES: NodeTypes = {
   stageGroup: StageGroupLabel as unknown as NodeTypes[string],
 };
 
-// Layout constants. Cards flow VERTICALLY: stages are horizontal
-// rows ranked top-to-bottom (plot first, then story, then ...),
-// instances within a stage spread horizontally on that row. Same-
-// rank stages share a row visually.
-const ROW_PITCH = 280;        // y distance between stage rows
-const INSTANCE_PITCH = 360;   // x distance between instances in a row
-const CARD_H = 220;           // card height (visual; layout uses ROW_PITCH for spacing)
+// Layout constants — one stage per ROW (sequential by topo order),
+// instances within a stage spread horizontally. Pure functions in
+// `instanceLayout.ts` do the math + are unit-tested.
+const ROW_PITCH = 280;
+const INSTANCE_PITCH = 360;
+const CARD_H = 220;
 const ROW_X0 = 100;
 const ROW_Y0 = 60;
 const GROUP_PAD_LEFT = 24;
 const GROUP_PAD_TOP = 36;
 const GROUP_PAD_BOTTOM = 20;
-const GROUP_PAD_RIGHT = 24;
 
 function keyOf(nodeId: string, itemId: string | undefined): string {
   return itemId !== undefined ? `${nodeId}:${itemId}` : nodeId;
-}
-
-/** Build topo ranks from the instance edges. Each stageId gets rank = 1 + max(rank of upstream stages). */
-function computeStageRanks(instances: InstanceGraphNode[], edges: InstanceGraphEdge[]): Map<string, number> {
-  const stages = new Set<string>(instances.map((i) => i.nodeId));
-  const inEdges = new Map<string, Set<string>>();
-  stages.forEach((s) => inEdges.set(s, new Set()));
-  for (const e of edges) {
-    if (stages.has(e.toNodeId) && stages.has(e.fromNodeId) && e.fromNodeId !== e.toNodeId) {
-      inEdges.get(e.toNodeId)!.add(e.fromNodeId);
-    }
-  }
-  const ranks = new Map<string, number>();
-  function rankOf(s: string, visiting = new Set<string>()): number {
-    const cached = ranks.get(s);
-    if (cached !== undefined) return cached;
-    if (visiting.has(s)) return 0; // cycle guard
-    visiting.add(s);
-    const ups = inEdges.get(s) ?? new Set();
-    const r = ups.size === 0 ? 0 : 1 + Math.max(...[...ups].map((u) => rankOf(u, visiting)));
-    visiting.delete(s);
-    ranks.set(s, r);
-    return r;
-  }
-  for (const s of stages) rankOf(s);
-  return ranks;
-}
-
-/** Forward dependents from a starting instance. */
-function computeDependentsForward(
-  edges: InstanceGraphEdge[],
-  startKey: string,
-): Set<string> {
-  const outgoing = new Map<string, string[]>();
-  for (const e of edges) {
-    const src = keyOf(e.fromNodeId, e.fromItemId);
-    const dst = keyOf(e.toNodeId, e.toItemId);
-    const list = outgoing.get(src) ?? [];
-    list.push(dst);
-    outgoing.set(src, list);
-  }
-  const visited = new Set<string>([startKey]);
-  const queue = [startKey];
-  while (queue.length > 0) {
-    const cur = queue.shift()!;
-    for (const next of outgoing.get(cur) ?? []) {
-      if (visited.has(next)) continue;
-      visited.add(next);
-      queue.push(next);
-    }
-  }
-  visited.delete(startKey);
-  return visited;
 }
 
 export interface InstanceCardsCanvasProps {
@@ -154,6 +102,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const [graph, setGraph] = useState<{ instances: InstanceGraphNode[]; edges: InstanceGraphEdge[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  const [openInstance, setOpenInstance] = useState<InstanceGraphNode | null>(null);
   // Keep the last fetched-graph signature so the 3s poll doesn't
   // shove a fresh object reference into state when nothing actually
   // changed. Without this guard every poll triggers a re-render of
@@ -198,7 +147,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   // Compute hover-highlight set forward from the hovered card.
   const highlighted = useMemo(() => {
     if (!hoverKey || !graph) return new Set<string>();
-    return computeDependentsForward(graph.edges, hoverKey);
+    return forwardDependents(graph.edges, hoverKey);
   }, [hoverKey, graph]);
 
   // Build xyflow nodes — ONLY depends on the graph projection, NOT on
@@ -207,48 +156,36 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   // That keeps xyflow from invalidating every card on every move.
   const nodes = useMemo<Node[]>(() => {
     if (!graph || graph.instances.length === 0) return [];
-    // Group instances by stage.
+    // Group instances by stage for layout.
     const byStage = new Map<string, InstanceGraphNode[]>();
     for (const inst of graph.instances) {
       const list = byStage.get(inst.nodeId) ?? [];
       list.push(inst);
       byStage.set(inst.nodeId, list);
     }
-    // Sort each stage's instances by itemId for stable layout.
-    for (const list of byStage.values()) {
-      list.sort((a, b) => (a.itemId ?? '').localeCompare(b.itemId ?? ''));
-    }
-
-    const ranks = computeStageRanks(graph.instances, graph.edges);
     const stageIds = [...byStage.keys()];
-    // Layout: row per topological rank (top→bottom). Same-rank
-    // stages share a row, placed side-by-side. Each stage's instance
-    // cards spread horizontally inside its allocated stretch.
-    const rankCursorX = new Map<number, number>();
-    const stageBox = new Map<string, { x: number; y: number; width: number; rank: number }>();
-    // Sort: by rank ascending, then alphabetical within rank.
-    stageIds.sort((a, b) => {
-      const ra = ranks.get(a) ?? 0;
-      const rb = ranks.get(b) ?? 0;
-      if (ra !== rb) return ra - rb;
-      return a.localeCompare(b);
-    });
-    for (const stage of stageIds) {
-      const r = ranks.get(stage) ?? 0;
-      const y = ROW_Y0 + r * ROW_PITCH;
-      const x = rankCursorX.get(r) ?? ROW_X0;
-      const insts = byStage.get(stage) ?? [];
-      const width = GROUP_PAD_LEFT + insts.length * INSTANCE_PITCH + GROUP_PAD_RIGHT;
-      stageBox.set(stage, { x, y, width, rank: r });
-      rankCursorX.set(r, x + width + 40);
+
+    // ONE STAGE PER ROW — sequential topo, alphabetical within tie.
+    const rowAssignment = computeStageRows(stageIds, graph.edges);
+    // Convert to the layout helper's input shape.
+    const stageInstances = new Map<string, Array<{ stageId: string; itemId: string | undefined }>>();
+    for (const [stage, insts] of byStage.entries()) {
+      stageInstances.set(stage, insts.map((i) => ({ stageId: stage, itemId: i.itemId })));
     }
+    const { positions, stageBoxes } = computeInstanceLayout(rowAssignment, stageInstances, {
+      rowPitch: ROW_PITCH,
+      instancePitch: INSTANCE_PITCH,
+      rowX0: ROW_X0,
+      rowY0: ROW_Y0,
+      groupPadLeft: GROUP_PAD_LEFT,
+      groupPadTop: GROUP_PAD_TOP,
+    });
 
     const xyNodes: Node[] = [];
     // Emit stage group labels (zIndex below cards).
-    for (const stage of stageIds) {
-      const box = stageBox.get(stage)!;
+    for (const stage of rowAssignment.stagesByRow) {
+      const box = stageBoxes.get(stage)!;
       const insts = byStage.get(stage)!;
-      const height = GROUP_PAD_TOP + CARD_H + GROUP_PAD_BOTTOM;
       xyNodes.push({
         id: `__group__${stage}`,
         type: 'stageGroup',
@@ -256,34 +193,33 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         data: {
           stageId: stage,
           width: box.width,
-          height,
+          height: GROUP_PAD_TOP + CARD_H + GROUP_PAD_BOTTOM,
           instanceCount: insts.length,
+          row: box.row,
         },
         draggable: false,
         selectable: false,
         style: { zIndex: 0 },
       });
     }
-    // Emit instance cards. NOTE: no hover state stuffed in — that
-    // arrives via HoverContext at render time so this array stays
-    // referentially stable across hover events.
-    for (const stage of stageIds) {
-      const box = stageBox.get(stage)!;
+    // Emit instance cards using positions from the pure layout helper.
+    for (const stage of rowAssignment.stagesByRow) {
       const insts = byStage.get(stage)!;
-      insts.forEach((inst, idx) => {
+      // Match the helper's alphabetical sort so positions line up.
+      const sorted = [...insts].sort((a, b) => (a.itemId ?? '').localeCompare(b.itemId ?? ''));
+      for (const inst of sorted) {
         const id = keyOf(inst.nodeId, inst.itemId);
+        const pos = positions.get(id);
+        if (!pos) continue;
         xyNodes.push({
           id,
           type: 'instanceCard',
-          position: {
-            x: box.x + GROUP_PAD_LEFT + idx * INSTANCE_PITCH,
-            y: box.y + GROUP_PAD_TOP,
-          },
+          position: pos,
           data: { ...inst },
           draggable: false,
           style: { zIndex: 1 },
         });
-      });
+      }
     }
     return xyNodes;
   }, [graph]);
@@ -325,6 +261,27 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const onNodeLeave = useCallback(() => {
     setHoverKey(null);
   }, []);
+  const onNodeClick = useCallback(
+    (_evt: unknown, node: Node) => {
+      if (node.id.startsWith('__group__')) return;
+      if (!graph) return;
+      const inst = graph.instances.find((i) => keyOf(i.nodeId, i.itemId) === node.id);
+      if (inst) setOpenInstance(inst);
+    },
+    [graph],
+  );
+  const onModalClose = useCallback(() => setOpenInstance(null), []);
+  const onModalAction = useCallback((action: CardAction, inst: InstanceGraphNode) => {
+    // Action dispatch goes via IPC in a follow-up. For now log so the
+    // wire-up is visible during dev iteration.
+    // eslint-disable-next-line no-console
+    console.log('[Inspector] action', action, 'on', keyOf(inst.nodeId, inst.itemId));
+    if (action === 'open-file' && projectDir && inst.outputPath) {
+      // open the file in the OS default viewer via webPreferences
+      // file:// access — webSecurity is disabled so this just works.
+      window.open(`file://${projectDir}/${inst.outputPath}`, '_blank');
+    }
+  }, [projectDir]);
 
   if (!projectDir) {
     return (
@@ -361,6 +318,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
           nodeTypes={NODE_TYPES}
           onNodeMouseEnter={onNodeEnter}
           onNodeMouseLeave={onNodeLeave}
+          onNodeClick={onNodeClick}
           nodesDraggable={false}
           nodesConnectable={false}
           edgesFocusable={false}
@@ -376,6 +334,12 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
       </ReactFlowProvider>
       </HoverContext.Provider>
       </ProjectDirContext.Provider>
+      <CardDetailModal
+        instance={openInstance}
+        projectDir={projectDir ?? null}
+        onClose={onModalClose}
+        onAction={onModalAction}
+      />
     </div>
   );
 }
