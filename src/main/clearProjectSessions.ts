@@ -1,18 +1,26 @@
 /**
  * Pure helper for clearChatHistory's on-disk cleanup.
  *
- * Given a userData directory and a projectDir, deletes the JSONL files
- * under `<userData>/pi-sessions/<projectSlug>/`. Returns the count +
- * list of files deleted (relative to the slug dir).
+ * Given a userData directory and a projectDir, ARCHIVES (not deletes)
+ * the JSONL files under `<userData>/pi-sessions/<projectSlug>/` by
+ * renaming each `<id>.jsonl` to `<id>.archived.jsonl`. The chat
+ * appears empty (the snapshot reader skips `.archived.jsonl`) but
+ * nothing is lost — the archives sit on disk for audit / undo /
+ * future history-browser features.
+ *
+ * Matches the preserve-on-overwrite discipline we use for project
+ * artifacts: never delete, just stop reading.
  *
  * Tested in isolation — the dheeCoreManager wrapper just passes
  * `app.getPath('userData')` and the focused projectDir.
  */
-import { existsSync, readdirSync, statSync, unlinkSync } from 'node:fs';
+import { existsSync, readdirSync, renameSync, statSync } from 'node:fs';
 import { basename, join } from 'node:path';
 
 export interface ClearProjectSessionsResult {
-  deleted: number;
+  /** Number of JSONL files archived (renamed to .archived.jsonl). */
+  archived: number;
+  /** Source filenames (relative to slug dir) before archiving. */
   files: string[];
 }
 
@@ -30,28 +38,32 @@ export function clearProjectSessions(
   userDataDir: string,
   projectDir: string,
 ): ClearProjectSessionsResult {
-  if (!userDataDir || !projectDir) return { deleted: 0, files: [] };
+  if (!userDataDir || !projectDir) return { archived: 0, files: [] };
   const slug = projectSlugFromDir(projectDir);
   const slugDir = join(userDataDir, 'pi-sessions', slug);
-  if (!existsSync(slugDir)) return { deleted: 0, files: [] };
+  if (!existsSync(slugDir)) return { archived: 0, files: [] };
   let entries: string[];
   try {
     entries = readdirSync(slugDir);
   } catch {
-    return { deleted: 0, files: [] };
+    return { archived: 0, files: [] };
   }
-  const deleted: string[] = [];
+  const archived: string[] = [];
   for (const name of entries) {
+    // Only seal LIVE chat JSONLs. Skip files already archived so
+    // repeated clears don't double-suffix to `.archived.archived.jsonl`.
     if (!name.endsWith('.jsonl')) continue;
+    if (name.endsWith('.archived.jsonl')) continue;
     const full = join(slugDir, name);
     try {
       const st = statSync(full);
       if (!st.isFile()) continue;
-      unlinkSync(full);
-      deleted.push(name);
+      const targetName = name.replace(/\.jsonl$/, '.archived.jsonl');
+      renameSync(full, join(slugDir, targetName));
+      archived.push(name);
     } catch {
       // best-effort; skip unreadable / locked files.
     }
   }
-  return { deleted: deleted.length, files: deleted };
+  return { archived: archived.length, files: archived };
 }

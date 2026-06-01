@@ -1190,6 +1190,11 @@ export class dheeCoreManager {
     try {
       for (const f of fsReaddirSync(sessionsDir)) {
         if (!f.endsWith('.jsonl')) continue;
+        // Skip archived sessions — clearChatHistory renames the live
+        // JSONL to .archived.jsonl as a soft delete. The on-disk file
+        // is preserved for audit / future history-browser; the chat
+        // panel should treat it as if it didn't exist.
+        if (f.endsWith('.archived.jsonl')) continue;
         const full = path.join(sessionsDir, f);
         const stat = fsStatSync(full);
         if (!latest || stat.mtimeMs > latest.mtime) {
@@ -1286,17 +1291,17 @@ export class dheeCoreManager {
   clearChatHistory(
     oldSessionId: string,
     role?: 'interactive' | 'background',
-  ): { newSessionId: string; deletedJsonlFiles: number } {
+  ): { newSessionId: string; archivedJsonlFiles: number } {
     // Look up the focused project BEFORE dropping the mapping, so we
     // know which slug to clean.
     const projectDir = this.sessionProjects.get(oldSessionId);
-    let deletedJsonlFiles = 0;
+    let archivedJsonlFiles = 0;
     if (projectDir) {
       try {
         const userData = app.getPath?.('userData');
         if (userData) {
           const r = clearProjectSessions(userData, projectDir);
-          deletedJsonlFiles = r.deleted;
+          archivedJsonlFiles = r.archived;
         }
       } catch {
         // best-effort; clearing in-memory state below still proceeds.
@@ -1305,7 +1310,7 @@ export class dheeCoreManager {
     this.sessionProjects.delete(oldSessionId);
     this.sessionFlags.delete(oldSessionId);
     const fresh = this.createSession(role);
-    return { newSessionId: fresh.id, deletedJsonlFiles };
+    return { newSessionId: fresh.id, archivedJsonlFiles };
   }
 
   /**

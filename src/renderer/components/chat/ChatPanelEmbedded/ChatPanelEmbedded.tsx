@@ -1210,7 +1210,7 @@ export default function ChatPanelEmbedded() {
                 onClick={() => {
                   setMenuOpen(false);
                   const ok = window.confirm(
-                    'Clear chat history?\n\nThis deletes the saved transcript on disk and starts a new session. Project files are not affected.',
+                    'Clear chat history?\n\nStarts a new session. Previous transcript is archived (kept on disk under pi-sessions/.../*.archived.jsonl) and hidden from the chat panel — not destroyed. Project files unaffected.',
                   );
                   if (!ok) return;
                   void session.clearChatHistory().then((res) => {
