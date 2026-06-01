@@ -1814,13 +1814,16 @@ export class dheeCoreManager {
     // inline media). The chat panel's existing listeners (subscribe
     // via window.dhee.on) pick these up; no panel changes needed.
     let toolCallCounter = 0;
-    // Hard cap on tool calls per user message. The agent can drift
-    // into tight polling loops (most common: spamming dhee_get_status
-    // while a long-running render finishes elsewhere) which both burns
-    // LLM tokens and floods the chat with footnotes. The cap aborts
-    // the session when exceeded — SKILL.md tells the agent how to
-    // behave well, this enforces it as a hard ceiling regardless.
-    const MAX_TOOL_CALLS_PER_TURN = 12;
+    // Runtime cap on agent misbehavior: when the agent calls a
+    // rate-limited tool (e.g. dhee_get_status spammed in a polling
+    // loop) the tool returns a result whose content starts with
+    // "RATE LIMITED". If the agent ignores those hints and keeps
+    // re-calling, we abort the session after N consecutive
+    // rate-limited responses. Defense-in-depth over the SKILL.md
+    // "don't poll" rule — the agent has temporal awareness via the
+    // tool's timestamps; this is the backstop when it disregards them.
+    const MAX_CONSECUTIVE_RATE_LIMITED = 3;
+    let consecutiveRateLimited = 0;
     let capTriggered = false;
     const onEvent = eventCb
       ? (ev: unknown) => {
@@ -1863,30 +1866,6 @@ export class dheeCoreManager {
                 status: 'in_progress',
               },
             });
-            // Hard cap enforcement: when the agent crosses the
-            // threshold, abort the session + emit a system notice
-            // so the user sees what happened. Subsequent tool_call
-            // events from in-flight calls still flow through to
-            // the chat (the abort is async); the cap is one-shot.
-            if (!capTriggered && toolCallCounter > MAX_TOOL_CALLS_PER_TURN) {
-              capTriggered = true;
-              log.warn(
-                `[chatPrompt] tool-call cap exceeded (${toolCallCounter} > ${MAX_TOOL_CALLS_PER_TURN}) — aborting session ${sessionId}`,
-              );
-              eventCb({
-                eventName: 'system_notice',
-                sessionId,
-                data: {
-                  level: 'warning',
-                  text: `Agent hit the per-turn tool-call cap (${MAX_TOOL_CALLS_PER_TURN}). Stopping to keep things sane — ask again if you need more.`,
-                },
-              });
-              const sess = (this.agentSessions.get(sessionId)?.session
-                ?? null) as { abort?: () => Promise<void> } | null;
-              if (sess?.abort) {
-                void sess.abort().catch(() => {});
-              }
-            }
             return;
           }
           if (e.type === 'tool_execution_end') {
@@ -1899,11 +1878,13 @@ export class dheeCoreManager {
             const piResult = e.result as
               | { content?: Array<{ type?: string; text?: string }>; details?: Record<string, unknown> }
               | undefined;
+            const contentText =
+              Array.isArray(piResult?.content) && piResult.content[0]?.type === 'text'
+                ? piResult.content[0].text ?? ''
+                : '';
             const flatResult: Record<string, unknown> = {
               ...(piResult?.details ?? {}),
-              ...(Array.isArray(piResult?.content) && piResult.content[0]?.type === 'text'
-                ? { content: piResult.content[0].text }
-                : {}),
+              ...(contentText ? { content: contentText } : {}),
             };
             eventCb({
               eventName: 'tool_result',
@@ -1915,6 +1896,38 @@ export class dheeCoreManager {
                 isError: e.isError ?? false,
               },
             });
+
+            // Consecutive-rate-limited cap. The tool-side rate limit
+            // (dhee_get_status etc.) prepends "RATE LIMITED" when the
+            // agent re-calls within the window. If we see that N times
+            // in a row, the agent is ignoring its own rate-limit hints
+            // and we abort. Any non-rate-limited tool result resets
+            // the counter — the cap targets RUNAWAY polling, not
+            // legitimate multi-tool workflows.
+            const isRateLimited = contentText.startsWith('RATE LIMITED');
+            if (isRateLimited) consecutiveRateLimited += 1;
+            else consecutiveRateLimited = 0;
+
+            if (!capTriggered && consecutiveRateLimited >= MAX_CONSECUTIVE_RATE_LIMITED) {
+              capTriggered = true;
+              log.warn(
+                `[chatPrompt] consecutive rate-limited cap exceeded (${consecutiveRateLimited} ≥ ${MAX_CONSECUTIVE_RATE_LIMITED}) — aborting session ${sessionId}`,
+              );
+              eventCb({
+                eventName: 'system_notice',
+                sessionId,
+                data: {
+                  level: 'warning',
+                  text: `Agent ignored rate-limit hints ${consecutiveRateLimited} times in a row. Stopping the loop — ask again when you want a fresh status.`,
+                },
+              });
+              const sess = (this.agentSessions.get(sessionId)?.session ?? null) as
+                | { abort?: () => Promise<void> }
+                | null;
+              if (sess?.abort) {
+                void sess.abort().catch(() => {});
+              }
+            }
             return;
           }
         }

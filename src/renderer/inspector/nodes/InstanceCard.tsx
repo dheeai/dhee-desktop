@@ -9,13 +9,15 @@
  *   - Tool name + CAS-hit badge (when present)
  *   - Hovered / dependent / dimmed states for the regen blast-radius UX
  */
+import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { InstanceGraphNode } from '../../../shared/dheeIpc';
+import { useInstanceHoverState } from '../InstanceCardsCanvas';
 
-interface InstanceCardData extends InstanceGraphNode {
-  isHovered?: boolean;
-  isDependent?: boolean;
-  isDimmed?: boolean;
+type InstanceCardData = InstanceGraphNode;
+
+function keyOf(nodeId: string, itemId: string | undefined): string {
+  return itemId !== undefined ? `${nodeId}:${itemId}` : nodeId;
 }
 
 function statusColor(status: string): string {
@@ -35,7 +37,7 @@ function basename(p: string | undefined): string {
   return parts[parts.length - 1] ?? p;
 }
 
-export function InstanceCard({ data }: { data: InstanceCardData }) {
+function InstanceCardImpl({ data }: { data: InstanceCardData }) {
   const {
     nodeId,
     itemId,
@@ -44,10 +46,14 @@ export function InstanceCard({ data }: { data: InstanceCardData }) {
     tool,
     cached,
     error,
-    isHovered,
-    isDependent,
-    isDimmed,
   } = data;
+  // Hover state from context — only this component re-renders when
+  // hover changes, NOT the whole xyflow node array.
+  const { hoveredKey, highlighted } = useInstanceHoverState();
+  const myKey = keyOf(nodeId, itemId);
+  const isHovered = hoveredKey === myKey;
+  const isDependent = highlighted.has(myKey);
+  const isDimmed = hoveredKey !== null && !isHovered && !isDependent;
 
   const borderColor = isHovered
     ? '#f2c97a'
@@ -132,5 +138,10 @@ export function InstanceCard({ data }: { data: InstanceCardData }) {
     </div>
   );
 }
+
+// Memoize so cards with unchanged data + unchanged context state
+// don't re-render. The context subscription invalidates only when
+// hoveredKey / highlighted actually change.
+export const InstanceCard = memo(InstanceCardImpl);
 
 export default InstanceCard;

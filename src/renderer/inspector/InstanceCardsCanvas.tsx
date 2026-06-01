@@ -18,7 +18,7 @@
  *     blast-radius preview)
  *   - Stage labels drawn behind each column
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   ReactFlowProvider,
@@ -39,6 +39,21 @@ import type {
 import { InstanceCard } from './nodes/InstanceCard';
 import { StageGroupLabel } from './nodes/StageGroupLabel';
 import styles from './InspectorCanvas.module.scss';
+
+/**
+ * Hover state for the card canvas. Lives in a context so individual
+ * InstanceCard components can subscribe + restyle WITHOUT touching
+ * the xyflow `nodes` array — which would force every card to
+ * recompute on every mouse move and cause the flicker you saw.
+ */
+interface HoverState {
+  hoveredKey: string | null;
+  highlighted: Set<string>;
+}
+const HoverContext = createContext<HoverState>({ hoveredKey: null, highlighted: new Set() });
+export function useInstanceHoverState(): HoverState {
+  return useContext(HoverContext);
+}
 
 const NODE_TYPES: NodeTypes = {
   instanceCard: InstanceCard as unknown as NodeTypes[string],
@@ -123,11 +138,17 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const [graph, setGraph] = useState<{ instances: InstanceGraphNode[]; edges: InstanceGraphEdge[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
+  // Keep the last fetched-graph signature so the 3s poll doesn't
+  // shove a fresh object reference into state when nothing actually
+  // changed. Without this guard every poll triggers a re-render of
+  // every card.
+  const lastGraphSigRef = useRef<string>('');
 
   // Fetch the projection from the main process.
   const refresh = useCallback(async () => {
     if (!projectDir) {
       setGraph({ instances: [], edges: [] });
+      lastGraphSigRef.current = '';
       return;
     }
     try {
@@ -139,6 +160,12 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         return;
       }
       setError(null);
+      // Stable JSON signature gates the state update. Skips ~99% of
+      // unchanged polls so the canvas only re-derives nodes/edges
+      // when there's actual new data.
+      const sig = JSON.stringify(resp.graph);
+      if (sig === lastGraphSigRef.current) return;
+      lastGraphSigRef.current = sig;
       setGraph(resp.graph);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -158,11 +185,12 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
     return computeDependentsForward(graph.edges, hoverKey);
   }, [hoverKey, graph]);
 
-  // Build xyflow nodes + edges from the projection.
-  const { nodes, edges } = useMemo(() => {
-    if (!graph || graph.instances.length === 0) {
-      return { nodes: [] as Node[], edges: [] as Edge[] };
-    }
+  // Build xyflow nodes — ONLY depends on the graph projection, NOT on
+  // hover. Hover state flows to cards via HoverContext so the node
+  // array stays referentially stable across mouseenter/leave events.
+  // That keeps xyflow from invalidating every card on every move.
+  const nodes = useMemo<Node[]>(() => {
+    if (!graph || graph.instances.length === 0) return [];
     // Group instances by stage.
     const byStage = new Map<string, InstanceGraphNode[]>();
     for (const inst of graph.instances) {
@@ -216,33 +244,33 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         style: { zIndex: 0 },
       });
     }
-    // Emit instance cards.
+    // Emit instance cards. NOTE: no hover state stuffed in — that
+    // arrives via HoverContext at render time so this array stays
+    // referentially stable across hover events.
     for (const stage of stageIds) {
       const box = stageBox.get(stage)!;
       const insts = byStage.get(stage)!;
       insts.forEach((inst, idx) => {
         const id = keyOf(inst.nodeId, inst.itemId);
-        const isHovered = hoverKey === id;
-        const isDependent = highlighted.has(id);
-        const isDimmed = hoverKey !== null && !isHovered && !isDependent;
         xyNodes.push({
           id,
           type: 'instanceCard',
           position: { x: box.x, y: box.y + GROUP_PAD_TOP + idx * ROW_PITCH },
-          data: {
-            ...inst,
-            isHovered,
-            isDependent,
-            isDimmed,
-          },
+          data: { ...inst },
           draggable: false,
           style: { zIndex: 1 },
         });
       });
     }
+    return xyNodes;
+  }, [graph]);
 
-    // Emit edges. Dim non-dependent edges when hovering.
-    const xyEdges: Edge[] = graph.edges.map((e) => {
+  // Edges DO depend on hover state (we restyle non-relevant edges)
+  // but edge updates are cheap in xyflow — only edge SVG paths are
+  // diffed, not whole component subtrees. Acceptable cost.
+  const edges = useMemo<Edge[]>(() => {
+    if (!graph) return [];
+    return graph.edges.map((e) => {
       const src = keyOf(e.fromNodeId, e.fromItemId);
       const dst = keyOf(e.toNodeId, e.toItemId);
       const isHighlighted = hoverKey !== null && (src === hoverKey || highlighted.has(src)) && (highlighted.has(dst) || dst === hoverKey);
@@ -261,9 +289,10 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         zIndex: isHighlighted ? 2 : 0,
       };
     });
-
-    return { nodes: xyNodes, edges: xyEdges };
   }, [graph, hoverKey, highlighted]);
+
+  // Stable HoverContext value — only changes when hover actually changes.
+  const hoverCtx = useMemo<HoverState>(() => ({ hoveredKey: hoverKey, highlighted }), [hoverKey, highlighted]);
 
   const onNodeEnter = useCallback((_evt: unknown, node: Node) => {
     if (node.id.startsWith('__group__')) return;
@@ -299,6 +328,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
 
   return (
     <div className={styles.canvas}>
+      <HoverContext.Provider value={hoverCtx}>
       <ReactFlowProvider>
         <ReactFlow
           nodes={nodes}
@@ -319,6 +349,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
           <Controls showInteractive={false} />
         </ReactFlow>
       </ReactFlowProvider>
+      </HoverContext.Provider>
     </div>
   );
 }
