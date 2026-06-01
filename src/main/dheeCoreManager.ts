@@ -1022,6 +1022,47 @@ export class dheeCoreManager {
       process.env.dhee_PROJECTS_DIR = devEnv.projectsDir;
     }
 
+    // Externalized bundle resolution. kshana-core's bundleSource.ts
+    // searches roots in precedence order: USER → APP → ~/.kshana →
+    // <dev-source>. Set the two env vars so a packaged build (and
+    // dev launches) find the right bundles without code changes.
+    //
+    //   APP  = first-party defaults shipped inside the .app, lifted
+    //          via electron-builder extraResources from
+    //          kshana-core/dist/bundles → <app>/Resources/bundles.
+    //          In dev there is no `process.resourcesPath/bundles`
+    //          yet, so we point at the source tree's dist/bundles
+    //          (still produced by `pnpm tsup`).
+    //
+    //   USER = `<studiosDir>/bundles` so user forks + community
+    //          installs override the app-shipped defaults. The
+    //          desktop already computes the studios dir via
+    //          devEnv.projectsDir (it's the projects parent dir).
+    try {
+      const appBundles = path.join(process.resourcesPath, 'bundles');
+      if (fsExistsSync(appBundles)) {
+        process.env.DHEE_APP_BUNDLES_DIR = appBundles;
+      } else {
+        // Dev fallback — `pnpm tsup` writes dist/bundles in the
+        // sibling kshana-core source tree. `__dirname` here is
+        // dhee-desktop/src/main; walk up to the workspace root.
+        const devAppBundles = path.resolve(
+          __dirname,
+          '..', '..', '..', 'kshana-core', 'dist', 'bundles',
+        );
+        if (fsExistsSync(devAppBundles)) {
+          process.env.DHEE_APP_BUNDLES_DIR = devAppBundles;
+        }
+      }
+      if (devEnv?.projectsDir) {
+        // `<studiosDir>/bundles` — sibling of project directories.
+        process.env.DHEE_USER_BUNDLES_DIR = path.join(devEnv.projectsDir, 'bundles');
+      }
+    } catch {
+      // best-effort; bundleSource still falls through to its source-tree
+      // default when env vars are unset.
+    }
+
     // Phase 6.4: WorkflowModeRegistry + ConversationManager were
     // deleted with the legacy stack. We no longer need to:
     //   - pin a user-workflows dir (no registry to feed)

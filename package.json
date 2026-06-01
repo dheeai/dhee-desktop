@@ -397,6 +397,13 @@
           "**/*",
           "!**/.git/**"
         ]
+      },
+      {
+        "from": "../kshana-core/dist/bundles",
+        "to": "bundles",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "publish": {
