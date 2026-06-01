@@ -75,7 +75,8 @@ type Role =
   | 'question'
   | 'phase'
   | 'progress'
-  | 'thinking';
+  | 'thinking'
+  | 'bundle-choices';
 type ToolStatus = 'in_progress' | 'completed' | 'error';
 
 interface ChatMessage {
@@ -122,6 +123,14 @@ interface ChatMessage {
    * as ordinary system messages.
    */
   notificationLevel?: 'info' | 'warning' | 'error';
+  /**
+   * For role='bundle-choices' rows: bundle ids the agent offered via
+   * dhee_present_bundle_choices. Renderer turns each into a clickable
+   * card; click sends `Use <bundleId>` as the next user message.
+   */
+  bundleChoices?: { ids: string[]; question?: string };
+  /** Set true once user clicked one of the choices — disables remaining cards. */
+  bundleChoiceMade?: string | null;
 }
 
 interface ContextUsage {
@@ -1018,6 +1027,22 @@ export default function ChatPanelEmbedded() {
     setSetupStep('story');
   }, []);
 
+  // Bundle-picker click → send "Use <bundleId>" as the next chatPrompt,
+  // mark the chosen card so other cards in the same row grey out.
+  const handleBundleChoiceClick = useCallback(
+    (msgId: string, bundleId: string) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId && m.role === 'bundle-choices'
+            ? { ...m, bundleChoiceMade: bundleId }
+            : m,
+        ),
+      );
+      void session.chatPrompt(`Use ${bundleId}`);
+    },
+    [session],
+  );
+
   const handleSetupBack = useCallback(() => {
     if (setupStep === 'story') setSetupStep('configure');
   }, [setupStep]);
@@ -1560,6 +1585,7 @@ export default function ChatPanelEmbedded() {
                 key={item.message.id}
                 message={item.message}
                 projectDirectory={projectDirectory}
+                onBundleChoiceClick={handleBundleChoiceClick}
               />
             ),
           )
@@ -1774,10 +1800,67 @@ function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
 function MessageRow({
   message: m,
   projectDirectory,
+  onBundleChoiceClick,
 }: {
   message: ChatMessage;
   projectDirectory: string | null;
+  onBundleChoiceClick?: (msgId: string, bundleId: string) => void;
 }) {
+  if (m.role === 'bundle-choices' && m.bundleChoices) {
+    const made = m.bundleChoiceMade ?? null;
+    return (
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          margin: '4px 0',
+        }}
+      >
+        {m.bundleChoices.question && (
+          <div style={{ fontSize: 12, color: 'rgba(229, 225, 216, 0.75)' }}>
+            {m.bundleChoices.question}
+          </div>
+        )}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {m.bundleChoices.ids.map((bid) => {
+            const isMade = made === bid;
+            const otherMade = made !== null && made !== bid;
+            return (
+              <button
+                key={bid}
+                disabled={made !== null}
+                onClick={() => onBundleChoiceClick?.(m.id, bid)}
+                style={{
+                  textAlign: 'left',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${isMade ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isMade ? '#1c2533' : '#161821',
+                  color: otherMade ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
+                  cursor: made !== null ? 'default' : 'pointer',
+                  fontFamily: 'ui-monospace, Menlo, monospace',
+                  fontSize: 12,
+                  lineHeight: 1.4,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>{bid}</div>
+                {isMade && (
+                  <div style={{ fontSize: 10, color: '#5f88b2' }}>✓ selected</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
   if (m.role === 'tool') {
     // Production-board tag: status dot (pulses while running) +
     // monospace tool name + optional duration chip. Args render on
@@ -2008,16 +2091,47 @@ function handleEvent(
       const data = event.data as {
         toolCallId?: string;
         isError?: boolean;
-        result?: { file_path?: string; asset_type?: string };
+        result?: { file_path?: string; asset_type?: string; content?: Array<{ type?: string; text?: string }> };
       };
       // Update the matching tool card in place (NOT a new card).
       const newStatus: ToolStatus = data.isError ? 'error' : 'completed';
+      const toolNameForChoices = data.toolCallId
+        ? toolNameByCallIdRef.current?.get(data.toolCallId)
+        : undefined;
+      let bundleChoices: { ids: string[]; question?: string } | null = null;
+      if (
+        !data.isError
+        && toolNameForChoices === 'dhee_present_bundle_choices'
+        && Array.isArray(data.result?.content)
+      ) {
+        try {
+          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const parsed = JSON.parse(txt) as { kind?: string; bundleIds?: string[]; question?: string };
+          if (parsed.kind === 'bundle_choices' && Array.isArray(parsed.bundleIds) && parsed.bundleIds.length > 0) {
+            bundleChoices = { ids: parsed.bundleIds, ...(parsed.question ? { question: parsed.question } : {}) };
+          }
+        } catch {
+          // Not a JSON payload we recognize — skip the rich render.
+        }
+      }
       setMessages((prev) => {
         const updated: ChatMessage[] = prev.map((m) =>
           m.role === 'tool' && m.toolCallId === data.toolCallId
             ? { ...m, toolStatus: newStatus }
             : m,
         );
+        // Bundle picker — append a clickable cards row.
+        if (bundleChoices) {
+          return [
+            ...updated,
+            {
+              id: newMessageId(),
+              role: 'bundle-choices' as const,
+              bundleChoices,
+              bundleChoiceMade: null,
+            },
+          ];
+        }
         // Phase 6.5c.b: when a tool result has a file_path (dhee_show_*
         // tools), append a `media` row so the chat renders the image/
         // video inline.
