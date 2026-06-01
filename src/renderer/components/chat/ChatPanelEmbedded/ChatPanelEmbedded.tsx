@@ -62,7 +62,8 @@ type Role =
   | 'phase'
   | 'progress'
   | 'thinking'
-  | 'bundle-choices';
+  | 'bundle-choices'
+  | 'question-card';
 type ToolStatus = 'in_progress' | 'completed' | 'error';
 
 interface ChatMessage {
@@ -120,12 +121,30 @@ interface ChatMessage {
   notificationLevel?: 'info' | 'warning' | 'error';
   /**
    * For role='bundle-choices' rows: bundle ids the agent offered via
-   * dhee_present_bundle_choices. Renderer turns each into a clickable
-   * card; click sends `Use <bundleId>` as the next user message.
+   * dhee_present_bundle_choices, with display metadata. Renderer turns
+   * each into a clickable card; click sends `Use <bundleId>` as the
+   * next user message. `ids` is preserved as the canonical wire id;
+   * `bundles` carries the displayName/summary the picker shows.
    */
-  bundleChoices?: { ids: string[]; question?: string };
+  bundleChoices?: {
+    ids: string[];
+    bundles?: Array<{ id: string; displayName: string; summary: string }>;
+    question?: string;
+  };
   /** Set true once user clicked one of the choices — disables remaining cards. */
   bundleChoiceMade?: string | null;
+  /**
+   * For role='question-card' rows: a generic agent question rendered
+   * as a clickable card grid via dhee_ask_question. `answered` holds
+   * the user's picks (joined into the user message when sent).
+   */
+  questionCard?: {
+    question: string;
+    options: Array<{ id: string; label: string; description?: string }>;
+    multiSelect: boolean;
+  };
+  /** Picked option ids for a question-card; null until the user submits. */
+  questionCardAnswered?: string[] | null;
 }
 
 interface ContextUsage {
@@ -899,6 +918,64 @@ export default function ChatPanelEmbedded() {
     [session],
   );
 
+  /**
+   * Generic question-card click handler.
+   *
+   * Single-select: the click is the submit — pin the selection and
+   * fire the chatPrompt with the picked option's label.
+   *
+   * Multi-select: the click toggles selection in state; only the
+   * separate "Done" button (kind === 'submit') actually sends. The
+   * sent message joins picked labels with ", ".
+   */
+  const handleQuestionCardClick = useCallback(
+    (msgId: string, optionId: string, kind: 'toggle' | 'submit' | 'pick') => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== msgId || m.role !== 'question-card' || !m.questionCard) return m;
+          if (m.questionCardAnswered && m.questionCardAnswered.length > 0
+              && (kind === 'pick' || !m.questionCard.multiSelect)) {
+            // Already submitted — ignore further clicks on a single-
+            // select card that's been answered.
+            return m;
+          }
+          const current = m.questionCardAnswered ?? [];
+          if (kind === 'pick') {
+            // Single-select: replace + send (send happens below).
+            return { ...m, questionCardAnswered: [optionId] };
+          }
+          if (kind === 'toggle') {
+            const next = current.includes(optionId)
+              ? current.filter((x) => x !== optionId)
+              : [...current, optionId];
+            return { ...m, questionCardAnswered: next };
+          }
+          // 'submit' — keep the existing selection; renderer renders
+          // the disabled state from questionCardAnswered being set.
+          if (current.length === 0) return m;
+          return m;
+        }),
+      );
+      if (kind === 'toggle') return;
+      // For 'pick' and 'submit' kinds, read the latest state and
+      // dispatch the joined labels as the user's next message.
+      queueMicrotask(() => {
+        setMessages((prev) => {
+          const target = prev.find((m) => m.id === msgId && m.role === 'question-card');
+          if (!target || !target.questionCard) return prev;
+          const picked = target.questionCardAnswered ?? [];
+          if (picked.length === 0) return prev;
+          const labels = picked.map((id) =>
+            target.questionCard!.options.find((o) => o.id === id)?.label ?? id,
+          );
+          void session.chatPrompt(labels.join(', '));
+          return prev;
+        });
+      });
+    },
+    [session],
+  );
+
   const handleAttachClick = async () => {
     setAttachmentError(null);
     try {
@@ -1398,6 +1475,7 @@ export default function ChatPanelEmbedded() {
                 message={item.message}
                 projectDirectory={projectDirectory}
                 onBundleChoiceClick={handleBundleChoiceClick}
+                onQuestionCardClick={handleQuestionCardClick}
               />
             ),
           )
@@ -1612,10 +1690,12 @@ function MessageRow({
   message: m,
   projectDirectory,
   onBundleChoiceClick,
+  onQuestionCardClick,
 }: {
   message: ChatMessage;
   projectDirectory: string | null;
   onBundleChoiceClick?: (msgId: string, bundleId: string) => void;
+  onQuestionCardClick?: (msgId: string, optionId: string, kind: 'toggle' | 'submit' | 'pick') => void;
 }) {
   if (m.role === 'bundle-choices' && m.bundleChoices) {
     const made = m.bundleChoiceMade ?? null;
@@ -1643,6 +1723,11 @@ function MessageRow({
           {m.bundleChoices.ids.map((bid) => {
             const isMade = made === bid;
             const otherMade = made !== null && made !== bid;
+            // Prefer the rich metadata from the agent's tool payload;
+            // fall back to the bare id when the legacy shape lands.
+            const meta = m.bundleChoices?.bundles?.find((b) => b.id === bid);
+            const displayName = meta?.displayName ?? bid;
+            const summary = meta?.summary ?? '';
             return (
               <button
                 key={bid}
@@ -1656,19 +1741,111 @@ function MessageRow({
                   background: isMade ? '#1c2533' : '#161821',
                   color: otherMade ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
                   cursor: made !== null ? 'default' : 'pointer',
-                  fontFamily: 'ui-monospace, Menlo, monospace',
-                  fontSize: 12,
+                  fontSize: 13,
                   lineHeight: 1.4,
                 }}
               >
-                <div style={{ fontWeight: 600, marginBottom: 4 }}>{bid}</div>
+                <div style={{ fontWeight: 600, marginBottom: summary ? 4 : 0 }}>
+                  {displayName}
+                </div>
+                {summary && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: otherMade ? 'rgba(229, 225, 216, 0.35)' : 'rgba(229, 225, 216, 0.7)',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {summary}
+                  </div>
+                )}
                 {isMade && (
-                  <div style={{ fontSize: 10, color: '#5f88b2' }}>✓ selected</div>
+                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
                 )}
               </button>
             );
           })}
         </div>
+      </div>
+    );
+  }
+  if (m.role === 'question-card' && m.questionCard) {
+    const picked = m.questionCardAnswered ?? [];
+    const submitted = !m.questionCard.multiSelect && picked.length > 0;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '4px 0' }}>
+        <div style={{ fontSize: 13, color: 'rgba(229, 225, 216, 0.85)', fontWeight: 500 }}>
+          {m.questionCard.question}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {m.questionCard.options.map((opt) => {
+            const isPicked = picked.includes(opt.id);
+            const otherSubmitted = submitted && !isPicked;
+            const clickKind: 'pick' | 'toggle' = m.questionCard!.multiSelect ? 'toggle' : 'pick';
+            return (
+              <button
+                key={opt.id}
+                disabled={submitted}
+                onClick={() => onQuestionCardClick?.(m.id, opt.id, clickKind)}
+                style={{
+                  textAlign: 'left',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${isPicked ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isPicked ? '#1c2533' : '#161821',
+                  color: otherSubmitted ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
+                  cursor: submitted ? 'default' : 'pointer',
+                  fontSize: 13,
+                  lineHeight: 1.4,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: opt.description ? 4 : 0 }}>
+                  {opt.label}
+                </div>
+                {opt.description && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: otherSubmitted ? 'rgba(229, 225, 216, 0.35)' : 'rgba(229, 225, 216, 0.7)',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {opt.description}
+                  </div>
+                )}
+                {isPicked && (
+                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {m.questionCard.multiSelect && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+            <button
+              onClick={() => onQuestionCardClick?.(m.id, '', 'submit')}
+              disabled={picked.length === 0}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 6,
+                border: '1px solid rgba(168, 156, 139, 0.4)',
+                background: picked.length > 0 ? '#1c2533' : 'transparent',
+                color: picked.length > 0 ? '#e5e1d8' : 'rgba(229, 225, 216, 0.4)',
+                cursor: picked.length > 0 ? 'pointer' : 'default',
+                fontSize: 12,
+                fontWeight: 500,
+              }}
+            >
+              Done ({picked.length})
+            </button>
+          </div>
+        )}
       </div>
     );
   }
@@ -1926,7 +2103,11 @@ function handleEvent(
       const toolNameForChoices = data.toolCallId
         ? toolNameByCallIdRef.current?.get(data.toolCallId)
         : undefined;
-      let bundleChoices: { ids: string[]; question?: string } | null = null;
+      let bundleChoices: {
+        ids: string[];
+        bundles?: Array<{ id: string; displayName: string; summary: string }>;
+        question?: string;
+      } | null = null;
       if (
         !data.isError
         && toolNameForChoices === 'dhee_present_bundle_choices'
@@ -1934,14 +2115,89 @@ function handleEvent(
       ) {
         try {
           const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
-          const parsed = JSON.parse(txt) as { kind?: string; bundleIds?: string[]; question?: string };
+          const parsed = JSON.parse(txt) as {
+            kind?: string;
+            bundleIds?: string[];
+            bundles?: Array<{ id?: string; displayName?: string; summary?: string }>;
+            question?: string;
+          };
           if (parsed.kind === 'bundle_choices' && Array.isArray(parsed.bundleIds) && parsed.bundleIds.length > 0) {
-            bundleChoices = { ids: parsed.bundleIds, ...(parsed.question ? { question: parsed.question } : {}) };
+            // Normalize the rich `bundles` array — every entry needs
+            // an id; missing displayName/summary fall through to
+            // empty (the renderer can titleize the id as a last
+            // resort).
+            const normalizedBundles = Array.isArray(parsed.bundles)
+              ? parsed.bundles
+                  .filter((b): b is { id: string; displayName?: string; summary?: string } =>
+                    !!b && typeof b.id === 'string' && b.id.length > 0,
+                  )
+                  .map((b) => ({
+                    id: b.id,
+                    displayName: typeof b.displayName === 'string' && b.displayName.trim().length > 0
+                      ? b.displayName.trim()
+                      : b.id,
+                    summary: typeof b.summary === 'string' ? b.summary.trim() : '',
+                  }))
+              : undefined;
+            bundleChoices = {
+              ids: parsed.bundleIds,
+              ...(normalizedBundles ? { bundles: normalizedBundles } : {}),
+              ...(parsed.question ? { question: parsed.question } : {}),
+            };
           }
         } catch {
           // Not a JSON payload we recognize — skip the rich render.
         }
       }
+      // Generic ask-question picker — payload shape:
+      //   { kind: 'question_choices', question, options: [...], multiSelect }
+      let questionCard: {
+        question: string;
+        options: Array<{ id: string; label: string; description?: string }>;
+        multiSelect: boolean;
+      } | null = null;
+      if (
+        !data.isError
+        && toolNameForChoices === 'dhee_ask_question'
+        && Array.isArray(data.result?.content)
+      ) {
+        try {
+          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const parsed = JSON.parse(txt) as {
+            kind?: string;
+            question?: string;
+            options?: Array<{ id?: string; label?: string; description?: string }>;
+            multiSelect?: boolean;
+          };
+          if (
+            parsed.kind === 'question_choices'
+            && typeof parsed.question === 'string'
+            && Array.isArray(parsed.options)
+            && parsed.options.length > 0
+          ) {
+            const normalizedOpts = parsed.options
+              .filter((o): o is { id: string; label?: string; description?: string } =>
+                !!o && typeof o.id === 'string' && o.id.length > 0)
+              .map((o) => ({
+                id: o.id,
+                label: typeof o.label === 'string' && o.label.length > 0 ? o.label : o.id,
+                ...(typeof o.description === 'string' && o.description.length > 0
+                  ? { description: o.description }
+                  : {}),
+              }));
+            if (normalizedOpts.length > 0) {
+              questionCard = {
+                question: parsed.question,
+                options: normalizedOpts,
+                multiSelect: parsed.multiSelect === true,
+              };
+            }
+          }
+        } catch {
+          // payload not recognized — fall through to default rendering
+        }
+      }
+
       setMessages((prev) => {
         const updated: ChatMessage[] = prev.map((m) =>
           m.role === 'tool' && m.toolCallId === data.toolCallId
@@ -1957,6 +2213,18 @@ function handleEvent(
               role: 'bundle-choices' as const,
               bundleChoices,
               bundleChoiceMade: null,
+            },
+          ];
+        }
+        // Generic question card.
+        if (questionCard) {
+          return [
+            ...updated,
+            {
+              id: newMessageId(),
+              role: 'question-card' as const,
+              questionCard,
+              questionCardAnswered: null,
             },
           ];
         }

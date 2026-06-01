@@ -28,7 +28,7 @@
  * (in which case the caller should append a new bubble).
  */
 export interface MessageLike {
-  role: 'user' | 'assistant' | 'tool' | 'system' | 'media' | 'question' | 'phase' | 'progress' | 'thinking' | 'bundle-choices';
+  role: 'user' | 'assistant' | 'tool' | 'system' | 'media' | 'question' | 'phase' | 'progress' | 'thinking' | 'bundle-choices' | 'question-card';
 }
 
 export function findCanonicalAssistantBubbleIdx(messages: ReadonlyArray<MessageLike>): number {
