@@ -42,22 +42,6 @@ import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import type { dheeEvent } from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
-import ProjectSetupPanel, {
-  type SetupPanelMode,
-  type SetupStep,
-} from '../ProjectSetupPanel';
-import { buildWizardKickoff } from './buildWizardKickoff';
-import { shouldAutoOpenWizard } from './setupAutoOpen';
-import {
-  WIZARD_TEMPLATES,
-  WIZARD_DURATION_PRESETS,
-  WIZARD_DEFAULT_TEMPLATE_ID,
-  WIZARD_DEFAULT_STYLE_ID,
-  WIZARD_DEFAULT_DURATION_SECONDS,
-  WIZARD_DEFAULT_RENDER_METHOD,
-  WIZARD_RENDER_METHODS,
-} from './wizardCatalog';
-import { loadPersistedProjectSetup } from './loadPersistedProjectSetup';
 import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
 import {
   classifyProjectState,
@@ -435,32 +419,19 @@ export default function ChatPanelEmbedded() {
     );
   }, [agent, session]);
 
-  const [setupPanelMode, setSetupPanelMode] = useState<SetupPanelMode>('hidden');
-  const [setupStep, setSetupStep] = useState<SetupStep>('configure');
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
-    WIZARD_DEFAULT_TEMPLATE_ID,
-  );
-  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(
-    WIZARD_DEFAULT_STYLE_ID,
-  );
-  const [selectedDuration, setSelectedDuration] = useState<number | null>(
-    WIZARD_DEFAULT_DURATION_SECONDS,
-  );
-  const [selectedRenderMethod, setSelectedRenderMethod] = useState<string | null>(
-    WIZARD_DEFAULT_RENDER_METHOD,
-  );
-  const [storyInput, setStoryInput] = useState('');
-  const [setupError, setSetupError] = useState<string | null>(null);
-  const [isConfiguringSetup, setIsConfiguringSetup] = useState(false);
+  // True once project.json with bundleSource has been observed for the
+  // current project (i.e. a bundle is pinned). When false AND probe
+  // is complete, we treat the project as fresh and hand off to the
+  // agent-led onboarding flow.
   const [isSetupConfigured, setIsSetupConfigured] = useState(false);
-  // Whether we've already finished the "is this project fresh?"
-  // probe. Until this flips true the auto-open effect mustn't fire,
-  // otherwise it'd flash open and then snap shut on a configured
-  // project.
+  // Whether we've already finished the "is this project fresh?" probe.
+  // Until this flips true the onboarding effect mustn't fire,
+  // otherwise it'd dispatch a greeting before we know whether one is
+  // needed.
   const [setupProbeCompleted, setSetupProbeCompleted] = useState(false);
   // Classified lifecycle state for the active project. Drives whether
   // we render a contextual CTA (in_progress / completed) in the empty
-  // chat area; 'fresh' projects route to the wizard via setupPanelMode.
+  // chat area.
   const [projectState, setProjectState] = useState<ProjectLifecycleState | null>(
     null,
   );
@@ -806,23 +777,22 @@ export default function ChatPanelEmbedded() {
       readFile: (p: string) => window.electron.project.readFile(p),
     };
     (async () => {
-      const [persisted, lifecycle] = await Promise.all([
-        loadPersistedProjectSetup(projectDirectory, reader),
-        classifyProjectState(projectDirectory, reader),
-      ]);
-      if (cancelled) return;
-      if (persisted) {
-        setIsSetupConfigured(true);
-        setSelectedTemplateId(persisted.templateId);
-        setSelectedStyleId(persisted.style);
-        setSelectedDuration(persisted.duration);
-      } else {
-        // Reset selections to defaults so the wizard starts clean.
-        setSelectedTemplateId(WIZARD_DEFAULT_TEMPLATE_ID);
-        setSelectedStyleId(WIZARD_DEFAULT_STYLE_ID);
-        setSelectedDuration(WIZARD_DEFAULT_DURATION_SECONDS);
-        setStoryInput('');
+      // "Is this project pinned to a bundle yet?" — the only thing we
+      // need to know from project.json. If yes → don't dispatch the
+      // onboarding greeting; the agent picks up where the user left off.
+      let hasBundle = false;
+      try {
+        const raw = await reader.readFile(`${projectDirectory}/project.json`);
+        if (typeof raw === 'string' && raw.length > 0) {
+          const pj = JSON.parse(raw) as { bundleSource?: unknown };
+          hasBundle = typeof pj.bundleSource === 'string' && pj.bundleSource.length > 0;
+        }
+      } catch {
+        hasBundle = false;
       }
+      const lifecycle = await classifyProjectState(projectDirectory, reader);
+      if (cancelled) return;
+      setIsSetupConfigured(hasBundle);
       setProjectState(lifecycle);
       setSetupProbeCompleted(true);
     })();
@@ -867,18 +837,11 @@ export default function ChatPanelEmbedded() {
   // for the story, call `dhee_list_bundles`, pick the right bundle,
   // and call `dhee_create_project(existingDir=…)` + `dhee_run_bundle`.
   useEffect(() => {
-    if (
-      !shouldAutoOpenWizard({
-        projectDirectory,
-        isProjectSetupConfigured: isSetupConfigured,
-        setupPanelMode,
-        templateCatalogLoaded: setupProbeCompleted,
-        isConfiguringProjectSetup: isConfiguringSetup,
-      })
-    ) {
-      return;
-    }
+    // Fire ONLY when: a project is focused, the probe finished, the
+    // project has no bundle pinned (fresh), and the session is ready.
     if (!projectDirectory) return;
+    if (!setupProbeCompleted) return;
+    if (isSetupConfigured) return;
     if (!session.sessionId) return;
     if (onboardingDispatchedRef.current === projectDirectory) return;
 
@@ -915,117 +878,9 @@ export default function ChatPanelEmbedded() {
     projectDirectory,
     projectName,
     isSetupConfigured,
-    setupPanelMode,
     setupProbeCompleted,
-    isConfiguringSetup,
     session,
   ]);
-
-  // ── Wizard step handlers ──────────────────────────────────────────
-
-  // In the combined 'configure' step, selection handlers no longer
-  // auto-advance the wizard — all three sections (style / duration /
-  // method) are visible together and the user moves on via "Submit"
-  // on the story step (the only step after configure). This avoids
-  // the prior 4-step click-through and keeps all decisions visible
-  // at once for last-minute adjustments.
-  const handleSelectStyle = useCallback((styleId: string) => {
-    setSelectedStyleId(styleId);
-  }, []);
-
-  const handleSelectDuration = useCallback((duration: number) => {
-    setSelectedDuration(duration);
-  }, []);
-
-  const handleSelectRenderMethod = useCallback((methodId: string) => {
-    setSelectedRenderMethod(methodId);
-  }, []);
-
-  const handleChangeStory = useCallback((value: string) => {
-    setStoryInput(value);
-  }, []);
-
-  const handleConfirmSetup = useCallback(async () => {
-    if (
-      !projectDirectory ||
-      !selectedTemplateId ||
-      !selectedStyleId ||
-      !selectedDuration
-    ) {
-      return;
-    }
-    const trimmedStory = storyInput.trim();
-    if (!trimmedStory) {
-      setSetupError('Please add a story or idea before continuing.');
-      return;
-    }
-
-    setSetupError(null);
-    setIsConfiguringSetup(true);
-
-    // System-B removal: no longer call session.configureProject (which
-    // persists style/template/duration via the WS configure_project
-    // handler). dhee_new is now the SOLE writer of project.json. The
-    // kickoff message below carries all the metadata the agent needs
-    // to construct the dhee_new call; if dhee_new fails, no project.json
-    // exists — fine, since LLM access is required for anything to
-    // proceed downstream anyway.
-    const projectDirName =
-      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') ||
-      projectName ||
-      'project';
-    const { message } = buildWizardKickoff({
-      projectName: projectDirName,
-      projectDir: projectDirectory,
-      templateId: selectedTemplateId,
-      style: selectedStyleId,
-      duration: selectedDuration,
-      renderMethod: selectedRenderMethod ?? WIZARD_DEFAULT_RENDER_METHOD,
-      story: trimmedStory,
-    });
-    if (!message) {
-      setIsConfiguringSetup(false);
-      return;
-    }
-
-    // Hide the panel before runTask so the chat takes the spotlight.
-    setSetupPanelMode('hidden');
-    setIsSetupConfigured(true);
-    setIsConfiguringSetup(false);
-    setStoryInput('');
-
-    // Surface the user's intent in the chat as a regular user bubble,
-    // matching the way handleSend renders typed input.
-    setMessages((prev) => [
-      ...prev,
-      { id: newMessageId(), role: 'user', text: message },
-    ]);
-    streamingMsgIdRef.current = null;
-    await session.runTask(message);
-  }, [
-    projectDirectory,
-    projectName,
-    selectedDuration,
-    selectedRenderMethod,
-    selectedStyleId,
-    selectedTemplateId,
-    session,
-    storyInput,
-  ]);
-
-  const handleSubmitStory = useCallback(() => {
-    void handleConfirmSetup();
-  }, [handleConfirmSetup]);
-
-  // Autonomous-mode toggle was removed from the UI; the wizard panel
-  // still requires the prop, so this is a fixed no-op that keeps the
-  // selection visually pinned to "manual".
-  const handleSelectAutonomousMode = useCallback((_enabled: boolean) => {}, []);
-
-  const handleConfigureContinue = useCallback(() => {
-    setSetupError(null);
-    setSetupStep('story');
-  }, []);
 
   // Bundle-picker click → send "Use <bundleId>" as the next chatPrompt,
   // mark the chosen card so other cards in the same row grey out.
@@ -1042,24 +897,6 @@ export default function ChatPanelEmbedded() {
     },
     [session],
   );
-
-  const handleSetupBack = useCallback(() => {
-    if (setupStep === 'story') setSetupStep('configure');
-  }, [setupStep]);
-
-  const handleOpenSetupWizard = useCallback(() => {
-    setSetupError(null);
-    setSetupStep('configure');
-    setSetupPanelMode('wizard');
-  }, []);
-
-  const handleEditSetup = useCallback(() => {
-    handleOpenSetupWizard();
-  }, [handleOpenSetupWizard]);
-
-  // Template selection is stubbed — the embedded wizard hides the
-  // template step entirely (template defaults to 'narrative').
-  const handleSelectTemplate = useCallback(() => {}, []);
 
   const handleAttachClick = async () => {
     setAttachmentError(null);
@@ -1530,37 +1367,8 @@ export default function ChatPanelEmbedded() {
         </div>
       )}
 
-      <ProjectSetupPanel
-        mode={setupPanelMode}
-        step={setupStep}
-        templates={WIZARD_TEMPLATES}
-        durationPresets={WIZARD_DURATION_PRESETS}
-        renderMethods={WIZARD_RENDER_METHODS}
-        selectedTemplateId={selectedTemplateId}
-        selectedStyleId={selectedStyleId}
-        selectedDuration={selectedDuration}
-        selectedRenderMethod={selectedRenderMethod}
-        selectedAutonomousMode={false}
-        storyInput={storyInput}
-        loading={false}
-        configuring={isConfiguringSetup}
-        error={setupError}
-        onOpenWizard={handleOpenSetupWizard}
-        onEditSetup={handleEditSetup}
-        onSelectTemplate={handleSelectTemplate}
-        onSelectStyle={handleSelectStyle}
-        onSelectDuration={handleSelectDuration}
-        onSelectRenderMethod={handleSelectRenderMethod}
-        onConfigureContinue={handleConfigureContinue}
-        onChangeStory={handleChangeStory}
-        onSubmitStory={handleSubmitStory}
-        onSelectAutonomousMode={handleSelectAutonomousMode}
-        onConfirmSetup={() => void handleConfirmSetup()}
-        onBack={handleSetupBack}
-      />
-
       <div className={styles.messageList}>
-        {messages.length === 0 && setupPanelMode === 'hidden' && projectState === null ? (
+        {messages.length === 0 && projectState === null ? (
           // Probe still in flight — neutral placeholder so we don't
           // flash anything before classification completes.
           <div className={styles.emptyPlaceholder}>
@@ -1624,7 +1432,6 @@ export default function ChatPanelEmbedded() {
           messages region, not here.
         */}
         {messages.length === 0 &&
-          setupPanelMode === 'hidden' &&
           (projectState === 'in_progress' || projectState === 'completed') && (
             <ProjectCTA
               state={projectState}
