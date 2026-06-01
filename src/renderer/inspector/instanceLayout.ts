@@ -128,6 +128,13 @@ export interface LayoutOpts {
   rowY0?: number;
   groupPadLeft?: number;
   groupPadTop?: number;
+  /**
+   * When true (default), every row's content is centered around the
+   * widest row's axis: a 1-card row sits visually under the middle of
+   * a 10-card row. When false, every row is anchored to `rowX0` and
+   * narrower rows hang to the left.
+   */
+  centerRows?: boolean;
 }
 
 const DEFAULT_OPTS: Required<LayoutOpts> = {
@@ -137,6 +144,7 @@ const DEFAULT_OPTS: Required<LayoutOpts> = {
   rowY0: 60,
   groupPadLeft: 24,
   groupPadTop: 36,
+  centerRows: true,
 };
 
 /**
@@ -156,14 +164,27 @@ export function computeInstanceLayout(
   const positions = new Map<string, InstancePosition>();
   const stageBoxes = new Map<string, { x: number; y: number; width: number; row: number }>();
   const keyOf = (n: string, i?: string): string => (i !== undefined ? `${n}:${i}` : n);
+
+  // Pass 1 — compute per-stage sorted instances + content width.
+  const sortedByStage = new Map<string, InstanceLayoutInput[]>();
+  const widthByStage = new Map<string, number>();
+  for (const stageId of rowAssignment.stagesByRow) {
+    const insts = instancesByStage.get(stageId) ?? [];
+    const sorted = [...insts].sort((a, b) => (a.itemId ?? '').localeCompare(b.itemId ?? ''));
+    sortedByStage.set(stageId, sorted);
+    const width = o.groupPadLeft + Math.max(1, sorted.length) * o.instancePitch + o.groupPadLeft;
+    widthByStage.set(stageId, width);
+  }
+  const maxWidth = widthByStage.size === 0 ? 0 : Math.max(...widthByStage.values());
+
+  // Pass 2 — assign positions with optional centering offset.
   for (const stageId of rowAssignment.stagesByRow) {
     const row = rowAssignment.rowByStage.get(stageId)!;
-    const insts = instancesByStage.get(stageId) ?? [];
-    // Sort instances by itemId for stable left-to-right ordering.
-    const sorted = [...insts].sort((a, b) => (a.itemId ?? '').localeCompare(b.itemId ?? ''));
+    const sorted = sortedByStage.get(stageId) ?? [];
+    const width = widthByStage.get(stageId) ?? 0;
+    const offset = o.centerRows ? Math.max(0, (maxWidth - width) / 2) : 0;
     const y = o.rowY0 + row * o.rowPitch;
-    const x0 = o.rowX0;
-    const width = o.groupPadLeft + Math.max(1, sorted.length) * o.instancePitch + o.groupPadLeft;
+    const x0 = o.rowX0 + offset;
     stageBoxes.set(stageId, { x: x0, y, width, row });
     sorted.forEach((inst, idx) => {
       positions.set(keyOf(stageId, inst.itemId), {
