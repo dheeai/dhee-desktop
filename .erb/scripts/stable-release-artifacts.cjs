@@ -1,6 +1,6 @@
 /**
  * electron-builder afterAllArtifactBuild: publish stable filenames alongside
- * versioned artifacts so https://github.com/.../releases/latest/download/... works.
+ * selected versioned artifacts so https://github.com/.../releases/latest/download/... works.
  * Does not replace primary artifacts (electron-updater latest.yml / blockmaps unchanged).
  */
 const fs = require('fs');
@@ -15,11 +15,6 @@ exports.default = async function stableReleaseArtifacts(context) {
   const stablePrefix = 'Dhee.Studio';
 
   const extra = [];
-  const dmgs = artifactPaths.filter(
-    (p) => p.endsWith('.dmg') && !p.endsWith('.dmg.blockmap'),
-  );
-
-  const armDmg = dmgs.find((p) => /arm64/i.test(path.basename(p)));
 
   function copyStable(src, stableName) {
     if (!src || !fs.existsSync(src)) return;
@@ -28,8 +23,6 @@ exports.default = async function stableReleaseArtifacts(context) {
     extra.push(dest);
     console.log(`[stable-release-artifacts] ${path.basename(src)} -> ${stableName}`);
   }
-
-  copyStable(armDmg, `${stablePrefix}-mac-arm64.dmg`);
 
   const setupExe = artifactPaths.find((p) => {
     const b = path.basename(p);

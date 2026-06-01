@@ -91,35 +91,40 @@ Once complete, the release will be available at:
 Download the DMG file:
 - `Dhee-<version>-arm64.dmg` (Apple Silicon)
 
-### Stable filenames (same URL every release)
+### Stable filenames for Windows and Linux
 
-After each release, the build also publishes **fixed-name copies** (via `afterAllArtifactBuild` in `package.json`) so you can link to GitHub “Latest” without changing filenames:
+The macOS Apple Silicon download uses the versioned Electron Builder artifact:
+`Dhee-<version>-arm64.dmg`.
+Update the website macOS download URL when the desktop version changes.
+
+For Windows and Linux, the build also publishes **fixed-name copies** (via
+`afterAllArtifactBuild` in `package.json`) so you can link to GitHub “Latest”
+without changing filenames:
 
 | Platform | Stable asset on Latest |
 |----------|-------------------------|
-| macOS Apple Silicon | `Dhee.Studio-mac-arm64.dmg` |
 | Windows x64 | `Dhee.Studio-windows-x64-setup.exe` |
 | Linux x86_64 | `Dhee.Studio-linux-x86_64.AppImage` |
 
 Example URLs (after the next successful tagged release):
 
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-arm64.dmg`
+- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-0.1.0-arm64.dmg`
 - `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-windows-x64-setup.exe`
 
-Versioned originals (for support and reproducibility) remain on the same release as today.
+Versioned originals remain on the same release as today.
 
 The marketing site (`dhee-website`) reads these via environment variables. See the **Dhee Desktop downloads** section in `dhee-website/.env.example` at the monorepo root and copy those values into production hosting (Vercel, Cloud Run, and so on).
 
-### Verify stable assets after a release
+### Verify download assets after a release
 
 Use the `dhee-desktop` latest URLs once the workflow has finished:
 
 ```bash
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-arm64.dmg" | head -n 5
+curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee-0.1.0-arm64.dmg" | head -n 5
 curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-windows-x64-setup.exe" | head -n 5
 ```
 
-You should see `HTTP/2 302` (or `301`) with a `location:` header pointing at an object URL or the tagged release asset. If you get `404`, the stable files were not attached—check the Actions logs for the `afterAllArtifactBuild` step.
+You should see `HTTP/2 302` (or `301`) with a `location:` header pointing at an object URL or the tagged release asset. If Windows or Linux stable assets return `404`, check the Actions logs for the `afterAllArtifactBuild` step.
 
 ## What Gets Built
 
