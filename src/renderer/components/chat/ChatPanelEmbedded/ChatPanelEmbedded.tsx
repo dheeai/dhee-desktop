@@ -35,6 +35,7 @@ import {
 import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
+import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
@@ -2138,21 +2139,24 @@ function handleEvent(
         );
         streamingMsgIdRef.current = null;
       } else {
-        // streamingMsgIdRef was cleared mid-stream by a tool_call event,
-        // but the streaming bubble may still be sitting in the messages
-        // list. Find the most-recent one and finalize it in-place rather
-        // than appending a second bubble with the same content.
+        // streamingMsgIdRef was cleared mid-stream by a tool_call event.
+        // The OLD code searched for a bubble with `streaming: true` —
+        // but tool_call explicitly flips prior bubbles to streaming:false,
+        // so by the time agent_response lands after several tool calls,
+        // no bubble has streaming:true and the renderer appended a brand-
+        // new bubble carrying the entire turn's text. The user already
+        // saw that text as intermediate "Let me check X" bubbles, so the
+        // new bubble looked like a full duplicate dump on stop.
+        //
+        // Fix: find the most-recent ASSISTANT bubble in the current
+        // turn (regardless of streaming flag) and update it with the
+        // canonical text. Only append a fresh bubble when no assistant
+        // bubble exists in the current turn at all.
         setMessages((prev) => {
-          let streamingIdx = -1;
-          for (let i = prev.length - 1; i >= 0; i -= 1) {
-            if (prev[i].role === 'assistant' && prev[i].streaming) {
-              streamingIdx = i;
-              break;
-            }
-          }
-          if (streamingIdx !== -1) {
+          const idx = findCanonicalAssistantBubbleIdx(prev);
+          if (idx !== -1) {
             return prev.map((m, i) =>
-              i === streamingIdx ? { ...m, text: finalOutput, streaming: false } : m,
+              i === idx ? { ...m, text: finalOutput, streaming: false } : m,
             );
           }
           return [
