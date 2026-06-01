@@ -55,19 +55,35 @@ export function useInstanceHoverState(): HoverState {
   return useContext(HoverContext);
 }
 
+/**
+ * Project directory for the cards — used by content renderers to
+ * build file:// URLs for images / videos / audio and to read text /
+ * JSON files. Threaded via context so per-card components don't
+ * need it passed down through data.
+ */
+const ProjectDirContext = createContext<string | null>(null);
+export function useProjectDir(): string | null {
+  return useContext(ProjectDirContext);
+}
+
 const NODE_TYPES: NodeTypes = {
   instanceCard: InstanceCard as unknown as NodeTypes[string],
   stageGroup: StageGroupLabel as unknown as NodeTypes[string],
 };
 
-// Layout constants
-const COLUMN_PITCH = 320;
-const ROW_PITCH = 110;
-const COLUMN_X0 = 80;
-const COLUMN_Y0 = 80;
-const GROUP_PAD_TOP = 40;
-const GROUP_PAD_BOTTOM = 24;
-const CARD_W = 240;
+// Layout constants. Cards flow VERTICALLY: stages are horizontal
+// rows ranked top-to-bottom (plot first, then story, then ...),
+// instances within a stage spread horizontally on that row. Same-
+// rank stages share a row visually.
+const ROW_PITCH = 280;        // y distance between stage rows
+const INSTANCE_PITCH = 360;   // x distance between instances in a row
+const CARD_H = 220;           // card height (visual; layout uses ROW_PITCH for spacing)
+const ROW_X0 = 100;
+const ROW_Y0 = 60;
+const GROUP_PAD_LEFT = 24;
+const GROUP_PAD_TOP = 36;
+const GROUP_PAD_BOTTOM = 20;
+const GROUP_PAD_RIGHT = 24;
 
 function keyOf(nodeId: string, itemId: string | undefined): string {
   return itemId !== undefined ? `${nodeId}:${itemId}` : nodeId;
@@ -205,11 +221,12 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
 
     const ranks = computeStageRanks(graph.instances, graph.edges);
     const stageIds = [...byStage.keys()];
-    // Place stages: x by rank, y stacked per rank (multiple stages
-    // sharing a rank — e.g. parallel branches — stack downward).
-    const rankCursorY = new Map<number, number>();
-    const stageBox = new Map<string, { x: number; y: number; height: number; rank: number }>();
-    // Sort stages so that within a rank, the order is stable (alphabetical).
+    // Layout: row per topological rank (top→bottom). Same-rank
+    // stages share a row, placed side-by-side. Each stage's instance
+    // cards spread horizontally inside its allocated stretch.
+    const rankCursorX = new Map<number, number>();
+    const stageBox = new Map<string, { x: number; y: number; width: number; rank: number }>();
+    // Sort: by rank ascending, then alphabetical within rank.
     stageIds.sort((a, b) => {
       const ra = ranks.get(a) ?? 0;
       const rb = ranks.get(b) ?? 0;
@@ -218,26 +235,29 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
     });
     for (const stage of stageIds) {
       const r = ranks.get(stage) ?? 0;
-      const x = COLUMN_X0 + r * COLUMN_PITCH;
-      const y = rankCursorY.get(r) ?? COLUMN_Y0;
+      const y = ROW_Y0 + r * ROW_PITCH;
+      const x = rankCursorX.get(r) ?? ROW_X0;
       const insts = byStage.get(stage) ?? [];
-      const height = GROUP_PAD_TOP + insts.length * ROW_PITCH + GROUP_PAD_BOTTOM;
-      stageBox.set(stage, { x, y, height, rank: r });
-      rankCursorY.set(r, y + height + 40);
+      const width = GROUP_PAD_LEFT + insts.length * INSTANCE_PITCH + GROUP_PAD_RIGHT;
+      stageBox.set(stage, { x, y, width, rank: r });
+      rankCursorX.set(r, x + width + 40);
     }
 
     const xyNodes: Node[] = [];
     // Emit stage group labels (zIndex below cards).
     for (const stage of stageIds) {
       const box = stageBox.get(stage)!;
+      const insts = byStage.get(stage)!;
+      const height = GROUP_PAD_TOP + CARD_H + GROUP_PAD_BOTTOM;
       xyNodes.push({
         id: `__group__${stage}`,
         type: 'stageGroup',
-        position: { x: box.x - 20, y: box.y },
+        position: { x: box.x, y: box.y },
         data: {
           stageId: stage,
-          width: CARD_W + 40,
-          height: box.height,
+          width: box.width,
+          height,
+          instanceCount: insts.length,
         },
         draggable: false,
         selectable: false,
@@ -255,7 +275,10 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         xyNodes.push({
           id,
           type: 'instanceCard',
-          position: { x: box.x, y: box.y + GROUP_PAD_TOP + idx * ROW_PITCH },
+          position: {
+            x: box.x + GROUP_PAD_LEFT + idx * INSTANCE_PITCH,
+            y: box.y + GROUP_PAD_TOP,
+          },
           data: { ...inst },
           draggable: false,
           style: { zIndex: 1 },
@@ -279,13 +302,14 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         id: `${src}->${dst}#${e.role ?? ''}`,
         source: src,
         target: dst,
+        sourceHandle: 'bottom',
+        targetHandle: 'top',
+        type: 'smoothstep',
         animated: isHighlighted,
         style: {
           stroke: isHighlighted ? '#f2c97a' : isDimmed ? 'rgba(168, 156, 139, 0.08)' : 'rgba(168, 156, 139, 0.35)',
           strokeWidth: isHighlighted ? 2 : 1,
         },
-        label: e.role,
-        labelStyle: { fontSize: 9, fill: 'rgba(255,255,255,0.5)' },
         zIndex: isHighlighted ? 2 : 0,
       };
     });
@@ -328,6 +352,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
 
   return (
     <div className={styles.canvas}>
+      <ProjectDirContext.Provider value={projectDir ?? null}>
       <HoverContext.Provider value={hoverCtx}>
       <ReactFlowProvider>
         <ReactFlow
@@ -350,6 +375,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
         </ReactFlow>
       </ReactFlowProvider>
       </HoverContext.Provider>
+      </ProjectDirContext.Provider>
     </div>
   );
 }

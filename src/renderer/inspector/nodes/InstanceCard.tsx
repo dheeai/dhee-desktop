@@ -1,18 +1,28 @@
 /**
- * InstanceCard — one card per (nodeId, itemId) instance in the
- * per-instance dependency graph view.
+ * InstanceCard — content-rich card per (nodeId, itemId) instance.
  *
- * Shows:
- *   - Stage + item id (e.g. "shot_image / scene_1_shot_3")
- *   - Status pill (pending / in_progress / completed / failed / invalidated)
- *   - Output file basename (when completed)
- *   - Tool name + CAS-hit badge (when present)
- *   - Hovered / dependent / dimmed states for the regen blast-radius UX
+ * Dispatches to a per-format renderer based on the artifact's file
+ * extension (md/txt/json → MarkdownCard/JsonCard, image → ImageCard,
+ * video → VideoCard, audio → AudioCard).
+ *
+ * Hover state arrives via HoverContext — set on mouseenter at the
+ * canvas level — so cards don't re-render unless their own
+ * hovered/dependent/dimmed bit flips.
+ *
+ * Project dir arrives via ProjectDirContext so renderers can build
+ * file:// URLs for binary artifacts (images, videos) without
+ * threading the path through node.data.
  */
 import { memo } from 'react';
 import { Handle, Position } from '@xyflow/react';
 import type { InstanceGraphNode } from '../../../shared/dheeIpc';
-import { useInstanceHoverState } from '../InstanceCardsCanvas';
+import { useInstanceHoverState, useProjectDir } from '../InstanceCardsCanvas';
+import { MarkdownCardBody } from './content/MarkdownCardBody';
+import { JsonCardBody } from './content/JsonCardBody';
+import { ImageCardBody } from './content/ImageCardBody';
+import { VideoCardBody } from './content/VideoCardBody';
+import { AudioCardBody } from './content/AudioCardBody';
+import { EmptyCardBody } from './content/EmptyCardBody';
 
 type InstanceCardData = InstanceGraphNode;
 
@@ -31,117 +41,168 @@ function statusColor(status: string): string {
   }
 }
 
-function basename(p: string | undefined): string {
-  if (!p) return '';
-  const parts = p.split('/');
-  return parts[parts.length - 1] ?? p;
+function inferFormat(outputPath: string | undefined): 'md' | 'json' | 'image' | 'video' | 'audio' | 'unknown' {
+  if (!outputPath) return 'unknown';
+  const lower = outputPath.toLowerCase();
+  if (lower.endsWith('.png') || lower.endsWith('.jpg') || lower.endsWith('.jpeg') || lower.endsWith('.webp') || lower.endsWith('.gif')) return 'image';
+  if (lower.endsWith('.mp4') || lower.endsWith('.webm') || lower.endsWith('.mov') || lower.endsWith('.mkv')) return 'video';
+  if (lower.endsWith('.wav') || lower.endsWith('.mp3') || lower.endsWith('.ogg') || lower.endsWith('.flac')) return 'audio';
+  if (lower.endsWith('.json')) return 'json';
+  if (lower.endsWith('.md') || lower.endsWith('.txt')) return 'md';
+  return 'unknown';
 }
 
+const CARD_W = 320;
+const CARD_H = 220;
+
 function InstanceCardImpl({ data }: { data: InstanceCardData }) {
-  const {
-    nodeId,
-    itemId,
-    status,
-    outputPath,
-    tool,
-    cached,
-    error,
-  } = data;
-  // Hover state from context — only this component re-renders when
-  // hover changes, NOT the whole xyflow node array.
+  const { nodeId, itemId, status, outputPath, tool, cached, error } = data;
+  const projectDir = useProjectDir();
   const { hoveredKey, highlighted } = useInstanceHoverState();
   const myKey = keyOf(nodeId, itemId);
   const isHovered = hoveredKey === myKey;
   const isDependent = highlighted.has(myKey);
   const isDimmed = hoveredKey !== null && !isHovered && !isDependent;
 
+  const fmt = inferFormat(outputPath);
   const borderColor = isHovered
     ? '#f2c97a'
     : isDependent
       ? '#a3553b'
       : statusColor(status);
-  const opacity = isDimmed ? 0.35 : 1;
+  const opacity = isDimmed ? 0.4 : 1;
   const boxShadow = isHovered
-    ? '0 0 0 2px #f2c97a, 0 8px 24px rgba(0,0,0,0.5)'
+    ? '0 0 0 2px #f2c97a, 0 10px 28px rgba(0,0,0,0.55)'
     : isDependent
-      ? '0 0 0 1.5px #a3553b, 0 4px 12px rgba(0,0,0,0.3)'
-      : '0 2px 6px rgba(0,0,0,0.2)';
+      ? '0 0 0 1.5px #a3553b, 0 6px 16px rgba(0,0,0,0.4)'
+      : '0 3px 10px rgba(0,0,0,0.25)';
+
+  const isCompleted = status === 'completed' && outputPath && projectDir;
+  const bodyProps = { projectDir, outputPath: outputPath ?? null };
 
   return (
     <div
       style={{
-        width: 240,
+        width: CARD_W,
+        height: CARD_H,
         background: '#161821',
         border: `1.5px solid ${borderColor}`,
-        borderRadius: 8,
-        padding: '10px 12px',
+        borderRadius: 10,
         color: '#e5e1d8',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: 12,
         opacity,
         boxShadow,
         transition: 'opacity 150ms ease, box-shadow 150ms ease, border-color 150ms ease',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
       }}
     >
-      <Handle type="target" position={Position.Left} style={{ background: '#5f88b2', width: 6, height: 6 }} />
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontWeight: 600, color: '#a9b0ba', fontSize: 11, letterSpacing: 0.3, textTransform: 'uppercase' }}>
-          {nodeId}
-        </span>
+      <Handle id="top" type="target" position={Position.Top} style={{ background: '#5f88b2', width: 7, height: 7 }} />
+
+      {/* Header */}
+      <div
+        style={{
+          padding: '8px 12px',
+          background: 'rgba(95, 136, 178, 0.08)',
+          borderBottom: '1px solid rgba(168, 156, 139, 0.12)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexShrink: 0,
+        }}
+      >
+        <div style={{ overflow: 'hidden' }}>
+          <div
+            style={{
+              fontWeight: 600,
+              fontSize: 11,
+              color: '#a9b0ba',
+              letterSpacing: 0.4,
+              textTransform: 'uppercase',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {nodeId}
+          </div>
+          {itemId && (
+            <div
+              style={{
+                fontFamily: 'ui-monospace, Menlo, monospace',
+                fontSize: 10,
+                color: 'rgba(229, 225, 216, 0.65)',
+                marginTop: 2,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {itemId}
+            </div>
+          )}
+        </div>
         <span
           style={{
             background: statusColor(status),
             color: '#161821',
-            padding: '1px 6px',
+            padding: '2px 7px',
             borderRadius: 4,
             fontSize: 9,
             fontWeight: 700,
             textTransform: 'uppercase',
             letterSpacing: 0.5,
+            flexShrink: 0,
+            marginLeft: 8,
           }}
         >
           {status === 'in_progress' ? 'run' : status.slice(0, 4)}
         </span>
       </div>
-      {itemId && (
-        <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11, color: '#e5e1d8', marginBottom: 4, wordBreak: 'break-all' }}>
-          {itemId}
-        </div>
-      )}
-      {outputPath && (
+
+      {/* Content body — per-format */}
+      <div style={{ flex: 1, overflow: 'hidden', display: 'flex' }}>
+        {!isCompleted ? (
+          <EmptyCardBody status={status} error={error} outputPath={outputPath} />
+        ) : fmt === 'image' ? (
+          <ImageCardBody {...bodyProps} />
+        ) : fmt === 'video' ? (
+          <VideoCardBody {...bodyProps} />
+        ) : fmt === 'audio' ? (
+          <AudioCardBody {...bodyProps} />
+        ) : fmt === 'json' ? (
+          <JsonCardBody {...bodyProps} />
+        ) : fmt === 'md' ? (
+          <MarkdownCardBody {...bodyProps} />
+        ) : (
+          <EmptyCardBody status={status} error={null} outputPath={outputPath} />
+        )}
+      </div>
+
+      {/* Footer — tool + CAS */}
+      {(tool || cached) && (
         <div
           style={{
-            fontFamily: 'ui-monospace, Menlo, monospace',
-            fontSize: 10,
-            color: 'rgba(229, 225, 216, 0.5)',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
+            padding: '4px 12px',
+            fontSize: 9,
+            color: 'rgba(229, 225, 216, 0.45)',
+            display: 'flex',
+            gap: 8,
+            borderTop: '1px solid rgba(168, 156, 139, 0.08)',
+            flexShrink: 0,
           }}
-          title={outputPath}
         >
-          {basename(outputPath)}
-        </div>
-      )}
-      {error && (
-        <div style={{ fontSize: 10, color: '#a56d6f', marginTop: 4 }} title={error}>
-          {error.length > 60 ? error.slice(0, 57) + '…' : error}
-        </div>
-      )}
-      {(tool || cached) && (
-        <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(229,225,216,0.4)', display: 'flex', gap: 6 }}>
           {tool && <span>via {tool}</span>}
-          {cached && <span style={{ color: '#6d8f7a' }}>· CAS</span>}
+          {cached && <span style={{ color: '#6d8f7a' }}>· CAS hit</span>}
         </div>
       )}
-      <Handle type="source" position={Position.Right} style={{ background: '#5f88b2', width: 6, height: 6 }} />
+
+      <Handle id="bottom" type="source" position={Position.Bottom} style={{ background: '#5f88b2', width: 7, height: 7 }} />
     </div>
   );
 }
 
-// Memoize so cards with unchanged data + unchanged context state
-// don't re-render. The context subscription invalidates only when
-// hoveredKey / highlighted actually change.
 export const InstanceCard = memo(InstanceCardImpl);
-
 export default InstanceCard;
