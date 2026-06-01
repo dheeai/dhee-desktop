@@ -913,8 +913,11 @@ export default function ChatPanelEmbedded() {
     setAttachmentError(null);
     try {
       const result = await window.electron.project.selectAttachment({
-        kinds: ['comfy_workflow'],
-        title: 'Select a ComfyUI Workflow',
+        // Order matters: when a picked file's extension maps to
+        // multiple kinds the IPC handler returns the FIRST listed
+        // match. Images first so PNG/JPG don't get misclassified.
+        kinds: ['image', 'comfy_workflow'],
+        title: 'Attach an image or ComfyUI workflow',
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
