@@ -1,6 +1,15 @@
 import { FormEvent, useState, useRef, useEffect, KeyboardEvent } from 'react';
 import { Send, Square, Paperclip } from 'lucide-react';
-import type { Attachment, AttachmentKind } from '../../../../shared/attachmentTypes';
+import type {
+  Attachment,
+  AttachmentKind,
+  ReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
+import {
+  attachmentsFromSelectResponse,
+  isReferenceImageLikeAttachment,
+  withReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
 import AttachmentChip from './AttachmentChip';
 import styles from './ChatInput.module.scss';
 
@@ -26,6 +35,23 @@ const MIN_ROWS = 1;
 const MAX_ROWS = 6;
 const LINE_HEIGHT = 24; // Approximate line height in pixels
 
+function mergePickedAttachment(
+  existing: Attachment[],
+  attachment: Attachment,
+): Attachment[] {
+  if (isReferenceImageLikeAttachment(attachment)) {
+    if (existing.some((item) => item.path === attachment.path)) return existing;
+    return [...existing, attachment];
+  }
+  if (attachment.kind === 'comfy_workflow') {
+    return [
+      ...existing.filter((item) => item.kind !== 'comfy_workflow'),
+      attachment,
+    ];
+  }
+  return [...existing, attachment];
+}
+
 export default function ChatInput({
   disabled = false,
   isRunning = false,
@@ -41,6 +67,7 @@ export default function ChatInput({
   const [value, setValue] = useState('');
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isPickingAttachment, setIsPickingAttachment] = useState(false);
   const [rows, setRows] = useState(MIN_ROWS);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -111,27 +138,37 @@ export default function ChatInput({
   const handleAttach = async () => {
     setAttachmentError(null);
     notifyQuestionInteraction();
+    setIsPickingAttachment(true);
     try {
       const result = await window.electron.project.selectAttachment({
         kinds: acceptedAttachmentKinds,
+        multiple: acceptedAttachmentKinds.some(
+          (kind) => kind === 'character_ref' || kind === 'reference_image',
+        ),
         title:
           acceptedAttachmentKinds.length === 1 &&
           acceptedAttachmentKinds[0] === 'comfy_workflow'
             ? 'Select a ComfyUI Workflow'
-            : 'Select an attachment',
+            : acceptedAttachmentKinds.length === 1 &&
+                (acceptedAttachmentKinds[0] === 'character_ref' ||
+                  acceptedAttachmentKinds[0] === 'reference_image')
+              ? 'Select Reference Images'
+              : 'Select an attachment',
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
         return;
       }
-      if (result.attachment) {
-        // Cap at one attachment per turn for v1 — keeps the skill
-        // prompt's parsing simple. Lift the cap when batched flows
-        // need it.
-        setAttachments([result.attachment as Attachment]);
+      const pickedAttachments = attachmentsFromSelectResponse(result);
+      if (pickedAttachments.length > 0) {
+        setAttachments((prev) =>
+          pickedAttachments.reduce(mergePickedAttachment, prev),
+        );
       }
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsPickingAttachment(false);
     }
   };
 
@@ -139,10 +176,20 @@ export default function ChatInput({
     setAttachments(prev => prev.filter(a => a.id !== id));
   };
 
+  const handleReferenceRoleChange = (id: string, role: ReferenceImageRole) => {
+    setAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageRole(attachment, role)
+          : attachment,
+      ),
+    );
+  };
+
   const hasContent = value.trim().length > 0 || attachments.length > 0;
-  const canSend = hasContent && !disabled;
+  const canSend = hasContent && !disabled && !isPickingAttachment;
   const canStop = !disabled && isRunning && !isStopping;
-  const canAttach = !disabled && !isRunning;
+  const canAttach = !disabled && !isRunning && !isPickingAttachment;
 
   return (
     <form
@@ -156,6 +203,7 @@ export default function ChatInput({
               key={att.id}
               attachment={att}
               onRemove={handleRemoveAttachment}
+              onReferenceRoleChange={handleReferenceRoleChange}
               disabled={isRunning}
             />
           ))}
@@ -173,7 +221,12 @@ export default function ChatInput({
           disabled={!canAttach}
           className={styles.attachButton}
           aria-label="Attach file"
-          title="Attach a ComfyUI workflow JSON"
+          title={
+            acceptedAttachmentKinds.length === 1 &&
+            acceptedAttachmentKinds[0] === 'comfy_workflow'
+              ? 'Attach a ComfyUI workflow JSON'
+              : 'Attach a reference image'
+          }
         >
           <Paperclip size={16} />
         </button>

@@ -21,8 +21,11 @@ import {
   type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
+  type CreateProjectRequest,
+  type CreateProjectResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
@@ -52,8 +55,13 @@ import {
   type GetHistoryRequest,
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
-import { prefixAttachmentsToTask } from '../shared/attachmentTypes';
+import {
+  appendReferenceImagesToTask,
+  prefixAttachmentsToTask,
+  referenceImagesFromAttachments,
+} from '../shared/attachmentTypes';
 import type { dheeCoreManager, dheeCoreEvent } from './dheeCoreManager';
+import { addReferenceImageInputsToProject } from './characterReferenceImport';
 
 /**
  * Wire the bridge. Idempotent — if the channels are already registered
@@ -112,6 +120,43 @@ export function registerdheeIpcBridge(
   );
 
   ipcMain.handle(
+    dhee_CHANNELS.CREATE_PROJECT,
+    async (_event, req: CreateProjectRequest): Promise<CreateProjectResponse> => {
+      if (!req?.projectDir) {
+        return { ok: false, error: 'Project directory is required' };
+      }
+      if (!req.projectName?.trim()) {
+        return { ok: false, error: 'Project name is required' };
+      }
+      try {
+        const projectDir = path.resolve(req.projectDir);
+        const basePath = path.dirname(projectDir);
+        process.env['dhee_PROJECTS_DIR'] = basePath;
+        const result = await manager.createProjectInProcess({
+          name: req.projectName,
+          input: req.input,
+          style: req.style,
+          duration: req.duration,
+          basePath,
+          templateId: req.templateId,
+          existingDir: projectDir,
+          referenceImages: req.referenceImages ?? [],
+        });
+        return {
+          ok: true,
+          projectDir: result.projectDir,
+          resolvedStyle: result.resolvedStyle,
+        };
+      } catch (err) {
+        return {
+          ok: false,
+          error: err instanceof Error ? err.message : String(err),
+        };
+      }
+    },
+  );
+
+  ipcMain.handle(
     dhee_CHANNELS.CONFIGURE_PROJECT,
     async (_event, req: ConfigureProjectRequest): Promise<OkResponse> => {
       try {
@@ -133,11 +178,29 @@ export function registerdheeIpcBridge(
     dhee_CHANNELS.RUN_TASK,
     async (_event, req: RunTaskRequest): Promise<OkResponse> => {
       const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
-      // Attachment hints are prepended to the user's task here so
-      // pi-agent's skill prompts (e.g. comfyui-workflow-integration)
-      // see a one-line marker per attachment and call the right tool
-      // without us having to extend dhee-core's runTask signature.
-      const finalTask = prefixAttachmentsToTask(req.task, req.attachments);
+      const referenceImages = referenceImagesFromAttachments(
+        req.attachments,
+      );
+      if (referenceImages.length > 0) {
+        if (!req.projectDir) {
+          return {
+            ok: false,
+            error: 'Project directory is required for reference image attachments',
+          };
+        }
+        await addReferenceImageInputsToProject({
+          projectDir: req.projectDir,
+          attachments: req.attachments ?? [],
+        });
+      }
+
+      // Comfy workflow hints are prepended so pi-agent's skill prompts
+      // can recognize them. Reference images use durable project paths
+      // and are appended as content the graph prompt can read.
+      const finalTask = appendReferenceImagesToTask(
+        prefixAttachmentsToTask(req.task, req.attachments),
+        referenceImages,
+      );
       const result = await manager.runTask(
         req.sessionId,
         finalTask,
@@ -179,8 +242,11 @@ export function registerdheeIpcBridge(
 
   ipcMain.handle(
     dhee_CHANNELS.RUNNER_CANCEL,
-    async (): Promise<RunnerCancelResponse> => {
-      return { cancelled: await manager.cancelBackgroundTask() };
+    async (
+      _event,
+      req?: RunnerCancelRequest,
+    ): Promise<RunnerCancelResponse> => {
+      return { cancelled: await manager.cancelBackgroundTask(req) };
     },
   );
 
@@ -215,7 +281,7 @@ export function registerdheeIpcBridge(
       if (req.projectDir) {
         process.env['dhee_PROJECTS_DIR'] = path.dirname(req.projectDir);
       }
-      return manager.focusSessionProject(req.sessionId, req.projectName);
+      return manager.focusSessionProject(req.sessionId, req.projectName, req.projectDir);
     },
   );
 

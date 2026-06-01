@@ -28,6 +28,25 @@ const mockState: {
   lastInstance: null,
 };
 
+const mockRunnerState: {
+  cancelCalls: number;
+  cancelling: boolean;
+  active: null | {
+    id: string;
+    spec: {
+      kind: string;
+      projectName: string;
+      sessionId: string;
+      params?: Record<string, unknown>;
+    };
+    startedAt: number;
+  };
+} = {
+  cancelCalls: 0,
+  cancelling: false,
+  active: null,
+};
+
 class FakeConversationManager {
   sessions = new Map<string, { id: string }>();
 
@@ -95,7 +114,7 @@ jest.mock('electron', () => ({
 
 // Imported AFTER the jest.mock calls so the mock binds.
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { dheeCoreManager, __setManagerLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
+const { dheeCoreManager, __setManagerLoader, __setRunnersLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
 
 // Inject the FakeConversationManager via the loader seam — production code
 // uses a `webpackIgnore` dynamic import to load the real ESM bundle;
@@ -124,6 +143,17 @@ __setManagerLoader(async () => ({
   configurePostHogRuntime: mockConfigurePostHogRuntime,
   loadDevEnv: mockLoadDevEnv,
 } as unknown as Parameters<typeof __setManagerLoader>[0] extends () => Promise<infer M> ? M : never));
+
+__setRunnersLoader(async () => ({
+  getBackgroundTaskRunner: () => ({
+    cancel: () => {
+      mockRunnerState.cancelCalls += 1;
+      return true;
+    },
+    getActive: () => mockRunnerState.active,
+    isCancelling: () => mockRunnerState.cancelling,
+  }),
+} as unknown as Parameters<typeof __setRunnersLoader>[0] extends () => Promise<infer M> ? M : never));
 
 const baseSettings: AppSettings = {
   backendMode: 'local',
@@ -174,6 +204,9 @@ beforeEach(() => {
   mockState.envSnapshots = [];
   mockState.shutdownCalls = 0;
   mockState.lastInstance = null;
+  mockRunnerState.cancelCalls = 0;
+  mockRunnerState.cancelling = false;
+  mockRunnerState.active = null;
   mockConfigurePostHogRuntime.mockClear();
   delete process.env['LLM_PROVIDER'];
   delete process.env['OPENAI_API_KEY'];
@@ -575,6 +608,75 @@ describe('dheeCoreManager', () => {
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     expect(mgr.cancelTask('does-not-exist')).toBe(false);
+  });
+
+  it('getBackgroundTaskStatus includes projectDir from the active runner task params', async () => {
+    mockRunnerState.active = {
+      id: 'task-1',
+      spec: {
+        kind: 'run_to',
+        projectName: 'BurgerEating',
+        sessionId: 's-1',
+        params: { projectDir: '/tmp/BurgerEating.dhee' },
+      },
+      startedAt: 123,
+    };
+    mockRunnerState.cancelling = true;
+
+    const mgr = new dheeCoreManager();
+    await expect(mgr.getBackgroundTaskStatus()).resolves.toMatchObject({
+      active: true,
+      taskId: 'task-1',
+      kind: 'run_to',
+      projectName: 'BurgerEating',
+      projectDir: '/tmp/BurgerEating.dhee',
+      cancelling: true,
+      sessionId: 's-1',
+    });
+  });
+
+  it('cancelBackgroundTask does not cancel when the projectDir guard does not match the active runner', async () => {
+    mockRunnerState.active = {
+      id: 'task-1',
+      spec: {
+        kind: 'run_to',
+        projectName: 'BurgerEating',
+        sessionId: 's-1',
+        params: { projectDir: '/tmp/BurgerEating.dhee' },
+      },
+      startedAt: 123,
+    };
+
+    const mgr = new dheeCoreManager();
+    const cancelWithGuard = mgr.cancelBackgroundTask as unknown as (
+      opts?: { projectDir?: string },
+    ) => Promise<boolean>;
+    await expect(
+      cancelWithGuard({ projectDir: '/tmp/SummerSky.dhee' }),
+    ).resolves.toBe(false);
+    expect(mockRunnerState.cancelCalls).toBe(0);
+  });
+
+  it('cancelBackgroundTask cancels when the projectDir guard matches the active runner', async () => {
+    mockRunnerState.active = {
+      id: 'task-1',
+      spec: {
+        kind: 'run_to',
+        projectName: 'BurgerEating',
+        sessionId: 's-1',
+        params: { projectDir: '/tmp/BurgerEating.dhee' },
+      },
+      startedAt: 123,
+    };
+
+    const mgr = new dheeCoreManager();
+    const cancelWithGuard = mgr.cancelBackgroundTask as unknown as (
+      opts?: { projectDir?: string },
+    ) => Promise<boolean>;
+    await expect(
+      cancelWithGuard({ projectDir: '/tmp/BurgerEating.dhee/' }),
+    ).resolves.toBe(true);
+    expect(mockRunnerState.cancelCalls).toBe(1);
   });
 
   it('redoNode forwards editedPrompt unchanged to the underlying ConversationManager', async () => {

@@ -15,6 +15,9 @@
  * (records calls). No real Electron is needed.
  */
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import {
   dhee_CHANNELS,
   dhee_EVENT_CHANNEL,
@@ -75,6 +78,19 @@ const fakeManager = {
   configureSessionForProject: async (sessionId: string, opts: unknown) => {
     managerCalls.push({ method: 'configureSessionForProject', args: [sessionId, opts] });
   },
+  createProjectInProcess: async (opts: {
+    name: string;
+    input: string;
+    style: string;
+    duration: number;
+    basePath: string;
+    templateId?: string;
+    existingDir?: string;
+    referenceImages?: unknown[];
+  }) => {
+    managerCalls.push({ method: 'createProjectInProcess', args: [opts] });
+    return { projectDir: opts.existingDir ?? `${opts.basePath}/${opts.name}`, resolvedStyle: opts.style };
+  },
   runTask: async (
     sessionId: string,
     task: string,
@@ -89,12 +105,24 @@ const fakeManager = {
     managerCalls.push({ method: 'cancelTask', args: [sessionId] });
     return sessionId === 's-1';
   },
+  cancelBackgroundTask: async (opts?: unknown) => {
+    managerCalls.push({ method: 'cancelBackgroundTask', args: [opts] });
+    return true;
+  },
+  getBackgroundTaskStatus: async () => {
+    managerCalls.push({ method: 'getBackgroundTaskStatus', args: [] });
+    return {
+      active: true,
+      projectName: 'BurgerEating',
+      projectDir: '/tmp/BurgerEating.dhee',
+    };
+  },
   redoNode: async (sessionId: string, nodeId: string, opts: unknown) => {
     managerCalls.push({ method: 'redoNode', args: [sessionId, nodeId, opts] });
     return { ok: true };
   },
-  focusSessionProject: async (sessionId: string, projectName: string) => {
-    managerCalls.push({ method: 'focusSessionProject', args: [sessionId, projectName] });
+  focusSessionProject: async (sessionId: string, projectName: string, projectDir?: string) => {
+    managerCalls.push({ method: 'focusSessionProject', args: [sessionId, projectName, projectDir] });
     return { ok: true as const };
   },
   setAutonomousMode: (sessionId: string, enabled: boolean) => {
@@ -141,6 +169,51 @@ describe('dheeIpcBridge', () => {
     expect(result).toEqual({ sessionId: 's-1', resumed: false });
   });
 
+  it('createProject channel calls createProjectInProcess with existingDir and pins the projects dir', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.CREATE_PROJECT)!;
+    const result = await handler({} as never, {
+      projectName: 'fresh',
+      projectDir: '/tmp/fresh.dhee',
+      templateId: 'narrative',
+      style: 'cinematic_realism',
+      duration: 60,
+      input: 'A boy playing football',
+      referenceImages: [{
+        name: 'boy.png',
+        relativePath: 'assets/uploads/characters/boy.png',
+        purpose: 'character_ref',
+        referenceRole: 'character',
+      }],
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      projectDir: '/tmp/fresh.dhee',
+      resolvedStyle: 'cinematic_realism',
+    });
+    expect(process.env['dhee_PROJECTS_DIR']).toBe('/tmp');
+    const call = managerCalls.find((c) => c.method === 'createProjectInProcess');
+    expect(call).toBeDefined();
+    expect(call?.args[0]).toMatchObject({
+        name: 'fresh',
+        input: 'A boy playing football',
+        style: 'cinematic_realism',
+        duration: 60,
+        basePath: '/tmp',
+        templateId: 'narrative',
+        existingDir: '/tmp/fresh.dhee',
+        referenceImages: [
+          expect.objectContaining({
+            relativePath: 'assets/uploads/characters/boy.png',
+          }),
+        ],
+      });
+  });
+
   it('runTask channel forwards (sessionId, task, opts) to dheeCoreManager.runTask', async () => {
     registerdheeIpcBridge(
       fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
@@ -153,6 +226,108 @@ describe('dheeIpcBridge', () => {
     expect(call?.args[0]).toBe('s-1');
     expect(call?.args[1]).toBe('hi');
     expect(call?.args[2]).toMatchObject({ stopAtStage: 'shot_image' });
+  });
+
+  it('runTask registers character refs and appends durable project paths to task context', async () => {
+      const tmp = mkdtempSync(join(tmpdir(), 'dhee-bridge-charrefs-'));
+    try {
+      const projectDir = join(tmp, 'noir.dhee');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.json'), JSON.stringify({ title: 'noir' }, null, 2));
+
+      registerdheeIpcBridge(
+        fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+        browserWindowMock as unknown as import('electron').BrowserWindow,
+      );
+      const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
+      await handler({} as never, {
+        sessionId: 's-1',
+        task: 'use this person',
+        projectDir,
+        attachments: [{
+          id: 'att_hero',
+          kind: 'character_ref',
+          path: join(projectDir, 'assets/uploads/characters/hero.png'),
+          name: 'hero.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'character_ref',
+            projectRelativePath: 'assets/uploads/characters/hero.png',
+            originalPath: '/Users/me/Desktop/hero.png',
+            originalFilename: 'hero.png',
+          },
+        }],
+      });
+
+      const call = managerCalls.find((c) => c.method === 'runTask');
+      expect(call?.args[1]).toBe(
+        'use this person\n\nAttached character reference images:\n- hero.png: assets/uploads/characters/hero.png',
+      );
+      const project = JSON.parse(readFileSync(join(projectDir, 'project.json'), 'utf-8'));
+      expect(project.inputs).toEqual([
+        expect.objectContaining({
+          purpose: 'character_ref',
+          source: expect.objectContaining({
+            value: 'assets/uploads/characters/hero.png',
+          }),
+        }),
+      ]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('runTask registers setting refs and appends setting context', async () => {
+    const tmp = mkdtempSync(join(tmpdir(), 'dhee-bridge-settingrefs-'));
+    try {
+      const projectDir = join(tmp, 'noir.dhee');
+      mkdirSync(projectDir, { recursive: true });
+      writeFileSync(join(projectDir, 'project.json'), JSON.stringify({ title: 'noir' }, null, 2));
+
+      registerdheeIpcBridge(
+        fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+        browserWindowMock as unknown as import('electron').BrowserWindow,
+      );
+      const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
+      await handler({} as never, {
+        sessionId: 's-1',
+        task: 'use this place',
+        projectDir,
+        attachments: [{
+          id: 'att_field',
+          kind: 'reference_image',
+          path: join(projectDir, 'assets/uploads/settings/field.png'),
+          name: 'field.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'setting_ref',
+            referenceRole: 'setting',
+            projectRelativePath: 'assets/uploads/settings/field.png',
+            originalPath: '/Users/me/Desktop/field.png',
+            originalFilename: 'field.png',
+          },
+        }],
+      });
+
+      const call = managerCalls.find((c) => c.method === 'runTask');
+      expect(call?.args[1]).toBe(
+        'use this place\n\nAttached setting reference images:\n- field.png: assets/uploads/settings/field.png',
+      );
+      const project = JSON.parse(readFileSync(join(projectDir, 'project.json'), 'utf-8'));
+      expect(project.inputs).toEqual([
+        expect.objectContaining({
+          purpose: 'setting_ref',
+          source: expect.objectContaining({
+            value: 'assets/uploads/settings/field.png',
+          }),
+          metadata: expect.objectContaining({
+            referenceRole: 'setting',
+          }),
+        }),
+      ]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
   });
 
   it('runTask routes events from manager.eventCb to webContents.send(dhee_EVENT_CHANNEL, …)', async () => {
@@ -184,6 +359,32 @@ describe('dheeIpcBridge', () => {
     const handler = handlerRegistry.get(dhee_CHANNELS.CANCEL_TASK)!;
     expect(await handler({} as never, { sessionId: 's-1' })).toEqual({ cancelled: true });
     expect(await handler({} as never, { sessionId: 'unknown' })).toEqual({ cancelled: false });
+  });
+
+  it('runnerCancel forwards the optional projectDir guard to the manager', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUNNER_CANCEL)!;
+    expect(
+      await handler({} as never, { projectDir: '/tmp/BurgerEating.dhee' }),
+    ).toEqual({ cancelled: true });
+    const call = managerCalls.find((c) => c.method === 'cancelBackgroundTask');
+    expect(call?.args).toEqual([{ projectDir: '/tmp/BurgerEating.dhee' }]);
+  });
+
+  it('runnerStatus returns active projectDir metadata from the manager', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUNNER_STATUS)!;
+    await expect(handler({} as never)).resolves.toMatchObject({
+      active: true,
+      projectName: 'BurgerEating',
+      projectDir: '/tmp/BurgerEating.dhee',
+    });
   });
 
   it('invalidateNodes channel forwards (sessionId, nodeIds) and returns the manager result', async () => {
@@ -304,6 +505,11 @@ describe('dheeIpcBridge', () => {
       projectDir: '/Users/foo/MyVideos/storyA.dhee',
     });
     expect(process.env['dhee_PROJECTS_DIR']).toBe('/Users/foo/MyVideos');
+    expect(managerCalls.find((c) => c.method === 'focusSessionProject')?.args).toEqual([
+      's-1',
+      'storyA',
+      '/Users/foo/MyVideos/storyA.dhee',
+    ]);
     expect(focusResult).toEqual({ ok: true });
   });
 

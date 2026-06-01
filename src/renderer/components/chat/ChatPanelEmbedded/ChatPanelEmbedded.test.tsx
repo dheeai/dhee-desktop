@@ -72,7 +72,10 @@ jest.mock('../../../contexts/ChatQuestionsContext', () => ({
 // that touches ReactMarkdown.
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-import ChatPanelEmbedded from './ChatPanelEmbedded';
+import ChatPanelEmbedded, {
+  buildCharacterReplacementTask,
+  parseReplacementCharactersFromProjectJson,
+} from './ChatPanelEmbedded';
 // eslint-disable-next-line import/first
 import { DheeSessionProvider } from '../../../hooks/useDheeSession';
 
@@ -82,11 +85,74 @@ import { DheeSessionProvider } from '../../../hooks/useDheeSession';
 // panel bare).
 function renderPanel() {
   return render(
-    <DheeSessionProvider>
+    <DheeSessionProvider
+      projectDirectory={mockWorkspaceProjectName ? `/tmp/${mockWorkspaceProjectName}.dhee` : null}
+      projectName={mockWorkspaceProjectName}
+    >
       <ChatPanelEmbedded />
     </DheeSessionProvider>,
   );
 }
+
+function panelTree() {
+  return (
+    <DheeSessionProvider
+      projectDirectory={mockWorkspaceProjectName ? `/tmp/${mockWorkspaceProjectName}.dhee` : null}
+      projectName={mockWorkspaceProjectName}
+    >
+      <ChatPanelEmbedded />
+    </DheeSessionProvider>
+  );
+}
+
+describe('character replacement chat helpers', () => {
+  it('parses existing project characters as replacement targets', () => {
+    expect(
+      parseReplacementCharactersFromProjectJson(
+        JSON.stringify({
+          characters: [
+            { id: 'ren_takahashi', name: 'Ren Takahashi' },
+            { id: 'emna_aoyama', name: 'Emna Aoyama' },
+          ],
+        }),
+      ),
+    ).toEqual([
+      { id: 'ren_takahashi', name: 'Ren Takahashi' },
+      { id: 'emna_aoyama', name: 'Emna Aoyama' },
+    ]);
+  });
+
+  it('builds a deterministic pi-agent task for targeted character replacement', () => {
+    const task = buildCharacterReplacementTask({
+      text: '',
+      projectName: 'Summer-sky-2',
+      projectDirectory: '/Users/me/Downloads/Summer-sky-2',
+      attachments: [
+        {
+          id: 'att_new_emna',
+          kind: 'reference_image',
+          path: '/Users/me/Downloads/Summer-sky-2/assets/uploads/characters/NewEmna.png',
+          name: 'NewEmna.png',
+          meta: {
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            projectRelativePath: 'assets/uploads/characters/NewEmna.png',
+            replacementCharacterId: 'emna_aoyama',
+            replacementCharacterName: 'Emna Aoyama',
+          },
+        },
+      ],
+    });
+
+    expect(task).toContain('dhee_status');
+    expect(task).toContain('dhee_replace_character_reference');
+    expect(task).toContain('character="emna_aoyama"');
+    expect(task).toContain(
+      'referencePath="assets/uploads/characters/NewEmna.png"',
+    );
+    expect(task).toContain('scope="last_invalidated"');
+  });
+});
 
 type EventListener = (e: dheeEvent) => void;
 interface dheeListenerSlot {
@@ -96,7 +162,21 @@ interface dheeListenerSlot {
 }
 
 interface dheeMockState {
-  runTaskCalls: Array<{ sessionId: string; task: string }>;
+  createProjectCalls: Array<{
+    projectName: string;
+    projectDir: string;
+    templateId: string;
+    style: string;
+    duration: number;
+    input: string;
+    referenceImages?: unknown;
+  }>;
+  runTaskCalls: Array<{
+    sessionId: string;
+    task: string;
+    attachments?: unknown;
+    projectDir?: string;
+  }>;
   cancelCalls: Array<{ sessionId: string }>;
   listeners: dheeListenerSlot[];
   nextSessionId: string;
@@ -104,8 +184,12 @@ interface dheeMockState {
 
 let mockState: dheeMockState;
 
-function publishEvent(eventName: dheeEventName, data: unknown): void {
-  const event: dheeEvent = { eventName, sessionId: mockState.nextSessionId, data };
+function publishEvent(
+  eventName: dheeEventName,
+  data: unknown,
+  sessionId = mockState.nextSessionId,
+): void {
+  const event: dheeEvent = { eventName, sessionId, data };
   for (const slot of mockState.listeners) {
     if (!slot.active) continue;
     if (slot.eventName === '*' || slot.eventName === eventName) {
@@ -115,9 +199,11 @@ function publishEvent(eventName: dheeEventName, data: unknown): void {
 }
 
 beforeEach(() => {
+  window.localStorage.clear();
   mockWorkspaceProjectName = null;
   mockSavedConnectionSettings = [];
   mockState = {
+    createProjectCalls: [],
     runTaskCalls: [],
     cancelCalls: [],
     listeners: [],
@@ -125,8 +211,25 @@ beforeEach(() => {
   };
   (window as unknown as { dhee: unknown }).dhee = {
     createSession: jest.fn(async () => ({ sessionId: mockState.nextSessionId })),
+    createProject: jest.fn(async (req: {
+      projectName: string;
+      projectDir: string;
+      templateId: string;
+      style: string;
+      duration: number;
+      input: string;
+      referenceImages?: unknown;
+    }) => {
+      mockState.createProjectCalls.push(req);
+      return { ok: true, projectDir: req.projectDir, resolvedStyle: req.style };
+    }),
     configureProject: jest.fn(async () => ({ ok: true })),
-    runTask: jest.fn(async (req: { sessionId: string; task: string }) => {
+    runTask: jest.fn(async (req: {
+      sessionId: string;
+      task: string;
+      attachments?: unknown;
+      projectDir?: string;
+    }) => {
       mockState.runTaskCalls.push(req);
       return { ok: true };
     }),
@@ -403,6 +506,497 @@ describe('ChatPanelEmbedded', () => {
       sessionId: 's-1',
       task: 'create a 30s noir story',
     });
+  });
+
+  it('imports multiple reference attachments before sending normal chat', async () => {
+    mockWorkspaceProjectName = 'noir';
+    const projectJson = JSON.stringify({
+      templateId: 'narrative',
+      style: 'cinematic_realism',
+      targetDuration: 60,
+      goal: { status: 'open' },
+    });
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_field',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/field.png',
+        name: 'field.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'auto',
+          purpose: 'reference_general',
+        },
+      },
+      attachments: [
+        {
+          id: 'att_field',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/field.png',
+          name: 'field.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+        {
+          id: 'att_mood',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/mood.png',
+          name: 'mood.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+      ],
+    }));
+    const importReferenceImages = jest.fn(async () => ({
+      ok: true,
+      attachments: [
+        {
+          id: 'att_field',
+          kind: 'reference_image' as const,
+          path: '/tmp/noir.dhee/assets/uploads/settings/field.png',
+          name: 'field.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'setting_ref',
+            referenceRole: 'setting',
+            projectRelativePath: 'assets/uploads/settings/field.png',
+            originalPath: '/Users/me/Desktop/field.png',
+            originalFilename: 'field.png',
+          },
+        },
+        {
+          id: 'att_mood',
+          kind: 'reference_image' as const,
+          path: '/tmp/noir.dhee/assets/uploads/references/mood.png',
+          name: 'mood.png',
+          mimeType: 'image/png',
+          meta: {
+            purpose: 'reference_general',
+            referenceRole: 'auto',
+            projectRelativePath: 'assets/uploads/references/mood.png',
+            originalPath: '/Users/me/Desktop/mood.png',
+            originalFilename: 'mood.png',
+          },
+        },
+      ],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => projectJson),
+        selectAttachment,
+        importReferenceImages,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Attach file'));
+    });
+    await waitFor(() => expect(screen.getByText('field.png')).toBeInTheDocument());
+    expect(screen.getByText('mood.png')).toBeInTheDocument();
+    expect(selectAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kinds: ['comfy_workflow', 'reference_image'],
+        multiple: true,
+      }),
+    );
+    fireEvent.change(screen.getByLabelText('Reference role for field.png'), {
+      target: { value: 'setting' },
+    });
+
+    fireEvent.change(screen.getByRole('textbox'), {
+      target: { value: 'Use this setting reference.' },
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(importReferenceImages).toHaveBeenCalledWith({
+      projectDir: '/tmp/noir.dhee',
+      attachments: [
+        expect.objectContaining({
+          id: 'att_field',
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            purpose: 'setting_ref',
+            referenceRole: 'setting',
+          }),
+        }),
+        expect.objectContaining({
+          id: 'att_mood',
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            purpose: 'reference_general',
+            referenceRole: 'auto',
+          }),
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls[0]).toMatchObject({
+      task: 'Use this setting reference.',
+      projectDir: '/tmp/noir.dhee',
+      attachments: [
+        expect.objectContaining({
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            projectRelativePath: 'assets/uploads/settings/field.png',
+            purpose: 'setting_ref',
+          }),
+        }),
+        expect.objectContaining({
+          kind: 'reference_image',
+          meta: expect.objectContaining({
+            projectRelativePath: 'assets/uploads/references/mood.png',
+            purpose: 'reference_general',
+          }),
+        }),
+      ],
+    });
+    expect(screen.getByAltText('field.png')).toHaveAttribute(
+      'src',
+      'file:///tmp/noir.dhee/assets/uploads/settings/field.png',
+    );
+    expect(screen.getByAltText('mood.png')).toHaveAttribute(
+      'src',
+      'file:///tmp/noir.dhee/assets/uploads/references/mood.png',
+    );
+  });
+
+  it('sends a targeted character replacement task from a selected character upload', async () => {
+    mockWorkspaceProjectName = 'Summer-sky-2';
+    const projectJson = JSON.stringify({
+      templateId: 'narrative',
+      style: 'anime',
+      targetDuration: 60,
+      goal: { status: 'complete' },
+      characters: [
+        { id: 'ren_takahashi', name: 'Ren Takahashi' },
+        { id: 'emna_aoyama', name: 'Emna Aoyama' },
+      ],
+    });
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_new_emna',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/NewEmna.png',
+        name: 'NewEmna.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'auto',
+          purpose: 'reference_general',
+        },
+      },
+    }));
+    const importReferenceImages = jest.fn(async (req: {
+      attachments: Array<{
+        id: string;
+        kind: 'reference_image';
+        path: string;
+        name: string;
+        mimeType?: string;
+        meta?: Record<string, unknown>;
+      }>;
+    }) => ({
+      ok: true,
+      attachments: req.attachments.map((attachment) => ({
+        ...attachment,
+        path: `/tmp/Summer-sky-2.dhee/assets/uploads/characters/${attachment.name}`,
+        meta: {
+          ...(attachment.meta ?? {}),
+          projectRelativePath: `assets/uploads/characters/${attachment.name}`,
+          originalPath: attachment.path,
+          originalFilename: attachment.name,
+        },
+      })),
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => projectJson),
+        selectAttachment,
+        importReferenceImages,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText('Attach file'));
+    });
+    await waitFor(() =>
+      expect(screen.getByText('NewEmna.png')).toBeInTheDocument(),
+    );
+
+    fireEvent.change(screen.getByLabelText('Reference role for NewEmna.png'), {
+      target: { value: 'character' },
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByLabelText('Replacement target for NewEmna.png'),
+      ).toBeInTheDocument(),
+    );
+    fireEvent.change(
+      screen.getByLabelText('Replacement target for NewEmna.png'),
+      { target: { value: 'emna_aoyama' } },
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(importReferenceImages).toHaveBeenCalledWith({
+      projectDir: '/tmp/Summer-sky-2.dhee',
+      attachments: [
+        expect.objectContaining({
+          id: 'att_new_emna',
+          meta: expect.objectContaining({
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            replacementCharacterId: 'emna_aoyama',
+            replacementCharacterName: 'Emna Aoyama',
+          }),
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls[0]).toMatchObject({
+      projectDir: '/tmp/Summer-sky-2.dhee',
+      attachments: [
+        expect.objectContaining({
+          meta: expect.objectContaining({
+            projectRelativePath: 'assets/uploads/characters/NewEmna.png',
+            replacementCharacterId: 'emna_aoyama',
+          }),
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'dhee_replace_character_reference',
+    );
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'character="emna_aoyama"',
+    );
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'referencePath="assets/uploads/characters/NewEmna.png"',
+    );
+    expect(mockState.runTaskCalls[0].task).toContain(
+      'scope="last_invalidated"',
+    );
+  });
+
+  it('setup prompt can select multiple reference images in one picker action', async () => {
+    mockWorkspaceProjectName = 'fresh';
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_ren',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/Ren.png',
+        name: 'Ren.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'auto',
+          purpose: 'reference_general',
+        },
+      },
+      attachments: [
+        {
+          id: 'att_ren',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/Ren.png',
+          name: 'Ren.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+        {
+          id: 'att_sky',
+          kind: 'reference_image' as const,
+          path: '/Users/me/Desktop/Sky.png',
+          name: 'Sky.png',
+          mimeType: 'image/png',
+          meta: {
+            referenceRole: 'auto',
+            purpose: 'reference_general',
+          },
+        },
+      ],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => JSON.stringify({ title: 'fresh' })),
+        selectAttachment,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByText('Choose a Style'));
+
+    fireEvent.click(screen.getByText('Cinematic Realism'));
+    await waitFor(() => screen.getByText('Choose Duration'));
+    fireEvent.click(screen.getByRole('button', { name: /1 minute/i }));
+    await waitFor(() => screen.getByText('Tell Us the Story'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Attach reference image',
+      }));
+    });
+
+    await waitFor(() => expect(screen.getByText('Ren.png')).toBeInTheDocument());
+    expect(screen.getByText('Sky.png')).toBeInTheDocument();
+    expect(selectAttachment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kinds: ['reference_image'],
+        multiple: true,
+      }),
+    );
+  });
+
+  it('creates the project directly and shows a thumbnail prompt instead of agent setup metadata', async () => {
+    mockWorkspaceProjectName = 'fresh';
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: {
+        id: 'att_boy',
+        kind: 'reference_image' as const,
+        path: '/Users/me/Desktop/boy.png',
+        name: 'boy.png',
+        mimeType: 'image/png',
+        meta: {
+          referenceRole: 'character',
+          purpose: 'character_ref',
+        },
+      },
+    }));
+    const importedAttachment = {
+      id: 'att_boy',
+      kind: 'reference_image' as const,
+      path: '/tmp/fresh.dhee/assets/uploads/characters/boy.png',
+      name: 'boy.png',
+      mimeType: 'image/png',
+      size: 123,
+      meta: {
+        referenceRole: 'character',
+        purpose: 'character_ref',
+        projectRelativePath: 'assets/uploads/characters/boy.png',
+        originalPath: '/Users/me/Desktop/boy.png',
+        originalFilename: 'boy.png',
+      },
+    };
+    const importReferenceImages = jest.fn(async () => ({
+      ok: true,
+      attachments: [importedAttachment],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => JSON.stringify({ title: 'fresh' })),
+        selectAttachment,
+        importReferenceImages,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByText('Choose a Style'));
+
+    fireEvent.click(screen.getByText('Cinematic Realism'));
+    await waitFor(() => screen.getByText('Choose Duration'));
+    fireEvent.click(screen.getByRole('button', { name: /1 minute/i }));
+    await waitFor(() => screen.getByText('Tell Us the Story'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', {
+        name: 'Attach reference image',
+      }));
+    });
+    fireEvent.change(screen.getByLabelText('Project story or idea'), {
+      target: { value: 'create a movie on this character' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+
+    await waitFor(() => expect(mockState.createProjectCalls).toHaveLength(1));
+    expect(mockState.createProjectCalls[0]).toMatchObject({
+      projectName: 'fresh',
+      projectDir: '/tmp/fresh.dhee',
+      templateId: 'narrative',
+      style: 'cinematic_realism',
+      duration: 60,
+      input: 'create a movie on this character',
+      referenceImages: [
+        expect.objectContaining({
+          name: 'boy.png',
+          relativePath: 'assets/uploads/characters/boy.png',
+          purpose: 'character_ref',
+          referenceRole: 'character',
+        }),
+      ],
+    });
+    expect(mockState.runTaskCalls).toHaveLength(1);
+    expect(mockState.runTaskCalls[0].task).toMatch(
+      /Run the pipeline for the current project/i,
+    );
+    expect(mockState.runTaskCalls[0].task).not.toContain(
+      'Create the dhee project',
+    );
+    expect(mockState.runTaskCalls[0].task).not.toContain('referenceImages');
+
+    expect(
+      screen.getByText('create a movie on this character'),
+    ).toBeInTheDocument();
+    expect(screen.getByAltText('boy.png')).toHaveAttribute(
+      'src',
+      'file:///tmp/fresh.dhee/assets/uploads/characters/boy.png',
+    );
+    expect(screen.queryByText(/existingDir/i)).toBeNull();
+    expect(screen.queryByText(/assets\/uploads\/characters\/boy\.png/i)).toBeNull();
+  });
+
+  it('shows setup errors before starting the agent when app-owned project creation fails', async () => {
+    mockWorkspaceProjectName = 'fresh';
+    (window as unknown as { dhee: { createProject: jest.Mock } }).dhee.createProject =
+      jest.fn(async () => ({ ok: false, error: 'disk is read-only' }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async () => JSON.stringify({ title: 'fresh' })),
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByText('Choose a Style'));
+
+    fireEvent.click(screen.getByText('Cinematic Realism'));
+    await waitFor(() => screen.getByText('Choose Duration'));
+    fireEvent.click(screen.getByRole('button', { name: /1 minute/i }));
+    await waitFor(() => screen.getByText('Tell Us the Story'));
+    fireEvent.change(screen.getByLabelText('Project story or idea'), {
+      target: { value: 'create a movie on this character' },
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Continue' }));
+    });
+
+    expect(await screen.findByText('disk is read-only')).toBeInTheDocument();
+    expect(mockState.runTaskCalls).toHaveLength(0);
   });
 
   it('tool_call events appear in the message list', async () => {
@@ -1166,7 +1760,11 @@ describe('ChatPanelEmbedded', () => {
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
       runnerCancel as never;
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-      jest.fn(async () => ({ active: runnerActive })) as never;
+      jest.fn(async () => ({
+        active: runnerActive,
+        projectName: 'BurgerEating',
+        projectDir: '/tmp/BurgerEating.dhee',
+      })) as never;
 
     renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
@@ -1230,7 +1828,12 @@ describe('ChatPanelEmbedded', () => {
     }) as never;
     // Runner reports active — same scenario as a long pipeline mid-run.
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-      jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+      jest.fn(async () => ({
+        active: true,
+        kind: 'run_to',
+        projectName: 'BurgerEating',
+        projectDir: '/tmp/BurgerEating.dhee',
+      })) as never;
 
     renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
@@ -1291,6 +1894,7 @@ describe('ChatPanelEmbedded', () => {
           taskId: 'task-abc',
           kind: 'run_to',
           projectName: 'BurgerEating',
+          projectDir: '/tmp/BurgerEating.dhee',
         })) as never;
 
       renderPanel();
@@ -1352,7 +1956,11 @@ describe('ChatPanelEmbedded', () => {
       setupProjectFiles();
       let active = true;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-        jest.fn(async () => ({ active })) as never;
+        jest.fn(async () => ({
+          active,
+          projectName: 'BurgerEating',
+          projectDir: '/tmp/BurgerEating.dhee',
+        })) as never;
 
       renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
@@ -1377,12 +1985,17 @@ describe('ChatPanelEmbedded', () => {
       );
     });
 
-    it('GIVEN runnerStatus reports active=true WHEN user clicks Stop THEN runnerCancel() is invoked', async () => {
+    it('GIVEN runnerStatus reports active=true for the current project WHEN user clicks Stop THEN guarded runnerCancel() is invoked', async () => {
       mockWorkspaceProjectName = 'BurgerEating';
       setupProjectFiles();
       const runnerCancel = jest.fn(async () => ({ cancelled: true }));
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-        jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+        jest.fn(async () => ({
+          active: true,
+          kind: 'run_to',
+          projectName: 'BurgerEating',
+          projectDir: '/tmp/BurgerEating.dhee',
+        })) as never;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
         runnerCancel as never;
 
@@ -1401,6 +2014,116 @@ describe('ChatPanelEmbedded', () => {
         fireEvent.click(screen.getByRole('button', { name: /stop run/i }));
       });
       expect(runnerCancel).toHaveBeenCalledTimes(1);
+      expect(runnerCancel).toHaveBeenCalledWith({
+        projectDir: '/tmp/BurgerEating.dhee',
+      });
+    });
+
+    it('GIVEN runnerStatus reports active=true for another project THEN Stop is not shown in the current project', async () => {
+      mockWorkspaceProjectName = 'BurgerEating';
+      setupProjectFiles();
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+        jest.fn(async () => ({
+          active: true,
+          kind: 'run_to',
+          projectName: 'SummerSky',
+          projectDir: '/tmp/SummerSky.dhee',
+        })) as never;
+
+      renderPanel();
+      await waitFor(() => screen.getByRole('textbox'));
+
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByText(/another project is running/i),
+          ).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+      expect(screen.queryByRole('button', { name: /stop run/i })).toBeNull();
+      expect(screen.queryByText(/^running$/i)).toBeNull();
+      const resume = screen.queryByRole('button', { name: /resume run/i });
+      expect(resume).not.toBeNull();
+      expect((resume as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('GIVEN another project is cancelling THEN the current project does not enter Stopping state or post cancel notices', async () => {
+      jest.useFakeTimers();
+      try {
+        mockWorkspaceProjectName = 'BurgerEating';
+        setupProjectFiles();
+        (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+          jest.fn(async () => ({
+            active: true,
+            cancelling: true,
+            kind: 'run_to',
+            projectName: 'SummerSky',
+            projectDir: '/tmp/SummerSky.dhee',
+          })) as never;
+
+        renderPanel();
+        await act(async () => {
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+
+        expect(screen.queryByRole('button', { name: /stopping run/i })).toBeNull();
+
+        act(() => {
+          jest.advanceTimersByTime(16000);
+        });
+        await act(async () => {
+          await Promise.resolve();
+        });
+
+        expect(screen.queryByText(/still cancelling/i)).toBeNull();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('clears current-project Stopping UI after switching to a different project while the old project is cancelling', async () => {
+      setupProjectFiles();
+      mockWorkspaceProjectName = 'BurgerEating';
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+        jest.fn(async () => ({
+          active: true,
+          cancelling: true,
+          kind: 'run_to',
+          projectName: 'BurgerEating',
+          projectDir: '/tmp/BurgerEating.dhee',
+        })) as never;
+
+      const view = render(panelTree());
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(
+        () => {
+          expect(screen.queryByText(/stopping/i)).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+
+      mockWorkspaceProjectName = 'SummerSky';
+      (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+        jest.fn(async () => ({
+          active: true,
+          cancelling: true,
+          kind: 'run_to',
+          projectName: 'BurgerEating',
+          projectDir: '/tmp/BurgerEating.dhee',
+        })) as never;
+      view.rerender(panelTree());
+
+      await waitFor(
+        () => {
+          expect(
+            screen.queryByText(/another project is stopping/i),
+          ).not.toBeNull();
+        },
+        { timeout: 3000 },
+      );
+      expect(screen.queryByRole('button', { name: /stopping run/i })).toBeNull();
     });
 
     it('Stop also cancels the chat session — pi-agent mid-reply (looping bash) must halt, not just the long pipeline', async () => {
@@ -1413,7 +2136,12 @@ describe('ChatPanelEmbedded', () => {
       const runnerCancel = jest.fn(async () => ({ cancelled: true }));
       const cancelTask = jest.fn(async () => ({ cancelled: true }));
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-        jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+        jest.fn(async () => ({
+          active: true,
+          kind: 'run_to',
+          projectName: 'BurgerEating',
+          projectDir: '/tmp/BurgerEating.dhee',
+        })) as never;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
         runnerCancel as never;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.cancelTask =
@@ -1435,6 +2163,125 @@ describe('ChatPanelEmbedded', () => {
       });
       expect(runnerCancel).toHaveBeenCalledTimes(1);
       expect(cancelTask).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('project-scoped chat history', () => {
+    function mockSequentialSessions() {
+      let createCalls = 0;
+      (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
+        jest.fn(async (req?: { resumeSessionId?: string }) => {
+          if (req?.resumeSessionId) {
+            return { sessionId: req.resumeSessionId, resumed: true };
+          }
+          createCalls += 1;
+          return { sessionId: createCalls === 1 ? 's-a' : 's-b' };
+        });
+    }
+
+    it('clears project A messages when project B opens', async () => {
+      mockSequentialSessions();
+      mockWorkspaceProjectName = 'ProjectA';
+      const { rerender } = render(panelTree());
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(() => {
+        expect(mockState.listeners.some((l) => l.active)).toBe(true);
+      });
+
+      act(() => {
+        publishEvent('agent_response', {
+          output: 'project a only message',
+          status: 'completed',
+        }, 's-a');
+      });
+      expect(screen.getByText('project a only message')).toBeInTheDocument();
+
+      mockWorkspaceProjectName = 'ProjectB';
+      rerender(panelTree());
+
+      await waitFor(() => {
+        expect(screen.queryByText('project a only message')).toBeNull();
+      });
+    });
+
+    it('hydrates only the newly opened project history', async () => {
+      mockSequentialSessions();
+      (window as unknown as { dhee: { getHistory: jest.Mock } }).dhee.getHistory =
+        jest.fn(async (req: { sessionId: string }) => ({
+          sessionId: req.sessionId,
+          history: req.sessionId === 's-a'
+            ? {
+                messages: [
+                  {
+                    id: 'a-1',
+                    type: 'agent' as const,
+                    content: 'history from project a',
+                    timestamp: 1700000000000,
+                  },
+                ],
+                toolCalls: [],
+                compactionCount: 0,
+              }
+            : {
+                messages: [
+                  {
+                    id: 'b-1',
+                    type: 'agent' as const,
+                    content: 'history from project b',
+                    timestamp: 1700000001000,
+                  },
+                ],
+                toolCalls: [],
+                compactionCount: 0,
+              },
+        }));
+
+      mockWorkspaceProjectName = 'ProjectA';
+      const { rerender } = render(panelTree());
+      await waitFor(() =>
+        expect(screen.getByText('history from project a')).toBeInTheDocument(),
+      );
+
+      mockWorkspaceProjectName = 'ProjectB';
+      rerender(panelTree());
+
+      await waitFor(() =>
+        expect(screen.getByText('history from project b')).toBeInTheDocument(),
+      );
+      expect(screen.queryByText('history from project a')).toBeNull();
+    });
+
+    it('ignores stale events from the previously opened project session', async () => {
+      mockSequentialSessions();
+      mockWorkspaceProjectName = 'ProjectA';
+      const { rerender } = render(panelTree());
+      await waitFor(() => screen.getByRole('textbox'));
+
+      mockWorkspaceProjectName = 'ProjectB';
+      rerender(panelTree());
+      await waitFor(() =>
+        expect(
+          (window as unknown as { dhee: { createSession: jest.Mock } }).dhee
+            .createSession,
+        ).toHaveBeenCalledTimes(2),
+      );
+      await waitFor(() => {
+        expect(mockState.listeners.some((l) => l.active)).toBe(true);
+      });
+
+      act(() => {
+        publishEvent('agent_response', {
+          output: 'stale project a event',
+          status: 'completed',
+        }, 's-a');
+        publishEvent('agent_response', {
+          output: 'current project b event',
+          status: 'completed',
+        }, 's-b');
+      });
+
+      expect(screen.queryByText('stale project a event')).toBeNull();
+      expect(screen.getByText('current project b event')).toBeInTheDocument();
     });
   });
 

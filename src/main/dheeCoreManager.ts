@@ -79,6 +79,29 @@ type ManagerModule = {
   ConversationManager: new (
     config: ConversationManagerConfig,
   ) => ConversationManager;
+  createProjectInProcess?: (opts: {
+    name: string;
+    input: string;
+    style: string;
+    duration: number;
+    basePath: string;
+    templateId?: string;
+    existingDir?: string;
+    referenceImages?: Array<{
+      name: string;
+      relativePath: string;
+      purpose?: 'character_ref' | 'setting_ref' | 'reference_general';
+      referenceRole?: 'auto' | 'character' | 'setting';
+      sourcePath?: string;
+      originalFilename?: string;
+      mimeType?: string;
+      size?: number;
+    }>;
+  }) => {
+    projectDir: string;
+    resolvedStyle: string;
+    project: unknown;
+  };
   captureAnalyticsEvent?: (
     event: string,
     properties?: Record<string, unknown>,
@@ -237,7 +260,12 @@ type RunnersModule = {
     cancel: () => boolean;
     getActive: () => null | {
       id: string;
-      spec: { kind: string; projectName: string; sessionId: string };
+      spec: {
+        kind: string;
+        projectName: string;
+        sessionId: string;
+        params?: Record<string, unknown>;
+      };
       startedAt: number;
     };
     isCancelling?: () => boolean;
@@ -250,6 +278,12 @@ let loadRunnersModule: () => Promise<RunnersModule> = () =>
 /** Test seam — replace the loader so unit tests can supply a fake. */
 export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
   loadRunnersModule = loader;
+}
+
+function normalizeRunnerProjectDir(projectDir: unknown): string | null {
+  if (typeof projectDir !== 'string') return null;
+  const normalized = projectDir.replace(/\\/g, '/').replace(/\/+$/, '').trim();
+  return normalized || null;
 }
 
 /**
@@ -1010,6 +1044,39 @@ export class dheeCoreManager {
     ).configureSessionForProject(sessionId, opts);
   }
 
+  async createProjectInProcess(opts: {
+    name: string;
+    input: string;
+    style: string;
+    duration: number;
+    basePath: string;
+    templateId?: string;
+    existingDir?: string;
+    referenceImages?: Array<{
+      name: string;
+      relativePath: string;
+      purpose?: 'character_ref' | 'setting_ref' | 'reference_general';
+      referenceRole?: 'auto' | 'character' | 'setting';
+      sourcePath?: string;
+      originalFilename?: string;
+      mimeType?: string;
+      size?: number;
+    }>;
+  }): Promise<{ projectDir: string; resolvedStyle: string }> {
+    if (!this.managerModule) {
+      this.managerModule = await loadManagerModule();
+    }
+    const createProject = this.managerModule.createProjectInProcess;
+    if (!createProject) {
+      throw new Error('dhee-core createProjectInProcess is unavailable');
+    }
+    const result = createProject(opts);
+    return {
+      projectDir: result.projectDir,
+      resolvedStyle: result.resolvedStyle,
+    };
+  }
+
   /**
    * Run a task on the given session. `eventCb` receives a stream of
    * dheeCoreEvents (mirroring the existing WebSocket message types)
@@ -1086,7 +1153,11 @@ export class dheeCoreManager {
     if (!this.cm) return false;
     return (
       this.cm as unknown as {
-        cancelTask: (s: string, p?: unknown, o?: { userInitiated?: boolean }) => boolean;
+        cancelTask: (
+          s: string,
+          p?: unknown,
+          o?: { userInitiated?: boolean },
+        ) => boolean;
       }
     ).cancelTask(sessionId, undefined, { userInitiated: true });
   }
@@ -1097,9 +1168,20 @@ export class dheeCoreManager {
    * button so cancellation is instant even while the main session
    * is mid-reply.
    */
-  async cancelBackgroundTask(): Promise<boolean> {
+  async cancelBackgroundTask(opts?: { projectDir?: string }): Promise<boolean> {
     const mod = await loadRunnersModule();
-    return mod.getBackgroundTaskRunner().cancel();
+    const runner = mod.getBackgroundTaskRunner();
+    const requestedProjectDir = normalizeRunnerProjectDir(opts?.projectDir);
+    if (requestedProjectDir) {
+      const active = runner.getActive();
+      const activeProjectDir = normalizeRunnerProjectDir(
+        active?.spec.params?.projectDir,
+      );
+      if (activeProjectDir && activeProjectDir !== requestedProjectDir) {
+        return false;
+      }
+    }
+    return runner.cancel();
   }
 
   /** Snapshot of the runner's current state (or `{ active: false }`). */
@@ -1109,6 +1191,7 @@ export class dheeCoreManager {
     taskId?: string;
     kind?: string;
     projectName?: string;
+    projectDir?: string;
     startedAt?: number;
     sessionId?: string;
   }> {
@@ -1116,12 +1199,16 @@ export class dheeCoreManager {
     const runner = mod.getBackgroundTaskRunner();
     const active = runner.getActive();
     if (!active) return { active: false };
+    const activeProjectDir = normalizeRunnerProjectDir(
+      active.spec.params?.projectDir,
+    );
     return {
       active: true,
       cancelling: runner.isCancelling?.() ?? false,
       taskId: active.id,
       kind: active.spec.kind,
       projectName: active.spec.projectName,
+      ...(activeProjectDir ? { projectDir: activeProjectDir } : {}),
       startedAt: active.startedAt,
       sessionId: active.spec.sessionId,
     };
@@ -1253,14 +1340,15 @@ export class dheeCoreManager {
   async focusSessionProject(
     sessionId: string,
     projectName: string,
+    projectDir?: string,
   ): Promise<OkResponse> {
     if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
     try {
       await (
         this.cm as unknown as {
-          focusSessionProject: (s: string, p: string) => Promise<unknown>;
+          focusSessionProject: (s: string, p: string, d?: string) => Promise<unknown>;
         }
-      ).focusSessionProject(sessionId, projectName);
+      ).focusSessionProject(sessionId, projectName, projectDir);
       return { ok: true };
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);

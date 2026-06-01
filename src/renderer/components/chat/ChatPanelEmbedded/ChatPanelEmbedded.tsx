@@ -32,7 +32,18 @@ import {
   ScanEye,
   X,
 } from 'lucide-react';
-import type { Attachment } from '../../../../shared/attachmentTypes';
+import {
+  type Attachment,
+  type AttachmentKind,
+  type ReferenceImageReplacementTarget,
+  type ReferenceImageRole,
+  attachmentsFromSelectResponse,
+  getReferenceImageReplacementTarget,
+  isReferenceImageLikeAttachment,
+  referenceImagesFromAttachments,
+  withReferenceImageRole,
+  withReferenceImageReplacementTarget,
+} from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { useDheeSession } from '../../../hooks/useDheeSession';
@@ -80,10 +91,19 @@ type Role =
   | 'thinking';
 type ToolStatus = 'in_progress' | 'completed' | 'error';
 
+interface ChatAttachmentPreview {
+  id: string;
+  name: string;
+  path: string;
+  kind: AttachmentKind;
+  mimeType?: string;
+}
+
 interface ChatMessage {
   id: string;
   role: Role;
   text?: string;
+  attachments?: ChatAttachmentPreview[];
   toolName?: string;
   toolCallId?: string;
   toolStatus?: ToolStatus;
@@ -109,6 +129,7 @@ interface ChatMessage {
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
+  mediaProjectDir?: string;
   /** Streaming bubbles aren't yet finalized; agent_response replaces text. */
   streaming?: boolean;
   /** agent_question fields */
@@ -139,17 +160,6 @@ let nextMessageId = 1;
 function newMessageId(): string {
   return `msg-${nextMessageId++}`;
 }
-
-/**
- * How often to poll `window.dhee.runnerStatus()` for the active
- * task. The runner is the single source of truth for whether a long
- * pipeline is in flight; this poll interval bounds how quickly the
- * header Stop button appears/disappears in response to runner state
- * changes. 1500ms is a reasonable trade-off — fast enough that the
- * user perceives Stop appearing "right after" they hit Resume, slow
- * enough that we don't flood the IPC layer.
- */
-const RUNNER_STATUS_POLL_MS = 1500;
 
 /**
  * Detect the "text concatenated with itself" pattern that the
@@ -268,10 +278,157 @@ function resolveMediaSrc(
   return `file://${absolutePath}`;
 }
 
-function summarizeArgs(args: unknown): string {
+function mergePickedAttachment(
+  existing: Attachment[],
+  attachment: Attachment,
+): Attachment[] {
+  if (isReferenceImageLikeAttachment(attachment)) {
+    if (existing.some((item) => item.path === attachment.path)) return existing;
+    return [...existing, attachment];
+  }
+  if (attachment.kind === 'comfy_workflow') {
+    return [
+      ...existing.filter((item) => item.kind !== 'comfy_workflow'),
+      attachment,
+    ];
+  }
+  return [...existing, attachment];
+}
+
+export function parseReplacementCharactersFromProjectJson(
+  raw: string | null | undefined,
+): ReferenceImageReplacementTarget[] {
+  if (!raw) return [];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return [];
+  }
+
+  const project = parsed as { characters?: unknown };
+  if (!Array.isArray(project.characters)) return [];
+
+  const seen = new Set<string>();
+  const characters: ReferenceImageReplacementTarget[] = [];
+  for (const item of project.characters) {
+    if (!item || typeof item !== 'object') continue;
+    const character = item as Record<string, unknown>;
+    const id =
+      typeof character.id === 'string'
+        ? character.id
+        : typeof character.slug === 'string'
+          ? character.slug
+          : '';
+    const name =
+      typeof character.name === 'string'
+        ? character.name
+        : typeof character.displayName === 'string'
+          ? character.displayName
+          : id;
+    if (!id || !name || seen.has(id)) continue;
+    seen.add(id);
+    characters.push({ id, name });
+  }
+  return characters;
+}
+
+function projectNameForTask(
+  projectDirectory: string | null,
+  projectName: string | null,
+): string {
+  const fromDirectory = projectDirectory
+    ?.split('/')
+    .pop()
+    ?.replace(/\.dhee$/i, '');
+  return fromDirectory || projectName || 'project';
+}
+
+export function buildCharacterReplacementTask(args: {
+  text: string;
+  attachments: Attachment[];
+  projectDirectory: string | null;
+  projectName: string | null;
+}): string {
+  if (!args.projectDirectory) return args.text;
+  const replacements = args.attachments.flatMap((attachment) => {
+    const target = getReferenceImageReplacementTarget(attachment);
+    if (!target) return [];
+    const [image] = referenceImagesFromAttachments([attachment]);
+    if (!image?.relativePath) return [];
+    return [{ target, relativePath: image.relativePath }];
+  });
+  if (replacements.length === 0) return args.text;
+
+  const project = projectNameForTask(args.projectDirectory, args.projectName);
+  const base =
+    args.text.trim() ||
+    'Replace the selected character reference and regenerate only affected shots.';
+  return [
+    base,
+    '',
+    'Character reference replacement request:',
+    `Use dhee_status with project=${JSON.stringify(project)} projectDir=${JSON.stringify(args.projectDirectory)}.`,
+    'For each uploaded image, call dhee_replace_character_reference exactly as listed:',
+    ...replacements.map(
+      ({ target, relativePath }) =>
+        `- character=${JSON.stringify(target.id)} (${target.name}) referencePath=${JSON.stringify(relativePath)}`,
+    ),
+    `Then call dhee_run_to with project=${JSON.stringify(project)} projectDir=${JSON.stringify(args.projectDirectory)} scope="last_invalidated".`,
+    'Do not use dhee_invalidate stage=character_image for this replacement.',
+  ].join('\n');
+}
+
+function hasTargetedCharacterReplacement(attachments: Attachment[]): boolean {
+  return attachments.some((attachment) =>
+    Boolean(getReferenceImageReplacementTarget(attachment)),
+  );
+}
+
+function isImageAttachment(attachment: Attachment | ChatAttachmentPreview): boolean {
+  return (
+    attachment.kind === 'image' ||
+    attachment.kind === 'reference_image' ||
+    attachment.kind === 'character_ref' ||
+    Boolean(attachment.mimeType?.startsWith('image/'))
+  );
+}
+
+function attachmentPreviewsFromAttachments(
+  attachments: Attachment[],
+): ChatAttachmentPreview[] {
+  return attachments.map((attachment) => ({
+    id: attachment.id,
+    name: attachment.name,
+    path: attachment.path,
+    kind: attachment.kind,
+    ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+  }));
+}
+
+function summarizeArgs(toolName: string | undefined, args: unknown): string {
   if (!args || typeof args !== 'object') return '';
   const entries = Object.entries(args as Record<string, unknown>);
   if (entries.length === 0) return '';
+  if (toolName === 'dhee_new') {
+    const record = args as Record<string, unknown>;
+    const summary: string[] = [];
+    for (const key of ['name', 'template', 'style', 'duration']) {
+      const value = record[key];
+      if (
+        typeof value === 'string' ||
+        typeof value === 'number' ||
+        typeof value === 'boolean'
+      ) {
+        summary.push(`${key}=${String(value)}`);
+      }
+    }
+    const refs = record.referenceImages;
+    if (Array.isArray(refs) && refs.length > 0) {
+      summary.push(`referenceImages=${refs.length}`);
+    }
+    return summary.join(' ');
+  }
   // Show every arg, full value. Tool card CSS handles wrapping for long
   // strings; chopping in JS made debugging impossible (paths got cut
   // mid-folder, prompts cut mid-word, etc.). The summary feeds tool-card
@@ -288,6 +445,7 @@ function summarizeArgs(args: unknown): string {
 
 export default function ChatPanelEmbedded() {
   const session = useDheeSession();
+  const { execution } = session;
   const { projectName, projectDirectory } = useWorkspace();
   const firstRunTour = useOptionalFirstRunTour();
   const agent = useAgent();
@@ -295,7 +453,15 @@ export default function ChatPanelEmbedded() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
+  const [replacementCharacters, setReplacementCharacters] = useState<
+    ReferenceImageReplacementTarget[]
+  >([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [setupAttachments, setSetupAttachments] = useState<Attachment[]>([]);
+  const [isImportingChatReferences, setIsImportingChatReferences] =
+    useState(false);
+  const [isImportingSetupReferences, setIsImportingSetupReferences] =
+    useState(false);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   // Header dropdown menu (project name → caret → menu) state.
@@ -364,6 +530,7 @@ export default function ChatPanelEmbedded() {
             mediaKind: m.media.kind,
             mediaPath: m.media.path,
             mediaProject: m.media.project,
+            mediaProjectDir: m.media.projectDir,
           },
         });
         continue;
@@ -388,12 +555,7 @@ export default function ChatPanelEmbedded() {
           : tc.status === 'error'
             ? 'error'
             : 'completed';
-      const argsSummary = tc.args
-        ? Object.entries(tc.args)
-            .map(([k, v]) => `${k}=${v}`)
-            .join(' ')
-            .slice(0, 200)
-        : undefined;
+      const argsSummary = summarizeArgs(tc.toolName, tc.args);
       rows.push({
         ts,
         msg: {
@@ -413,9 +575,8 @@ export default function ChatPanelEmbedded() {
 
   // ── New-project wizard state ──────────────────────────────────────
   // Auto-spawns when the user opens an unconfigured project. Collects
-  // style → duration → story; on confirm, calls session.configureProject
-  // (persists template/style/duration into project.json) then runs a
-  // kickoff task that pi-agent routes to `dhee_new` with `existingDir`.
+  // style → duration → story; on confirm, creates project.json through
+  // app-owned IPC, then sends pi-agent only a minimal run instruction.
   // Surface system-style receipts pushed by other panels (e.g., the
   // Prompts tab's edit-and-invalidate flow) into the chat history. The
   // text is UI-only — the agent doesn't read it; on-disk state already
@@ -465,22 +626,11 @@ export default function ChatPanelEmbedded() {
   // chat area; 'fresh' projects route to the wizard via setupPanelMode.
   const [projectState, setProjectState] =
     useState<ProjectLifecycleState | null>(null);
-  // Bump to force a re-probe of project.json after a kshana_* tool
-  // mutates the lifecycle-relevant fields (style/templateId/duration/
-  // goal.status). Without this, projectState gets stuck at whatever
-  // the probe saw on initial mount — e.g. if the New Project Dialog
-  // wrote an empty project.json and dhee_new filled it in later,
-  // the probe never re-sees the now-configured state, ProjectRunButton
-  // stays hidden, and the user has no run/resume CTA. See
-  // toolDidMutateLifecycle() below for the tool allowlist.
+  // Bump to force a re-probe of project.json after app-owned setup or a
+  // kshana_* tool mutates lifecycle-relevant fields
+  // (style/templateId/duration/goal.status). Without this,
+  // projectState gets stuck at whatever the probe saw on initial mount.
   const [probeNonce, setProbeNonce] = useState(0);
-  // Local "I clicked stop, waiting for the abort to land" flag. The
-  // cancel signal takes a beat to propagate through pi-agent → the
-  // executor → ComfyUI / LLM clients. Without immediate visual
-  // feedback the user assumes the click was ignored. Cleared when
-  // bgStatus leaves 'running'.
-  const [pendingCancel, setPendingCancel] = useState(false);
-
   // ── Background task runner integration ───────────────────────────
   //
   // dhee_run_to (and the upcoming dhee_regen / render_scene_bundle
@@ -496,13 +646,6 @@ export default function ChatPanelEmbedded() {
   // points at the main session id once available, used purely as a
   // route key for cancel.
   const [bgSessionId, setBgSessionId] = useState<string | null>(null);
-  // Whether the BackgroundTaskRunner reports an active task. Polled
-  // from `window.dhee.runnerStatus()` — see the effect below. This
-  // is the SINGLE source of truth for the header Stop button, so the
-  // button reflects reality regardless of which tool pi-agent fired
-  // to start the run.
-  const [runnerActive, setRunnerActive] = useState(false);
-
   /**
    * Pi-agent oversight + VLM judge runtime toggles read from
    * AppSettings. They are GLOBAL — same value applies across all
@@ -529,6 +672,23 @@ export default function ChatPanelEmbedded() {
   // results.
   const toolNameByCallIdRef = useRef<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const previousProjectDirectoryRef = useRef<string | null>(
+    projectDirectory?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null,
+  );
+
+  useEffect(() => {
+    const currentProjectDirectory =
+      projectDirectory?.replace(/\\/g, '/').replace(/\/+$/, '') ?? null;
+    const previousProjectDirectory = previousProjectDirectoryRef.current;
+    if (previousProjectDirectory !== currentProjectDirectory) {
+      setMessages([]);
+      setContextUsage(null);
+      setConnectionError(null);
+      streamingMsgIdRef.current = null;
+      toolNameByCallIdRef.current.clear();
+    }
+    previousProjectDirectoryRef.current = currentProjectDirectory;
+  }, [projectDirectory]);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -557,10 +717,9 @@ export default function ChatPanelEmbedded() {
       // (`LONG_RUNNING_dhee_TOOLS`) only flipped on for THREE
       // hard-coded names — any other path pi-agent took to
       // generate a project left the button hidden for the entire
-      // run. Now `runnerStatus()` (polled below) is the single
-      // source of truth: if the BackgroundTaskRunner reports a
-      // task active, the button shows. See the
-      // `runnerActive` poll effect below.
+      // run. Now `session.execution` is the single source of truth:
+      // if the BackgroundTaskRunner or chat session reports active
+      // work, the button shows.
       handleEvent(
         event,
         setMessages,
@@ -598,55 +757,6 @@ export default function ChatPanelEmbedded() {
     return unsubscribe;
   }, []);
 
-  // Poll runnerStatus to drive `runnerActive`. The runner emits no
-  // push events to the renderer today (only `runnerStatus` /
-  // `runnerCancel` IPC), so polling is the path. An immediate fetch
-  // happens on mount so a user who reopens the panel mid-run sees
-  // Stop without waiting for the first interval tick.
-  useEffect(() => {
-    let cancelled = false;
-    const tick = async () => {
-      try {
-        const status = await window.dhee.runnerStatus();
-        if (cancelled) return;
-        setRunnerActive(!!status?.active);
-        // Mirror server-side `cancelling` into local pendingCancel.
-        // This is what makes pi-agent's `dhee_task_cancel` (and any
-        // other non-UI cancel path) flip the button to "Stopping…"
-        // — previously pendingCancel was only set in handleCancel(),
-        // so an agent-initiated cancel left the button on "Stop"
-        // for the entire wind-down. We only PROMOTE here (never
-        // demote): the existing effect at line ~613 that clears
-        // pendingCancel once both lanes go idle is still the only
-        // path that flips it back to false, so we don't race.
-        if (status?.cancelling) {
-          setPendingCancel((prev) => (prev ? prev : true));
-        }
-      } catch {
-        if (!cancelled) setRunnerActive(false);
-      }
-    };
-    tick();
-    const handle = setInterval(tick, RUNNER_STATUS_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(handle);
-    };
-  }, []);
-
-  // Clear the local "Stopping…" flag once BOTH execution lanes report
-  // idle: the BackgroundTaskRunner AND the pi-agent chat session.
-  // If we cleared it on runnerActive alone, a chat-only stop (where
-  // the runner was never active) would flip the button back to Resume
-  // immediately — before pi-agent had finished aborting in-flight
-  // tool calls.
-  useEffect(() => {
-    const chatBusy = session.status === 'running';
-    if (!runnerActive && !chatBusy && pendingCancel) {
-      setPendingCancel(false);
-    }
-  }, [runnerActive, pendingCancel, session.status]);
-
   // Periodic chat notice while cancel is pending. LLM and ComfyUI
   // calls don't always honor mid-stream aborts (the provider may
   // ignore client disconnects, or the request is already buffered on
@@ -673,14 +783,14 @@ export default function ChatPanelEmbedded() {
   // Keep the ref synced with current state on every render so the
   // interval callback (which captures the ref, not the state) reads
   // fresh values without us having to recreate the interval each
-  // time runnerActive / session.status / messages change.
+  // time execution state or messages change.
   cancelStatusRef.current = {
-    runnerActive,
-    chatBusy: session.status === 'running',
+    runnerActive: execution.runnerActive,
+    chatBusy: execution.chatBusy,
     messages,
   };
   useEffect(() => {
-    if (!pendingCancel) return;
+    if (!execution.pendingCancel) return;
     const startedAt = Date.now();
     const handle = setInterval(() => {
       const state = cancelStatusRef.current;
@@ -729,7 +839,7 @@ export default function ChatPanelEmbedded() {
       });
     }, 15000);
     return () => clearInterval(handle);
-  }, [pendingCancel]);
+  }, [execution.pendingCancel]);
 
   // (was: bg-session teardown on project switch — no longer needed
   // since the BackgroundTaskRunner singleton handles task lifecycle
@@ -785,7 +895,35 @@ export default function ChatPanelEmbedded() {
     setSetupProbeCompleted(false);
     setIsSetupConfigured(false);
     setProjectState(null);
+    setSetupAttachments([]);
+    setChatAttachments([]);
+    setReplacementCharacters([]);
+    setAttachmentError(null);
   }, [projectDirectory]);
+
+  useEffect(() => {
+    if (!projectDirectory) {
+      setReplacementCharacters([]);
+      return undefined;
+    }
+    if (!window.electron?.project?.readFile) {
+      setReplacementCharacters([]);
+      return undefined;
+    }
+
+    let cancelled = false;
+    (async () => {
+      const raw = await window.electron.project
+        .readFile(`${projectDirectory}/project.json`)
+        .catch(() => null);
+      if (cancelled) return;
+      setReplacementCharacters(parseReplacementCharactersFromProjectJson(raw));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [projectDirectory, probeNonce]);
 
   // Probe project.json to decide whether this project still needs the
   // setup wizard. Runs every time the user opens a different project,
@@ -888,6 +1026,41 @@ export default function ChatPanelEmbedded() {
     setStoryInput(value);
   }, []);
 
+  const importReferenceImagesForProject = useCallback(
+    async (attachments: Attachment[]): Promise<Attachment[]> => {
+      const references = attachments.filter(
+        isReferenceImageLikeAttachment,
+      );
+      if (references.length === 0) return attachments;
+      if (!projectDirectory) {
+        throw new Error(
+          'Open a project before attaching reference images.',
+        );
+      }
+
+      const importReferenceImages =
+        window.electron.project.importReferenceImages ??
+        window.electron.project.importCharacterReferences;
+      const result = await importReferenceImages({
+        projectDir: projectDirectory,
+        attachments: references,
+      });
+      if (!result.ok || !result.attachments) {
+        throw new Error(
+          result.error ?? 'Could not import reference images.',
+        );
+      }
+
+      const importedById = new Map(
+        result.attachments.map((attachment) => [attachment.id, attachment]),
+      );
+      return attachments.map((attachment) =>
+        importedById.get(attachment.id) ?? attachment,
+      );
+    },
+    [projectDirectory],
+  );
+
   const handleConfirmSetup = useCallback(async () => {
     if (
       !projectDirectory ||
@@ -905,14 +1078,19 @@ export default function ChatPanelEmbedded() {
 
     setSetupError(null);
     setIsConfiguringSetup(true);
+    setIsImportingSetupReferences(true);
 
-    // System-B removal: no longer call session.configureProject (which
-    // persists style/template/duration via the WS configure_project
-    // handler). dhee_new is now the SOLE writer of project.json. The
-    // kickoff message below carries all the metadata the agent needs
-    // to construct the dhee_new call; if dhee_new fails, no project.json
-    // exists — fine, since LLM access is required for anything to
-    // proceed downstream anyway.
+    let importedSetupAttachments: Attachment[];
+    try {
+      importedSetupAttachments = await importReferenceImagesForProject(setupAttachments);
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : String(err));
+      setIsConfiguringSetup(false);
+      setIsImportingSetupReferences(false);
+      return;
+    }
+    setIsImportingSetupReferences(false);
+
     const projectDirName =
       projectDirectory
         .split('/')
@@ -920,15 +1098,50 @@ export default function ChatPanelEmbedded() {
         ?.replace(/\.dhee$/i, '') ||
       projectName ||
       'project';
-    const { message } = buildWizardKickoff({
+    const referenceImages = referenceImagesFromAttachments(
+      importedSetupAttachments,
+    );
+    const { displayText, agentTask } = buildWizardKickoff({
       projectName: projectDirName,
       projectDir: projectDirectory,
       templateId: selectedTemplateId,
       style: selectedStyleId,
       duration: selectedDuration,
       story: trimmedStory,
+      referenceImages,
     });
-    if (!message) {
+    if (!displayText || !agentTask) {
+      setIsConfiguringSetup(false);
+      return;
+    }
+
+    const createResult = await window.dhee.createProject({
+      projectName: projectDirName,
+      projectDir: projectDirectory,
+      templateId: selectedTemplateId,
+      style: selectedStyleId,
+      duration: selectedDuration,
+      input: trimmedStory,
+      referenceImages,
+    });
+    if (!createResult.ok) {
+      setSetupError(createResult.error ?? 'Could not create project.');
+      setIsConfiguringSetup(false);
+      return;
+    }
+
+    if (!session.sessionId) {
+      setSetupError('Session is not ready yet. Try again in a moment.');
+      setIsConfiguringSetup(false);
+      return;
+    }
+    const focusResult = await window.dhee.focusProject({
+      sessionId: session.sessionId,
+      projectName: projectDirName,
+      projectDir: projectDirectory,
+    });
+    if (!focusResult.ok) {
+      setSetupError(focusResult.error ?? 'Could not focus the created project.');
       setIsConfiguringSetup(false);
       return;
     }
@@ -938,22 +1151,41 @@ export default function ChatPanelEmbedded() {
     setIsSetupConfigured(true);
     setIsConfiguringSetup(false);
     setStoryInput('');
+    setSetupAttachments([]);
+    setProbeNonce((n) => n + 1);
 
-    // Surface the user's intent in the chat as a regular user bubble,
-    // matching the way handleSend renders typed input.
+    // Surface only the user's prompt and visual attachments. Project
+    // setup metadata stays in the typed createProject IPC path.
     setMessages((prev) => [
       ...prev,
-      { id: newMessageId(), role: 'user', text: message },
+      {
+        id: newMessageId(),
+        role: 'user',
+        text: displayText,
+        attachments: attachmentPreviewsFromAttachments(importedSetupAttachments),
+      },
     ]);
     streamingMsgIdRef.current = null;
-    await session.runTask(message);
+    const runResult = await session.runTask(agentTask);
+    if (!runResult.ok) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: `Couldn't start the pipeline: ${runResult.error ?? 'unknown error'}.`,
+        },
+      ]);
+    }
   }, [
     projectDirectory,
     projectName,
     selectedDuration,
     selectedStyleId,
     selectedTemplateId,
+    importReferenceImagesForProject,
     session,
+    setupAttachments,
     storyInput,
   ]);
 
@@ -964,7 +1196,10 @@ export default function ChatPanelEmbedded() {
   // Autonomous-mode toggle was removed from the UI; the wizard panel
   // still requires the prop, so this is a fixed no-op that keeps the
   // selection visually pinned to "manual".
-  const handleSelectAutonomousMode = useCallback((_enabled: boolean) => {}, []);
+  const handleSelectAutonomousMode = useCallback(
+    (_enabled: boolean) => {},
+    [],
+  );
 
   const handleSetupBack = useCallback(() => {
     if (setupStep === 'duration') setSetupStep('style');
@@ -985,22 +1220,67 @@ export default function ChatPanelEmbedded() {
   // template step entirely (template defaults to 'narrative').
   const handleSelectTemplate = useCallback(() => {}, []);
 
+  const handleAttachSetupReference = async () => {
+    setSetupError(null);
+    try {
+      const result = await window.electron.project.selectAttachment({
+        kinds: ['reference_image'],
+        title: 'Select Reference Images',
+        multiple: true,
+      });
+      if (!result.ok) {
+        if (result.error) setSetupError(result.error);
+        return;
+      }
+      const pickedAttachments = attachmentsFromSelectResponse(result);
+      if (pickedAttachments.length > 0) {
+        setSetupAttachments((prev) =>
+          pickedAttachments.reduce(mergePickedAttachment, prev),
+        );
+      }
+    } catch (err) {
+      setSetupError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleRemoveSetupAttachment = (id: string) => {
+    setSetupAttachments((prev) =>
+      prev.filter((attachment) => attachment.id !== id),
+    );
+  };
+
+  const handleSetupReferenceRoleChange = (
+    id: string,
+    role: ReferenceImageRole,
+  ) => {
+    setSetupAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageRole(attachment, role)
+          : attachment,
+      ),
+    );
+  };
+
   const handleAttachClick = async () => {
     setAttachmentError(null);
     try {
       const result = await window.electron.project.selectAttachment({
-        kinds: ['comfy_workflow'],
-        title: 'Select a ComfyUI Workflow',
+        kinds: projectDirectory
+          ? ['comfy_workflow', 'reference_image']
+          : ['comfy_workflow'],
+        title: projectDirectory ? 'Select Attachment' : 'Select a ComfyUI Workflow',
+        multiple: Boolean(projectDirectory),
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
         return;
       }
-      if (result.attachment) {
-        // v1 caps at one attachment per turn — keeps the skill
-        // prompt's parsing simple. Lift this when batched flows
-        // (e.g. multiple images at once) need it.
-        setChatAttachments([result.attachment as Attachment]);
+      const pickedAttachments = attachmentsFromSelectResponse(result);
+      if (pickedAttachments.length > 0) {
+        setChatAttachments((prev) =>
+          pickedAttachments.reduce(mergePickedAttachment, prev),
+        );
       }
     } catch (err) {
       setAttachmentError(err instanceof Error ? err.message : String(err));
@@ -1009,6 +1289,37 @@ export default function ChatPanelEmbedded() {
 
   const handleRemoveAttachment = (id: string) => {
     setChatAttachments((prev) => prev.filter((a) => a.id !== id));
+  };
+
+  const handleChatReferenceRoleChange = (
+    id: string,
+    role: ReferenceImageRole,
+  ) => {
+    setChatAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? role === 'character'
+            ? withReferenceImageRole(attachment, role)
+            : withReferenceImageReplacementTarget(
+                withReferenceImageRole(attachment, role),
+                null,
+              )
+          : attachment,
+      ),
+    );
+  };
+
+  const handleChatReplacementCharacterChange = (
+    id: string,
+    target: ReferenceImageReplacementTarget | null,
+  ) => {
+    setChatAttachments((prev) =>
+      prev.map((attachment) =>
+        attachment.id === id
+          ? withReferenceImageReplacementTarget(attachment, target)
+          : attachment,
+      ),
+    );
   };
 
   const handleSend = async () => {
@@ -1028,26 +1339,51 @@ export default function ChatPanelEmbedded() {
       await session.cancel().catch(() => undefined);
     }
 
-    // Render the user-visible message — include a small "📎 N
-    // attachment(s)" suffix when files were attached, so the chat
-    // log reflects what was sent.
-    const visibleText =
-      chatAttachments.length > 0
-        ? `${text}${text ? '\n\n' : ''}📎 ${chatAttachments.map((a) => a.name).join(', ')}`
-        : text;
+    let sentAttachments: Attachment[];
+    setIsImportingChatReferences(true);
+    try {
+      sentAttachments = await importReferenceImagesForProject(chatAttachments);
+    } catch (err) {
+      setAttachmentError(err instanceof Error ? err.message : String(err));
+      setIsImportingChatReferences(false);
+      return;
+    }
+    setIsImportingChatReferences(false);
 
+    // Render the user-visible message with Cursor-style image
+    // previews. Internal attachment/reference instructions are sent
+    // through runTask opts below, not appended to the visible prompt.
+    const isCharacterReplacement =
+      hasTargetedCharacterReplacement(sentAttachments);
+    const visibleBaseText =
+      text ||
+      (isCharacterReplacement
+        ? 'Replace selected character reference.'
+        : '');
     setMessages((prev) => [
       ...prev,
-      { id: newMessageId(), role: 'user', text: visibleText },
+      {
+        id: newMessageId(),
+        role: 'user',
+        text: visibleBaseText,
+        attachments: attachmentPreviewsFromAttachments(sentAttachments),
+      },
     ]);
-    const sentAttachments = chatAttachments;
     setInput('');
     setChatAttachments([]);
     setAttachmentError(null);
     streamingMsgIdRef.current = null;
 
-    const result = await session.runTask(text, {
+    const taskText = buildCharacterReplacementTask({
+      text,
+      attachments: sentAttachments,
+      projectDirectory,
+      projectName,
+    });
+
+    const result = await session.runTask(taskText, {
       attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
+      ...(projectDirectory ? { projectDir: projectDirectory } : {}),
     });
     if (!result.ok) {
       // Don't let a failed dispatch leave the chat in a "user
@@ -1088,22 +1424,8 @@ export default function ChatPanelEmbedded() {
   }, [piOversight, vlmJudge, appSettings]);
 
   const handleCancel = useCallback(async () => {
-    // Stop kills BOTH execution lanes:
-    //   1. BackgroundTaskRunner (long pipeline tasks dispatched via
-    //      dhee_run_to) — runnerCancel aborts the in-flight task and
-    //      emits a 'cancelled' event back to the originating session.
-    //   2. The pi-agent chat session itself — when pi is mid-reply
-    //      (looping bash, edits, etc.) the user expects Stop to halt
-    //      that too. Without session.cancel(), the chat keeps spamming
-    //      tool calls while the spinner says "Stopping…".
-    // Both calls are best-effort — failures here would just leave the
-    // optimistic spinner on; the runnerActive poll will reset it.
-    setPendingCancel(true);
-    await Promise.all([
-      window.dhee.runnerCancel().catch(() => undefined),
-      session.cancel().catch(() => undefined),
-    ]);
-  }, [session]);
+    await execution.cancel();
+  }, [execution]);
 
   // Build the "resume the pipeline" task and run it on the MAIN
   // session. dhee-core's pi-agent will receive it, call
@@ -1113,7 +1435,13 @@ export default function ChatPanelEmbedded() {
   // (Was a separate bg session in an earlier iteration; the runner
   // singleton replaces that mechanism.)
   const handleStartRun = useCallback(async () => {
-    if (!projectDirectory || !session.sessionId) return;
+    if (
+      !projectDirectory ||
+      !session.sessionId ||
+      execution.otherProjectRunner
+    ) {
+      return;
+    }
     setBgSessionId(session.sessionId);
 
     const projectDirName =
@@ -1136,7 +1464,7 @@ export default function ChatPanelEmbedded() {
     ]);
     streamingMsgIdRef.current = null;
     await session.runTask(task);
-  }, [projectDirectory, projectName, session]);
+  }, [execution.otherProjectRunner, projectDirectory, projectName, session]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
@@ -1171,10 +1499,14 @@ export default function ChatPanelEmbedded() {
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.
   const isReady = session.sessionId !== null && session.status !== 'connecting';
-  // The main session's own loop ('running' while it processes a user
-  // turn). Used to disable Send during that brief window so we don't
-  // pile prompts on top of each other in pi-agent.
-  const isMainBusy = session.status === 'running';
+  const { chatBusy: isMainBusy, otherProjectRunner, pendingCancel } = execution;
+  const otherProjectRunnerText = otherProjectRunner
+    ? `Another project is ${otherProjectRunner.cancelling ? 'stopping' : 'running'}${
+        otherProjectRunner.projectName
+          ? `: ${otherProjectRunner.projectName}`
+          : ''
+      }.`
+    : null;
   // Header Stop button surfaces when ANY execution lane is busy:
   //   - BackgroundTaskRunner (long pipeline tasks)
   //   - pi-agent chat session looping through tools/edits/etc.
@@ -1182,7 +1514,7 @@ export default function ChatPanelEmbedded() {
   // Stop affordance covers both. Otherwise a chat that started
   // hammering tool calls (e.g. the agent rabbit-holing on bash/find)
   // had no visible kill switch.
-  const isRunning = runnerActive || pendingCancel || isMainBusy;
+  const isRunning = execution.active;
 
   const contextPct = contextUsage
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
@@ -1213,7 +1545,10 @@ export default function ChatPanelEmbedded() {
             ? 'Connecting'
             : 'Idle';
 
-  const sendActive = input.trim().length > 0 && isReady;
+  const sendActive =
+    (input.trim().length > 0 || chatAttachments.length > 0) &&
+    isReady &&
+    !isImportingChatReferences;
 
   return (
     <div className={styles.root}>
@@ -1287,11 +1622,24 @@ export default function ChatPanelEmbedded() {
           <ProjectRunButton
             projectState={projectState}
             running={isRunning}
-            ready={isReady}
+            ready={isReady && !otherProjectRunner}
             pendingCancel={pendingCancel}
             onStart={() => void handleStartRun()}
             onCancel={() => void handleCancel()}
           />
+          {otherProjectRunnerText && (
+            <span
+              role="status"
+              style={{
+                color: 'var(--color-text-muted)',
+                fontSize: 12,
+                whiteSpace: 'nowrap',
+              }}
+              title="A different project owns the background runner"
+            >
+              {otherProjectRunnerText}
+            </span>
+          )}
           {/*
             Pi-agent oversight toggle. Eye when on (watching),
             EyeOff when off. Click flips the local state + persists
@@ -1429,6 +1777,8 @@ export default function ChatPanelEmbedded() {
         selectedDuration={selectedDuration}
         selectedAutonomousMode={false}
         storyInput={storyInput}
+        storyAttachments={setupAttachments}
+        storyAttachmentPending={isImportingSetupReferences}
         loading={false}
         configuring={isConfiguringSetup}
         error={setupError}
@@ -1438,6 +1788,9 @@ export default function ChatPanelEmbedded() {
         onSelectStyle={handleSelectStyle}
         onSelectDuration={handleSelectDuration}
         onChangeStory={handleChangeStory}
+        onAttachStoryImage={handleAttachSetupReference}
+        onRemoveStoryAttachment={handleRemoveSetupAttachment}
+        onChangeStoryAttachmentRole={handleSetupReferenceRoleChange}
         onSubmitStory={handleSubmitStory}
         onSelectAutonomousMode={handleSelectAutonomousMode}
         onConfirmSetup={() => void handleConfirmSetup()}
@@ -1526,7 +1879,12 @@ export default function ChatPanelEmbedded() {
                 key={att.id}
                 attachment={att}
                 onRemove={handleRemoveAttachment}
-                disabled={isMainBusy}
+                onReferenceRoleChange={handleChatReferenceRoleChange}
+                replacementCharacters={replacementCharacters}
+                onReplacementCharacterChange={
+                  handleChatReplacementCharacterChange
+                }
+                disabled={isMainBusy || isImportingChatReferences}
               />
             ))}
           </div>
@@ -1539,8 +1897,12 @@ export default function ChatPanelEmbedded() {
             type="button"
             onClick={handleAttachClick}
             aria-label="Attach file"
-            title="Attach a ComfyUI workflow JSON"
-            disabled={!isReady || isMainBusy}
+            title={
+              projectDirectory
+                ? 'Attach a workflow or reference image'
+                : 'Attach a ComfyUI workflow JSON'
+            }
+            disabled={!isReady || isMainBusy || isImportingChatReferences}
             className={styles.attachButton}
           >
             <Paperclip size={16} />
@@ -1555,18 +1917,23 @@ export default function ChatPanelEmbedded() {
               }
             }}
             placeholder={
-              isMainBusy
-                ? 'Thinking…'
-                : isRunning
-                  ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
-                  : 'Type a task and press Enter…'
+              isImportingChatReferences
+                ? 'Importing reference image…'
+                : isMainBusy
+                  ? 'Thinking…'
+                  : isRunning
+                    ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
+                    : 'Type a task and press Enter…'
             }
             rows={2}
             disabled={!isReady}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim().length > 0 || chatAttachments.length > 0)
+                if (
+                  !isImportingChatReferences &&
+                  (input.trim().length > 0 || chatAttachments.length > 0)
+                )
                   handleSend();
               }
             }}
@@ -1584,6 +1951,7 @@ export default function ChatPanelEmbedded() {
             }
             disabled={
               !isReady ||
+              isImportingChatReferences ||
               (input.trim().length === 0 && chatAttachments.length === 0)
             }
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
@@ -1775,7 +2143,7 @@ function MessageRow({
   }
   if (m.role === 'media') {
     const resolvedSrc = m.mediaPath
-      ? resolveMediaSrc(m.mediaPath, projectDirectory)
+      ? resolveMediaSrc(m.mediaPath, m.mediaProjectDir ?? projectDirectory)
       : '';
     return (
       <div className={styles.mediaRow}>
@@ -1808,7 +2176,33 @@ function MessageRow({
   // user / assistant
   if (m.role === 'user') {
     return (
-      <div className={`${styles.bubble} ${styles.bubbleUser}`}>{m.text}</div>
+      <div className={`${styles.bubble} ${styles.bubbleUser}`}>
+        {m.attachments && m.attachments.length > 0 && (
+          <div className={styles.userAttachmentGrid}>
+            {m.attachments.map((attachment) =>
+              isImageAttachment(attachment) ? (
+                <img
+                  key={attachment.id}
+                  src={resolveMediaSrc(attachment.path, projectDirectory)}
+                  alt={attachment.name}
+                  title={attachment.name}
+                  className={styles.userAttachmentImage}
+                />
+              ) : (
+                <div
+                  key={attachment.id}
+                  title={attachment.name}
+                  className={styles.userAttachmentFile}
+                >
+                  <Paperclip size={12} />
+                  <span>{attachment.name}</span>
+                </div>
+              ),
+            )}
+          </div>
+        )}
+        {m.text && <div>{m.text}</div>}
+      </div>
     );
   }
   return (
@@ -1861,9 +2255,7 @@ function MarkdownContent({ text }: { text: string }) {
  * Tools whose successful completion can change the project's lifecycle
  * classification (fresh / in_progress / completed). When any of these
  * finishes the chat panel bumps `probeNonce` so the cached
- * `projectState` re-syncs from disk — closing the race where the
- * initial probe ran before dhee_new had written style/templateId/
- * duration into project.json, leaving the run/resume button hidden.
+ * `projectState` re-syncs from disk.
  */
 const LIFECYCLE_MUTATING_TOOLS = new Set([
   'dhee_new',
@@ -1914,7 +2306,7 @@ function handleEvent(
             toolCallId: data.toolCallId,
             toolName: data.toolName ?? '(unknown tool)',
             toolStatus: data.status ?? 'in_progress',
-            toolArgsSummary: summarizeArgs(data.arguments),
+            toolArgsSummary: summarizeArgs(data.toolName, data.arguments),
           },
         ];
       });
@@ -2155,6 +2547,7 @@ function handleEvent(
         kind?: 'image' | 'video';
         path?: string;
         project?: string;
+        projectDir?: string;
       };
       streamingMsgIdRef.current = null;
       setMessages((prev) => [
@@ -2165,6 +2558,7 @@ function handleEvent(
           mediaKind: data.kind ?? 'image',
           mediaPath: data.path,
           mediaProject: data.project,
+          mediaProjectDir: data.projectDir,
         },
       ]);
       return;

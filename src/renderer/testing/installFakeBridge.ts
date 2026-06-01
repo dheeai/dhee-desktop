@@ -16,6 +16,7 @@ import type {
   dheeEvent,
   dheeEventName,
   CreateSessionResponse,
+  CreateProjectRequest,
   ConfigureProjectRequest,
   OkResponse,
   RunTaskRequest,
@@ -26,6 +27,9 @@ import type {
   FocusProjectRequest,
   SetAutonomousRequest,
   DeleteSessionRequest,
+  RunnerCancelRequest,
+  RunnerCancelResponse,
+  RunnerStatusResponse,
 } from '../../shared/dheeIpc';
 
 // ── Scenario shape ───────────────────────────────────────────────────
@@ -278,6 +282,10 @@ const fakedhee = {
     record('createSession', undefined);
     return Promise.resolve({ sessionId: state.sessionId });
   },
+  createProject(req: CreateProjectRequest): Promise<OkResponse> {
+    record('createProject', req);
+    return Promise.resolve({ ok: true });
+  },
   configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
     record('configureProject', req);
     return Promise.resolve({ ok: true });
@@ -299,6 +307,14 @@ const fakedhee = {
   cancelTask(req: CancelTaskRequest): Promise<CancelTaskResponse> {
     record('cancelTask', req);
     return Promise.resolve({ cancelled: true });
+  },
+  runnerCancel(req?: RunnerCancelRequest): Promise<RunnerCancelResponse> {
+    record('runnerCancel', req);
+    return Promise.resolve({ cancelled: true });
+  },
+  runnerStatus(): Promise<RunnerStatusResponse> {
+    record('runnerStatus', undefined);
+    return Promise.resolve({ active: false });
   },
   redoNode(req: RedoNodeRequest): Promise<OkResponse> {
     record('redoNode', req);
@@ -417,6 +433,30 @@ const fakeElectron = {
     selectAudioFile: () => {
       record('project.selectAudioFile', undefined);
       return Promise.resolve(bridgeReturn('project.selectAudioFile', null));
+    },
+    selectAttachment: (req: unknown) => {
+      record('project.selectAttachment', req);
+      return Promise.resolve(
+        bridgeReturn('project.selectAttachment', { ok: false }, [req]),
+      );
+    },
+    importCharacterReferences: (req: unknown) => {
+      record('project.importCharacterReferences', req);
+      return Promise.resolve(
+        bridgeReturn('project.importCharacterReferences', {
+          ok: true,
+          attachments: [],
+        }, [req]),
+      );
+    },
+    importReferenceImages: (req: unknown) => {
+      record('project.importReferenceImages', req);
+      return Promise.resolve(
+        bridgeReturn('project.importReferenceImages', {
+          ok: true,
+          attachments: [],
+        }, [req]),
+      );
     },
     getAudioDuration: () => Promise.resolve(0),
     getAudioWaveform: () => Promise.resolve({ peaks: [], duration: 0 }),

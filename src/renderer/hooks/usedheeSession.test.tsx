@@ -16,19 +16,42 @@ import '@testing-library/jest-dom';
 import { act, render, waitFor } from '@testing-library/react';
 import { useEffect } from 'react';
 import { DheeSessionProvider, useDheeSession } from './useDheeSession';
-import type { dheeEvent, dheeEventName } from '../../shared/dheeIpc';
+import type {
+  ClearChatHistoryRequest,
+  CreateSessionRequest,
+  dheeEvent,
+  dheeEventName,
+  FocusProjectRequest,
+  HistorySnapshot,
+  RunnerStatusResponse,
+} from '../../shared/dheeIpc';
 
 type EventListener = (e: dheeEvent) => void;
 
 interface dheeMockState {
   createSessionCount: number;
+  createSessionArgs: CreateSessionRequest[];
   runTaskArgs: Array<{ sessionId: string; task: string; stopAtStage?: string }>;
   cancelTaskArgs: Array<{ sessionId: string }>;
-  redoNodeArgs: Array<{ sessionId: string; nodeId: string; editedPrompt?: string }>;
+  redoNodeArgs: Array<{
+    sessionId: string;
+    nodeId: string;
+    editedPrompt?: string;
+  }>;
   configureProjectArgs: Array<{ sessionId: string; projectDir: string }>;
-  listeners: Array<{ eventName: dheeEventName | '*'; cb: EventListener; active: boolean }>;
+  focusProjectArgs: FocusProjectRequest[];
+  clearChatHistoryArgs: ClearChatHistoryRequest[];
+  runnerCancelArgs: Array<{ projectDir?: string } | undefined>;
+  listeners: Array<{
+    eventName: dheeEventName | '*';
+    cb: EventListener;
+    active: boolean;
+  }>;
   nextSessionId: string;
+  clearChatHistoryNextSessionId: string;
   runTaskResult: { ok: boolean; error?: string };
+  runnerStatusResult: RunnerStatusResponse;
+  historyBySessionId: Record<string, HistorySnapshot | null>;
 }
 
 let mockState: dheeMockState;
@@ -36,39 +59,75 @@ let mockState: dheeMockState;
 function resetMockState(): void {
   mockState = {
     createSessionCount: 0,
+    createSessionArgs: [],
     runTaskArgs: [],
     cancelTaskArgs: [],
     redoNodeArgs: [],
     configureProjectArgs: [],
+    focusProjectArgs: [],
+    clearChatHistoryArgs: [],
+    runnerCancelArgs: [],
     listeners: [],
     nextSessionId: 's-1',
+    clearChatHistoryNextSessionId: 's-cleared',
     runTaskResult: { ok: true },
+    runnerStatusResult: { active: false },
+    historyBySessionId: {},
   };
 }
 
 beforeEach(() => {
   resetMockState();
+  window.localStorage.clear();
   (window as unknown as { dhee: unknown }).dhee = {
-    createSession: jest.fn(async () => {
+    createSession: jest.fn(async (req?: CreateSessionRequest) => {
       mockState.createSessionCount += 1;
+      mockState.createSessionArgs.push(req ?? {});
+      if (req?.resumeSessionId) {
+        const history = mockState.historyBySessionId[req.resumeSessionId];
+        return {
+          sessionId: req.resumeSessionId,
+          resumed: true,
+          ...(history ? { history } : {}),
+        };
+      }
       return { sessionId: mockState.nextSessionId };
     }),
-    configureProject: jest.fn(async (req: { sessionId: string; projectDir: string }) => {
-      mockState.configureProjectArgs.push(req);
-      return { ok: true };
-    }),
-    runTask: jest.fn(async (req: { sessionId: string; task: string; stopAtStage?: string }) => {
-      mockState.runTaskArgs.push(req);
-      return mockState.runTaskResult;
-    }),
+    configureProject: jest.fn(
+      async (req: { sessionId: string; projectDir: string }) => {
+        mockState.configureProjectArgs.push(req);
+        return { ok: true };
+      },
+    ),
+    runTask: jest.fn(
+      async (req: {
+        sessionId: string;
+        task: string;
+        stopAtStage?: string;
+      }) => {
+        mockState.runTaskArgs.push(req);
+        return mockState.runTaskResult;
+      },
+    ),
     cancelTask: jest.fn(async (req: { sessionId: string }) => {
       mockState.cancelTaskArgs.push(req);
       return { cancelled: true };
     }),
-    redoNode: jest.fn(async (req: { sessionId: string; nodeId: string; editedPrompt?: string }) => {
-      mockState.redoNodeArgs.push(req);
-      return { ok: true };
+    runnerStatus: jest.fn(async () => mockState.runnerStatusResult),
+    runnerCancel: jest.fn(async (req?: { projectDir?: string }) => {
+      mockState.runnerCancelArgs.push(req);
+      return { cancelled: true };
     }),
+    redoNode: jest.fn(
+      async (req: {
+        sessionId: string;
+        nodeId: string;
+        editedPrompt?: string;
+      }) => {
+        mockState.redoNodeArgs.push(req);
+        return { ok: true };
+      },
+    ),
     on: jest.fn((eventName: dheeEventName | '*', cb: EventListener) => {
       const entry = { eventName, cb, active: true };
       mockState.listeners.push(entry);
@@ -77,10 +136,23 @@ beforeEach(() => {
       };
     }),
     sendResponse: jest.fn(async () => ({ ok: true })),
-    focusProject: jest.fn(async () => ({ ok: true })),
+    focusProject: jest.fn(async (req: FocusProjectRequest) => {
+      mockState.focusProjectArgs.push(req);
+      return { ok: true };
+    }),
     setAutonomous: jest.fn(async () => ({ ok: true })),
     deleteSession: jest.fn(async () => ({ ok: true })),
-    getHistory: jest.fn(async () => ({ history: null })),
+    clearChatHistory: jest.fn(async (req: ClearChatHistoryRequest) => {
+      mockState.clearChatHistoryArgs.push(req);
+      return {
+        oldSessionId: req.sessionId,
+        newSessionId: mockState.clearChatHistoryNextSessionId,
+      };
+    }),
+    getHistory: jest.fn(async (req: { sessionId: string }) => ({
+      sessionId: req.sessionId,
+      history: mockState.historyBySessionId[req.sessionId] ?? null,
+    })),
   };
 });
 
@@ -92,14 +164,32 @@ function TestHarness({
   onApi?: (api: ReturnType<typeof useDheeSession>) => void;
 }) {
   const session = useDheeSession();
-  useEffect(() => onSession?.(session.sessionId), [session.sessionId, onSession]);
+  useEffect(
+    () => onSession?.(session.sessionId),
+    [session.sessionId, onSession],
+  );
   useEffect(() => onApi?.(session), [session, onApi]);
   return null;
 }
 
+TestHarness.defaultProps = {
+  onSession: undefined,
+  onApi: undefined,
+};
+
+function readProjectSessionMap(): Record<string, string> {
+  return JSON.parse(
+    window.localStorage.getItem('dhee.projectSessions.v1') ?? '{}',
+  ) as Record<string, string>;
+}
+
 describe('useDheeSession', () => {
   it('creates a session on mount', async () => {
-    render(<DheeSessionProvider><TestHarness /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => {
       expect(mockState.createSessionCount).toBe(1);
     });
@@ -107,15 +197,233 @@ describe('useDheeSession', () => {
 
   it('exposes the created sessionId', async () => {
     let observedSessionId: string | null = null;
-    render(<DheeSessionProvider><TestHarness onSession={(s) => { observedSessionId = s; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onSession={(s) => {
+            observedSessionId = s;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => {
       expect(observedSessionId).toBe('s-1');
     });
   });
 
+  it('creates and stores separate session ids per project directory', async () => {
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    const { rerender } = render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    expect(mockState.focusProjectArgs.at(-1)).toMatchObject({
+      sessionId: 's-1',
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    });
+
+    mockState.nextSessionId = 's-2';
+    rerender(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-b"
+        projectName="project-b"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+
+    await waitFor(() => expect(api?.sessionId).toBe('s-2'));
+    expect(mockState.focusProjectArgs.at(-1)).toMatchObject({
+      sessionId: 's-2',
+      projectName: 'project-b',
+      projectDir: '/tmp/project-b',
+    });
+    expect(readProjectSessionMap()).toMatchObject({
+      '/tmp/project-a': 's-1',
+      '/tmp/project-b': 's-2',
+    });
+  });
+
+  it('resumes the stored session id when switching back to a project', async () => {
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    const { rerender } = render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    mockState.nextSessionId = 's-2';
+    rerender(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-b"
+        projectName="project-b"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-2'));
+
+    rerender(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a/"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    expect(mockState.createSessionArgs.at(-1)).toMatchObject({
+      resumeSessionId: 's-1',
+      role: 'interactive',
+    });
+  });
+
+  it('clearChatHistory replaces only the active project session id', async () => {
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    const { rerender } = render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    mockState.nextSessionId = 's-2';
+    rerender(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-b"
+        projectName="project-b"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-2'));
+
+    mockState.clearChatHistoryNextSessionId = 's-b-new';
+    await act(async () => {
+      await api!.clearChatHistory();
+    });
+
+    expect(mockState.clearChatHistoryArgs.at(-1)).toMatchObject({
+      sessionId: 's-2',
+      role: 'interactive',
+    });
+    expect(readProjectSessionMap()).toMatchObject({
+      '/tmp/project-a': 's-1',
+      '/tmp/project-b': 's-b-new',
+    });
+    expect(api!.sessionId).toBe('s-b-new');
+  });
+
+  it('self-heal resumes the active project session id, not another project id', async () => {
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    const { rerender } = render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    mockState.nextSessionId = 's-2';
+    rerender(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-b"
+        projectName="project-b"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-2'));
+
+    let runCalls = 0;
+    (window as unknown as { dhee: { runTask: jest.Mock } }).dhee.runTask =
+      jest.fn(async (req: { sessionId: string; task: string }) => {
+        runCalls += 1;
+        if (runCalls === 1) {
+          return { ok: false, error: `Session not found: ${req.sessionId}` };
+        }
+        mockState.runTaskArgs.push(req);
+        return { ok: true };
+      });
+
+    await act(async () => {
+      await api!.runTask('recover project b');
+    });
+
+    expect(mockState.createSessionArgs.at(-1)).toMatchObject({
+      resumeSessionId: 's-2',
+      role: 'interactive',
+    });
+    expect(mockState.runTaskArgs.at(-1)).toMatchObject({
+      sessionId: 's-2',
+      task: 'recover project b',
+    });
+  });
+
   it('runTask delegates to window.dhee.runTask with the current sessionId', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
       await api!.runTask('write a noir story', { stopAtStage: 'shot_image' });
@@ -130,19 +438,166 @@ describe('useDheeSession', () => {
 
   it('cancelTask delegates to window.dhee.cancelTask', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
-    await act(async () => { await api!.cancel(); });
+    await act(async () => {
+      await api!.cancel();
+    });
     expect(mockState.cancelTaskArgs).toHaveLength(1);
     expect(mockState.cancelTaskArgs[0]?.sessionId).toBe('s-1');
   });
 
+  it('execution tracks a runner owned by the active project', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    await waitFor(() => expect(api!.execution.runnerActive).toBe(true));
+    expect(api!.execution.active).toBe(true);
+    expect(api!.execution.otherProjectRunner).toBeNull();
+  });
+
+  it('execution exposes another active project without marking this project active', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-b',
+      projectDir: '/tmp/project-b',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+
+    await waitFor(() =>
+      expect(api!.execution.otherProjectRunner?.projectName).toBe('project-b'),
+    );
+    expect(api!.execution.runnerActive).toBe(false);
+    expect(api!.execution.active).toBe(false);
+  });
+
+  it('execution.cancel cancels both the runner and the chat session', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    await waitFor(() => expect(api!.execution.runnerActive).toBe(true));
+
+    await act(async () => {
+      await api!.execution.cancel();
+    });
+
+    expect(mockState.runnerCancelArgs).toEqual([
+      { projectDir: '/tmp/project-a' },
+    ]);
+    expect(mockState.cancelTaskArgs).toEqual([{ sessionId: 's-1' }]);
+    expect(api!.execution.pendingCancel).toBe(true);
+    expect(api!.execution.active).toBe(true);
+  });
+
+  it('execution.pendingCancel clears after runner and chat both go idle', async () => {
+    mockState.runnerStatusResult = {
+      active: true,
+      projectName: 'project-a',
+      projectDir: '/tmp/project-a',
+    };
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider
+        projectDirectory="/tmp/project-a"
+        projectName="project-a"
+      >
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    await waitFor(() => expect(api!.execution.runnerActive).toBe(true));
+
+    await act(async () => {
+      await api!.execution.cancel();
+    });
+    expect(api!.execution.pendingCancel).toBe(true);
+
+    mockState.runnerStatusResult = { active: false };
+
+    await waitFor(
+      () => {
+        expect(api!.execution.runnerActive).toBe(false);
+        expect(api!.execution.pendingCancel).toBe(false);
+        expect(api!.execution.active).toBe(false);
+      },
+      { timeout: 3000 },
+    );
+  });
+
   it('redoNode delegates with sessionId and editedPrompt', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
-      await api!.redoNode('shot_image:scene_1_shot_4', { editedPrompt: 'new prompt' });
+      await api!.redoNode('shot_image:scene_1_shot_4', {
+        editedPrompt: 'new prompt',
+      });
     });
     expect(mockState.redoNodeArgs[0]).toMatchObject({
       sessionId: 's-1',
@@ -153,10 +608,21 @@ describe('useDheeSession', () => {
 
   it('configureProject delegates with sessionId + opts', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     await act(async () => {
-      await api!.configureProject({ projectDir: '/path/to/parvati', templateId: 'narrative' });
+      await api!.configureProject({
+        projectDir: '/path/to/parvati',
+        templateId: 'narrative',
+      });
     });
     expect(mockState.configureProjectArgs[0]).toMatchObject({
       sessionId: 's-1',
@@ -166,7 +632,15 @@ describe('useDheeSession', () => {
 
   it('status flips to "running" while runTask is awaiting and back to "idle" after success', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
     expect(api!.status).toBe('idle');
     let runPromise: Promise<unknown>;
@@ -175,22 +649,42 @@ describe('useDheeSession', () => {
     });
     // Status should be running before the promise resolves.
     await waitFor(() => expect(api!.status).toBe('running'));
-    await act(async () => { await runPromise; });
+    await act(async () => {
+      await runPromise;
+    });
     await waitFor(() => expect(api!.status).toBe('idle'));
   });
 
   it('status flips to "error" when runTask returns ok:false', async () => {
     mockState.runTaskResult = { ok: false, error: 'something broke' };
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
-    await act(async () => { await api!.runTask('hi'); });
+    await act(async () => {
+      await api!.runTask('hi');
+    });
     expect(api!.status).toBe('error');
   });
 
   it('subscribe(event, cb) registers a listener; returned unsubscribe deactivates it', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
-    render(<DheeSessionProvider><TestHarness onApi={(a) => { api = a; }} /></DheeSessionProvider>);
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
 
     const handler = jest.fn();
@@ -218,19 +712,24 @@ describe('useDheeSession', () => {
 
   it('createSession on mount retries when the IPC layer initially rejects (startup race)', async () => {
     let attempts = 0;
-    (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
-      jest.fn(async () => {
-        attempts += 1;
-        if (attempts < 3) {
-          throw new Error('No handler registered for kshana:createSession');
-        }
-        return { sessionId: 's-recovered' };
-      });
+    (
+      window as unknown as { dhee: { createSession: jest.Mock } }
+    ).dhee.createSession = jest.fn(async () => {
+      attempts += 1;
+      if (attempts < 3) {
+        throw new Error('No handler registered for kshana:createSession');
+      }
+      return { sessionId: 's-recovered' };
+    });
 
     let observedSessionId: string | null = null;
     render(
       <DheeSessionProvider>
-        <TestHarness onSession={(s) => { observedSessionId = s; }} />
+        <TestHarness
+          onSession={(s) => {
+            observedSessionId = s;
+          }}
+        />
       </DheeSessionProvider>,
     );
     await waitFor(
@@ -253,7 +752,11 @@ describe('useDheeSession', () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
     render(
       <DheeSessionProvider>
-        <TestHarness onApi={(a) => { api = a; }} />
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
       </DheeSessionProvider>,
     );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
@@ -263,19 +766,23 @@ describe('useDheeSession', () => {
     // around — simulating a fresh in-memory entry).
     let runCalls = 0;
     let createSessionCalls = 0;
-    (window as unknown as { dhee: { runTask: jest.Mock; createSession: jest.Mock } })
-      .dhee.runTask = jest.fn(async (req: { sessionId: string }) => {
+    (
+      window as unknown as {
+        dhee: { runTask: jest.Mock; createSession: jest.Mock };
+      }
+    ).dhee.runTask = jest.fn(async (req: { sessionId: string }) => {
       runCalls += 1;
       if (runCalls === 1) {
         return { ok: false, error: `Session not found: ${req.sessionId}` };
       }
       return { ok: true };
     });
-    (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
-      jest.fn(async () => {
-        createSessionCalls += 1;
-        return { sessionId: 's-2' };
-      });
+    (
+      window as unknown as { dhee: { createSession: jest.Mock } }
+    ).dhee.createSession = jest.fn(async () => {
+      createSessionCalls += 1;
+      return { sessionId: 's-2' };
+    });
 
     let runResult: { ok: boolean; error?: string } | undefined;
     await act(async () => {
@@ -323,7 +830,11 @@ describe('useDheeSession', () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
     render(
       <DheeSessionProvider>
-        <TestHarness onApi={(a) => { api = a; }} />
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
       </DheeSessionProvider>,
     );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
@@ -354,7 +865,11 @@ describe('useDheeSession', () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
     render(
       <DheeSessionProvider>
-        <TestHarness onApi={(a) => { api = a; }} />
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
       </DheeSessionProvider>,
     );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
@@ -369,23 +884,31 @@ describe('useDheeSession', () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
     render(
       <DheeSessionProvider>
-        <TestHarness onApi={(a) => { api = a; }} />
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
       </DheeSessionProvider>,
     );
     await waitFor(() => expect(api?.sessionId).toBe('s-1'));
 
     let runCalls = 0;
     let createSessionCalls = 0;
-    (window as unknown as { dhee: { runTask: jest.Mock; createSession: jest.Mock } })
-      .dhee.runTask = jest.fn(async () => {
+    (
+      window as unknown as {
+        dhee: { runTask: jest.Mock; createSession: jest.Mock };
+      }
+    ).dhee.runTask = jest.fn(async () => {
       runCalls += 1;
       return { ok: false, error: 'something else broke' };
     });
-    (window as unknown as { dhee: { createSession: jest.Mock } }).dhee.createSession =
-      jest.fn(async () => {
-        createSessionCalls += 1;
-        return { sessionId: 's-should-not-be-called' };
-      });
+    (
+      window as unknown as { dhee: { createSession: jest.Mock } }
+    ).dhee.createSession = jest.fn(async () => {
+      createSessionCalls += 1;
+      return { sessionId: 's-should-not-be-called' };
+    });
 
     let runResult: { ok: boolean; error?: string } | undefined;
     await act(async () => {

@@ -12,6 +12,7 @@
 /** Channel names for `ipcMain.handle` / `ipcRenderer.invoke` request/response calls. */
 export const dhee_CHANNELS = {
   CREATE_SESSION: 'dhee:createSession',
+  CREATE_PROJECT: 'dhee:createProject',
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',
   SEND_RESPONSE: 'dhee:sendResponse',
@@ -166,6 +167,7 @@ export interface HistorySnapshot {
       kind: 'image' | 'video';
       path: string;
       project: string;
+      projectDir?: string;
       source?: string;
     };
   }>;
@@ -222,6 +224,10 @@ export interface RunnerCancelResponse {
   cancelled: boolean;
 }
 
+export interface RunnerCancelRequest {
+  projectDir?: string;
+}
+
 export interface RunnerStatusResponse {
   active: boolean;
   /**
@@ -236,6 +242,7 @@ export interface RunnerStatusResponse {
   taskId?: string;
   kind?: string;
   projectName?: string;
+  projectDir?: string;
   startedAt?: number;
   sessionId?: string;
 }
@@ -249,24 +256,38 @@ export interface ConfigureProjectRequest {
   autonomousMode?: boolean;
 }
 
+export interface CreateProjectRequest {
+  projectName: string;
+  projectDir: string;
+  templateId: string;
+  style: string;
+  duration: number;
+  input: string;
+  referenceImages?: import('./attachmentTypes').ReferenceImagePayload[];
+}
+
 export interface OkResponse {
   ok: boolean;
   error?: string;
+}
+
+export interface CreateProjectResponse extends OkResponse {
+  projectDir?: string;
+  resolvedStyle?: string;
 }
 
 export interface RunTaskRequest {
   sessionId: string;
   task: string;
   stopAtStage?: string;
+  /** Current project folder. Required when character_ref attachments need project.inputs registration. */
+  projectDir?: string;
   /**
-   * Files the user attached in the chat input. Currently only
-   * `comfy_workflow` is implemented — text/image/video/audio kinds
-   * are reserved (see src/shared/attachmentTypes.ts).
+   * Files the user attached in the chat input.
    *
-   * The main process transforms these into textual hints that
-   * prepend the task message before dhee-core sees it. This keeps
-   * the dhee-core ConversationManager API unchanged while still
-   * being structurally typed across the IPC boundary.
+   * Comfy workflow files become textual hints. Character refs are
+   * registered in project.inputs and appended as prompt context with
+   * their durable project-relative paths.
    */
   attachments?: import('./attachmentTypes').Attachment[];
 }

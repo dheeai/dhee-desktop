@@ -22,6 +22,11 @@ import type {
   OnboardingState,
 } from '../shared/onboardingTypes';
 import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
+import type {
+  Attachment,
+  SelectAttachmentRequest,
+  SelectAttachmentResponse,
+} from '../shared/attachmentTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -34,8 +39,11 @@ import {
   type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
+  type CreateProjectRequest,
+  type CreateProjectResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
@@ -177,24 +185,33 @@ const projectBridge = {
   },
   /**
    * Generic chat-attachment file picker. Caller passes the kinds it
-   * accepts (currently only 'comfy_workflow'). Returns the picked
+   * accepts. Returns the picked
    * attachment shape, or `{ ok: false }` on cancel/error.
    */
-  selectAttachment(req: {
-    kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
-    title?: string;
+  selectAttachment(
+    req: SelectAttachmentRequest,
+  ): Promise<SelectAttachmentResponse> {
+    return ipcRenderer.invoke('project:select-attachment', req);
+  },
+  importCharacterReferences(req: {
+    projectDir: string;
+    attachments: Attachment[];
   }): Promise<{
     ok: boolean;
-    attachment?: {
-      id: string;
-      kind: 'comfy_workflow' | 'text' | 'image' | 'video' | 'audio';
-      path: string;
-      name: string;
-      size?: number;
-    };
+    attachments?: Attachment[];
     error?: string;
   }> {
-    return ipcRenderer.invoke('project:select-attachment', req);
+    return ipcRenderer.invoke('project:import-character-references', req);
+  },
+  importReferenceImages(req: {
+    projectDir: string;
+    attachments: Attachment[];
+  }): Promise<{
+    ok: boolean;
+    attachments?: Attachment[];
+    error?: string;
+  }> {
+    return ipcRenderer.invoke('project:import-reference-images', req);
   },
   getAudioDuration(audioPath: string): Promise<number> {
     return ipcRenderer.invoke('project:get-audio-duration', audioPath);
@@ -731,6 +748,9 @@ const dheeBridge = {
   createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CREATE_SESSION, req);
   },
+  createProject(req: CreateProjectRequest): Promise<CreateProjectResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.CREATE_PROJECT, req);
+  },
   configureProject(req: ConfigureProjectRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CONFIGURE_PROJECT, req);
   },
@@ -769,8 +789,8 @@ const dheeBridge = {
   getHistory(req: GetHistoryRequest): Promise<GetHistoryResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.GET_HISTORY, req);
   },
-  runnerCancel(): Promise<RunnerCancelResponse> {
-    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL);
+  runnerCancel(req?: RunnerCancelRequest): Promise<RunnerCancelResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL, req);
   },
   runnerStatus(): Promise<RunnerStatusResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_STATUS);

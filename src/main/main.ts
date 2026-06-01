@@ -75,9 +75,20 @@ import type {
   RemotionServerRenderProgress,
 } from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
+import type {
+  Attachment,
+  SelectAttachmentRequest,
+  SelectAttachmentResponse,
+} from '../shared/attachmentTypes';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
 import { exportChatJsonWithDialog } from './services/chatExportService';
+import { importReferenceImageAttachments } from './characterReferenceImport';
+import {
+  buildAttachmentPickerDialogOptions,
+  buildSelectAttachmentResponse,
+  createPickedAttachments,
+} from './attachmentPicker';
 import {
   generateCapcutProject,
   type ExportTimelineItem,
@@ -456,100 +467,94 @@ ipcMain.handle('project:select-audio-file', async () => {
   return result.filePaths[0];
 });
 
-// Generic chat-attachment file picker. v1 supports `comfy_workflow`
-// only; the contract accepts a list of kinds so future text/image/
-// video/audio picks reuse the same handler.
+// Generic chat-attachment file picker. The contract accepts a list of
+// kinds so workflow JSON and reference images can share the
+// same dialog plumbing.
 ipcMain.handle(
   'project:select-attachment',
   async (
     _event,
-    req: {
-      kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
-      title?: string;
-    },
-  ): Promise<{
-    ok: boolean;
-    attachment?: {
-      id: string;
-      kind: string;
-      path: string;
-      name: string;
-      size?: number;
-    };
-    error?: string;
-  }> => {
+    req: SelectAttachmentRequest,
+  ): Promise<SelectAttachmentResponse> => {
     if (!mainWindow) return { ok: false, error: 'Main window unavailable' };
     if (!req?.kinds || req.kinds.length === 0) {
       return { ok: false, error: 'No attachment kinds specified' };
     }
 
-    const KIND_EXTENSIONS: Record<string, string[]> = {
-      comfy_workflow: ['json'],
-      text: ['txt', 'md'],
-      image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
-      video: ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'],
-      audio: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'],
-    };
-    const KIND_LABEL: Record<string, string> = {
-      comfy_workflow: 'ComfyUI Workflow',
-      text: 'Text File',
-      image: 'Image',
-      video: 'Video',
-      audio: 'Audio',
-    };
-
-    // Build one filter per kind so the dialog shows them as separate
-    // groups; final "All Files" entry as escape hatch.
-    const filters = req.kinds.map(k => ({
-      name: KIND_LABEL[k] ?? k,
-      extensions: KIND_EXTENSIONS[k] ?? ['*'],
-    }));
-    filters.push({ name: 'All Files', extensions: ['*'] });
-
     const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      title: req.title ?? 'Select an attachment',
-      filters,
+      ...buildAttachmentPickerDialogOptions(req),
     });
     if (result.canceled || result.filePaths.length === 0) {
       return { ok: false };
     }
 
-    const filePath = result.filePaths[0];
-    if (!filePath) {
-      return { ok: false, error: 'No file selected' };
-    }
+    const attachments = await createPickedAttachments(
+      result.filePaths,
+      req.kinds,
+    );
+    return buildSelectAttachmentResponse(attachments, req.multiple === true);
+  },
+);
 
-    // Pick the kind by extension match. If multiple kinds were
-    // requested and the extension matches more than one, prefer the
-    // first listed kind (callers control priority).
-    const ext = path.extname(filePath).slice(1).toLowerCase();
-    let pickedKind: string | undefined;
-    for (const k of req.kinds) {
-      if ((KIND_EXTENSIONS[k] ?? []).includes(ext)) {
-        pickedKind = k;
-        break;
-      }
+ipcMain.handle(
+  'project:import-reference-images',
+  async (
+    _event,
+    req: {
+      projectDir: string;
+      attachments: Attachment[];
+    },
+  ): Promise<{
+    ok: boolean;
+    attachments?: Attachment[];
+    error?: string;
+  }> => {
+    if (!req?.projectDir) {
+      return { ok: false, error: 'Project directory is required' };
     }
-    if (!pickedKind) pickedKind = req.kinds[0]; // fallback — user picked an unrecognized ext via "All Files"
-
-    let size: number | undefined;
     try {
-      size = (await fs.stat(filePath)).size;
-    } catch {
-      size = undefined;
+      const attachments = await importReferenceImageAttachments({
+        projectDir: req.projectDir,
+        attachments: req.attachments,
+      });
+      return { ok: true, attachments };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
+  },
+);
 
-    return {
-      ok: true,
-      attachment: {
-        id: `att_${Date.now()}_${Math.floor(Math.random() * 10000).toString(36)}`,
-        kind: pickedKind,
-        path: filePath,
-        name: path.basename(filePath),
-        size,
-      },
-    };
+ipcMain.handle(
+  'project:import-character-references',
+  async (
+    _event,
+    req: {
+      projectDir: string;
+      attachments: Attachment[];
+    },
+  ): Promise<{
+    ok: boolean;
+    attachments?: Attachment[];
+    error?: string;
+  }> => {
+    if (!req?.projectDir) {
+      return { ok: false, error: 'Project directory is required' };
+    }
+    try {
+      const attachments = await importReferenceImageAttachments({
+        projectDir: req.projectDir,
+        attachments: req.attachments,
+      });
+      return { ok: true, attachments };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
   },
 );
 

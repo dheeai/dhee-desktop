@@ -18,9 +18,8 @@
  *     → no reset. User is rehydrating; chat history is part of context.
  *
  *   intent='open' + different path (switch between existing projects)
- *     → no reset (today). The user may genuinely want cross-project
- *       conversation continuity. If this proves wrong, flip later —
- *       the helper centralizes the rule.
+ *     → reset/switch chat scope. Chat history and agent context are
+ *       project-scoped; carrying them across projects leaks history.
  *
  *   intent='open' + no previous project (first open at session start)
  *     → no reset. Nothing to clear; the session is already fresh.
@@ -48,7 +47,7 @@ export function shouldResetChatOnProjectChange(opts: {
   }
 
   // intent === 'open'
-  if (!prev) return false;             // first-ever open: nothing to clear
-  if (prev === next) return false;     // re-opening same project: keep history
-  return false;                         // switching between existing projects: preserve context
+  if (!prev) return false; // first-ever open: nothing to clear
+  if (prev === next) return false; // re-opening same project: keep history
+  return true; // switching projects: isolate chat scope
 }
