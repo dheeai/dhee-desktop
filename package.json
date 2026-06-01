@@ -263,7 +263,6 @@
     ],
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
-    "afterAllArtifactBuild": ".erb/scripts/stable-release-artifacts.cjs",
     "asarUnpack": [
       "**\\*.{node,dll}",
       "**/node_modules/@ffmpeg-installer/**",
