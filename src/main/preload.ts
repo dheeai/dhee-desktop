@@ -59,6 +59,8 @@ import {
   type ValidateWorkflowResponse,
   type ResolveBundleRequest,
   type ResolveBundleResponse,
+  type ResolveInstanceGraphRequest,
+  type ResolveInstanceGraphResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
   type GetHistoryRequest,
@@ -799,6 +801,15 @@ const dheeBridge = {
    */
   resolveBundle(req: ResolveBundleRequest): Promise<ResolveBundleResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_BUNDLE, req);
+  },
+  /**
+   * Resolve the per-instance dependency graph projection from the
+   * project's event log (.dhee/events.jsonl). Returns
+   * { instances[], edges[] } folded via dhee-core's
+   * `projectInstanceGraph`. Inspector Cards view's source of truth.
+   */
+  resolveInstanceGraph(req: ResolveInstanceGraphRequest): Promise<ResolveInstanceGraphResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_INSTANCE_GRAPH, req);
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.

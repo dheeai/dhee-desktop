@@ -97,6 +97,14 @@ export const dhee_CHANNELS = {
    * dhee-core's bundleSource helpers.
    */
   RESOLVE_BUNDLE: 'dhee:resolveBundle',
+  /**
+   * Resolve the per-instance dependency graph projection of a
+   * project's event log. The Inspector Cards view consumes this
+   * directly — no client-side bundle parsing or file IO. The
+   * graph is { instances[], edges[] } folded from
+   * .dhee/events.jsonl by `projectInstanceGraph` in dhee-core.
+   */
+  RESOLVE_INSTANCE_GRAPH: 'dhee:resolveInstanceGraph',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -518,6 +526,44 @@ export interface BundleDisplay {
  */
 export interface BundleNodeInputRef {
   from: string;
+}
+
+// ── RESOLVE_INSTANCE_GRAPH ─────────────────────────────────────────────
+
+export interface ResolveInstanceGraphRequest {
+  projectDir: string;
+  branchId?: string;
+  /** Time-travel: fold only events with seq <= asOfSeq. */
+  asOfSeq?: number;
+}
+
+export interface InstanceGraphNode {
+  nodeId: string;
+  itemId?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'invalidated';
+  outputPath?: string;
+  versionId?: string;
+  error?: string;
+  tool?: string;
+  cached?: boolean;
+  ts?: number;
+}
+
+export interface InstanceGraphEdge {
+  fromNodeId: string;
+  fromItemId?: string;
+  toNodeId: string;
+  toItemId?: string;
+  role?: string;
+}
+
+export interface ResolveInstanceGraphResponse {
+  ok: boolean;
+  graph?: {
+    instances: InstanceGraphNode[];
+    edges: InstanceGraphEdge[];
+  };
+  error?: string;
 }
 
 export interface ResolveBundleResponse {

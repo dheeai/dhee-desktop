@@ -41,6 +41,8 @@ import {
   type InvalidateNodesResponse,
   type ResolveBundleRequest,
   type ResolveBundleResponse,
+  type ResolveInstanceGraphRequest,
+  type ResolveInstanceGraphResponse,
   type ListWorkflowsRequest,
   type ListWorkflowsResponse,
   type GetWorkflowRequest,
@@ -441,6 +443,42 @@ export function registerdheeIpcBridge(
               inputs: (n.inputs ?? []).map((i) => ({ from: i.from })),
             })),
             ...(bundle.display ? { display: bundle.display } : {}),
+          },
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // ── RESOLVE_INSTANCE_GRAPH ───────────────────────────────────────────
+  // Reads .dhee/events.jsonl from the project and folds it through
+  // dhee-core's projectInstanceGraph. Lineage as a pure projection,
+  // no bundle re-parsing or content sniffing on the renderer side.
+  ipcMain.handle(
+    dhee_CHANNELS.RESOLVE_INSTANCE_GRAPH,
+    async (_event, req: ResolveInstanceGraphRequest): Promise<ResolveInstanceGraphResponse> => {
+      try {
+        const dagMod = (await import(
+          /* webpackIgnore: true */ 'dhee-core/dag'
+        )) as {
+          openEventLog: (projectDir: string) => { read: (opts?: { branchId?: string; sinceSeq?: number }) => Iterable<unknown> };
+          projectInstanceGraph: (
+            events: Iterable<unknown>,
+            opts?: { branchId?: string; asOfSeq?: number },
+          ) => { instances: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> };
+        };
+        const log = dagMod.openEventLog(req.projectDir);
+        const events = [...log.read()];
+        const opts: { branchId?: string; asOfSeq?: number } = {};
+        if (req.branchId) opts.branchId = req.branchId;
+        if (typeof req.asOfSeq === 'number') opts.asOfSeq = req.asOfSeq;
+        const graph = dagMod.projectInstanceGraph(events, opts);
+        return {
+          ok: true,
+          graph: {
+            instances: graph.instances as unknown as NonNullable<ResolveInstanceGraphResponse['graph']>['instances'],
+            edges: graph.edges as unknown as NonNullable<ResolveInstanceGraphResponse['graph']>['edges'],
           },
         };
       } catch (err) {
