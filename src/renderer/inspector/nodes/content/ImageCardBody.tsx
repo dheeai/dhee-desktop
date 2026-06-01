@@ -8,7 +8,7 @@
  * artifact has been overwritten since the card was last rendered.
  */
 import { useState } from 'react';
-import { cacheBustMediaSrc } from '../../../components/chat/ChatPanelEmbedded/mediaResolution';
+import { cacheBustMediaSrc, resolveMediaSrc } from '../../../components/chat/ChatPanelEmbedded/mediaResolution';
 
 interface Props {
   projectDir: string | null;
@@ -22,7 +22,9 @@ export function ImageCardBody({ projectDir, outputPath, completedAt }: Props) {
   if (!projectDir || !outputPath) {
     return <div style={{ padding: 10, fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>no image</div>;
   }
-  const src = cacheBustMediaSrc(`file://${projectDir}/${outputPath}`, completedAt ?? null);
+  // URL-encode the path; project names like "Prompt Relay E2E" otherwise
+  // produce malformed file:// URLs (silent failure for some assets).
+  const src = cacheBustMediaSrc(resolveMediaSrc(outputPath, projectDir), completedAt ?? null);
   if (errored) {
     return (
       <div

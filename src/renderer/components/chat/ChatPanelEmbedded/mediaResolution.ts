@@ -56,3 +56,46 @@ export function cacheBustMediaSrc(src: string, key: number | string | null | und
   const sep = src.includes('?') ? '&' : '?';
   return `${src}${sep}v=${encodeURIComponent(String(key))}`;
 }
+
+/**
+ * Build a `file://` URL from an on-disk path, properly URL-encoded.
+ *
+ *   - Absolute paths (starting with `/`) are encoded segment-by-segment
+ *     so spaces, `?`, `#`, etc. don't break the URL.
+ *   - Relative paths are joined under `projectDirectory` first.
+ *   - Already-scheme'd URLs (http:, file:, etc.) pass through unchanged.
+ *
+ * The encoding bug this fixes: chat panel video tags silently fail
+ * when the path contains spaces (typical for project names like
+ * "Prompt Relay E2E"). `<img>` tags are forgiving and render, so the
+ * problem manifests as "images work but videos don't" — the agent
+ * looks broken even though the file is on disk.
+ *
+ * Caller contract: pass DECODED paths. Any `%` in the input is
+ * treated as a literal and re-encoded to `%25`. (We don't try to
+ * detect already-encoded segments — that heuristic creates more bugs
+ * than it solves.)
+ */
+export function resolveMediaSrc(
+  mediaPath: string,
+  projectDirectory: string | null,
+): string {
+  const trimmed = mediaPath.trim();
+  if (!trimmed) return '';
+  // Already a URI scheme (http, https, file, data, etc.) → pass through.
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+
+  const absolutePath =
+    trimmed.startsWith('/') || !projectDirectory
+      ? trimmed
+      : `${projectDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
+
+  // Encode segment-by-segment so the path separator stays intact but
+  // every other special char (space, ?, #, %, etc.) is escaped.
+  const encoded = absolutePath
+    .split('/')
+    .map((segment) => encodeURIComponent(segment))
+    .join('/');
+
+  return `file://${encoded}`;
+}

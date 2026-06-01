@@ -8,7 +8,7 @@
  * add `loading="lazy"` semantics via Intersection Observer later.
  */
 import { useRef, useState } from 'react';
-import { cacheBustMediaSrc } from '../../../components/chat/ChatPanelEmbedded/mediaResolution';
+import { cacheBustMediaSrc, resolveMediaSrc } from '../../../components/chat/ChatPanelEmbedded/mediaResolution';
 
 interface Props {
   projectDir: string | null;
@@ -25,7 +25,9 @@ export function VideoCardBody({ projectDir, outputPath, completedAt }: Props) {
   if (!projectDir || !outputPath) {
     return <div style={{ padding: 10, fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>no video</div>;
   }
-  const src = cacheBustMediaSrc(`file://${projectDir}/${outputPath}`, completedAt ?? null);
+  // URL-encode the path so spaces in project names like "Prompt Relay E2E"
+  // don't break the <video> source.
+  const src = cacheBustMediaSrc(resolveMediaSrc(outputPath, projectDir), completedAt ?? null);
   if (errored) {
     return (
       <div

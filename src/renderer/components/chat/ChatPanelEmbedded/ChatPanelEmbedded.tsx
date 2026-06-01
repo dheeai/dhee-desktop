@@ -36,7 +36,7 @@ import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
-import { extractToolResultFilePath, cacheBustMediaSrc } from './mediaResolution';
+import { extractToolResultFilePath, cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
@@ -247,18 +247,8 @@ function groupConsecutiveProgress(messages: ChatMessage[]): MessageListItem[] {
   return items;
 }
 
-function resolveMediaSrc(mediaPath: string, projectDirectory: string | null): string {
-  const trimmed = mediaPath.trim();
-  if (!trimmed) return '';
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
-
-  const absolutePath =
-    trimmed.startsWith('/') || !projectDirectory
-      ? trimmed
-      : `${projectDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
-
-  return `file://${absolutePath}`;
-}
+// Moved to ./mediaResolution.ts (with URL encoding fix — see comment in
+// resolveMediaSrc there). The unit tests live in mediaResolution.test.ts.
 
 function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
