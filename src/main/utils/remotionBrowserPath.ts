@@ -13,7 +13,7 @@ function getPlatformDirName(
 ): string | null {
   switch (platform) {
     case 'darwin':
-      return arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
+      return arch === 'arm64' ? 'mac-arm64' : null;
     case 'linux':
       return arch === 'arm64' ? 'linux-arm64' : 'linux64';
     case 'win32':

@@ -8,7 +8,7 @@ When you push a `v*` release tag, GitHub Actions automatically:
 1. Checks out the code
 2. Installs dependencies (including dhee-core)
 3. Builds the Electron app
-4. Creates DMG installers for Mac (arm64 + x64)
+4. Creates a DMG installer for Apple Silicon Macs
 5. Publishes to GitHub Releases in `dheeai/dhee-desktop`
 
 ## Quick Start
@@ -88,9 +88,8 @@ git push origin v0.1.0
 Once complete, the release will be available at:
 - https://github.com/dheeai/dhee-desktop/releases
 
-Download the DMG files:
+Download the DMG file:
 - `Dhee-<version>-arm64.dmg` (Apple Silicon)
-- `Dhee-<version>-x64.dmg` or `Dhee-<version>.dmg` (Intel Mac, depending on builder output)
 
 ### Stable filenames (same URL every release)
 
@@ -99,14 +98,12 @@ After each release, the build also publishes **fixed-name copies** (via `afterAl
 | Platform | Stable asset on Latest |
 |----------|-------------------------|
 | macOS Apple Silicon | `Dhee.Studio-mac-arm64.dmg` |
-| macOS Intel | `Dhee.Studio-mac-x64.dmg` |
 | Windows x64 | `Dhee.Studio-windows-x64-setup.exe` |
 | Linux x86_64 | `Dhee.Studio-linux-x86_64.AppImage` |
 
 Example URLs (after the next successful tagged release):
 
 - `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-arm64.dmg`
-- `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-x64.dmg`
 - `https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-windows-x64-setup.exe`
 
 Versioned originals (for support and reproducibility) remain on the same release as today.
@@ -119,7 +116,6 @@ Use the `dhee-desktop` latest URLs once the workflow has finished:
 
 ```bash
 curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-arm64.dmg" | head -n 5
-curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-mac-x64.dmg" | head -n 5
 curl -sI "https://github.com/dheeai/dhee-desktop/releases/latest/download/Dhee.Studio-windows-x64-setup.exe" | head -n 5
 ```
 
@@ -136,11 +132,11 @@ The workflow builds:
 2. **Electron App**
    - React renderer
    - Electron main process
-   - Output: DMG files in `release/build/`
+   - Output: DMG file in `release/build/`
 
 3. **Release Assets**
    - Automatically uploaded to GitHub Releases
-   - DMG files for both Mac architectures (versioned names)
+   - Apple Silicon macOS DMG (versioned name)
    - Stable-named duplicates for website / `releases/latest/download/` links (see above)
 
 ## Troubleshooting
