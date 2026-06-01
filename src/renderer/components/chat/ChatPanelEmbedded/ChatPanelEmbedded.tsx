@@ -846,8 +846,17 @@ export default function ChatPanelEmbedded() {
     [session],
   );
 
-  // Auto-spawn the wizard for fresh projects. The shared
-  // shouldAutoOpenWizard predicate keeps the trigger criteria honest.
+  // Whether we've already kicked off the agent-led onboarding for the
+  // current fresh project. Without this guard the effect would fire on
+  // every render (and dispatch a fresh greeting every time the user
+  // typed something), spamming the agent.
+  const onboardingDispatchedRef = useRef<string | null>(null);
+
+  // Fresh projects: skip the legacy form wizard, dispatch an agent
+  // greeting instead. The agent's SKILL.md has an "Onboarding a fresh
+  // project" section that instructs it to ask one short question, wait
+  // for the story, call `dhee_list_bundles`, pick the right bundle,
+  // and call `dhee_create_project(existingDir=…)` + `dhee_run_bundle`.
   useEffect(() => {
     if (
       !shouldAutoOpenWizard({
@@ -860,15 +869,47 @@ export default function ChatPanelEmbedded() {
     ) {
       return;
     }
-    setSetupError(null);
-    setSetupStep('configure');
-    setSetupPanelMode('wizard');
+    if (!projectDirectory) return;
+    if (!session.sessionId) return;
+    if (onboardingDispatchedRef.current === projectDirectory) return;
+
+    onboardingDispatchedRef.current = projectDirectory;
+    // Synthetic system kickoff. NOT rendered as a user bubble — the
+    // user didn't type it. The agent reads it as context and produces
+    // a greeting which lands as a normal assistant message via the
+    // streaming events / end-of-turn fallback in handleSend below.
+    const kickoff =
+      `[system] User just opened a fresh project at ${projectDirectory} ` +
+      `(no project.json yet). Greet them in one short sentence — "What ` +
+      `are we making today?" — and wait for their story. When you ` +
+      `eventually call dhee_create_project, pass existingDir="${projectDirectory}".`;
+    void (async () => {
+      // Ensure the session is focused on this project before the agent
+      // dispatches any tool calls. Idempotent — safe to re-call even
+      // if the main focus effect already ran.
+      if (projectName) {
+        await session.focusProject(projectName, projectDirectory).catch(() => undefined);
+      }
+      const r = await session.chatPrompt(kickoff);
+      if (!r.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newMessageId(),
+            role: 'system',
+            text: `Couldn't start onboarding: ${r.error ?? 'unknown error'}.`,
+          },
+        ]);
+      }
+    })();
   }, [
     projectDirectory,
+    projectName,
     isSetupConfigured,
     setupPanelMode,
     setupProbeCompleted,
     isConfiguringSetup,
+    session,
   ]);
 
   // ── Wizard step handlers ──────────────────────────────────────────

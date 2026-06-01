@@ -414,12 +414,34 @@ function useCreateKshanaSession(): DheeSessionApi {
    * Phase 6.5c: chat-input path. Distinct from runTask which dispatches
    * bundle runs via BackgroundTaskRunner. chatPrompt drives the per-
    * session pi-agent and returns its reply.
+   *
+   * Flips local status to 'running' for the duration of the call so
+   * the chat panel's header Stop button surfaces (it's gated on
+   * `session.status === 'running'`). Without this flip, an agent
+   * looping through tool calls during onboarding / regen looked
+   * unstoppable from the UI — the only escape was killing the desktop.
    */
   const chatPrompt = useCallback<DheeSessionApi['chatPrompt']>(
     async (message) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'no active session' };
-      return window.dhee.chatPrompt({ sessionId: id, message });
+      setStatus('running');
+      setError(null);
+      try {
+        const result = await window.dhee.chatPrompt({ sessionId: id, message });
+        if (result.ok) {
+          setStatus('idle');
+        } else {
+          setStatus('error');
+          setError(result.error ?? null);
+        }
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setStatus('error');
+        setError(msg);
+        return { ok: false, error: msg };
+      }
     },
     [],
   );
