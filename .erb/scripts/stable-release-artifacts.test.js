@@ -12,7 +12,7 @@ function writeArtifact(dir, fileName) {
 }
 
 describe('stable-release-artifacts', () => {
-  it('publishes stable assets without creating a macOS x64 DMG alias', async () => {
+  it('publishes stable assets without creating macOS DMG aliases', async () => {
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stable-release-artifacts-'));
 
     try {
@@ -27,9 +27,9 @@ describe('stable-release-artifacts', () => {
 
       expect(extra.map((filePath) => path.basename(filePath)).sort()).toEqual([
         'Dhee.Studio-linux-x86_64.AppImage',
-        'Dhee.Studio-mac-arm64.dmg',
         'Dhee.Studio-windows-x64-setup.exe',
       ]);
+      expect(fs.existsSync(path.join(tempRoot, 'Dhee.Studio-mac-arm64.dmg'))).toBe(false);
       expect(fs.existsSync(path.join(tempRoot, removedMacStableAlias))).toBe(false);
     } finally {
       fs.rmSync(tempRoot, { recursive: true, force: true });

@@ -103,6 +103,11 @@
     "setupFiles": [
       "./.erb/scripts/check-build-exists.ts"
     ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/assets/remotion-infographics-template/package.json",
+      "<rootDir>/dhee-core/remotion-infographics/package.json",
+      "<rootDir>/release/app/package.json"
+    ],
     "testEnvironment": "jsdom",
     "testEnvironmentOptions": {
       "url": "http://localhost/"
