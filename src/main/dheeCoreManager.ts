@@ -1500,44 +1500,52 @@ export class dheeCoreManager {
    * call more tools even though the user clicked Stop.
    */
   async cancelTask(sessionId: string): Promise<boolean> {
-    // Phase 6.5c.e: order matters. session.abort() WAITS for the
-    // agent to become idle. If the agent's current operation is an
-    // in-flight dhee_run_bundle (which sits on a BackgroundTaskRunner
-    // task), abort() blocks until that task finishes — meaning the
-    // long-running task has to complete before abort returns. So:
+    // Fire-and-forget both cancellation paths. cancelTask must NOT
+    // block on the agent's in-flight tool finishing — the user clicked
+    // Stop because they want control back NOW, not after the LLM
+    // stream / Comfy poll naturally settles.
     //
-    // 1. Kick the runner cancel FIRST (fire-and-forget). That makes
-    //    the in-flight tool's terminal event fire promptly.
-    // 2. THEN await session.abort(), which now resolves quickly
-    //    because the tool just got its 'cancelled' event.
-    // 3. The agent is idle. Any pending tool decisions are discarded.
+    //   1. runner.cancel() — fire-and-forget. Aborts the BG task
+    //      controller; the in-flight tool's terminal event fires
+    //      whenever the executor notices the abort. We don't await.
+    //   2. session.abort() — fire-and-forget. pi-coding-agent's abort
+    //      sets an internal "aborted" flag and tries to interrupt
+    //      the model stream. Internally it awaits the in-flight tool
+    //      to release the agent lock, which can take 30-90s in
+    //      practice (BG comfy poll holds the lock). We don't care —
+    //      we just need the abort SIGNAL fired so further tool
+    //      decisions are skipped.
     //
-    // Without this order the agent kept issuing fresh dhee_run_bundle
-    // calls after Stop because the abort path was waiting on the
-    // very task we hadn't yet cancelled.
+    // The long tail (in-flight tool finishing, walkState mutations
+    // it does on its way out) continues in the background. The agent
+    // session's `aborted` flag prevents NEW tool calls.
     let runnerCancelled = false;
     try {
       const runnersMod = await loadRunnersModule();
       runnerCancelled = runnersMod.getBackgroundTaskRunner().cancel();
     } catch {
-      /* best-effort — abort below still fires */
+      /* best-effort */
     }
 
-    let aborted = false;
+    let abortFired = false;
     const agentSession = this.agentSessions.get(sessionId);
     if (agentSession?.session) {
-      try {
-        const sess = agentSession.session as { abort?: () => Promise<void> };
-        if (typeof sess.abort === 'function') {
-          await sess.abort();
-          aborted = true;
+      const sess = agentSession.session as { abort?: () => Promise<void> };
+      if (typeof sess.abort === 'function') {
+        try {
+          // Trigger abort, but DO NOT await. abort() may take 30-90s
+          // to resolve because pi waits for in-flight tools to
+          // release the agent lock. The user clicked Stop — UI must
+          // return control immediately.
+          void sess.abort().catch(() => undefined);
+          abortFired = true;
+        } catch {
+          // pi-coding-agent's abort can throw synchronously if there's
+          // no current operation; that's fine.
         }
-      } catch {
-        // pi-coding-agent's abort can throw if there's no current
-        // operation; that's fine.
       }
     }
-    return runnerCancelled || aborted;
+    return runnerCancelled || abortFired;
   }
 
   /**

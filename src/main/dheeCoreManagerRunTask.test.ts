@@ -204,4 +204,37 @@ describe('dheeCoreManager.cancelTask (Phase 6.2 rewire)', () => {
     const cancelled = await mgr.cancelTask('s-nothing');
     expect(cancelled).toBe(false);
   });
+
+  it('BUG: returns within ~100ms even when the agent session abort() is slow (mid-tool comfy / llm)', async () => {
+    // Real-world repro from the prompt-relay E2E project:
+    // user clicks Stop mid-dhee_critique_node. The agent's
+    // sess.abort() can take 30-90s to resolve because it waits for
+    // the in-flight LLM/Comfy job to release the agent's lock.
+    // cancelTask MUST NOT block the UI on that — fire abort, return
+    // immediately; let the long tail finish in the background.
+    const mgr = new dheeCoreManager();
+    // Stub an AgentSession whose abort() hangs forever. If cancelTask
+    // awaits this, the test times out at 5s.
+    let abortCalled = false;
+    mgr.__setAgentSessionForTesting('s-stuck', {
+      subscribe: () => () => undefined,
+      prompt: async () => undefined,
+      abort: () => {
+        abortCalled = true;
+        return new Promise<void>(() => undefined);  // never resolves
+      },
+      dispose: () => undefined,
+    });
+
+    const t0 = Date.now();
+    const result = await mgr.cancelTask('s-stuck');
+    const elapsed = Date.now() - t0;
+
+    // abort() must have been fired (signal propagation).
+    expect(abortCalled).toBe(true);
+    // cancelTask must NOT wait for abort() to resolve.
+    expect(elapsed).toBeLessThan(200);
+    // Still returns true because abort was triggered.
+    expect(result).toBe(true);
+  });
 });
