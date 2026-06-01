@@ -30,6 +30,7 @@ import {
   readFileSync as fsReadFileSync,
 } from 'fs';
 import { app } from 'electron';
+import { clearProjectSessions } from './clearProjectSessions';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -1272,17 +1273,39 @@ export class dheeCoreManager {
    * down any in-memory ActiveSession for the old id along the way.
    */
   /**
-   * Phase 6.3 stub: no persisted history to clear; drop the in-memory
-   * session→project mapping and mint a fresh sessionId.
+   * Wipe the persisted chat for the project this session is focused on
+   * AND drop in-memory state. Mints a fresh sessionId.
+   *
+   * Bug fix: the old version only minted a new id without touching the
+   * on-disk JSONL files. When the renderer's `refreshHistory` next
+   * fired against the new id (after focusProject restored the
+   * session→project mapping), getSessionHistorySnapshot re-loaded the
+   * MOST-RECENT JSONL — the very file we'd claimed to delete in the
+   * confirm dialog. The chat re-appeared. The dialog was lying.
    */
   clearChatHistory(
     oldSessionId: string,
     role?: 'interactive' | 'background',
-  ): { newSessionId: string } {
+  ): { newSessionId: string; deletedJsonlFiles: number } {
+    // Look up the focused project BEFORE dropping the mapping, so we
+    // know which slug to clean.
+    const projectDir = this.sessionProjects.get(oldSessionId);
+    let deletedJsonlFiles = 0;
+    if (projectDir) {
+      try {
+        const userData = app.getPath?.('userData');
+        if (userData) {
+          const r = clearProjectSessions(userData, projectDir);
+          deletedJsonlFiles = r.deleted;
+        }
+      } catch {
+        // best-effort; clearing in-memory state below still proceeds.
+      }
+    }
     this.sessionProjects.delete(oldSessionId);
     this.sessionFlags.delete(oldSessionId);
     const fresh = this.createSession(role);
-    return { newSessionId: fresh.id };
+    return { newSessionId: fresh.id, deletedJsonlFiles };
   }
 
   /**
