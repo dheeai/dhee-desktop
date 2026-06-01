@@ -7,7 +7,10 @@ const chromeMode = 'headless-shell';
 function getPlatformDirName() {
   switch (process.platform) {
     case 'darwin':
-      return process.arch === 'arm64' ? 'mac-arm64' : 'mac-x64';
+      if (process.arch !== 'arm64') {
+        throw new Error(`Unsupported macOS architecture: ${process.arch}`);
+      }
+      return 'mac-arm64';
     case 'linux':
       return process.arch === 'arm64' ? 'linux-arm64' : 'linux64';
     case 'win32':

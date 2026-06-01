@@ -20,9 +20,6 @@ exports.default = async function stableReleaseArtifacts(context) {
   );
 
   const armDmg = dmgs.find((p) => /arm64/i.test(path.basename(p)));
-  const intelDmg = dmgs.find(
-    (p) => !/arm64/i.test(path.basename(p)),
-  );
 
   function copyStable(src, stableName) {
     if (!src || !fs.existsSync(src)) return;
@@ -33,7 +30,6 @@ exports.default = async function stableReleaseArtifacts(context) {
   }
 
   copyStable(armDmg, `${stablePrefix}-mac-arm64.dmg`);
-  copyStable(intelDmg, `${stablePrefix}-mac-x64.dmg`);
 
   const setupExe = artifactPaths.find((p) => {
     const b = path.basename(p);

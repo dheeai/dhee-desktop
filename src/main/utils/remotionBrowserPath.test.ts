@@ -61,4 +61,14 @@ describe('remotionBrowserPath', () => {
 
     fs.rmSync(tempRoot, { recursive: true, force: true });
   });
+
+  it('returns null for unsupported macOS x64 architecture', () => {
+    const result = getBundledRemotionBrowserExecutable({
+      resourcesPath: '/tmp/dhee-resources',
+      platform: 'darwin',
+      arch: 'x64',
+    });
+
+    expect(result).toBeNull();
+  });
 });

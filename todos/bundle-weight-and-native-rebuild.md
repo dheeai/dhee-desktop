@@ -18,7 +18,7 @@ Symptoms today:
   `release/app/package.json` to depend on the tarball, then runs a
   full `npm install` in `release/app`. Many failure points; little
   observability.
-- The cross-architecture story (mac arm64 + x64, windows x64) doubles
+- The cross-platform story (mac arm64, windows x64, linux x86_64) multiplies
   most of these costs.
 
 ## Evidence
