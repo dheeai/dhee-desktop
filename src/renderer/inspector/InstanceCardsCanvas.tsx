@@ -41,6 +41,7 @@ import { StageGroupLabel } from './nodes/StageGroupLabel';
 import { computeStageRows, computeInstanceLayout, forwardDependents } from './instanceLayout';
 import { CardDetailModal } from './CardDetailModal';
 import { type CardAction } from './cardDetailModel';
+import { useProject } from '../contexts/ProjectContext';
 import styles from './InspectorCanvas.module.scss';
 
 /**
@@ -102,7 +103,12 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const [graph, setGraph] = useState<{ instances: InstanceGraphNode[]; edges: InstanceGraphEdge[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const [openInstance, setOpenInstance] = useState<InstanceGraphNode | null>(null);
+  // The OPEN modal is tracked by instance KEY, not a snapshot. The live
+  // instance is re-derived from the graph each refresh — so selecting a
+  // version (which swaps the instance's outputPath) reflects in the
+  // modal without re-opening it.
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const { bundle } = useProject();
   // Keep the last fetched-graph signature so the 3s poll doesn't
   // shove a fresh object reference into state when nothing actually
   // changed. Without this guard every poll triggers a re-render of
@@ -149,6 +155,21 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
     if (!hoverKey || !graph) return new Set<string>();
     return forwardDependents(graph.edges, hoverKey);
   }, [hoverKey, graph]);
+
+  // Live instance behind the open modal — re-derived from the latest
+  // graph so a version select / edit refresh updates the modal content.
+  const openInstance = useMemo<InstanceGraphNode | null>(() => {
+    if (!openKey || !graph) return null;
+    return graph.instances.find((i) => keyOf(i.nodeId, i.itemId) === openKey) ?? null;
+  }, [openKey, graph]);
+
+  // The bundle's headlineField for the open node — lets the modal's
+  // editor surface the meaningful text field (e.g. imagePrompt) instead
+  // of raw JSON.
+  const openHeadlineField = useMemo<string | undefined>(() => {
+    if (!openInstance || !bundle) return undefined;
+    return bundle.nodes.find((n) => n.id === openInstance.nodeId)?.headlineField;
+  }, [openInstance, bundle]);
 
   // Build xyflow nodes — ONLY depends on the graph projection, NOT on
   // hover. Hover state flows to cards via HoverContext so the node
@@ -264,13 +285,11 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const onNodeClick = useCallback(
     (_evt: unknown, node: Node) => {
       if (node.id.startsWith('__group__')) return;
-      if (!graph) return;
-      const inst = graph.instances.find((i) => keyOf(i.nodeId, i.itemId) === node.id);
-      if (inst) setOpenInstance(inst);
+      setOpenKey(node.id);
     },
-    [graph],
+    [],
   );
-  const onModalClose = useCallback(() => setOpenInstance(null), []);
+  const onModalClose = useCallback(() => setOpenKey(null), []);
   const onModalAction = useCallback(
     async (action: CardAction, inst: InstanceGraphNode) => {
       if (!projectDir) return;
@@ -300,7 +319,7 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
           // eslint-disable-next-line no-console
           console.error('[Inspector] invalidate failed', e);
         }
-        setOpenInstance(null);
+        setOpenKey(null);
         await refresh();
         return;
       }
@@ -318,15 +337,14 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
           // eslint-disable-next-line no-console
           console.error('[Inspector] regenerate failed', e);
         }
-        setOpenInstance(null);
+        setOpenKey(null);
         await refresh();
         return;
       }
 
-      // 'show-versions' / 'edit' — not yet wired (version tray + inline
-      // editor are a separate surface). Logged so the gap is explicit.
-      // eslint-disable-next-line no-console
-      console.warn('[Inspector] action not implemented yet:', action, 'on', key);
+      // 'show-versions' / 'edit' are handled inside the modal itself
+      // (they only need this instance's identity, not the graph). The
+      // modal never dispatches them up here.
     },
     [projectDir, refresh],
   );
@@ -385,8 +403,10 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
       <CardDetailModal
         instance={openInstance}
         projectDir={projectDir ?? null}
+        headlineField={openHeadlineField}
         onClose={onModalClose}
         onAction={onModalAction}
+        onChanged={refresh}
       />
     </div>
   );

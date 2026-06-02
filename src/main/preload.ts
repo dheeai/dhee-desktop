@@ -66,6 +66,11 @@ import {
   type ResolveBundleResponse,
   type ResolveInstanceGraphRequest,
   type ResolveInstanceGraphResponse,
+  type ListVersionsRequest,
+  type ListVersionsResponse,
+  type SelectVersionRequest,
+  type WriteNodeContentRequest,
+  type WriteNodeContentResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
   type GetHistoryRequest,
@@ -863,6 +868,23 @@ const dheeBridge = {
    */
   resolveInstanceGraph(req: ResolveInstanceGraphRequest): Promise<ResolveInstanceGraphResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_INSTANCE_GRAPH, req);
+  },
+  /** Version tray for a node instance (Inspector modal Versions panel). */
+  listVersions(req: ListVersionsRequest): Promise<ListVersionsResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.LIST_VERSIONS, req);
+  },
+  /** Select a version for a node instance (emits version.selected). */
+  selectVersion(req: SelectVersionRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.SELECT_VERSION, req);
+  },
+  /**
+   * Save user-edited content for a node instance (Inspector modal
+   * inline editor). Marks the node user-completed + cascades downstream
+   * via dhee-core's writeNodeContent. Returns status='preview' (no
+   * write) for high-blast-radius edits unless confirm=true.
+   */
+  writeNodeContent(req: WriteNodeContentRequest): Promise<WriteNodeContentResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.WRITE_NODE_CONTENT, req);
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.
