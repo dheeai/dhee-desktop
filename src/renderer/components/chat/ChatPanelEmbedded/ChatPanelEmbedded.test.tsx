@@ -416,6 +416,69 @@ describe('ChatPanelEmbedded', () => {
     expect(mockState.runTaskCalls).toHaveLength(0);
   });
 
+  // Interruptible-runs Phase 3: with non-blocking dhee_start_run the
+  // agent turn ends the moment a run starts, so the agent sits IDLE
+  // while the run executes in the background. Typing then must reach
+  // the agent WITHOUT cancelling — a background run is not killed just
+  // because the user asked a question. The only thing that cancels is
+  // the agent being genuinely mid-turn (status==='running').
+  it('typing while a background run is active (agent idle) does NOT cancel the run', async () => {
+    // Run is in flight per the runner (status strip source of truth),
+    // but no agent turn is hanging → agent is idle.
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+      jest.fn(async () => ({ active: true, projectName: 'p' }));
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: 'how many shots are there?' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    // The question reached the agent…
+    expect(mockState.chatPromptCalls.map((c) => c.message)).toContain(
+      'how many shots are there?',
+    );
+    // …and the background run was NOT cancelled (no cancelTask fired).
+    expect(mockState.cancelCalls).toHaveLength(0);
+  });
+
+  it('typing while the AGENT is mid-turn DOES cancel that turn (interject), preserving the old contract', async () => {
+    let resolveFirst: () => void = () => {};
+    const firstFinished = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let n = 0;
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.chatPrompt = jest.fn(
+      async (req: { sessionId: string; message: string }) => {
+        n += 1;
+        mockState.chatPromptCalls.push(req);
+        if (n === 1) await firstFinished; // hang → agent mid-turn
+        return { ok: true, assistant_text: 'm', tool_calls: [] };
+      },
+    ) as never;
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+
+    fireEvent.change(input, { target: { value: 'first' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+    // Interject while the agent is still mid-turn.
+    fireEvent.change(input, { target: { value: 'actually do X instead' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    // The mid-turn interject cancels the agent turn (existing contract).
+    expect(mockState.cancelCalls.length).toBeGreaterThanOrEqual(1);
+    resolveFirst();
+  });
+
   it('tool_call events appear in the message list', async () => {
     renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
