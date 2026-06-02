@@ -38,6 +38,7 @@ import {
   type SVPShape,
 } from './projectMetadataHelpers';
 import { resolveTileDisplay } from '../../../lib/bundleDisplay';
+import { projectStateFromEventsJsonl } from '../../../lib/projectStateFromEvents';
 import { getBackendConfigStatus } from './backendConfigStatus';
 import { BackendNotReadyBanner } from './BackendNotReadyBanner';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
@@ -211,9 +212,25 @@ async function loadSingleProjectMetadata(
     try {
       const resp = await window.dhee.resolveBundle({ bundleSource: parsedProject.bundleSource });
       if (resp.ok && resp.bundle) {
+        // Walker writes walkState to project.json only when invoked
+        // with `bundleSource`. Headless callers (smoke scripts, future
+        // CLI flows) may skip that path — state then lives solely in
+        // `.dhee/events.jsonl`. Project events → minimal walkState so
+        // the tile resolver finds the right completed instances.
+        // Without this fallback the landing tile is thumbnail-blank
+        // for any event-only project.
+        let walkStateForTile = parsedProject.walkState;
+        if (!walkStateForTile || !walkStateForTile.nodes) {
+          const eventsRaw = await window.electron.project
+            .readFile(joinPath(projectPath, '.dhee/events.jsonl'))
+            .catch(() => null);
+          if (eventsRaw) {
+            walkStateForTile = projectStateFromEventsJsonl(eventsRaw);
+          }
+        }
         const display = await resolveTileDisplay(
           resp.bundle,
-          { walkState: parsedProject.walkState, executorState: parsedProject.executorState },
+          { walkState: walkStateForTile, executorState: parsedProject.executorState },
           (relPath) =>
             window.electron.project
               .readFile(joinPath(projectPath, relPath))
