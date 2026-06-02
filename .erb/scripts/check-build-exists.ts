@@ -30,11 +30,13 @@ if (!fs.existsSync(rendererPath)) {
 // safe at runtime (the methods are identical) and unblocks Jest under
 // recent @types/node.
 if (!global.TextEncoder) {
-  // @ts-expect-error — Node TextEncoder is structurally compatible with the DOM one for our purposes
+  // @ts-ignore — Node TextEncoder is structurally compatible with the DOM one for our purposes.
+  // Use ts-ignore (not ts-expect-error) because some TS / @types/node versions
+  // accept this assignment without complaint; ts-expect-error would then itself error.
   global.TextEncoder = TextEncoder;
 }
 if (!global.TextDecoder) {
-  // @ts-expect-error — same shape mismatch as above
+  // @ts-ignore — same shape mismatch as above; same version-tolerance reason.
   global.TextDecoder = TextDecoder;
 }
 
