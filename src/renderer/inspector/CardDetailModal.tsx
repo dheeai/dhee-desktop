@@ -19,6 +19,8 @@
  * handled here because they only need this instance's identity.
  */
 import { useEffect, useState } from 'react';
+import ReactMarkdown, { type Components } from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import type { InstanceGraphNode, VersionTrayEntry } from '../../shared/dheeIpc';
 import {
   availableActions,
@@ -81,6 +83,40 @@ const BTN_GHOST: React.CSSProperties = {
   cursor: 'pointer',
   fontSize: 12,
 };
+
+/** Inline-styled element map so markdown renders legibly on the modal's
+ * dark body (react-markdown v9 dropped the className prop). */
+const MD_COMPONENTS: Components = {
+  h1: (p) => <h1 style={{ fontSize: 22, fontWeight: 700, color: '#f0ece2', margin: '0 0 14px' }} {...p} />,
+  h2: (p) => <h2 style={{ fontSize: 16, fontWeight: 700, color: '#e5e1d8', margin: '26px 0 10px', letterSpacing: 0.2 }} {...p} />,
+  h3: (p) => <h3 style={{ fontSize: 14, fontWeight: 600, color: '#e5e1d8', margin: '20px 0 8px' }} {...p} />,
+  p: (p) => <p style={{ margin: '0 0 12px', lineHeight: 1.7 }} {...p} />,
+  ul: (p) => <ul style={{ margin: '0 0 14px', paddingLeft: 22, lineHeight: 1.7 }} {...p} />,
+  ol: (p) => <ol style={{ margin: '0 0 14px', paddingLeft: 22, lineHeight: 1.7 }} {...p} />,
+  li: (p) => <li style={{ marginBottom: 4 }} {...p} />,
+  strong: (p) => <strong style={{ color: '#f0ece2', fontWeight: 700 }} {...p} />,
+  em: (p) => <em style={{ fontStyle: 'italic' }} {...p} />,
+  a: (p) => <a style={{ color: '#5f88b2', textDecoration: 'underline' }} {...p} />,
+  hr: () => <hr style={{ border: 'none', borderTop: '1px solid rgba(168, 156, 139, 0.16)', margin: '20px 0' }} />,
+  blockquote: (p) => (
+    <blockquote style={{ margin: '0 0 12px', paddingLeft: 14, borderLeft: '3px solid rgba(168, 156, 139, 0.3)', color: 'rgba(229,225,216,0.75)' }} {...p} />
+  ),
+  code: (p) => (
+    <code style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 12, background: 'rgba(168, 156, 139, 0.12)', padding: '1px 5px', borderRadius: 4 }} {...p} />
+  ),
+  table: (p) => <table style={{ borderCollapse: 'collapse', margin: '0 0 14px', fontSize: 13 }} {...p} />,
+  th: (p) => <th style={{ border: '1px solid rgba(168, 156, 139, 0.18)', padding: '4px 10px', textAlign: 'left', color: '#e5e1d8' }} {...p} />,
+  td: (p) => <td style={{ border: '1px solid rgba(168, 156, 139, 0.18)', padding: '4px 10px' }} {...p} />,
+};
+
+/** Rendered-markdown view for md/txt artifacts (plot, world_style, …). */
+function MarkdownBody({ text }: { text: string }) {
+  return (
+    <div style={{ padding: '20px 28px 28px', color: '#d6d2c8', fontSize: 14, lineHeight: 1.7, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={MD_COMPONENTS}>{text}</ReactMarkdown>
+    </div>
+  );
+}
 
 /** Render a single supporting field's value — references as chips,
  * arrays/objects compactly, primitives as text. */
@@ -496,20 +532,9 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                 </div>
               )}
               {fmt === 'md' && (
-                <pre
-                  style={{
-                    margin: 0,
-                    padding: 24,
-                    fontFamily: 'ui-monospace, Menlo, monospace',
-                    fontSize: 12,
-                    lineHeight: 1.6,
-                    color: '#d6d2c8',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                  }}
-                >
-                  {text === null ? '(loading…)' : text}
-                </pre>
+                text === null
+                  ? <div style={{ padding: 24, color: 'rgba(229,225,216,0.55)', fontSize: 13 }}>(loading…)</div>
+                  : <MarkdownBody text={text} />
               )}
               {fmt === 'json' && (
                 text === null ? (
