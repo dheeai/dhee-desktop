@@ -98,6 +98,82 @@ describe('resolveTileDisplay', () => {
     expect(result.thumbnailPath).toBe('b.png');
   });
 
+  // ── Regression: orphaned-artifact skip ─────────────────────────────
+  // A completed instance whose artifact file was moved aside (e.g.
+  // preserve-on-overwrite renamed it to .v1 before a failed re-render)
+  // must NOT be returned as the thumbnail — its path is dead, the <img>
+  // would 404 to the folder-icon fallback. The resolver should skip to
+  // the next completed instance whose file actually exists.
+
+  it('thumbnail: skips a completed instance whose artifact file is missing (first_completed)', async () => {
+    const b = bundle({
+      nodes: [{ id: 'shot_image', kind: 'collection', displayCapability: 'shot.first_frame', outputs: { format: 'image', pattern: 'a' } }],
+      display: { thumbnail: { from: 'shot.first_frame' } },
+    });
+    const project = {
+      walkState: {
+        nodes: {
+          // shot_1 + shot_2 orphaned (canonical moved aside); shot_3 intact.
+          'shot_image:scene_1_shot_1': { status: 'completed', outputPath: 'shots/1.png' },
+          'shot_image:scene_1_shot_2': { status: 'completed', outputPath: 'shots/2.png' },
+          'shot_image:scene_1_shot_3': { status: 'completed', outputPath: 'shots/3.png' },
+        },
+      },
+    };
+    const exists = async (p: string) => p === 'shots/3.png';
+    const result = await resolveTileDisplay(b, project, async () => null, Math.random, exists);
+    // first_completed would pick shot_1, but it's gone → skip to shot_3.
+    expect(result.thumbnailPath).toBe('shots/3.png');
+  });
+
+  it('thumbnail: returns null when every completed artifact is missing', async () => {
+    const b = bundle({
+      nodes: [{ id: 'shot_image', kind: 'collection', displayCapability: 'shot.first_frame', outputs: { format: 'image', pattern: 'a' } }],
+      display: { thumbnail: { from: 'shot.first_frame' } },
+    });
+    const project = {
+      walkState: {
+        nodes: {
+          'shot_image:scene_1_shot_1': { status: 'completed', outputPath: 'shots/1.png' },
+          'shot_image:scene_1_shot_2': { status: 'completed', outputPath: 'shots/2.png' },
+        },
+      },
+    };
+    const result = await resolveTileDisplay(b, project, async () => null, Math.random, async () => false);
+    expect(result.thumbnailPath).toBeNull();
+  });
+
+  it('thumbnail: existence probe honored for latest_completed too', async () => {
+    const b = bundle({
+      nodes: [{ id: 'n', kind: 'collection', displayCapability: 'shot.first_frame', outputs: { format: 'image', pattern: 'a' } }],
+      display: { thumbnail: { from: 'shot.first_frame', pick: 'latest_completed' } },
+    });
+    const project = {
+      walkState: {
+        nodes: {
+          'n:scene_1_shot_1': { status: 'completed', outputPath: 'first.png' },
+          'n:scene_3_shot_5': { status: 'completed', outputPath: 'last.png' }, // missing
+        },
+      },
+    };
+    // latest would be last.png, but it's gone → fall back to first.png.
+    const exists = async (p: string) => p === 'first.png';
+    const result = await resolveTileDisplay(b, project, async () => null, Math.random, exists);
+    expect(result.thumbnailPath).toBe('first.png');
+  });
+
+  it('thumbnail: no exists probe → returns first pick without disk check (back-compat)', async () => {
+    const b = bundle({
+      nodes: [{ id: 'n', kind: 'collection', displayCapability: 'shot.first_frame', outputs: { format: 'image', pattern: 'a' } }],
+      display: { thumbnail: { from: 'shot.first_frame' } },
+    });
+    const project = {
+      walkState: { nodes: { 'n:a': { status: 'completed', outputPath: 'a.png' } } },
+    };
+    const result = await resolveTileDisplay(b, project, async () => null);
+    expect(result.thumbnailPath).toBe('a.png');
+  });
+
   it('thumbnail: returns null when no nodes have the capability', async () => {
     const b = bundle({
       nodes: [{ id: 'n', kind: 'collection', displayCapability: 'shot.motion', outputs: { format: 'json', pattern: 'a' } }],
