@@ -320,8 +320,11 @@ export default function LandingScreen() {
   } = useAppSettings();
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<LandingView>('projects');
-  const [settingsInitialTab, setSettingsInitialTab] =
-    useState<SettingsTabTarget>('appearance');
+  // First-run tour can ask LandingScreen to switch into the settings
+  // view targeting a specific tab. Our SettingsPanel (branch-of-truth)
+  // doesn't accept an initialTab prop, so the tab hint is recorded
+  // here and consumed when SettingsPanel adds that surface back.
+  const [, setSettingsInitialTab] = useState<SettingsTabTarget>('appearance');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
@@ -819,7 +822,6 @@ export default function LandingScreen() {
             <SettingsPanel
               isOpen
               variant="embedded"
-              initialTab={settingsInitialTab}
               settings={settings}
               onClose={() => setActiveView('projects')}
               onThemeChange={updateTheme}
