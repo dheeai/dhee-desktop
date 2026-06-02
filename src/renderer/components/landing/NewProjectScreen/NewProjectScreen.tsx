@@ -64,6 +64,34 @@ interface NewProjectScreenProps {
 const STORY_INPUT_ID = 'story_input';
 const WORDS_PER_SECOND_NARRATION = 2.5;
 
+// Rotating noun in the hero question. Pure teasing copy — shows the
+// breadth of what kshana can produce as bundles grow beyond narrative
+// film. Mix of pro work (trailer, ad), narrative formats (anime, short,
+// documentary), abstract/artistic (visualizer, art film, title
+// sequence), and personal (bedtime story, love letter). The rotation
+// doesn't gate or filter bundle selection — it's atmosphere.
+const ROTATING_NOUNS = [
+  'film',
+  'short',
+  'ad',
+  'trailer',
+  'anime',
+  'music video',
+  'graphic novel',
+  'documentary',
+  'video essay',
+  'title sequence',
+  'visualizer',
+  'explainer',
+  'bedtime story',
+  'love letter',
+  'character study',
+  'pitch video',
+  'fashion film',
+  'art film',
+];
+const NOUN_ROTATE_MS = 1900;
+
 function safeFolderName(name: string): string {
   return name
     .trim()
@@ -111,6 +139,19 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [nounIndex, setNounIndex] = useState(0);
+
+  // Rotate the hero question's noun every few seconds while the user
+  // hasn't picked a bundle yet. Once they pick, freeze the noun so it
+  // doesn't distract during form filling.
+  useEffect(() => {
+    if (!isOpen) return;
+    if (selectedBundleId) return;
+    const t = setInterval(() => {
+      setNounIndex((i) => (i + 1) % ROTATING_NOUNS.length);
+    }, NOUN_ROTATE_MS);
+    return () => clearInterval(t);
+  }, [isOpen, selectedBundleId]);
 
   // Load bundles + initial workspace path on open.
   useEffect(() => {
@@ -309,7 +350,13 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
           </div>
         </header>
 
-        <h1 className={styles.question}>What kind of film?</h1>
+        <h1 className={styles.question}>
+          What kind of{' '}
+          <span key={nounIndex} className={styles.rotatingNoun}>
+            {ROTATING_NOUNS[nounIndex]}
+          </span>
+          {' ?'}
+        </h1>
 
         <div className={styles.bundleGrid}>
           {bundles.map((bundle) => {

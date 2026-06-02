@@ -135,6 +135,33 @@
   animation: fadeUp 600ms ease forwards;
 }
 
+.rotatingNoun {
+  display: inline-block;
+  font-style: italic;
+  font-variation-settings: 'SOFT' 100, 'opsz' 144;
+  color: var(--slate-accent);
+  // Re-animate every time React swaps the key (i.e. every rotation).
+  animation: nounSwap 520ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
+}
+
+@keyframes nounSwap {
+  0% {
+    opacity: 0;
+    transform: translateY(12px) skewY(-2deg);
+    filter: blur(2px);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(0) skewY(0);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) skewY(0);
+  }
+}
+
 // ─── Bundle picker ────────────────────────────────────────────────
 
 .bundleGrid {
