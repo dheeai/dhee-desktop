@@ -31,6 +31,7 @@ import {
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
+import { buildCompletedNudge, buildFailedNudge, extractNodeId } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -963,6 +964,96 @@ export class dheeCoreManager {
     }
   >();
 
+  /**
+   * Interruptible-runs (Phase 2): the most recent renderer event
+   * callback. A background run started via the non-blocking
+   * `dhee_start_run` tool ends the agent turn immediately, so when the
+   * run later finishes we need a publish path to surface the re-wake
+   * turn's output to the chat panel. The renderer's eventCb publishes
+   * to the window (single webContents), so one cached reference is
+   * enough; events carry their own sessionId.
+   */
+  private lastEventCb: dheeCoreEventCallback | null = null;
+
+  /**
+   * Sessions with an agent turn currently in flight. Used to decide
+   * whether to PUSH a run-finished nudge: if the agent is mid-turn
+   * (e.g. handling a user redirect), skip the push — the SKILL's PULL
+   * rule (call dhee_get_status) reconciles state on the next turn.
+   */
+  private busySessions = new Set<string>();
+
+  /** One-time guard for the BackgroundTaskRunner terminal-event subscription. */
+  private runWakeSubscribed = false;
+
+  /**
+   * Subscribe ONCE to the shared BackgroundTaskRunner's terminal events
+   * so a background run (dispatched by the non-blocking dhee_start_run
+   * tool, or by runTask) re-wakes the owning agent session when it
+   * finishes. Idempotent. Deliberately ignores 'cancelled' — every
+   * cancel path already has a driver (Stop button, or the agent's own
+   * dhee_stop_run mid-turn).
+   */
+  private async ensureRunWakeSubscription(): Promise<void> {
+    if (this.runWakeSubscribed) return;
+    this.runWakeSubscribed = true;
+    try {
+      const runnersMod = await loadRunnersModule();
+      const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+        on: (event: string, handler: (payload: unknown) => void) => () => void;
+      };
+      runner.on('completed', (e) => this.onRunTerminal('completed', e));
+      runner.on('failed', (e) => this.onRunTerminal('failed', e));
+    } catch (err) {
+      // If the runner can't be loaded, leave the flag set so we don't
+      // spin; the agent still works, just without auto-announce.
+      log.warn('[dheeCoreManager] run-wake subscription failed:', err);
+    }
+  }
+
+  /**
+   * Resolve the owning chat session for a terminal run event and inject
+   * a system nudge so the agent announces completion / reacts to
+   * failure. Exposed (not private) so unit tests can drive it without
+   * the runner. See runWakeNudge.ts for the message wording.
+   */
+  onRunTerminal(kind: 'completed' | 'failed', e: unknown): void {
+    const payload = e as {
+      task?: { spec?: { sessionId?: string; params?: { projectDir?: string } } };
+      error?: string;
+    };
+    const spec = payload.task?.spec;
+    const projectDir = spec?.params?.projectDir;
+
+    // Prefer an explicit chat sessionId on the spec; otherwise reverse-
+    // look-up the agent session focused on this run's project (the
+    // agent-initiated dhee_start_run path doesn't know its chat id).
+    let sessionId: string | undefined =
+      spec?.sessionId && this.agentSessions.has(spec.sessionId) ? spec.sessionId : undefined;
+    if (!sessionId && projectDir) {
+      for (const [sid, pdir] of this.sessionProjects) {
+        if (pdir === projectDir && this.agentSessions.has(sid)) {
+          sessionId = sid;
+          break;
+        }
+      }
+    }
+    if (!sessionId) return; // headless run or no live agent session — nothing to wake
+    if (this.busySessions.has(sessionId)) return; // agent mid-turn — pull covers it
+    if (!this.lastEventCb) return; // no publish path yet
+
+    const nudge =
+      kind === 'completed'
+        ? buildCompletedNudge({})
+        : buildFailedNudge({
+            ...(payload.error ? { error: payload.error } : {}),
+            ...(extractNodeId(payload.error) ? { nodeId: extractNodeId(payload.error)! } : {}),
+          });
+    void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
+      log.warn('[dheeCoreManager] run-wake nudge failed:', err);
+    });
+  }
+
   private async getDagModule(): Promise<DagModule> {
     if (!this.dagModule) {
       this.dagModule = await loadDagModule();
@@ -1425,6 +1516,11 @@ export class dheeCoreManager {
     }
     const projectName = path.basename(projectDir);
 
+    // Interruptible-runs: cache the publish path + arm the run-wake
+    // subscription so terminal events re-wake the owning agent.
+    this.lastEventCb = eventCb;
+    void this.ensureRunWakeSubscription();
+
     const runnersMod = await loadRunnersModule();
     const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
       dispatch: (spec: {
@@ -1832,6 +1928,12 @@ export class dheeCoreManager {
       };
     }
 
+    // Interruptible-runs: remember the publish path + make sure the
+    // run-wake subscription is live, so a background run started during
+    // this conversation can re-wake the agent when it finishes.
+    if (eventCb) this.lastEventCb = eventCb;
+    void this.ensureRunWakeSubscription();
+
     // chatDeps is lazy-loaded from dhee-core; tests inject via __setChatDeps.
     let deps: ChatDeps;
     try {
@@ -2026,10 +2128,20 @@ export class dheeCoreManager {
         }
       : undefined;
 
-    const result = await deps.runAgentTurn(entry.session, message, {
-      keepAlive: true,
-      ...(onEvent ? { onEvent } : {}),
-    });
+    // Mark the session busy for the duration of the turn so a run-
+    // finished nudge that lands mid-turn is skipped (the SKILL pull
+    // rule reconciles instead). Cleared in finally so an error can't
+    // leave the session wedged "busy" forever.
+    this.busySessions.add(sessionId);
+    let result: Awaited<ReturnType<ChatDeps['runAgentTurn']>>;
+    try {
+      result = await deps.runAgentTurn(entry.session, message, {
+        keepAlive: true,
+        ...(onEvent ? { onEvent } : {}),
+      });
+    } finally {
+      this.busySessions.delete(sessionId);
+    }
 
     // Emit a final stream_chunk(done:true) so the renderer can close
     // any open streaming bubble. Idempotent — no-op if the chat panel
