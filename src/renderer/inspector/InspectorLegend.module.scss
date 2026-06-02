@@ -1,0 +1,64 @@
+.legend {
+  position: absolute;
+  bottom: 12px;
+  left: 12px;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 7px;
+  background: rgba(var(--color-bg-panel-rgb), 0.92);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  backdrop-filter: blur(8px);
+  pointer-events: auto;
+}
+
+.toggle {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.toggle:hover {
+  background: var(--color-bg-panel-soft);
+  color: var(--color-text-primary);
+}
+
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10px;
+  color: var(--color-text-secondary);
+  letter-spacing: -0.005em;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+.chip[data-status='completed'] .dot { background: var(--color-success); }
+.chip[data-status='running']   .dot { background: var(--color-warning); }
+.chip[data-status='failed']    .dot { background: var(--color-error); }
+.chip[data-status='pending']   .dot { background: var(--color-text-muted); }
+.chip[data-status='goal']      .dot { background: var(--color-accent-primary); }
+
+.label {
+  font-size: 10px;
+}

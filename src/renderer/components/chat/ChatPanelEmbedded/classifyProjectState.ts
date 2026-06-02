@@ -34,12 +34,23 @@ export interface ProjectFileReader {
 interface ProjectJsonShape {
   style?: unknown;
   templateId?: unknown;
+  bundleSource?: unknown;
   duration?: unknown;
   targetDuration?: unknown;
   goal?: { status?: unknown; achievedAt?: unknown };
 }
 
 function isConfigured(p: ProjectJsonShape): boolean {
+  // New shape (Production Slate / bundle-driven): bundleSource alone
+  // means the project is fully configured — bundle bound, file-kind
+  // inputs written to disk, project-kind fields populated. The agent
+  // can walk it without further setup.
+  if (typeof p.bundleSource === 'string' && p.bundleSource.trim().length > 0) {
+    return true;
+  }
+  // Legacy shape (pre-bundle template flow): require style + templateId
+  // + duration to all be present. Used by projects created before the
+  // bundle picker existed.
   if (typeof p.style !== 'string' || p.style.trim().length === 0) return false;
   if (typeof p.templateId !== 'string' || p.templateId.trim().length === 0) {
     return false;

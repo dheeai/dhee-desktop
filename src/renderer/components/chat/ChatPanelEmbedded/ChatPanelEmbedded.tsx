@@ -35,6 +35,8 @@ import {
 import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
+import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
+import { extractToolResultFilePath, cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
@@ -43,24 +45,7 @@ import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
 import type { dheeEvent } from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
-import ProjectSetupPanel, {
-  type SetupPanelMode,
-  type SetupStep,
-} from '../ProjectSetupPanel';
-import { buildWizardKickoff } from './buildWizardKickoff';
-import { shouldAutoOpenWizard } from './setupAutoOpen';
-import {
-  WIZARD_TEMPLATES,
-  WIZARD_DURATION_PRESETS,
-  WIZARD_DEFAULT_TEMPLATE_ID,
-  WIZARD_DEFAULT_STYLE_ID,
-  WIZARD_DEFAULT_DURATION_SECONDS,
-} from './wizardCatalog';
-import { loadPersistedProjectSetup } from './loadPersistedProjectSetup';
-import {
-  postChatNotice,
-  subscribeChatNotices,
-} from '../../../utils/chatNotices';
+import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
 import {
   classifyProjectState,
   type ProjectLifecycleState,
@@ -77,7 +62,9 @@ type Role =
   | 'question'
   | 'phase'
   | 'progress'
-  | 'thinking';
+  | 'thinking'
+  | 'bundle-choices'
+  | 'question-card';
 type ToolStatus = 'in_progress' | 'completed' | 'error';
 
 interface ChatMessage {
@@ -109,6 +96,15 @@ interface ChatMessage {
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
+  /**
+   * Optional ms-timestamp from the tool's `details.created_at` (or
+   * mtime). Threaded into the file:// URL as `?v=<key>` so the
+   * Electron renderer fetches fresh bytes when the canonical
+   * artifact has been overwritten since the bubble was first
+   * created. Without this, the browser keeps serving the cached
+   * first-version bytes and the user sees the "old mangled hands."
+   */
+  mediaCreatedAt?: number;
   /** Streaming bubbles aren't yet finalized; agent_response replaces text. */
   streaming?: boolean;
   /** agent_question fields */
@@ -124,6 +120,32 @@ interface ChatMessage {
    * as ordinary system messages.
    */
   notificationLevel?: 'info' | 'warning' | 'error';
+  /**
+   * For role='bundle-choices' rows: bundle ids the agent offered via
+   * dhee_present_bundle_choices, with display metadata. Renderer turns
+   * each into a clickable card; click sends `Use <bundleId>` as the
+   * next user message. `ids` is preserved as the canonical wire id;
+   * `bundles` carries the displayName/summary the picker shows.
+   */
+  bundleChoices?: {
+    ids: string[];
+    bundles?: Array<{ id: string; displayName: string; summary: string }>;
+    question?: string;
+  };
+  /** Set true once user clicked one of the choices — disables remaining cards. */
+  bundleChoiceMade?: string | null;
+  /**
+   * For role='question-card' rows: a generic agent question rendered
+   * as a clickable card grid via dhee_ask_question. `answered` holds
+   * the user's picks (joined into the user message when sent).
+   */
+  questionCard?: {
+    question: string;
+    options: Array<{ id: string; label: string; description?: string }>;
+    multiSelect: boolean;
+  };
+  /** Picked option ids for a question-card; null until the user submits. */
+  questionCardAnswered?: string[] | null;
 }
 
 interface ContextUsage {
@@ -252,21 +274,8 @@ function groupConsecutiveProgress(messages: ChatMessage[]): MessageListItem[] {
   return items;
 }
 
-function resolveMediaSrc(
-  mediaPath: string,
-  projectDirectory: string | null,
-): string {
-  const trimmed = mediaPath.trim();
-  if (!trimmed) return '';
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
-
-  const absolutePath =
-    trimmed.startsWith('/') || !projectDirectory
-      ? trimmed
-      : `${projectDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
-
-  return `file://${absolutePath}`;
-}
+// Moved to ./mediaResolution.ts (with URL encoding fix — see comment in
+// resolveMediaSrc there). The unit tests live in mediaResolution.test.ts.
 
 function summarizeArgs(args: unknown): string {
   if (!args || typeof args !== 'object') return '';
@@ -439,32 +448,22 @@ export default function ChatPanelEmbedded() {
     );
   }, [agent, session]);
 
-  const [setupPanelMode, setSetupPanelMode] =
-    useState<SetupPanelMode>('hidden');
-  const [setupStep, setSetupStep] = useState<SetupStep>('style');
-  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(
-    WIZARD_DEFAULT_TEMPLATE_ID,
-  );
-  const [selectedStyleId, setSelectedStyleId] = useState<string | null>(
-    WIZARD_DEFAULT_STYLE_ID,
-  );
-  const [selectedDuration, setSelectedDuration] = useState<number | null>(
-    WIZARD_DEFAULT_DURATION_SECONDS,
-  );
-  const [storyInput, setStoryInput] = useState('');
-  const [setupError, setSetupError] = useState<string | null>(null);
-  const [isConfiguringSetup, setIsConfiguringSetup] = useState(false);
+  // True once project.json with bundleSource has been observed for the
+  // current project (i.e. a bundle is pinned). When false AND probe
+  // is complete, we treat the project as fresh and hand off to the
+  // agent-led onboarding flow.
   const [isSetupConfigured, setIsSetupConfigured] = useState(false);
-  // Whether we've already finished the "is this project fresh?"
-  // probe. Until this flips true the auto-open effect mustn't fire,
-  // otherwise it'd flash open and then snap shut on a configured
-  // project.
+  // Whether we've already finished the "is this project fresh?" probe.
+  // Until this flips true the onboarding effect mustn't fire,
+  // otherwise it'd dispatch a greeting before we know whether one is
+  // needed.
   const [setupProbeCompleted, setSetupProbeCompleted] = useState(false);
   // Classified lifecycle state for the active project. Drives whether
   // we render a contextual CTA (in_progress / completed) in the empty
-  // chat area; 'fresh' projects route to the wizard via setupPanelMode.
-  const [projectState, setProjectState] =
-    useState<ProjectLifecycleState | null>(null);
+  // chat area.
+  const [projectState, setProjectState] = useState<ProjectLifecycleState | null>(
+    null,
+  );
   // Bump to force a re-probe of project.json after a kshana_* tool
   // mutates the lifecycle-relevant fields (style/templateId/duration/
   // goal.status). Without this, projectState gets stuck at whatever
@@ -740,10 +739,24 @@ export default function ChatPanelEmbedded() {
     // Pass the absolute project directory so the embedded core
     // looks in the same parent the user opened from — even when
     // that's outside the dhee-ink package's default getProjectsDir().
+    //
+    // Phase 6.5c.d: refreshHistory ONCE focusProject has mapped the
+    // session → projectDir on the main side. Without this chained
+    // refresh, the earlier mount-time refreshHistory call (line ~300)
+    // races focusProject and the main side has no projectDir yet, so
+    // the JSONL never rehydrates into the chat panel.
+    let cancelled = false;
     session
       .focusProject(projectName, projectDirectory ?? undefined)
+      .then(() => {
+        if (cancelled) return;
+        return session.refreshHistory();
+      })
       .catch(() => {});
-  }, [session.sessionId, projectName, projectDirectory, session.focusProject]);
+    return () => {
+      cancelled = true;
+    };
+  }, [session.sessionId, projectName, projectDirectory, session.focusProject, session.refreshHistory]);
 
   useEffect(() => {
     firstRunTour.notifyTourEvent('chat_visible');
@@ -798,23 +811,22 @@ export default function ChatPanelEmbedded() {
       readFile: (p: string) => window.electron.project.readFile(p),
     };
     (async () => {
-      const [persisted, lifecycle] = await Promise.all([
-        loadPersistedProjectSetup(projectDirectory, reader),
-        classifyProjectState(projectDirectory, reader),
-      ]);
-      if (cancelled) return;
-      if (persisted) {
-        setIsSetupConfigured(true);
-        setSelectedTemplateId(persisted.templateId);
-        setSelectedStyleId(persisted.style);
-        setSelectedDuration(persisted.duration);
-      } else {
-        // Reset selections to defaults so the wizard starts clean.
-        setSelectedTemplateId(WIZARD_DEFAULT_TEMPLATE_ID);
-        setSelectedStyleId(WIZARD_DEFAULT_STYLE_ID);
-        setSelectedDuration(WIZARD_DEFAULT_DURATION_SECONDS);
-        setStoryInput('');
+      // "Is this project pinned to a bundle yet?" — the only thing we
+      // need to know from project.json. If yes → don't dispatch the
+      // onboarding greeting; the agent picks up where the user left off.
+      let hasBundle = false;
+      try {
+        const raw = await reader.readFile(`${projectDirectory}/project.json`);
+        if (typeof raw === 'string' && raw.length > 0) {
+          const pj = JSON.parse(raw) as { bundleSource?: unknown };
+          hasBundle = typeof pj.bundleSource === 'string' && pj.bundleSource.length > 0;
+        }
+      } catch {
+        hasBundle = false;
       }
+      const lifecycle = await classifyProjectState(projectDirectory, reader);
+      if (cancelled) return;
+      setIsSetupConfigured(hasBundle);
       setProjectState(lifecycle);
       setSetupProbeCompleted(true);
     })();
@@ -847,150 +859,146 @@ export default function ChatPanelEmbedded() {
     [session],
   );
 
-  // Auto-spawn the wizard for fresh projects. The shared
-  // shouldAutoOpenWizard predicate keeps the trigger criteria honest.
+  // Whether we've already kicked off the agent-led onboarding for the
+  // current fresh project. Without this guard the effect would fire on
+  // every render (and dispatch a fresh greeting every time the user
+  // typed something), spamming the agent.
+  const onboardingDispatchedRef = useRef<string | null>(null);
+
+  // Fresh projects: skip the legacy form wizard, dispatch an agent
+  // greeting instead. The agent's SKILL.md has an "Onboarding a fresh
+  // project" section that instructs it to ask one short question, wait
+  // for the story, call `dhee_list_bundles`, pick the right bundle,
+  // and call `dhee_create_project(existingDir=…)` + `dhee_run_bundle`.
   useEffect(() => {
-    if (
-      !shouldAutoOpenWizard({
-        projectDirectory,
-        isProjectSetupConfigured: isSetupConfigured,
-        setupPanelMode,
-        templateCatalogLoaded: setupProbeCompleted,
-        isConfiguringProjectSetup: isConfiguringSetup,
-      })
-    ) {
-      return;
-    }
-    setSetupError(null);
-    setSetupStep('style');
-    setSetupPanelMode('wizard');
-  }, [
-    projectDirectory,
-    isSetupConfigured,
-    setupPanelMode,
-    setupProbeCompleted,
-    isConfiguringSetup,
-  ]);
+    // Fire ONLY when: a project is focused, the probe finished, the
+    // project has no bundle pinned (fresh), and the session is ready.
+    if (!projectDirectory) return;
+    if (!setupProbeCompleted) return;
+    if (isSetupConfigured) return;
+    if (!session.sessionId) return;
+    if (onboardingDispatchedRef.current === projectDirectory) return;
 
-  // ── Wizard step handlers ──────────────────────────────────────────
-
-  const handleSelectStyle = useCallback((styleId: string) => {
-    setSelectedStyleId(styleId);
-    setSetupStep('duration');
-  }, []);
-
-  const handleSelectDuration = useCallback((duration: number) => {
-    setSelectedDuration(duration);
-    setSetupStep('story');
-  }, []);
-
-  const handleChangeStory = useCallback((value: string) => {
-    setStoryInput(value);
-  }, []);
-
-  const handleConfirmSetup = useCallback(async () => {
-    if (
-      !projectDirectory ||
-      !selectedTemplateId ||
-      !selectedStyleId ||
-      !selectedDuration
-    ) {
-      return;
-    }
-    const trimmedStory = storyInput.trim();
-    if (!trimmedStory) {
-      setSetupError('Please add a story or idea before continuing.');
-      return;
-    }
-
-    setSetupError(null);
-    setIsConfiguringSetup(true);
-
-    // System-B removal: no longer call session.configureProject (which
-    // persists style/template/duration via the WS configure_project
-    // handler). dhee_new is now the SOLE writer of project.json. The
-    // kickoff message below carries all the metadata the agent needs
-    // to construct the dhee_new call; if dhee_new fails, no project.json
-    // exists — fine, since LLM access is required for anything to
-    // proceed downstream anyway.
-    const projectDirName =
-      projectDirectory
-        .split('/')
-        .pop()
-        ?.replace(/\.dhee$/i, '') ||
-      projectName ||
-      'project';
-    const { message } = buildWizardKickoff({
-      projectName: projectDirName,
-      projectDir: projectDirectory,
-      templateId: selectedTemplateId,
-      style: selectedStyleId,
-      duration: selectedDuration,
-      story: trimmedStory,
-    });
-    if (!message) {
-      setIsConfiguringSetup(false);
-      return;
-    }
-
-    // Hide the panel before runTask so the chat takes the spotlight.
-    setSetupPanelMode('hidden');
-    setIsSetupConfigured(true);
-    setIsConfiguringSetup(false);
-    setStoryInput('');
-
-    // Surface the user's intent in the chat as a regular user bubble,
-    // matching the way handleSend renders typed input.
-    setMessages((prev) => [
-      ...prev,
-      { id: newMessageId(), role: 'user', text: message },
-    ]);
-    streamingMsgIdRef.current = null;
-    await session.runTask(message);
+    onboardingDispatchedRef.current = projectDirectory;
+    // Synthetic system kickoff. NOT rendered as a user bubble — the
+    // user didn't type it. The agent reads it as context and produces
+    // a greeting which lands as a normal assistant message via the
+    // streaming events / end-of-turn fallback in handleSend below.
+    const kickoff =
+      `[system] User just opened a fresh project at ${projectDirectory} ` +
+      `(no project.json yet). Greet them in one short sentence — "What ` +
+      `are we making today?" — and wait for their story. When you ` +
+      `eventually call dhee_create_project, pass existingDir="${projectDirectory}".`;
+    void (async () => {
+      // Ensure the session is focused on this project before the agent
+      // dispatches any tool calls. Idempotent — safe to re-call even
+      // if the main focus effect already ran.
+      if (projectName) {
+        await session.focusProject(projectName, projectDirectory).catch(() => undefined);
+      }
+      const r = await session.chatPrompt(kickoff);
+      if (!r.ok) {
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: newMessageId(),
+            role: 'system',
+            text: `Couldn't start onboarding: ${r.error ?? 'unknown error'}.`,
+          },
+        ]);
+      }
+    })();
   }, [
     projectDirectory,
     projectName,
-    selectedDuration,
-    selectedStyleId,
-    selectedTemplateId,
+    isSetupConfigured,
+    setupProbeCompleted,
     session,
-    storyInput,
   ]);
 
-  const handleSubmitStory = useCallback(() => {
-    void handleConfirmSetup();
-  }, [handleConfirmSetup]);
+  // Bundle-picker click → send "Use <bundleId>" as the next chatPrompt,
+  // mark the chosen card so other cards in the same row grey out.
+  const handleBundleChoiceClick = useCallback(
+    (msgId: string, bundleId: string) => {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === msgId && m.role === 'bundle-choices'
+            ? { ...m, bundleChoiceMade: bundleId }
+            : m,
+        ),
+      );
+      void session.chatPrompt(`Use ${bundleId}`);
+    },
+    [session],
+  );
 
-  // Autonomous-mode toggle was removed from the UI; the wizard panel
-  // still requires the prop, so this is a fixed no-op that keeps the
-  // selection visually pinned to "manual".
-  const handleSelectAutonomousMode = useCallback((_enabled: boolean) => {}, []);
-
-  const handleSetupBack = useCallback(() => {
-    if (setupStep === 'duration') setSetupStep('style');
-    else if (setupStep === 'story') setSetupStep('duration');
-  }, [setupStep]);
-
-  const handleOpenSetupWizard = useCallback(() => {
-    setSetupError(null);
-    setSetupStep('style');
-    setSetupPanelMode('wizard');
-  }, []);
-
-  const handleEditSetup = useCallback(() => {
-    handleOpenSetupWizard();
-  }, [handleOpenSetupWizard]);
-
-  // Template selection is stubbed — the embedded wizard hides the
-  // template step entirely (template defaults to 'narrative').
-  const handleSelectTemplate = useCallback(() => {}, []);
+  /**
+   * Generic question-card click handler.
+   *
+   * Single-select: the click is the submit — pin the selection and
+   * fire the chatPrompt with the picked option's label.
+   *
+   * Multi-select: the click toggles selection in state; only the
+   * separate "Done" button (kind === 'submit') actually sends. The
+   * sent message joins picked labels with ", ".
+   */
+  const handleQuestionCardClick = useCallback(
+    (msgId: string, optionId: string, kind: 'toggle' | 'submit' | 'pick') => {
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== msgId || m.role !== 'question-card' || !m.questionCard) return m;
+          if (m.questionCardAnswered && m.questionCardAnswered.length > 0
+              && (kind === 'pick' || !m.questionCard.multiSelect)) {
+            // Already submitted — ignore further clicks on a single-
+            // select card that's been answered.
+            return m;
+          }
+          const current = m.questionCardAnswered ?? [];
+          if (kind === 'pick') {
+            // Single-select: replace + send (send happens below).
+            return { ...m, questionCardAnswered: [optionId] };
+          }
+          if (kind === 'toggle') {
+            const next = current.includes(optionId)
+              ? current.filter((x) => x !== optionId)
+              : [...current, optionId];
+            return { ...m, questionCardAnswered: next };
+          }
+          // 'submit' — keep the existing selection; renderer renders
+          // the disabled state from questionCardAnswered being set.
+          if (current.length === 0) return m;
+          return m;
+        }),
+      );
+      if (kind === 'toggle') return;
+      // For 'pick' and 'submit' kinds, read the latest state and
+      // dispatch the joined labels as the user's next message.
+      queueMicrotask(() => {
+        setMessages((prev) => {
+          const target = prev.find((m) => m.id === msgId && m.role === 'question-card');
+          if (!target || !target.questionCard) return prev;
+          const picked = target.questionCardAnswered ?? [];
+          if (picked.length === 0) return prev;
+          const labels = picked.map((id) =>
+            target.questionCard!.options.find((o) => o.id === id)?.label ?? id,
+          );
+          void session.chatPrompt(labels.join(', '));
+          return prev;
+        });
+      });
+    },
+    [session],
+  );
 
   const handleAttachClick = async () => {
     setAttachmentError(null);
     try {
       const result = await window.electron.project.selectAttachment({
-        kinds: ['comfy_workflow'],
-        title: 'Select a ComfyUI Workflow',
+        // Order matters: when a picked file's extension maps to
+        // multiple kinds the IPC handler returns the FIRST listed
+        // match. Images first so PNG/JPG don't get misclassified.
+        kinds: ['image', 'comfy_workflow'],
+        title: 'Attach an image or ComfyUI workflow',
       });
       if (!result.ok) {
         if (result.error) setAttachmentError(result.error);
@@ -1046,13 +1054,31 @@ export default function ChatPanelEmbedded() {
     setAttachmentError(null);
     streamingMsgIdRef.current = null;
 
-    const result = await session.runTask(text, {
-      attachments: sentAttachments.length > 0 ? sentAttachments : undefined,
-    });
+    // Phase 6.5c: chat input now drives pi-agent directly via
+    // chatPrompt (NOT runTask, which is for bundle-runner dispatches —
+    // Resume button etc.). One-shot exchange: send → wait → append
+    // the assistant_text as a single bubble. Streaming + tool-call
+    // surfacing comes in 6.5c.b. Attachments are not threaded through
+    // chatPrompt yet — they continue working only when sent via the
+    // Resume / runTask path. Surfaced as a system message for now so
+    // the user knows.
+    if (sentAttachments.length > 0) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: 'Attachments aren\'t yet supported on the new chat path (Phase 6.5c.b). The text was sent; the attachment(s) were ignored.',
+        },
+      ]);
+    }
+    // Phase 6.5c.b: the agent's reply now streams via stream_chunk
+    // events handled by handleEvent — the existing streamingMsgIdRef
+    // path accumulates into a single bubble. We only need to surface
+    // the END-OF-TURN summary if streaming produced nothing (e.g. the
+    // provider returned tools-only or the model output was empty).
+    const result = await session.chatPrompt(text);
     if (!result.ok) {
-      // Don't let a failed dispatch leave the chat in a "user
-      // typed, nothing happened" state — surface the error so the
-      // user can react (retry, restart, etc).
       setMessages((prev) => [
         ...prev,
         {
@@ -1061,7 +1087,22 @@ export default function ChatPanelEmbedded() {
           text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
         },
       ]);
+      return;
     }
+    const streamed = streamingMsgIdRef.current !== null;
+    if (!streamed && result.assistant_text) {
+      // Fallback: provider didn't emit text_delta events; show the
+      // final envelope so the chat doesn't look broken.
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'assistant',
+          text: result.assistant_text,
+        },
+      ]);
+    }
+    streamingMsgIdRef.current = null;
   };
 
   /**
@@ -1116,15 +1157,11 @@ export default function ChatPanelEmbedded() {
     if (!projectDirectory || !session.sessionId) return;
     setBgSessionId(session.sessionId);
 
-    const projectDirName =
-      projectDirectory
-        .split('/')
-        .pop()
-        ?.replace(/\.dhee$/i, '') ||
-      projectName ||
-      'project';
-    const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
-    const task = `Continue running the dhee pipeline for ${params} all the way to completion. Use dhee_run_to with no stage so it runs to the end. Stream progress as nodes finish.`;
+    // Phase 6.5c.c: route Resume through the pi-agent so the agent
+    // is the consistent entry point for bundle runs. Pi-agent's
+    // dhee_run_bundle (post-6.5c.c) dispatches via BackgroundTaskRunner,
+    // so progress events still surface in the status strip.
+    const task = `Continue running the bundle for the current project to completion. Call dhee_run_bundle with projectDir="${projectDirectory}". Stream progress as nodes finish, and once it completes call dhee_show_node_output for the goal node so I can see the result.`;
 
     setMessages((prev) => [
       ...prev,
@@ -1135,8 +1172,19 @@ export default function ChatPanelEmbedded() {
       },
     ]);
     streamingMsgIdRef.current = null;
-    await session.runTask(task);
-  }, [projectDirectory, projectName, session]);
+    const result = await session.chatPrompt(task);
+    if (!result.ok) {
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
+          notificationLevel: 'error',
+        },
+      ]);
+    }
+  }, [projectDirectory, session]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
@@ -1260,7 +1308,7 @@ export default function ChatPanelEmbedded() {
                 onClick={() => {
                   setMenuOpen(false);
                   const ok = window.confirm(
-                    'Clear chat history?\n\nThis deletes the saved transcript on disk and starts a new session. Project files are not affected.',
+                    'Clear chat history?\n\nStarts a new session. Previous transcript is archived (kept on disk under pi-sessions/.../*.archived.jsonl) and hidden from the chat panel — not destroyed. Project files unaffected.',
                   );
                   if (!ok) return;
                   void session.clearChatHistory().then((res) => {
@@ -1419,35 +1467,8 @@ export default function ChatPanelEmbedded() {
         </div>
       )}
 
-      <ProjectSetupPanel
-        mode={setupPanelMode}
-        step={setupStep}
-        templates={WIZARD_TEMPLATES}
-        durationPresets={WIZARD_DURATION_PRESETS}
-        selectedTemplateId={selectedTemplateId}
-        selectedStyleId={selectedStyleId}
-        selectedDuration={selectedDuration}
-        selectedAutonomousMode={false}
-        storyInput={storyInput}
-        loading={false}
-        configuring={isConfiguringSetup}
-        error={setupError}
-        onOpenWizard={handleOpenSetupWizard}
-        onEditSetup={handleEditSetup}
-        onSelectTemplate={handleSelectTemplate}
-        onSelectStyle={handleSelectStyle}
-        onSelectDuration={handleSelectDuration}
-        onChangeStory={handleChangeStory}
-        onSubmitStory={handleSubmitStory}
-        onSelectAutonomousMode={handleSelectAutonomousMode}
-        onConfirmSetup={() => void handleConfirmSetup()}
-        onBack={handleSetupBack}
-      />
-
       <div className={styles.messageList}>
-        {messages.length === 0 &&
-        setupPanelMode === 'hidden' &&
-        projectState === null ? (
+        {messages.length === 0 && projectState === null ? (
           // Probe still in flight — neutral placeholder so we don't
           // flash anything before classification completes.
           <div className={styles.emptyPlaceholder}>
@@ -1472,6 +1493,8 @@ export default function ChatPanelEmbedded() {
                 key={item.message.id}
                 message={item.message}
                 projectDirectory={projectDirectory}
+                onBundleChoiceClick={handleBundleChoiceClick}
+                onQuestionCardClick={handleQuestionCardClick}
               />
             ),
           )
@@ -1510,7 +1533,6 @@ export default function ChatPanelEmbedded() {
           messages region, not here.
         */}
         {messages.length === 0 &&
-          setupPanelMode === 'hidden' &&
           (projectState === 'in_progress' || projectState === 'completed') && (
             <ProjectCTA
               state={projectState}
@@ -1670,18 +1692,6 @@ function ThinkingRow({ message: m }: { message: ChatMessage }) {
   );
 }
 
-function statusGlyph(status: ToolStatus | undefined): string {
-  switch (status) {
-    case 'completed':
-      return '✓';
-    case 'error':
-      return '✗';
-    case 'in_progress':
-    default:
-      return '⋯';
-  }
-}
-
 function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
   const [expanded, setExpanded] = useState(false);
   const visibleRows = expanded ? rows : rows.slice(-1);
@@ -1712,26 +1722,182 @@ function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
 function MessageRow({
   message: m,
   projectDirectory,
+  onBundleChoiceClick,
+  onQuestionCardClick,
 }: {
   message: ChatMessage;
   projectDirectory: string | null;
+  onBundleChoiceClick?: (msgId: string, bundleId: string) => void;
+  onQuestionCardClick?: (msgId: string, optionId: string, kind: 'toggle' | 'submit' | 'pick') => void;
 }) {
-  if (m.role === 'tool') {
-    // Compact one-liner: glyph + monospaced tool name + faint args.
-    // Per-line progress for long-running tools (e.g. dhee_run_to)
-    // streams in as separate `progress` rows, one per chunk —
-    // rendered just below this row by the parent message list.
+  if (m.role === 'bundle-choices' && m.bundleChoices) {
+    const made = m.bundleChoiceMade ?? null;
     return (
-      <div className={styles.toolRow}>
-        <span
-          className={styles.toolGlyph}
-          data-status={m.toolStatus ?? 'in_progress'}
+      <div
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 8,
+          margin: '4px 0',
+        }}
+      >
+        {m.bundleChoices.question && (
+          <div style={{ fontSize: 12, color: 'rgba(229, 225, 216, 0.75)' }}>
+            {m.bundleChoices.question}
+          </div>
+        )}
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 8,
+          }}
         >
-          {statusGlyph(m.toolStatus)}
-        </span>
-        <span className={styles.toolName}>{m.toolName}</span>
+          {m.bundleChoices.ids.map((bid) => {
+            const isMade = made === bid;
+            const otherMade = made !== null && made !== bid;
+            // Prefer the rich metadata from the agent's tool payload;
+            // fall back to the bare id when the legacy shape lands.
+            const meta = m.bundleChoices?.bundles?.find((b) => b.id === bid);
+            const displayName = meta?.displayName ?? bid;
+            const summary = meta?.summary ?? '';
+            return (
+              <button
+                key={bid}
+                disabled={made !== null}
+                onClick={() => onBundleChoiceClick?.(m.id, bid)}
+                style={{
+                  textAlign: 'left',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${isMade ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isMade ? '#1c2533' : '#161821',
+                  color: otherMade ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
+                  cursor: made !== null ? 'default' : 'pointer',
+                  fontSize: 13,
+                  lineHeight: 1.4,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: summary ? 4 : 0 }}>
+                  {displayName}
+                </div>
+                {summary && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: otherMade ? 'rgba(229, 225, 216, 0.35)' : 'rgba(229, 225, 216, 0.7)',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {summary}
+                  </div>
+                )}
+                {isMade && (
+                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  if (m.role === 'question-card' && m.questionCard) {
+    const picked = m.questionCardAnswered ?? [];
+    const submitted = !m.questionCard.multiSelect && picked.length > 0;
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, margin: '4px 0' }}>
+        <div style={{ fontSize: 13, color: 'rgba(229, 225, 216, 0.85)', fontWeight: 500 }}>
+          {m.questionCard.question}
+        </div>
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {m.questionCard.options.map((opt) => {
+            const isPicked = picked.includes(opt.id);
+            const otherSubmitted = submitted && !isPicked;
+            const clickKind: 'pick' | 'toggle' = m.questionCard!.multiSelect ? 'toggle' : 'pick';
+            return (
+              <button
+                key={opt.id}
+                disabled={submitted}
+                onClick={() => onQuestionCardClick?.(m.id, opt.id, clickKind)}
+                style={{
+                  textAlign: 'left',
+                  padding: '12px 14px',
+                  borderRadius: 8,
+                  border: `1px solid ${isPicked ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isPicked ? '#1c2533' : '#161821',
+                  color: otherSubmitted ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
+                  cursor: submitted ? 'default' : 'pointer',
+                  fontSize: 13,
+                  lineHeight: 1.4,
+                }}
+              >
+                <div style={{ fontWeight: 600, marginBottom: opt.description ? 4 : 0 }}>
+                  {opt.label}
+                </div>
+                {opt.description && (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: otherSubmitted ? 'rgba(229, 225, 216, 0.35)' : 'rgba(229, 225, 216, 0.7)',
+                      lineHeight: 1.45,
+                    }}
+                  >
+                    {opt.description}
+                  </div>
+                )}
+                {isPicked && (
+                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                )}
+              </button>
+            );
+          })}
+        </div>
+        {m.questionCard.multiSelect && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+            <button
+              onClick={() => onQuestionCardClick?.(m.id, '', 'submit')}
+              disabled={picked.length === 0}
+              style={{
+                padding: '6px 14px',
+                borderRadius: 6,
+                border: '1px solid rgba(168, 156, 139, 0.4)',
+                background: picked.length > 0 ? '#1c2533' : 'transparent',
+                color: picked.length > 0 ? '#e5e1d8' : 'rgba(229, 225, 216, 0.4)',
+                cursor: picked.length > 0 ? 'pointer' : 'default',
+                fontSize: 12,
+                fontWeight: 500,
+              }}
+            >
+              Done ({picked.length})
+            </button>
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (m.role === 'tool') {
+    // Production-board tag: status dot (pulses while running) +
+    // monospace tool name + optional duration chip. Args render on
+    // a second line, indented under the name so the head row stays
+    // scannable. Per-line progress for long-running tools (e.g.
+    // dhee_run_to) streams in as separate `progress` rows just below
+    // this card.
+    const status = m.toolStatus ?? 'in_progress';
+    return (
+      <div className={styles.toolCard} data-status={status}>
+        <div className={styles.toolHead}>
+          <span className={styles.toolDot} data-status={status} aria-hidden="true" />
+          <span className={styles.toolName}>{m.toolName}</span>
+        </div>
         {m.toolArgsSummary && (
-          <span className={styles.toolArgs}>{m.toolArgsSummary}</span>
+          <div className={styles.toolArgs}>{m.toolArgsSummary}</div>
         )}
       </div>
     );
@@ -1769,55 +1935,91 @@ function MessageRow({
   if (m.role === 'phase') {
     return (
       <div aria-label="Phase transition" className={styles.phaseRow}>
-        ▶ {m.text}
+        {m.text}
       </div>
     );
   }
   if (m.role === 'media') {
-    const resolvedSrc = m.mediaPath
+    const rawSrc = m.mediaPath
       ? resolveMediaSrc(m.mediaPath, projectDirectory)
       : '';
+    const resolvedSrc = cacheBustMediaSrc(rawSrc, m.mediaCreatedAt ?? null);
+    // Strip the project directory + leading slash so the caption
+    // shows just the artifact-relative path (e.g.
+    // "assets/shot_5/first_frame.png") instead of the absolute
+    // mount path. Falls back to the full path when stripping
+    // doesn't apply.
+    const captionPath = (() => {
+      const p = m.mediaPath ?? '';
+      if (!p) return '';
+      if (projectDirectory && p.startsWith(projectDirectory)) {
+        return p.slice(projectDirectory.length).replace(/^\/+/, '');
+      }
+      const lastSlash = p.lastIndexOf('/');
+      return lastSlash >= 0 ? p.slice(lastSlash + 1) : p;
+    })();
     return (
       <div className={styles.mediaRow}>
-        <div className={styles.mediaLabel}>
-          generated {m.mediaKind} · {m.mediaProject ?? ''}
+        <div className={styles.mediaFrame}>
+          {m.mediaKind === 'image' && resolvedSrc ? (
+            <img
+              src={resolvedSrc}
+              alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
+              className={styles.mediaImage}
+              onError={(e) => {
+                (e.currentTarget as HTMLImageElement).style.display = 'none';
+              }}
+            />
+          ) : m.mediaKind === 'video' && resolvedSrc ? (
+            <video
+              src={resolvedSrc}
+              controls
+              preload="metadata"
+              className={styles.mediaImage}
+            />
+          ) : (
+            <div style={{ padding: '20px 12px', fontSize: 12, color: 'var(--color-text-muted)' }}>
+              {m.mediaPath}
+            </div>
+          )}
         </div>
-        {m.mediaKind === 'image' && resolvedSrc ? (
-          <img
-            src={resolvedSrc}
-            alt={`${m.mediaProject ?? ''} ${m.mediaPath}`}
-            className={styles.mediaImage}
-            style={{ maxWidth: 240 }}
-            onError={(e) => {
-              (e.currentTarget as HTMLImageElement).style.display = 'none';
-            }}
-          />
-        ) : m.mediaKind === 'video' && resolvedSrc ? (
-          <video
-            src={resolvedSrc}
-            controls
-            preload="metadata"
-            style={{ maxWidth: '220px', borderRadius: 4 }}
-          />
-        ) : (
-          <div style={{ fontSize: 12 }}>📁 {m.mediaPath}</div>
-        )}
+        <div className={styles.mediaCaption}>
+          <span className={styles.mediaKindBadge}>{m.mediaKind}</span>
+          <span className={styles.mediaCaptionPath}>{captionPath}</span>
+        </div>
       </div>
     );
   }
-  // user / assistant
+  // user / assistant — editorial eyebrow + body.
   if (m.role === 'user') {
     return (
-      <div className={`${styles.bubble} ${styles.bubbleUser}`}>{m.text}</div>
+      <div className={`${styles.bubble} ${styles.bubbleUser}`}>
+        <span className={styles.bubbleEyebrow}>You</span>
+        <div className={styles.bubbleBody}>{m.text}</div>
+      </div>
     );
+  }
+  // Render-layer guard: skip empty/whitespace-only assistant bubbles.
+  // Multiple upstream paths can land an empty assistant message (a
+  // trailing empty stream_chunk after agent_response cleared the ref,
+  // a duplicate agent_response with no output, the chatPrompt fallback
+  // when assistant_text comes back blank). Showing a bubble with just
+  // the "Dhee" eyebrow and no body is the visible bug. Catching it
+  // here covers every producer.
+  const assistantText = dedupeDoubled(m.text ?? '');
+  if (!assistantText.trim()) {
+    return null;
   }
   return (
     <div className={`${styles.bubble} ${styles.bubbleAssistant}`}>
-      {/* Render-layer dedup as a safety net: the upstream LLM
-          stream sometimes accumulates the same text twice
-          (stream_chunk arriving with full content twice). Catching
-          it here covers every code path that builds the bubble. */}
-      <MarkdownContent text={dedupeDoubled(m.text ?? '')} />
+      <span className={styles.bubbleEyebrow}>Dhee</span>
+      <div className={styles.bubbleBody}>
+        {/* Render-layer dedup as a safety net: the upstream LLM
+            stream sometimes accumulates the same text twice
+            (stream_chunk arriving with full content twice). Catching
+            it here covers every code path that builds the bubble. */}
+        <MarkdownContent text={assistantText} />
+      </div>
     </div>
   );
 }
@@ -1924,15 +2126,172 @@ function handleEvent(
       const data = event.data as {
         toolCallId?: string;
         isError?: boolean;
+        result?: {
+          file_path?: string;
+          asset_type?: string;
+          content?: Array<{ type?: string; text?: string }>;
+          details?: { file_path?: string; asset_type?: string; created_at?: number };
+        };
       };
       // Update the matching tool card in place (NOT a new card).
-      setMessages((prev) =>
-        prev.map((m) =>
+      const newStatus: ToolStatus = data.isError ? 'error' : 'completed';
+      const toolNameForChoices = data.toolCallId
+        ? toolNameByCallIdRef.current?.get(data.toolCallId)
+        : undefined;
+      let bundleChoices: {
+        ids: string[];
+        bundles?: Array<{ id: string; displayName: string; summary: string }>;
+        question?: string;
+      } | null = null;
+      if (
+        !data.isError
+        && toolNameForChoices === 'dhee_present_bundle_choices'
+        && Array.isArray(data.result?.content)
+      ) {
+        try {
+          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const parsed = JSON.parse(txt) as {
+            kind?: string;
+            bundleIds?: string[];
+            bundles?: Array<{ id?: string; displayName?: string; summary?: string }>;
+            question?: string;
+          };
+          if (parsed.kind === 'bundle_choices' && Array.isArray(parsed.bundleIds) && parsed.bundleIds.length > 0) {
+            // Normalize the rich `bundles` array — every entry needs
+            // an id; missing displayName/summary fall through to
+            // empty (the renderer can titleize the id as a last
+            // resort).
+            const normalizedBundles = Array.isArray(parsed.bundles)
+              ? parsed.bundles
+                  .filter((b): b is { id: string; displayName?: string; summary?: string } =>
+                    !!b && typeof b.id === 'string' && b.id.length > 0,
+                  )
+                  .map((b) => ({
+                    id: b.id,
+                    displayName: typeof b.displayName === 'string' && b.displayName.trim().length > 0
+                      ? b.displayName.trim()
+                      : b.id,
+                    summary: typeof b.summary === 'string' ? b.summary.trim() : '',
+                  }))
+              : undefined;
+            bundleChoices = {
+              ids: parsed.bundleIds,
+              ...(normalizedBundles ? { bundles: normalizedBundles } : {}),
+              ...(parsed.question ? { question: parsed.question } : {}),
+            };
+          }
+        } catch {
+          // Not a JSON payload we recognize — skip the rich render.
+        }
+      }
+      // Generic ask-question picker — payload shape:
+      //   { kind: 'question_choices', question, options: [...], multiSelect }
+      let questionCard: {
+        question: string;
+        options: Array<{ id: string; label: string; description?: string }>;
+        multiSelect: boolean;
+      } | null = null;
+      if (
+        !data.isError
+        && toolNameForChoices === 'dhee_ask_question'
+        && Array.isArray(data.result?.content)
+      ) {
+        try {
+          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const parsed = JSON.parse(txt) as {
+            kind?: string;
+            question?: string;
+            options?: Array<{ id?: string; label?: string; description?: string }>;
+            multiSelect?: boolean;
+          };
+          if (
+            parsed.kind === 'question_choices'
+            && typeof parsed.question === 'string'
+            && Array.isArray(parsed.options)
+            && parsed.options.length > 0
+          ) {
+            const normalizedOpts = parsed.options
+              .filter((o): o is { id: string; label?: string; description?: string } =>
+                !!o && typeof o.id === 'string' && o.id.length > 0)
+              .map((o) => ({
+                id: o.id,
+                label: typeof o.label === 'string' && o.label.length > 0 ? o.label : o.id,
+                ...(typeof o.description === 'string' && o.description.length > 0
+                  ? { description: o.description }
+                  : {}),
+              }));
+            if (normalizedOpts.length > 0) {
+              questionCard = {
+                question: parsed.question,
+                options: normalizedOpts,
+                multiSelect: parsed.multiSelect === true,
+              };
+            }
+          }
+        } catch {
+          // payload not recognized — fall through to default rendering
+        }
+      }
+
+      setMessages((prev) => {
+        const updated: ChatMessage[] = prev.map((m) =>
           m.role === 'tool' && m.toolCallId === data.toolCallId
-            ? { ...m, toolStatus: data.isError ? 'error' : 'completed' }
+            ? { ...m, toolStatus: newStatus }
             : m,
-        ),
-      );
+        );
+        // Bundle picker — append a clickable cards row.
+        if (bundleChoices) {
+          return [
+            ...updated,
+            {
+              id: newMessageId(),
+              role: 'bundle-choices' as const,
+              bundleChoices,
+              bundleChoiceMade: null,
+            },
+          ];
+        }
+        // Generic question card.
+        if (questionCard) {
+          return [
+            ...updated,
+            {
+              id: newMessageId(),
+              role: 'question-card' as const,
+              questionCard,
+              questionCardAnswered: null,
+            },
+          ];
+        }
+        // Phase 6.5c.b: when a tool result has a file_path (dhee_show_*
+        // tools), append a `media` row so the chat renders the image/
+        // video inline. Path lives under result.details.file_path for
+        // dhee custom tools; extractToolResultFilePath handles both
+        // shapes (and the legacy flat one) so the lookup doesn't miss.
+        const { filePath, createdAt } = extractToolResultFilePath(data.result);
+        if (!data.isError && filePath) {
+          const ext = filePath.toLowerCase().match(/\.(\w+)$/)?.[1] ?? '';
+          const isImage = /^(png|jpg|jpeg|gif|webp|bmp)$/i.test(ext);
+          const isVideo = /^(mp4|mov|webm|mkv|m4v)$/i.test(ext);
+          if (isImage || isVideo) {
+            return [
+              ...updated,
+              {
+                id: newMessageId(),
+                role: 'media' as const,
+                mediaKind: (isImage ? 'image' : 'video') as 'image' | 'video',
+                // Stamp the createdAt on the mediaPath as a cache-bust
+                // key so the renderer fetches fresh bytes when the
+                // canonical artifact has been overwritten since the
+                // last render of this file:// URL.
+                mediaPath: filePath,
+                ...(createdAt ? { mediaCreatedAt: createdAt } : {}),
+              } as ChatMessage,
+            ];
+          }
+        }
+        return updated;
+      });
       // If this tool may have mutated project.json's lifecycle fields,
       // ask the chat panel to re-probe. Lookup MUST happen BEFORE the
       // delete below — once the entry is dropped from the map the tool
@@ -2123,23 +2482,24 @@ function handleEvent(
         );
         streamingMsgIdRef.current = null;
       } else {
-        // streamingMsgIdRef was cleared mid-stream by a tool_call event,
-        // but the streaming bubble may still be sitting in the messages
-        // list. Find the most-recent one and finalize it in-place rather
-        // than appending a second bubble with the same content.
+        // streamingMsgIdRef was cleared mid-stream by a tool_call event.
+        // The OLD code searched for a bubble with `streaming: true` —
+        // but tool_call explicitly flips prior bubbles to streaming:false,
+        // so by the time agent_response lands after several tool calls,
+        // no bubble has streaming:true and the renderer appended a brand-
+        // new bubble carrying the entire turn's text. The user already
+        // saw that text as intermediate "Let me check X" bubbles, so the
+        // new bubble looked like a full duplicate dump on stop.
+        //
+        // Fix: find the most-recent ASSISTANT bubble in the current
+        // turn (regardless of streaming flag) and update it with the
+        // canonical text. Only append a fresh bubble when no assistant
+        // bubble exists in the current turn at all.
         setMessages((prev) => {
-          let streamingIdx = -1;
-          for (let i = prev.length - 1; i >= 0; i -= 1) {
-            if (prev[i].role === 'assistant' && prev[i].streaming) {
-              streamingIdx = i;
-              break;
-            }
-          }
-          if (streamingIdx !== -1) {
+          const idx = findCanonicalAssistantBubbleIdx(prev);
+          if (idx !== -1) {
             return prev.map((m, i) =>
-              i === streamingIdx
-                ? { ...m, text: finalOutput, streaming: false }
-                : m,
+              i === idx ? { ...m, text: finalOutput, streaming: false } : m,
             );
           }
           return [

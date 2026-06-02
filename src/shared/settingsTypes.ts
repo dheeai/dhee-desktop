@@ -76,6 +76,29 @@ export interface AppSettings {
   comfyuiUrl: string;
   /** Comfy Cloud API key used when comfyuiUrl points at cloud.comfy.org. */
   comfyCloudApiKey: string;
+  /**
+   * Named ComfyUI endpoints — maps a semantic name (declared in a
+   * DAG bundle's runner config) to the actual URL. Bundle stays
+   * portable across users (uses names); per-user URLs live here.
+   *
+   * Conventional names:
+   *   - `self.local`    — the user's own LAN box
+   *   - `self.cloud`    — user's private cloud / paid subscription
+   *   - `public.cloud`  — shared public Comfy Cloud
+   *   - `peer.<id>`     — future P2P peers
+   *
+   * dheeCoreManager forwards every entry as `ENDPOINT_<name>` env var
+   * (dots in the name → underscores in the key) before spawning the
+   * kshana-core process. Empty / missing entries are not forwarded.
+   *
+   * Defaults to a record seeded with public.cloud (when normalized).
+   * Optional in the type so legacy settings.json blobs without the
+   * field still validate; the normalizer in settingsManager seeds the
+   * defaults and the dheeCoreManager forwarder handles missing/empty.
+   * The bundle resolver fails loud with a pointer to this setting
+   * when a bundle references an unset endpoint.
+   */
+  comfyEndpoints?: Record<string, string>;
   /** Fixed internally at 1800 seconds; not user-editable in UI. */
   comfyuiTimeout: number;
   /** LLM provider used by the bundled local backend. */

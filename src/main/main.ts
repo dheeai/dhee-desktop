@@ -14,6 +14,19 @@ import fs from 'fs/promises';
 import { randomUUID } from 'crypto';
 import { app, BrowserWindow, shell, ipcMain, dialog } from 'electron';
 import log from 'electron-log';
+
+// DESKTOP-DRIVE: when DHEE_DEBUG_PORT is set, expose Chromium's
+// remote-debugging-port so a Playwright-based CLI can attach via CDP
+// (see src/dev/desktopDrive.ts). MUST run before app.whenReady().
+// Port stays disabled by default so packaged builds don't expose it.
+const _dheeDebugPort = process.env['DHEE_DEBUG_PORT'];
+if (_dheeDebugPort && /^\d+$/.test(_dheeDebugPort)) {
+  app.commandLine.appendSwitch('remote-debugging-port', _dheeDebugPort);
+  // Localhost-only — defense in depth on top of Electron's default.
+  app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
+  // eslint-disable-next-line no-console
+  console.log(`[desktop-drive] CDP enabled on http://127.0.0.1:${_dheeDebugPort}`);
+}
 import { autoUpdater } from 'electron-updater';
 import ffmpeg from '@ts-ffmpeg/fluent-ffmpeg';
 import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
@@ -89,6 +102,7 @@ import {
   buildAssFromPromptOverlayCues,
   type PromptOverlayCue,
 } from './services/promptOverlayAss';
+import * as watermarkModule from './video/watermark';
 
 type AppUpdatePhase =
   | 'idle'
@@ -1512,6 +1526,92 @@ ipcMain.handle(
   },
 );
 
+/**
+ * project:initialize — populate a freshly-created project folder with a
+ * fully-formed project.json (bundle bound + caller-supplied inputs
+ * applied) BEFORE the chat / agent loads.
+ *
+ * Called by the renderer's "Production Slate" screen on click of ROLL.
+ * The renderer has already created the empty folder via
+ * `project:create-folder`; this handler resolves the bundle, writes
+ * `inputs/story.md` (and any other file-kind inputs), populates
+ * project-kind fields, and writes `project.json`.
+ *
+ * Returns `{ ok: true, projectDir }` on success or
+ * `{ ok: false, error }` on validation / disk failure. The renderer
+ * surfaces the error inline on the slate.
+ */
+type ProjectInitModule = {
+  initializeProject: (params: {
+    projectDir: string;
+    name: string;
+    bundleId: string;
+    description?: string;
+    inputs?: Record<string, unknown>;
+  }) =>
+    | { ok: true; projectDir: string }
+    | { ok: false; error: string };
+  listBundles: () => Array<{
+    id: string;
+    version: string;
+    displayName: string;
+    summary: string;
+    techLine?: string;
+    description?: string;
+    inputs?: unknown[];
+  }>;
+};
+
+ipcMain.handle(
+  'bundle:list',
+  async (): Promise<
+    Array<{
+      id: string;
+      version: string;
+      displayName: string;
+      summary: string;
+      techLine?: string;
+      description?: string;
+      inputs?: unknown[];
+    }>
+  > => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
+      return mod.listBundles();
+    } catch {
+      return [];
+    }
+  },
+);
+
+ipcMain.handle(
+  'project:initialize',
+  async (
+    _event,
+    payload: {
+      projectDir: string;
+      name: string;
+      bundleId: string;
+      description?: string;
+      inputs?: Record<string, unknown>;
+    },
+  ): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> => {
+    try {
+      // Indirect the module path through a variable so the TS compiler
+      // doesn't try to resolve types statically — kshana-core's dist
+      // ships without .d.ts (tsup `dts: false`). Same pattern as
+      // dheeCoreManager.ts's `loadDagModule`.
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
+      return mod.initializeProject(payload);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
+    }
+  },
+);
+
 ipcMain.handle(
   'project:rename',
   async (_event, oldPath: string, newName: string): Promise<string> => {
@@ -1836,10 +1936,9 @@ interface RenderResolution {
   height: number;
 }
 
-const VIDEO_WATERMARK_TEXT = 'dhee';
-const VIDEO_WATERMARK_FONT_SIZE = 54;
-const VIDEO_WATERMARK_MARGIN_X = 48;
-const VIDEO_WATERMARK_MARGIN_Y = 28;
+// Watermark constants (text, size, margins) live in
+// src/main/video/watermark.ts where the filter is built. Single
+// source of truth for the mandatory watermark — see UX-1.
 const SYSTEM_FONT_CANDIDATES =
   process.platform === 'win32'
     ? ['C:/Windows/Fonts/arial.ttf', 'C:/Windows/Fonts/segoeui.ttf']
@@ -1903,15 +2002,6 @@ async function findAvailableSystemFont(): Promise<string | null> {
   }
 
   return null;
-}
-
-function escapeDrawtextValue(input: string): string {
-  return input
-    .replace(/\\/g, '/')
-    .replace(/:/g, '\\:')
-    .replace(/'/g, "\\'")
-    .replace(/%/g, '\\%')
-    .replace(/[\r\n]+/g, ' ');
 }
 
 function parseAspectRatioValue(value: unknown): RenderResolution | null {
@@ -2206,70 +2296,23 @@ async function burnWordCaptionsIntoVideo(
   );
 }
 
+/**
+ * Mandatory watermark — every export path MUST call this before
+ * returning a file path. See src/main/video/watermark.ts for the
+ * implementation and src/main/video/watermarkGuard.test.ts for the
+ * static-source enforcement that catches new export paths that
+ * forget to apply it.
+ */
 async function burnWatermarkIntoVideo(
   inputVideoPath: string,
   outputVideoPath: string,
 ): Promise<void> {
-  const fontPath = await findAvailableSystemFont();
-  const drawtextParts = [
-    `text='${escapeDrawtextValue(VIDEO_WATERMARK_TEXT)}'`,
-    `fontsize=${VIDEO_WATERMARK_FONT_SIZE}`,
-    'fontcolor=white@0.4',
-    'shadowcolor=black@0.6',
-    'shadowx=3',
-    'shadowy=3',
-    `x=w-tw-${VIDEO_WATERMARK_MARGIN_X}`,
-    `y=h-th-${VIDEO_WATERMARK_MARGIN_Y}`,
-  ];
-
-  if (fontPath) {
-    drawtextParts.unshift(`fontfile='${escapeDrawtextValue(fontPath)}'`);
-  } else {
-    console.warn(
-      '[VideoComposition] No system font found for watermark, relying on FFmpeg defaults.',
-    );
-  }
-
-  const filter = `drawtext=${drawtextParts.join(':')}`;
-
-  await new Promise<void>((resolve, reject) => {
-    ffmpeg()
-      .input(inputVideoPath)
-      .videoFilters(filter)
-      .outputOptions([
-        '-map 0:v:0',
-        '-map 0:a?',
-        '-c:v libx264',
-        '-crf 18',
-        '-preset medium',
-        '-c:a copy',
-        '-pix_fmt yuv420p',
-      ])
-      .output(outputVideoPath)
-      .on('start', (cmd) =>
-        console.log(`[VideoComposition] Watermark FFmpeg command: ${cmd}`),
-      )
-      .on('progress', (progress) => {
-        if (progress.percent != null) {
-          console.log(
-            `[VideoComposition] Watermark progress: ${Math.round(progress.percent)}%`,
-          );
-        }
-      })
-      .on('end', () => {
-        console.log('[VideoComposition] Watermark burn completed');
-        resolve();
-      })
-      .on('error', (error, _stdout, stderr) => {
-        if (stderr) {
-          console.error(
-            `[VideoComposition] Watermark FFmpeg stderr: ${stderr.slice(-500)}`,
-          );
-        }
-        reject(error);
-      })
-      .run();
-  });
+  return watermarkModule.burnWatermarkIntoVideo(
+    inputVideoPath,
+    outputVideoPath,
+    findAvailableSystemFont,
+    console,
+  );
 }
 
 ipcMain.handle(

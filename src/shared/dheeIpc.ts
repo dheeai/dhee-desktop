@@ -14,6 +14,14 @@ export const dhee_CHANNELS = {
   CREATE_SESSION: 'dhee:createSession',
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',
+  /**
+   * Phase 6.5: send a user message to the chat session's pi-agent
+   * and return {assistant_text, tool_calls}. Distinct from RUN_TASK
+   * which dispatches bundle runs via BackgroundTaskRunner — chat is
+   * for free-form interaction with the LLM, run is for kicking the
+   * walker.
+   */
+  CHAT_PROMPT: 'dhee:chatPrompt',
   SEND_RESPONSE: 'dhee:sendResponse',
   CANCEL_TASK: 'dhee:cancelTask',
   REDO_NODE: 'dhee:redoNode',
@@ -79,6 +87,24 @@ export const dhee_CHANNELS = {
    * create-time, which would miss any messages streamed since.
    */
   GET_HISTORY: 'dhee:getHistory',
+  /**
+   * Resolve a `bundleSource` string (e.g. 'built-in:narrative_qwen_chain_relay')
+   * to its parsed bundle JSON. Used by the Inspector Canvas and the
+   * landing-screen tile metadata to discover what artifacts a bundle
+   * produces via `displayCapability` tags on nodes — without hardcoding
+   * any bundle's internal node names or filesystem paths. The renderer
+   * caches the result in ProjectContext; main process resolves via
+   * dhee-core's bundleSource helpers.
+   */
+  RESOLVE_BUNDLE: 'dhee:resolveBundle',
+  /**
+   * Resolve the per-instance dependency graph projection of a
+   * project's event log. The Inspector Cards view consumes this
+   * directly — no client-side bundle parsing or file IO. The
+   * graph is { instances[], edges[] } folded from
+   * .dhee/events.jsonl by `projectInstanceGraph` in dhee-core.
+   */
+  RESOLVE_INSTANCE_GRAPH: 'dhee:resolveInstanceGraph',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -271,6 +297,23 @@ export interface RunTaskRequest {
   attachments?: import('./attachmentTypes').Attachment[];
 }
 
+/** Phase 6.5: chatPrompt IPC contract. */
+export interface ChatPromptRequest {
+  sessionId: string;
+  message: string;
+}
+
+export type ChatPromptResponse =
+  | {
+      ok: true;
+      assistant_text: string;
+      tool_calls: Array<{ name: string }>;
+    }
+  | {
+      ok: false;
+      error: string;
+    };
+
 export interface SendResponseRequest {
   sessionId: string;
   response: string;
@@ -291,6 +334,12 @@ export interface RedoNodeRequest {
   editedPrompt?: string;
   frame?: string;
   scope?: 'prompt' | 'image_only';
+  /**
+   * For collection nodes (e.g. `shot_image`), regenerate just this item.
+   * The walker keys per-item state as `nodeId:itemId`. Used by the
+   * Inspector Canvas right-click on a CollectionRail tile.
+   */
+  itemId?: string;
 }
 
 export interface FocusProjectRequest {
@@ -427,5 +476,126 @@ export interface ValidateWorkflowResponse {
   inputNodeCount?: number;
   loraCount?: number;
   /** Set when ok=false (an error occurred while attempting validation). */
+  error?: string;
+}
+
+// ── RESOLVE_BUNDLE ────────────────────────────────────────────────────
+
+export interface ResolveBundleRequest {
+  /**
+   * The `bundleSource` field from project.json (e.g.
+   * 'built-in:narrative_qwen_chain_relay'). Parsed and resolved by
+   * dhee-core's bundleSource helpers.
+   */
+  bundleSource: string;
+}
+
+/**
+ * Minimal bundle shape the renderer needs. Mirrors dhee-core's
+ * `DagBundle` for the fields used by desktop views — id, version, and
+ * the node list with each node's id, kind, and displayCapability.
+ *
+ * We intentionally don't ship the full runner config / prompts /
+ * inputs over IPC — desktop views only need to discover what
+ * artifacts exist and what they're tagged as. Runtime concerns
+ * (workflow paths, runner names) stay on the kshana-core side.
+ */
+/**
+ * Bundle-author-declared tile display metadata. Drives the project
+ * tile's thumbnail + summary stats on the landing screen. See
+ * docs/display-capabilities.md in dhee-core for field semantics.
+ */
+export interface BundleDisplay {
+  thumbnail?: {
+    from: string;
+    pick?: 'first_completed' | 'random_completed' | 'latest_completed';
+  };
+  stats?: Array<{
+    label: string;
+    source: string;
+    count_completed?: boolean;
+    path?: string;
+  }>;
+}
+
+/**
+ * Per-node `inputs[].from` reference — the upstream node id this node
+ * depends on. The renderer uses these to draw edges in the Inspector
+ * Canvas; runtime concerns (usage / scope / aggregate) stay on the
+ * dhee-core side.
+ */
+export interface BundleNodeInputRef {
+  from: string;
+}
+
+// ── RESOLVE_INSTANCE_GRAPH ─────────────────────────────────────────────
+
+export interface ResolveInstanceGraphRequest {
+  projectDir: string;
+  branchId?: string;
+  /** Time-travel: fold only events with seq <= asOfSeq. */
+  asOfSeq?: number;
+}
+
+export interface InstanceGraphNode {
+  nodeId: string;
+  itemId?: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'failed' | 'invalidated';
+  outputPath?: string;
+  versionId?: string;
+  error?: string;
+  tool?: string;
+  cached?: boolean;
+  ts?: number;
+}
+
+export interface InstanceGraphEdge {
+  fromNodeId: string;
+  fromItemId?: string;
+  toNodeId: string;
+  toItemId?: string;
+  role?: string;
+}
+
+export interface ResolveInstanceGraphResponse {
+  ok: boolean;
+  graph?: {
+    instances: InstanceGraphNode[];
+    edges: InstanceGraphEdge[];
+  };
+  error?: string;
+}
+
+export interface ResolveBundleResponse {
+  ok: boolean;
+  bundle?: {
+    id: string;
+    version: string;
+    description?: string;
+    goal: string;
+    nodes: Array<{
+      id: string;
+      kind: 'stage' | 'collection';
+      displayCapability?: string;
+      /**
+       * Optional dot-path into the node's JSON output naming the field
+       * the Inspector Canvas renders as the per-tile headline. Ignored
+       * for non-json kinds. See dhee-core NodeDef.headlineField.
+       */
+      headlineField?: string;
+      outputs: { format: string; pattern: string };
+      /**
+       * Upstream dependencies — used by the Inspector Canvas to draw
+       * edges. Each entry's `from` is the upstream bundle node id.
+       * The bridge always populates this field (empty array when the
+       * node declares no inputs) so consumers can treat it as
+       * non-null, but it's typed as optional here to preserve back-
+       * compat with renderer-side fixtures that omit it.
+       */
+      inputs?: BundleNodeInputRef[];
+    }>;
+    display?: BundleDisplay;
+  };
+  /** Set when ok=false. */
   error?: string;
 }

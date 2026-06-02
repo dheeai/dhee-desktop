@@ -75,6 +75,61 @@ describe('classifyProjectState', () => {
     ).toBe('fresh');
   });
 
+  // ── New bundle-driven path: bundleSource means configured ───────
+  // Production Slate writes bundleSource + style + targetDuration but
+  // NOT the legacy templateId. The classifier must recognize the new
+  // shape, otherwise the agent kicks off the (now obsolete) setup
+  // dance in chat.
+
+  it('returns "in_progress" when bundleSource is set (Production Slate shape)', async () => {
+    expect(
+      await classifyProjectState(
+        '/tmp/p',
+        makeReader({
+          [PROJECT_JSON_PATH]: JSON.stringify({
+            name: 'A new film',
+            bundleSource: 'built-in:narrative_prompt_relay',
+            style: 'cinematic_realism',
+            targetDuration: 60,
+            aspect: '16:9',
+            // No templateId — Production Slate doesn't write it.
+            createdAt: '2026-06-02T10:00:00.000Z',
+          }),
+        }),
+      ),
+    ).toBe('in_progress');
+  });
+
+  it('bundleSource alone is enough even when style/duration absent (bundle owns defaults)', async () => {
+    // Edge case: caller writes the minimum. Bundle defaults haven't
+    // been applied (shouldn't happen via the slate, but defensive).
+    // We still trust bundleSource as the configuration marker.
+    expect(
+      await classifyProjectState(
+        '/tmp/p',
+        makeReader({
+          [PROJECT_JSON_PATH]: JSON.stringify({
+            bundleSource: 'built-in:narrative_prompt_relay',
+          }),
+        }),
+      ),
+    ).toBe('in_progress');
+  });
+
+  it('returns "completed" for a bundle-driven project whose goal.status is achieved', async () => {
+    expect(
+      await classifyProjectState(
+        '/tmp/p',
+        makeReader({
+          [PROJECT_JSON_PATH]: JSON.stringify({
+            bundleSource: 'built-in:narrative_prompt_relay',
+            goal: { status: 'achieved', achievedAt: 1700000000000 },
+          }),
+        }),
+      ),
+    ).toBe('completed');
+  });
+
   // ── 'in_progress' ────────────────────────────────────────────────
 
   it('returns "in_progress" for a configured project with goal.status=active', async () => {

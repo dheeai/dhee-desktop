@@ -787,6 +787,43 @@ export default function ToolCallCard({
                   )}
                 </button>
               )}
+              {/* Phase 6.5c.b: inline media render for show_node_output /
+                  show_file results. Detect by file extension; pi-agent's
+                  dhee_show_* tools surface details.file_path that
+                  ToolCallCard extracts at lines 559-561 above. */}
+              {filePath && /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(filePath) && (
+                <img
+                  src={`file://${encodeURI(filePath)}`}
+                  alt={filePath}
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: 400,
+                    borderRadius: 6,
+                    marginTop: 8,
+                    display: 'block',
+                  }}
+                />
+              )}
+              {filePath && /\.(mp4|mov|webm|mkv|m4v)$/i.test(filePath) && (
+                <video
+                  src={`file://${encodeURI(filePath)}`}
+                  controls
+                  style={{
+                    maxWidth: '100%',
+                    maxHeight: 400,
+                    borderRadius: 6,
+                    marginTop: 8,
+                    display: 'block',
+                  }}
+                />
+              )}
+              {filePath && /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(filePath) && (
+                <audio
+                  src={`file://${encodeURI(filePath)}`}
+                  controls
+                  style={{ marginTop: 8, display: 'block' }}
+                />
+              )}
               {preview && (
                 <div className={styles.cliPreview}>
                   <details>

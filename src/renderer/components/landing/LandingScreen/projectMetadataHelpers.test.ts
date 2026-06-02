@@ -260,3 +260,79 @@ describe('selectSmartThumbnail', () => {
     expect(images.map((i) => i.path)).toContain(out!.path);
   });
 });
+
+import { sumScenesAndShotsFromPlan, findShotThumbnailFromWalkState } from './projectMetadataHelpers';
+
+describe('sumScenesAndShotsFromPlan (bundle format)', () => {
+  it('counts from {scenes, shots} arrays', () => {
+    const plan = {
+      scenes: [{ id: 'scene_1' }, { id: 'scene_2' }],
+      shots: [
+        { id: 'scene_1_shot_1' }, { id: 'scene_1_shot_2' },
+        { id: 'scene_2_shot_1' }, { id: 'scene_2_shot_2' }, { id: 'scene_2_shot_3' },
+      ],
+    };
+    expect(sumScenesAndShotsFromPlan(plan)).toEqual({ scenes: 2, shots: 5 });
+  });
+
+  it('derives scene count from distinct shot.scene when scenes array is missing', () => {
+    const plan = {
+      shots: [
+        { scene: 1, shotNumber: 1 }, { scene: 1, shotNumber: 2 },
+        { scene: 2, shotNumber: 1 }, { scene: 3, shotNumber: 1 },
+      ],
+    };
+    expect(sumScenesAndShotsFromPlan(plan)).toEqual({ scenes: 3, shots: 4 });
+  });
+
+  it('returns null on missing / malformed plan', () => {
+    expect(sumScenesAndShotsFromPlan(null)).toBeNull();
+    expect(sumScenesAndShotsFromPlan(undefined)).toBeNull();
+    expect(sumScenesAndShotsFromPlan({})).toBeNull();
+    expect(sumScenesAndShotsFromPlan({ scenes: 'not array' as unknown as never })).toBeNull();
+  });
+
+  it('handles empty shots gracefully', () => {
+    expect(sumScenesAndShotsFromPlan({ scenes: [], shots: [] })).toEqual({ scenes: 0, shots: 0 });
+  });
+});
+
+describe('findShotThumbnailFromWalkState', () => {
+  it('returns the lowest scene+shot first-frame outputPath', () => {
+    const state = {
+      nodes: {
+        'shot_image:scene_1_shot_2': { status: 'completed', outputPath: 'assets/images/shots/scene_1_shot_2_first.png' },
+        'shot_image:scene_1_shot_1': { status: 'completed', outputPath: 'assets/images/shots/scene_1_shot_1_first.png' },
+        'shot_image:scene_2_shot_1': { status: 'completed', outputPath: 'assets/images/shots/scene_2_shot_1_first.png' },
+      },
+    };
+    expect(findShotThumbnailFromWalkState(state)).toBe('assets/images/shots/scene_1_shot_1_first.png');
+  });
+
+  it('skips pending / failed instances', () => {
+    const state = {
+      nodes: {
+        'shot_image:scene_1_shot_1': { status: 'pending', outputPath: 'a.png' },
+        'shot_image:scene_1_shot_2': { status: 'completed', outputPath: 'assets/images/shots/scene_1_shot_2_first.png' },
+      },
+    };
+    expect(findShotThumbnailFromWalkState(state)).toBe('assets/images/shots/scene_1_shot_2_first.png');
+  });
+
+  it('returns null when no matching first-frame is in state', () => {
+    expect(findShotThumbnailFromWalkState({ nodes: {} })).toBeNull();
+    expect(findShotThumbnailFromWalkState(null)).toBeNull();
+    expect(findShotThumbnailFromWalkState(undefined)).toBeNull();
+    // Has shot images but none matching first-frame pattern.
+    expect(findShotThumbnailFromWalkState({
+      nodes: { 'plot:': { status: 'completed', outputPath: 'plans/plot.md' } },
+    })).toBeNull();
+  });
+
+  it('matches both _first.png and _first_frame_*.png patterns (Klein vs Qwen naming)', () => {
+    const state1 = { nodes: { 'shot_image:scene_1_shot_1': { status: 'completed', outputPath: 'a/scene_1_shot_1_first.png' } } };
+    const state2 = { nodes: { 'shot_image:scene_1_shot_1': { status: 'completed', outputPath: 'a/scene_1_shot_1_first_frame_klein_AbCd.png' } } };
+    expect(findShotThumbnailFromWalkState(state1)).toBe('a/scene_1_shot_1_first.png');
+    expect(findShotThumbnailFromWalkState(state2)).toBe('a/scene_1_shot_1_first_frame_klein_AbCd.png');
+  });
+});

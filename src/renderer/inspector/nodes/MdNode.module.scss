@@ -1,0 +1,75 @@
+.stage {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 10;
+  -webkit-box-orient: vertical;
+  -webkit-mask-image: linear-gradient(180deg, #000 80%, transparent);
+  mask-image: linear-gradient(180deg, #000 80%, transparent);
+}
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-style: italic;
+  padding: 6px 0;
+  letter-spacing: -0.005em;
+}
+
+.tile {
+  background: var(--color-bg-panel-soft);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  padding: 6px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  height: 100%;
+}
+.tileFailed {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 1px var(--color-error);
+}
+.tileInvalidated {
+  background-image: repeating-linear-gradient(135deg, transparent 0 4px, rgba(0,0,0,0.35) 4px 5px);
+}
+.tileLabel {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--color-text-muted);
+  letter-spacing: -0.01em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tileDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-success);
+  &.dot-pending { background: var(--color-text-muted); }
+  &.dot-running { background: var(--color-warning); }
+  &.dot-failed { background: var(--color-error); }
+  &.dot-invalidated { background: var(--color-text-secondary); }
+}
+.tileBody {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--color-text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  letter-spacing: -0.005em;
+  white-space: pre-wrap;
+}
+.tileBodyMuted {
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}

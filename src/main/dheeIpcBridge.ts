@@ -26,6 +26,8 @@ import {
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type ChatPromptRequest,
+  type ChatPromptResponse,
   type SendResponseRequest,
   type CancelTaskRequest,
   type CancelTaskResponse,
@@ -37,6 +39,10 @@ import {
   type DeleteSessionRequest,
   type InvalidateNodesRequest,
   type InvalidateNodesResponse,
+  type ResolveBundleRequest,
+  type ResolveBundleResponse,
+  type ResolveInstanceGraphRequest,
+  type ResolveInstanceGraphResponse,
   type ListWorkflowsRequest,
   type ListWorkflowsResponse,
   type GetWorkflowRequest,
@@ -150,6 +156,22 @@ export function registerdheeIpcBridge(
     },
   );
 
+  // Phase 6.5: chat-input messages route here (NOT through RUN_TASK).
+  // RunTask still dispatches bundle runs via BackgroundTaskRunner;
+  // ChatPrompt drives the per-session pi-agent.
+  //
+  // Phase 6.5c.b: events from pi-agent (text deltas, tool calls,
+  // tool results) flow back during the turn via the same
+  // 'dhee:event' channel runTask uses. The chat panel's existing
+  // listeners pick them up for streaming text + inline media.
+  ipcMain.handle(
+    dhee_CHANNELS.CHAT_PROMPT,
+    async (_event, req: ChatPromptRequest): Promise<ChatPromptResponse> => {
+      const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
+      return manager.chatPrompt(req.sessionId, req.message, eventCb);
+    },
+  );
+
   ipcMain.handle(
     dhee_CHANNELS.SEND_RESPONSE,
     async (_event, req: SendResponseRequest): Promise<OkResponse> => {
@@ -171,8 +193,8 @@ export function registerdheeIpcBridge(
 
   ipcMain.handle(
     dhee_CHANNELS.CANCEL_TASK,
-    (_event, req: CancelTaskRequest): CancelTaskResponse => {
-      const cancelled = manager.cancelTask(req.sessionId);
+    async (_event, req: CancelTaskRequest): Promise<CancelTaskResponse> => {
+      const cancelled = await manager.cancelTask(req.sessionId);
       return { cancelled };
     },
   );
@@ -198,6 +220,7 @@ export function registerdheeIpcBridge(
         ...(req.editedPrompt ? { editedPrompt: req.editedPrompt } : {}),
         ...(req.frame ? { frame: req.frame } : {}),
         ...(req.scope ? { scope: req.scope } : {}),
+        ...(req.itemId ? { itemId: req.itemId } : {}),
       });
       return result.ok ? { ok: true } : { ok: false, ...(result.error ? { error: result.error } : {}) };
     },
@@ -215,7 +238,11 @@ export function registerdheeIpcBridge(
       if (req.projectDir) {
         process.env['dhee_PROJECTS_DIR'] = path.dirname(req.projectDir);
       }
-      return manager.focusSessionProject(req.sessionId, req.projectName);
+      return manager.focusSessionProject(
+        req.sessionId,
+        req.projectName,
+        req.projectDir,
+      );
     },
   );
 
@@ -350,6 +377,112 @@ export function registerdheeIpcBridge(
           valid: false,
           error: err instanceof Error ? err.message : String(err),
         };
+      }
+    },
+  );
+
+  // Resolve a bundleSource URI to its parsed bundle definition. The
+  // renderer's PromptsView / AssetsView / etc. use this to discover
+  // which nodes produce which capability — keeps the desktop bundle-
+  // agnostic. See docs/display-capabilities.md in dhee-core.
+  ipcMain.handle(
+    dhee_CHANNELS.RESOLVE_BUNDLE,
+    async (_event, req: ResolveBundleRequest): Promise<ResolveBundleResponse> => {
+      try {
+        // Dynamic ESM import — dhee-core/dag is ESM and can't be
+        // require()'d, same pattern as the runners loader.
+        const dagMod = (await import(
+          /* webpackIgnore: true */ 'dhee-core/dag'
+        )) as {
+          parseBundleSource: (s: string) => { scheme: string; id: string };
+          resolveBundleDir: (s: { scheme: string; id: string }) => string;
+          loadBundle: (path: string) => unknown;
+        };
+        const source = dagMod.parseBundleSource(req.bundleSource);
+        const bundleDir = dagMod.resolveBundleDir(source);
+        // resolveBundleDir returns either a directory or a single-file
+        // path. loadBundle handles both layouts.
+        const bundlePath = bundleDir.endsWith('.json')
+          ? bundleDir
+          : path.join(bundleDir, 'bundle.json');
+        const bundle = dagMod.loadBundle(bundlePath) as {
+          id: string;
+          version: string;
+          description?: string;
+          goal: string;
+          nodes: Array<{
+            id: string;
+            kind: 'stage' | 'collection';
+            displayCapability?: string;
+            headlineField?: string;
+            outputs: { format: string; pattern: string };
+            inputs?: Array<{ from: string }>;
+          }>;
+          display?: {
+            thumbnail?: { from: string; pick?: 'first_completed' | 'random_completed' | 'latest_completed' };
+            stats?: Array<{ label: string; source: string; count_completed?: boolean; path?: string }>;
+          };
+        };
+        // Strip to fields the renderer needs. We ship `inputs[].from`
+        // for edges (Inspector Canvas) and `headlineField` for tile
+        // headlines; runner config + prompt templates stay in
+        // dhee-core.
+        return {
+          ok: true,
+          bundle: {
+            id: bundle.id,
+            version: bundle.version,
+            ...(bundle.description ? { description: bundle.description } : {}),
+            goal: bundle.goal,
+            nodes: bundle.nodes.map((n) => ({
+              id: n.id,
+              kind: n.kind,
+              ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
+              ...(n.headlineField ? { headlineField: n.headlineField } : {}),
+              outputs: { format: n.outputs.format, pattern: n.outputs.pattern },
+              inputs: (n.inputs ?? []).map((i) => ({ from: i.from })),
+            })),
+            ...(bundle.display ? { display: bundle.display } : {}),
+          },
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // ── RESOLVE_INSTANCE_GRAPH ───────────────────────────────────────────
+  // Reads .dhee/events.jsonl from the project and folds it through
+  // dhee-core's projectInstanceGraph. Lineage as a pure projection,
+  // no bundle re-parsing or content sniffing on the renderer side.
+  ipcMain.handle(
+    dhee_CHANNELS.RESOLVE_INSTANCE_GRAPH,
+    async (_event, req: ResolveInstanceGraphRequest): Promise<ResolveInstanceGraphResponse> => {
+      try {
+        const dagMod = (await import(
+          /* webpackIgnore: true */ 'dhee-core/dag'
+        )) as {
+          openEventLog: (projectDir: string) => { read: (opts?: { branchId?: string; sinceSeq?: number }) => Iterable<unknown> };
+          projectInstanceGraph: (
+            events: Iterable<unknown>,
+            opts?: { branchId?: string; asOfSeq?: number },
+          ) => { instances: Array<Record<string, unknown>>; edges: Array<Record<string, unknown>> };
+        };
+        const log = dagMod.openEventLog(req.projectDir);
+        const events = [...log.read()];
+        const opts: { branchId?: string; asOfSeq?: number } = {};
+        if (req.branchId) opts.branchId = req.branchId;
+        if (typeof req.asOfSeq === 'number') opts.asOfSeq = req.asOfSeq;
+        const graph = dagMod.projectInstanceGraph(events, opts);
+        return {
+          ok: true,
+          graph: {
+            instances: graph.instances as unknown as NonNullable<ResolveInstanceGraphResponse['graph']>['instances'],
+            edges: graph.edges as unknown as NonNullable<ResolveInstanceGraphResponse['graph']>['edges'],
+          },
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     },
   );

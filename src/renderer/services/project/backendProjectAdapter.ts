@@ -505,9 +505,19 @@ export function backendProjectToDesktopManifest(
 ): dheeManifest {
   const manifest = createDefaultManifest(project.id, project.title, '1.0.0');
   manifest.description = project.description?.trim() || undefined;
-  manifest.created_at = new Date(project.createdAt).toISOString();
-  manifest.updated_at = new Date(project.updatedAt).toISOString();
+  // Bundle-era project.json may omit updatedAt and use ISO strings for
+  // createdAt. Coerce defensively so a missing field doesn't blow up the
+  // whole project load.
+  manifest.created_at = safeIsoDate(project.createdAt) ?? new Date().toISOString();
+  manifest.updated_at =
+    safeIsoDate(project.updatedAt) ?? manifest.created_at;
   return manifest;
+}
+
+function safeIsoDate(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const d = new Date(value as string | number);
+  return Number.isFinite(d.getTime()) ? d.toISOString() : null;
 }
 
 export function backendProjectToDesktopAgentState(

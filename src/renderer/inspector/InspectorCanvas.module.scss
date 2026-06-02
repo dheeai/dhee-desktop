@@ -1,0 +1,294 @@
+/* ─────────────── Inspector Canvas — themed styles ───────────────
+ *
+ * All colors / shadows pull from the app's theme tokens (defined in
+ * src/renderer/styles/global.scss). When the user switches themes
+ * (studio-neutral, deep-forest-gold, etc.) the Inspector picks the
+ * new palette automatically.
+ */
+
+.canvas {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: var(--color-bg-app);
+  color: var(--color-text-primary);
+  font-family: var(--inspector-font, 'SF Pro Display', 'Inter', system-ui, sans-serif);
+  font-size: 13px;
+
+  // Override xyflow v12's own CSS variables so the minimap, controls,
+  // and edges adopt the app's theme palette. xyflow ships
+  // light + dark defaults via prefers-color-scheme; we force the
+  // desktop's tokens regardless of the OS scheme.
+  --xy-minimap-background-color-default: var(--color-bg-panel-inset);
+  --xy-minimap-background-color: var(--color-bg-panel-inset);
+  --xy-minimap-mask-background-color-default: rgba(0, 0, 0, 0.45);
+  --xy-minimap-mask-background-color: rgba(0, 0, 0, 0.45);
+  --xy-minimap-mask-stroke-color-default: var(--color-accent-primary);
+  --xy-minimap-mask-stroke-color: var(--color-accent-primary);
+  --xy-minimap-mask-stroke-width-default: 1;
+  --xy-minimap-node-background-color-default: var(--color-text-muted);
+  --xy-minimap-node-background-color: var(--color-text-muted);
+  --xy-minimap-node-stroke-color-default: transparent;
+  --xy-minimap-node-stroke-color: transparent;
+  --xy-minimap-node-stroke-width-default: 2;
+
+  --xy-controls-button-background-color-default: var(--color-bg-panel-elevated);
+  --xy-controls-button-background-color: var(--color-bg-panel-elevated);
+  --xy-controls-button-background-color-hover-default: var(--color-bg-panel-soft);
+  --xy-controls-button-background-color-hover: var(--color-bg-panel-soft);
+  --xy-controls-button-color-default: var(--color-text-primary);
+  --xy-controls-button-color: var(--color-text-primary);
+  --xy-controls-button-color-hover-default: var(--color-text-primary);
+  --xy-controls-button-color-hover: var(--color-text-primary);
+  --xy-controls-button-border-color-default: var(--color-border-subtle);
+  --xy-controls-button-border-color: var(--color-border-subtle);
+
+  --xy-edge-stroke-default: var(--color-text-muted);
+  --xy-edge-stroke: var(--color-text-muted);
+}
+
+.empty {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  letter-spacing: -0.005em;
+}
+
+.node {
+  background: var(--color-bg-panel-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 9px;
+  box-shadow: var(--shadow-md);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  // Card dimensions are LOAD-BEARING — elk's layout
+  // (src/renderer/inspector/useElkLayout.ts sizeForNode) uses these
+  // exact numbers to pack the graph. Keep CSS + sizeForNode in sync
+  // or cards overlap.
+  width: 220px;
+  max-height: 280px;
+  &[data-kind='collection'] { width: 360px; max-height: 240px; }
+  &[data-format='audio'] { width: 320px; max-height: 160px; }
+  &[data-format='image'][data-kind='stage'] { width: 220px; max-height: 280px; }
+  &[data-format='video'][data-kind='stage'] { width: 260px; max-height: 280px; }
+  &[data-status='running'] {
+    border-color: var(--color-warning);
+    box-shadow: 0 0 0 1px var(--color-warning),
+      0 0 18px -2px rgba(var(--color-warning-rgb), 0.22);
+    animation: pulse 1.8s ease-in-out infinite;
+  }
+  &[data-status='failed'] {
+    border-color: var(--color-error);
+    box-shadow: 0 0 0 1px var(--color-error), var(--shadow-md);
+  }
+  &[data-status='invalidated'] {
+    background-image: repeating-linear-gradient(
+      135deg,
+      transparent 0 5px,
+      rgba(0, 0, 0, 0.18) 5px 6px
+    );
+  }
+}
+
+@keyframes pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 1px var(--color-warning),
+      0 0 16px -4px rgba(var(--color-warning-rgb), 0.18);
+  }
+  50% {
+    box-shadow: 0 0 0 1px var(--color-warning),
+      0 0 24px -2px rgba(var(--color-warning-rgb), 0.36);
+  }
+}
+
+.nodeHead {
+  height: 28px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-bg-subtle);
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: 11px;
+  color: var(--color-text-secondary);
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--color-text-muted);
+  &.status-completed { background: var(--color-success); }
+  &.status-running { background: var(--color-warning); box-shadow: 0 0 6px var(--color-warning); }
+  &.status-failed { background: var(--color-error); }
+  &.status-invalidated { background: var(--color-text-secondary); }
+  &.status-pending { background: var(--color-text-muted); border: 1px solid var(--color-text-muted); }
+}
+
+.nodeName {
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nodeKind {
+  font-size: 10px;
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  color: var(--color-text-muted);
+  padding: 0 5px;
+  height: 16px;
+  line-height: 14px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 3px;
+  background: var(--color-bg-panel-inset);
+  text-transform: lowercase;
+}
+
+.nodeBody {
+  padding: 10px 12px;
+  flex: 1;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.muted {
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  letter-spacing: -0.005em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capabilityTag {
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 9.5px;
+  color: var(--color-text-secondary);
+  padding: 1px 6px;
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 3px;
+  align-self: flex-start;
+  letter-spacing: -0.01em;
+}
+
+.handle {
+  background: var(--color-text-muted);
+  width: 6px;
+  height: 6px;
+  border: none;
+}
+
+// Goal node — bundle.goal target.
+.goal {
+  border: 1px solid var(--color-accent-primary);
+  box-shadow: 0 0 0 1px var(--color-accent-primary),
+    0 0 36px -4px var(--color-accent-primary-dim),
+    var(--shadow-lg);
+}
+.goalFlag {
+  position: absolute;
+  top: -8px;
+  left: 11px;
+  background: var(--color-accent-primary);
+  color: var(--color-bg-app);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 3px;
+  box-shadow: 0 4px 10px -2px var(--color-accent-primary-dim);
+  z-index: 1;
+}
+.clickable {
+  cursor: pointer;
+}
+.clickable:hover {
+  background: var(--color-bg-panel-soft);
+}
+
+.nodeFoot {
+  padding: 6px 10px 8px;
+  display: flex;
+  gap: 6px;
+  border-top: 1px solid var(--color-border-subtle);
+  background: var(--color-bg-panel-inset);
+}
+
+.rail {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 96px;
+  gap: 5px;
+  overflow-x: auto;
+  align-items: stretch;
+  max-width: 100%;
+}
+
+.railEmpty {
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-style: italic;
+  padding: 8px 0;
+  letter-spacing: -0.005em;
+}
+
+.railMore {
+  display: grid;
+  place-items: center;
+  min-width: 64px;
+  font-family: var(--font-family-mono, 'JetBrains Mono', ui-monospace, monospace);
+  font-size: 10.5px;
+  color: var(--color-text-secondary);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: 5px;
+  padding: 8px;
+  letter-spacing: -0.01em;
+}
+
+// xyflow edge styling — keep edges subtle.
+:global(.react-flow__edge-path) {
+  stroke: var(--color-text-muted);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+
+// xyflow minimap: ensure the surrounding mask doesn't cover the whole
+// background. Theme the node fills via nodeColor prop in
+// InspectorCanvas.tsx.
+:global(.react-flow__minimap) {
+  background: var(--color-bg-panel-inset) !important;
+  border: 1px solid var(--color-border-subtle) !important;
+}
+
+// xyflow controls cluster.
+:global(.react-flow__controls) {
+  background: var(--color-bg-panel-elevated) !important;
+  border: 1px solid var(--color-border-subtle) !important;
+}
+:global(.react-flow__controls-button) {
+  background: var(--color-bg-panel-elevated) !important;
+  color: var(--color-text-primary) !important;
+  border-bottom: 1px solid var(--color-border-subtle) !important;
+}
+:global(.react-flow__controls-button:hover) {
+  background: var(--color-bg-panel-soft) !important;
+}
+:global(.react-flow__controls-button svg) {
+  fill: var(--color-text-primary) !important;
+}

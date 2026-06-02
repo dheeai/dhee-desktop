@@ -1,0 +1,114 @@
+.stage {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--color-text-primary);
+  overflow: hidden;
+}
+
+.headline {
+  font-family: 'SF Pro Display', 'Inter', system-ui, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.4;
+  color: var(--color-text-primary);
+  letter-spacing: -0.005em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border-subtle);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.tree {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 8;
+  -webkit-box-orient: vertical;
+}
+
+.row { display: block; }
+.key { color: var(--color-text-secondary); }
+.sep { color: var(--color-text-muted); }
+.bracket { color: var(--color-text-muted); }
+.scalar { color: var(--color-success); }
+.meta { color: var(--color-text-muted); font-style: italic; }
+.muted { color: var(--color-text-muted); font-size: 10.5px; font-style: italic; }
+
+.empty {
+  color: var(--color-text-muted);
+  font-size: 11.5px;
+  font-style: italic;
+  letter-spacing: -0.005em;
+  padding: 6px 0;
+}
+
+.raw {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 10.5px;
+  color: var(--color-error);
+  white-space: pre-wrap;
+  margin: 0;
+  overflow: hidden;
+  max-height: 120px;
+}
+
+// Tile
+.tile {
+  background: var(--color-bg-panel-soft);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  padding: 6px 7px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  height: 100%;
+}
+.tileFailed {
+  border-color: var(--color-error);
+  box-shadow: 0 0 0 1px var(--color-error);
+}
+.tileInvalidated {
+  background-image: repeating-linear-gradient(135deg, transparent 0 4px, rgba(0,0,0,0.35) 4px 5px);
+}
+.tileLabel {
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 9.5px;
+  color: var(--color-text-muted);
+  letter-spacing: -0.01em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.tileDot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--color-success);
+  &.dot-pending { background: var(--color-text-muted); }
+  &.dot-running { background: var(--color-warning); }
+  &.dot-failed { background: var(--color-error); }
+  &.dot-invalidated { background: var(--color-text-secondary); }
+}
+.tileBody {
+  font-size: 10.5px;
+  line-height: 1.35;
+  color: var(--color-text-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  letter-spacing: -0.005em;
+}
+.tileBodyMuted {
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  font-style: italic;
+}

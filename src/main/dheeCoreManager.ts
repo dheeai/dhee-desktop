@@ -22,8 +22,15 @@ import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
-import fs from 'fs';
+import {
+  existsSync as fsExistsSync,
+  mkdirSync as fsMkdirSync,
+  readdirSync as fsReaddirSync,
+  statSync as fsStatSync,
+  readFileSync as fsReadFileSync,
+} from 'fs';
 import { app } from 'electron';
+import { clearProjectSessions } from './clearProjectSessions';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -39,15 +46,12 @@ type LLMClientConfig = {
   model?: string;
 };
 
-type ConversationManagerConfig = {
-  llmConfig: LLMClientConfig;
-};
-
+// Phase 6.4: ConversationManagerConfig + ConversationManager types
+// removed — no embedded manager to type against. ConversationEvents
+// kept as a loose record because buildEventsAdapter (still exported
+// for the IPC bridge regression test) needs to declare the callback
+// surface it returns.
 type ConversationEvents = Record<string, (...args: any[]) => void>;
-
-type ConversationManager = {
-  shutdown: () => void;
-};
 
 type AnalyticsIdentity = {
   distinctId?: string;
@@ -55,13 +59,19 @@ type AnalyticsIdentity = {
   userId?: string;
 };
 
-const dhee_CORE_MANAGER_MODULE = 'dhee-core/manager';
+// Phase 6.4: import the embed-host helpers from the main `dhee-core`
+// barrel. The legacy `./manager` entry (which exported a no-op
+// ConversationManager + analytics + dev-env) is being deleted now
+// that nothing in the manager construction path remains.
+const dhee_CORE_MANAGER_MODULE = 'dhee-core';
 
 function getPackagedManagerModuleUrl(): string | null {
   const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string })
     .resourcesPath;
   if (!resourcesPath) return null;
 
+  // Phase 6.4: the packaged fallback now points at dhee-core's main
+  // dist entry (was ./dist/server/manager.js, gone in Phase 6.4).
   return pathToFileURL(
     path.join(
       resourcesPath,
@@ -69,16 +79,16 @@ function getPackagedManagerModuleUrl(): string | null {
       'node_modules',
       'dhee-core',
       'dist',
-      'server',
-      'manager.js',
+      'index.js',
     ),
   ).href;
 }
 
+// Phase 6.4: narrowed to the host-helper surface that survives the
+// ConversationManager / workflow-registry deletion. The dhee-core
+// barrel still exports these so dheeCoreManager can configure analytics
+// + load the dev .env at startup.
 type ManagerModule = {
-  ConversationManager: new (
-    config: ConversationManagerConfig,
-  ) => ConversationManager;
   captureAnalyticsEvent?: (
     event: string,
     properties?: Record<string, unknown>,
@@ -126,50 +136,16 @@ type ManagerModule = {
     projectsDir: string;
   };
 
-  // ── Custom ComfyUI workflow management ─────────────────────────────
-  /**
-   * Pin the directory where user-uploaded workflows + manifests live.
-   * Must be called before the WorkflowModeRegistry singleton is first
-   * accessed — dhee-core throws if called too late.
-   */
-  setUserWorkflowsDir?: (path: string) => void;
-  /**
-   * Force the WorkflowModeRegistry to re-scan + re-apply the
-   * COMFY_MODE filter. Must be called after any process.env change
-   * that affects manifest visibility — flipping local↔cloud is the
-   * common case during settings updates.
-   */
-  refreshWorkflowRegistry?: () => void;
-  validateWorkflowFile?: (path: string) =>
-    | { ok: true; parsed: { totalNodes: number; detectedPipeline: string; inputNodes: unknown[]; loraNodes: unknown[] } }
-    | { ok: false; reason: string };
-  listWorkflows?: (opts?: { userOnly?: boolean }) => Array<{
-    id: string;
-    displayName: string;
-    pipeline: string;
-    builtIn: boolean;
-    isOverride: boolean;
-    active: boolean;
-  }>;
-  getWorkflow?: (id: string) => Record<string, unknown> | undefined;
-  updateWorkflow?: (id: string, patch: Record<string, unknown>) => Record<string, unknown>;
-  deleteWorkflow?: (id: string) => void;
-
-  // ── Session persistence ─────────────────────────────────────────
-  /**
-   * Returns a HistoryData snapshot for a sessionId by reading the
-   * on-disk pi-coding-agent transcript. Returns null when the id is
-   * unknown to the index. Optional in old dhee-core versions —
-   * callers must null-check.
-   */
-  getSessionHistorySnapshot?: (sessionId: string) => {
-    messages: Array<Record<string, unknown>>;
-    toolCalls: Array<Record<string, unknown>>;
-    focusedProject?: string;
-    compactionCount: number;
-  } | null;
-  /** Hard-delete the JSONL transcript and forget the index entry. Idempotent. */
-  clearSessionHistory?: (sessionId: string) => void;
+  // Phase 6.4: workflow CRUD + WorkflowModeRegistry + chat-session
+  // persistence are no longer exposed by dhee-core (the underlying
+  // services/comfyui/workflowIntegration.ts and
+  // services/providers/WorkflowModeRegistry.ts were deleted in
+  // d6f11bd). Workflow CRUD is stubbed in dheeCoreManager so the
+  // Settings → Workflows panel doesn't crash; real implementation
+  // returns when the bundle architecture re-introduces custom
+  // workflow support. Chat-session persistence (getSessionHistorySnapshot
+  // / clearSessionHistory) now lives in dheeCoreManager itself (Phase
+  // 6.3 stubs) — no need to thread through the embedded core.
 };
 
 /**
@@ -253,6 +229,131 @@ export function __setRunnersLoader(loader: () => Promise<RunnersModule>): void {
 }
 
 /**
+ * Subset of `dhee-core/dag` that owns walker-driven invalidate/regen.
+ * Replaces the dead `ConversationManager.redoNode / invalidateNodes`
+ * facade from BUG-016. See dhee-core/src/dag/projectRegen.ts for the
+ * implementation that both the pi-agent tool and this manager call.
+ */
+type DagModule = {
+  regenerateNode: (opts: {
+    projectDir: string;
+    nodeId: string;
+    itemId?: string;
+    signal?: AbortSignal;
+  }) => Promise<{
+    ok: boolean;
+    nodeId?: string;
+    error?: string;
+    finalVideoAbs?: string;
+  }>;
+  invalidateNodes: (opts: {
+    projectDir: string;
+    nodeIds: string[];
+    source?: string;
+  }) => Promise<{
+    invalidated: string[];
+    notFound: string[];
+    error?: string;
+  }>;
+};
+
+let loadDagModule: () => Promise<DagModule> = () =>
+  import(/* webpackIgnore: true */ 'dhee-core/dag') as Promise<DagModule>;
+
+/** Test seam — replace the loader so unit tests can supply a fake. */
+export function __setDagLoader(loader: () => Promise<DagModule>): void {
+  loadDagModule = loader;
+}
+
+/**
+ * Phase 6.5: pi-agent chat surface. The desktop builds a long-lived
+ * AgentSession per chat session and runs each user message through
+ * `runAgentTurn`. Both helpers live in dhee-core; we lazy-import them
+ * via the same dynamic-import pattern as the dag/runners modules so
+ * the ESM-only bundle can load from CJS Electron main.
+ */
+type ChatDeps = {
+  buildPiSession: (opts: {
+    sessionManager: unknown;
+    cwd?: string;
+    sessionsDir?: string;
+    modelProvider?: string;
+    modelId?: string;
+    apiKey?: string;
+  }) => Promise<{
+    session: {
+      sessionId?: string;
+      sessionFile?: string;
+      subscribe: (cb: (ev: unknown) => void) => () => void;
+      prompt: (m: string) => Promise<void>;
+      dispose?: () => void;
+    };
+  }>;
+  runAgentTurn: (
+    session: unknown,
+    message: string,
+    opts?: { keepAlive?: boolean; onEvent?: (ev: unknown) => void },
+  ) => Promise<
+    | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
+    | { ok: false; error: string }
+  >;
+};
+
+let chatDeps: ChatDeps | null = null;
+
+async function loadChatDeps(): Promise<ChatDeps> {
+  if (chatDeps) return chatDeps;
+  const mod = (await import(/* webpackIgnore: true */ 'dhee-core')) as ChatDeps & {
+    SessionManager?: { inMemory: (cwd?: string) => unknown };
+  };
+  chatDeps = { buildPiSession: mod.buildPiSession, runAgentTurn: mod.runAgentTurn };
+  return chatDeps;
+}
+
+/** Test seam — replace the chat helpers so jest doesn't boot a real LLM. */
+export function __setChatDeps(deps: ChatDeps): void {
+  chatDeps = deps;
+}
+
+/**
+ * Phase 6.5b: derive the {provider, modelId, apiKey} pi-agent needs
+ * from AppSettings. Returns null when no usable provider is configured —
+ * the chatPrompt caller surfaces a clean "no LLM configured" error
+ * instead of letting pi-coding-agent's auto-discovery silently no-op.
+ *
+ * Settings → pi-ai mapping (no chained imports of pi-ai's model
+ * tables — provider/model ids are strings, validated downstream by
+ * getModel()):
+ *   - llmProvider='gemini' + googleApiKey → { google, geminiModel, googleApiKey }
+ *   - llmProvider='openai' + openaiBaseUrl contains 'openrouter.ai'
+ *     + openaiApiKey + openaiModel → { openrouter, openaiModel, openaiApiKey }
+ *     The 'openai-compat-to-openrouter' detour is load-bearing —
+ *     many users keep llmProvider='openai' for backwards compat with
+ *     dhee-core's LLM dispatcher and rely on the base-URL override.
+ *   - llmProvider='openai' otherwise → { openai, openaiModel, openaiApiKey }
+ *
+ * Exported for unit testing.
+ */
+export function resolvePiModelFromSettings(
+  s: AppSettings,
+): { provider: string; modelId: string; apiKey: string } | null {
+  if (s.llmProvider === 'gemini') {
+    const apiKey = s.googleApiKey?.trim();
+    const modelId = (s.geminiModel || 'gemini-2.5-flash').trim();
+    if (!apiKey || !modelId) return null;
+    return { provider: 'google', modelId, apiKey };
+  }
+  // openai (default)
+  const apiKey = s.openaiApiKey?.trim();
+  const modelId = (s.openaiModel || 'gpt-4o').trim();
+  if (!apiKey || !modelId) return null;
+  if (s.openaiBaseUrl?.toLowerCase().includes('openrouter.ai')) {
+    return { provider: 'openrouter', modelId, apiKey };
+  }
+  return { provider: 'openai', modelId, apiKey };
+}
+
+/**
  * Single normalized event the IPC bridge publishes downstream.
  * Mirrors the existing WebSocket `ServerMessage` shape so the renderer
  * doesn't have to learn a new schema — only the transport changes.
@@ -277,6 +378,10 @@ export interface RedoNodeOpts {
   editedPrompt?: string;
   frame?: string;
   scope?: 'prompt' | 'image_only';
+  /** For collection nodes — regenerate just this item (composes the walkState key as `nodeId:itemId`). */
+  itemId?: string;
+  /** Cooperative cancellation forwarded to the runner. */
+  signal?: AbortSignal;
 }
 
 export interface ConfigureProjectOpts {
@@ -462,14 +567,35 @@ export function applyEnvFromSettings(
     // skipped. See ComfyUIClient.getComfyConfig.
     if (isComfyCloudUrl(comfyUiUrl)) {
       process.env.COMFY_MODE = 'cloud';
-      if (settings.comfyCloudApiKey.trim()) {
-        process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
-      }
     } else {
       process.env.COMFY_MODE = 'local';
     }
+    // Always export the user's cloud API key when present — bundles
+    // can declare per-node endpoints (e.g. `public.cloud`) that point
+    // at cloud.comfy.org even when the default `comfyuiUrl` is local.
+    // Gating the key behind `isComfyCloudUrl(comfyuiUrl)` made those
+    // per-node cloud calls fail with "COMFY_CLOUD_API_KEY is required"
+    // even though the key was set in Settings.
+    if (settings.comfyCloudApiKey.trim()) {
+      process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
+    }
   }
   setIfPresent('dhee_PROJECT_DIR', settings.projectDir);
+
+  // ── Named ComfyUI endpoints (DAG bundle architecture) ──
+  // Bundles declare endpoint NAMES (e.g. "self.local"); the URL lives
+  // here per-user. Forward each as ENDPOINT_<name_with_dots_as_underscores>
+  // env var that the kshana-core process reads via resolveEndpointUrl().
+  // Bundle stays portable across users; user keeps full control of
+  // routing. P2P discovery will register additional names here later.
+  for (const [endpointName, endpointUrl] of Object.entries(
+    settings.comfyEndpoints ?? {},
+  )) {
+    const trimmed = typeof endpointUrl === 'string' ? endpointUrl.trim() : '';
+    if (!trimmed) continue;
+    const envKey = `ENDPOINT_${endpointName.replace(/\./g, '_')}`;
+    process.env[envKey] = trimmed;
+  }
 
   // LLM routing — gated by the dedicated `llmBackend` lane (set above
   // as `useCloudLLM`). This is independent of `comfyBackend`: a user
@@ -505,6 +631,29 @@ export function applyEnvFromSettings(
         break;
     }
   }
+
+  // Phase 6.5b: bridge the user's settings to pi-ai's per-provider
+  // env-var discovery. Pi-ai's `findEnvKeys()` reads canonical names
+  // (OPENROUTER_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, …); without
+  // these set explicitly, pi-coding-agent silently picks no model and
+  // session.prompt() either errors with "No API key found" or returns
+  // an empty stream.
+  //
+  // Cast wide: set every key the user has configured. Multiple keys
+  // CAN coexist — pi-ai picks the one matching the selected model.
+  //
+  // OpenRouter is the load-bearing case: many users configure it via
+  // settings.llmProvider='openai' + openaiBaseUrl pointing at
+  // openrouter.ai. Detect that pattern and forward the key.
+  if (
+    settings.openaiApiKey?.trim() &&
+    settings.openaiBaseUrl?.toLowerCase().includes('openrouter.ai')
+  ) {
+    setIfPresent('OPENROUTER_API_KEY', settings.openaiApiKey);
+  }
+  setIfPresent('OPENROUTER_API_KEY', settings.openRouterApiKey);
+  setIfPresent('GEMINI_API_KEY', settings.googleApiKey);
+  setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
 
   // VLM (vision judge) env wiring:
   //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
@@ -729,9 +878,97 @@ export function buildEventsAdapter(
 }
 
 export class dheeCoreManager {
-  private cm: ConversationManager | null = null;
+  /**
+   * Phase 6.4: replaces the old `cm: ConversationManager | null` field.
+   * The embedded ConversationManager was deleted along with the legacy
+   * pi-coding-agent stack (d6f11bd); started state is now just a flag
+   * the IPC bridge can poll via `isStarted()`.
+   */
+  private started = false;
 
   private managerModule: ManagerModule | null = null;
+
+  /**
+   * sessionId → absolute projectDir for the project that session is
+   * focused on. Populated by `focusSessionProject` (called from the
+   * renderer when the user opens a project). Read by `redoNode` and
+   * `invalidateNodes` so they know which project's walkState to
+   * mutate — replacing the equivalent session-scoped state that used
+   * to live in the now-defunct `ConversationManager` (BUG-016).
+   */
+  private sessionProjects = new Map<string, string>();
+
+  /**
+   * Phase 6.3: per-session boolean flags (autonomous mode, pi
+   * oversight, VLM judge) the renderer sets via IPC. No consumer
+   * reads them in this manager today — they're held for the
+   * eventual pi-agent-in-process integration to consume.
+   */
+  private sessionFlags = new Map<
+    string,
+    { autonomousMode?: boolean; piOversight?: boolean; vlmJudge?: boolean }
+  >();
+
+  /** Lazy-loaded dhee-core/dag for the walker-driven invalidate + regen helpers. */
+  private dagModule: DagModule | null = null;
+
+  /**
+   * Phase 6.5b: most recent AppSettings handed to start() / restart().
+   * chatPrompt reads `llmProvider` / `openaiApiKey` / `openaiBaseUrl` /
+   * `openaiModel` / `googleApiKey` / `geminiModel` etc. from here to
+   * derive the {provider, modelId, apiKey} triple it passes to
+   * buildPiSession. Necessary because pi-coding-agent's
+   * `findInitialModel` heuristic doesn't reliably pick up env-only
+   * credentials.
+   */
+  private lastSettings: AppSettings | null = null;
+
+  /**
+   * Test seam — seed `lastSettings` without going through start().
+   * Tests inject minimal AppSettings so chatPrompt's resolver can
+   * return a model triple. Production callers go through start().
+   */
+  __setLastSettingsForTesting(s: AppSettings): void {
+    this.lastSettings = s;
+  }
+
+  /**
+   * Test seam — seed an AgentSession entry without going through
+   * chatPrompt's lazy build path. Used by cancellation-order tests
+   * to verify runner.cancel() fires BEFORE session.abort() is awaited.
+   */
+  __setAgentSessionForTesting(
+    sessionId: string,
+    session: { subscribe: (cb: (ev: unknown) => void) => () => void; prompt: (m: string) => Promise<void>; abort?: () => Promise<void>; dispose?: () => void },
+  ): void {
+    this.agentSessions.set(sessionId, { session });
+  }
+
+  /**
+   * Phase 6.5: long-lived pi-coding-agent AgentSession per chat
+   * sessionId. Built lazily on the first chatPrompt + reused across
+   * turns so context + transcript persist for the lifetime of the
+   * desktop process. Disposed on deleteSession.
+   */
+  private agentSessions = new Map<
+    string,
+    {
+      session: {
+        sessionId?: string;
+        sessionFile?: string;
+        subscribe: (cb: (ev: unknown) => void) => () => void;
+        prompt: (m: string) => Promise<void>;
+        dispose?: () => void;
+      };
+    }
+  >();
+
+  private async getDagModule(): Promise<DagModule> {
+    if (!this.dagModule) {
+      this.dagModule = await loadDagModule();
+    }
+    return this.dagModule;
+  }
 
   /**
    * Construct the embedded ConversationManager. Sets process.env
@@ -785,68 +1022,76 @@ export class dheeCoreManager {
       process.env.dhee_PROJECTS_DIR = devEnv.projectsDir;
     }
 
-    // Pin the user-workflows directory under userData/ so custom
-    // ComfyUI workflows uploaded by the user (via the chat or the
-    // Settings → Workflows tab) live in a writable, per-install
-    // location. Must happen BEFORE ConversationManager is constructed
-    // — once the WorkflowModeRegistry singleton is accessed, dhee-
-    // core refuses further setUserWorkflowsDir calls.
-    if (this.managerModule.setUserWorkflowsDir) {
-      const userWorkflowsDir = path.join(
-        app.getPath('userData'),
-        'workflows',
-        'user',
-      );
-      try {
-        if (!fs.existsSync(userWorkflowsDir)) {
-          fs.mkdirSync(userWorkflowsDir, { recursive: true });
-        }
-        this.managerModule.setUserWorkflowsDir(userWorkflowsDir);
-        log.info(`[dheeCoreManager] User workflows dir: ${userWorkflowsDir}`);
-      } catch (err) {
-        log.warn(
-          `[dheeCoreManager] Could not pin user workflows dir: ${(err as Error).message}`,
+    // Externalized bundle resolution. kshana-core's bundleSource.ts
+    // searches roots in precedence order: USER → APP → ~/.kshana →
+    // <dev-source>. Set the two env vars so a packaged build (and
+    // dev launches) find the right bundles without code changes.
+    //
+    //   APP  = first-party defaults shipped inside the .app, lifted
+    //          via electron-builder extraResources from
+    //          kshana-core/dist/bundles → <app>/Resources/bundles.
+    //          In dev there is no `process.resourcesPath/bundles`
+    //          yet, so we point at the source tree's dist/bundles
+    //          (still produced by `pnpm tsup`).
+    //
+    //   USER = `<studiosDir>/bundles` so user forks + community
+    //          installs override the app-shipped defaults. The
+    //          desktop already computes the studios dir via
+    //          devEnv.projectsDir (it's the projects parent dir).
+    try {
+      const appBundles = path.join(process.resourcesPath, 'bundles');
+      if (fsExistsSync(appBundles)) {
+        process.env.DHEE_APP_BUNDLES_DIR = appBundles;
+      } else {
+        // Dev fallback — `pnpm tsup` writes dist/bundles in the
+        // sibling kshana-core source tree. `__dirname` here is
+        // dhee-desktop/src/main; walk up to the workspace root.
+        const devAppBundles = path.resolve(
+          __dirname,
+          '..', '..', '..', 'kshana-core', 'dist', 'bundles',
         );
+        if (fsExistsSync(devAppBundles)) {
+          process.env.DHEE_APP_BUNDLES_DIR = devAppBundles;
+        }
       }
+      if (devEnv?.projectsDir) {
+        // `<studiosDir>/bundles` — sibling of project directories.
+        process.env.DHEE_USER_BUNDLES_DIR = path.join(devEnv.projectsDir, 'bundles');
+      }
+    } catch {
+      // best-effort; bundleSource still falls through to its source-tree
+      // default when env vars are unset.
     }
+
+    // Phase 6.4: WorkflowModeRegistry + ConversationManager were
+    // deleted with the legacy stack. We no longer need to:
+    //   - pin a user-workflows dir (no registry to feed)
+    //   - refresh the WorkflowModeRegistry after a COMFY_MODE flip
+    //   - construct a ConversationManager (the embed-host helpers
+    //     we still use are pure functions exported from dhee-core).
 
     applyEnvFromSettings(settings, cloudAuth);
 
-    // applyEnvFromSettings may have just flipped COMFY_MODE
-    // (local ↔ cloud). The WorkflowModeRegistry's mode-filtered
-    // view is computed at refresh() time, not on every lookup, so
-    // without an explicit refresh the previous mode's filter
-    // state would persist after restart() — making custom
-    // workflows look "missing" until the next process restart.
-    try {
-      this.managerModule.refreshWorkflowRegistry?.();
-    } catch (err) {
-      log.warn(
-        `[dheeCoreManager] WorkflowModeRegistry refresh failed: ${(err as Error).message}`,
-      );
-    }
+    // Phase 6.5b: cache settings so chatPrompt can derive
+    // {provider, modelId, apiKey} for the pi-agent.
+    this.lastSettings = settings;
 
-    const config: ConversationManagerConfig = {
-      llmConfig: buildLLMConfig(settings),
-    };
-    this.cm = new this.managerModule.ConversationManager(config);
-    // Seed core's process-wide oversightState from the persisted
-    // AppSettings on the very first run. Subsequent updates flow
-    // through main.ts's `settings:update` IPC handler, which
-    // calls setPiOversight / setVlmJudge directly. Without this
-    // seed, a fresh manager would default both to true and then
-    // immediately get overwritten on the user's next settings
-    // change — fine in practice but the symmetry's nicer.
+    // Seed process-wide oversight + VLM flags from persisted
+    // AppSettings on the very first run. Pi-agent-in-process
+    // consumers (Phase 6.5) will read these per-session via
+    // setPiOversight / setVlmJudge.
     this.setPiOversight('', settings.piOversight);
     this.setVlmJudge('', settings.vlmJudge);
+    this.started = true;
   }
 
-  /** Tear down the manager. Safe to call when not started. */
+  /**
+   * Tear down. Safe to call when not started. Phase 6.4: there's no
+   * embedded ConversationManager to shutdown anymore — just flip the
+   * started flag so isStarted() reflects reality.
+   */
   stop(): void {
-    if (this.cm) {
-      this.cm.shutdown();
-      this.cm = null;
-    }
+    this.started = false;
   }
 
   /** Replace the manager (used when settings change). */
@@ -858,9 +1103,9 @@ export class dheeCoreManager {
     await this.start(settings, cloudAuth);
   }
 
-  /** Whether `start()` has run and the manager is alive. */
+  /** Whether `start()` has run. */
   isStarted(): boolean {
-    return this.cm !== null;
+    return this.started;
   }
 
   configureAnalytics(input: {
@@ -927,25 +1172,25 @@ export class dheeCoreManager {
    * create — `id` will differ from the request and `resumed` will
    * be false.
    */
+  /**
+   * Phase 6.3 stub: synthetic session id, no embedded chat state.
+   *
+   * The renderer's chat panel calls this on mount to get a sessionId
+   * it then uses as the key for focusProject / runTask / redoNode /
+   * etc. Real session state (pi-coding-agent persistence, history
+   * replay) returns in Phase 6.4 when the chat panel is rebuilt to
+   * drive pi-agent in-process. Until then we hand back an id that's
+   * good enough to thread through the IPC layer.
+   */
   createSession(
-    role?: 'interactive' | 'background',
+    _role?: 'interactive' | 'background',
     resumeSessionId?: string,
   ): { id: string; resumed: boolean } {
-    const cm = this.requireStarted();
-    // ConversationManager.createSession(mode, remoteFs, role, existingSessionId) —
-    // 4th arg added by the persistence work; older builds will ignore it.
-    const session = (
-      cm as unknown as {
-        createSession: (
-          mode?: 'local' | 'remote',
-          remoteFs?: undefined,
-          role?: 'interactive' | 'background',
-          existingSessionId?: string,
-        ) => { id: string };
-      }
-    ).createSession('local', undefined, role ?? 'interactive', resumeSessionId);
-    const resumed = !!resumeSessionId && session.id === resumeSessionId;
-    return { id: session.id, resumed };
+    if (resumeSessionId) {
+      return { id: resumeSessionId, resumed: true };
+    }
+    const id = `s-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    return { id, resumed: false };
   }
 
   /**
@@ -953,18 +1198,118 @@ export class dheeCoreManager {
    * when dhee-core doesn't expose the helper (older version) or
    * the id is unknown.
    */
+  /**
+   * Phase 6.5c.d: rehydrate prior chat from the persisted pi-agent
+   * JSONL. We resolve the session's focused projectDir via the
+   * sessionProjects map (Phase 6.1), find the most-recent JSONL in
+   * userData/pi-sessions/<projectSlug>/, and reconstruct the
+   * HistorySnapshot shape the renderer's chat panel consumes.
+   *
+   * Returns null when there's no focused project yet (chat panel
+   * shows the empty intro card) or when no JSONL exists (fresh
+   * project, never chatted).
+   */
   getSessionHistorySnapshot(sessionId: string): {
     messages: Array<Record<string, unknown>>;
     toolCalls: Array<Record<string, unknown>>;
     focusedProject?: string;
     compactionCount: number;
   } | null {
-    const fn = this.managerModule?.getSessionHistorySnapshot;
-    if (typeof fn !== 'function') return null;
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) return null;
+    let sessionsDir: string;
     try {
-      return fn(sessionId);
-    } catch (err) {
-      log.warn('[dheeCoreManager] getSessionHistorySnapshot failed:', err);
+      const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
+      const userData = app.getPath?.('userData');
+      if (!userData) return null;
+      sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+    } catch {
+      return null;
+    }
+    if (!fsExistsSync(sessionsDir)) return null;
+    let latest: { path: string; mtime: number } | null = null;
+    try {
+      for (const f of fsReaddirSync(sessionsDir)) {
+        // Skip archived sessions — clearChatHistory renames the live
+        // JSONL to `.archived` (no `.jsonl` suffix in the new scheme)
+        // as a soft delete. We also still skip legacy `.archived.jsonl`
+        // files for projects that haven't migrated yet.
+        if (f.endsWith('.archived')) continue;
+        if (f.endsWith('.archived.jsonl')) continue;
+        if (!f.endsWith('.jsonl')) continue;
+        const full = path.join(sessionsDir, f);
+        const stat = fsStatSync(full);
+        if (!latest || stat.mtimeMs > latest.mtime) {
+          latest = { path: full, mtime: stat.mtimeMs };
+        }
+      }
+    } catch {
+      return null;
+    }
+    if (!latest) return null;
+    try {
+      const content = fsReadFileSync(latest.path, 'utf8');
+      const lines = content.split('\n').filter((l) => l.trim().length > 0);
+      const messages: Array<Record<string, unknown>> = [];
+      let compactionCount = 0;
+      for (const line of lines) {
+        let parsed: Record<string, unknown>;
+        try {
+          parsed = JSON.parse(line) as Record<string, unknown>;
+        } catch {
+          continue;
+        }
+        if (parsed['type'] === 'compaction') {
+          compactionCount += 1;
+          continue;
+        }
+        if (parsed['type'] !== 'message') continue;
+        const msg = parsed['message'] as
+          | { role?: string; content?: unknown; timestamp?: number }
+          | undefined;
+        if (!msg) continue;
+        const ts = typeof msg.timestamp === 'number'
+          ? msg.timestamp
+          : (typeof parsed['timestamp'] === 'string'
+              ? Date.parse(parsed['timestamp'] as string)
+              : Date.now());
+        // user content is a string; assistant content is an array of
+        // {type:'text'|'toolCall'|'thinking', text?}. Flatten to plain
+        // text — tool-call envelopes are dropped here (the new chat
+        // panel doesn't render them from history; only live events).
+        let content: string;
+        if (typeof msg.content === 'string') {
+          content = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          content = msg.content
+            .filter((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'text')
+            .map((c) => (c as { text?: string }).text ?? '')
+            .join('');
+        } else {
+          continue;
+        }
+        if (!content.trim()) continue;
+        // Synthetic system messages from prior runs are noise; skip
+        // anything starting with [SYSTEM EVENT] or (Active project: …).
+        if (msg.role === 'user' && /^\[SYSTEM EVENT\]|^\(Active project:/.test(content)) {
+          continue;
+        }
+        if (msg.role === 'user' || msg.role === 'assistant') {
+          messages.push({
+            id: (parsed['id'] as string) ?? `${ts}-${messages.length}`,
+            type: msg.role === 'user' ? 'user' : 'agent',
+            content,
+            timestamp: ts,
+          });
+        }
+      }
+      return {
+        messages,
+        toolCalls: [],
+        focusedProject: path.basename(projectDir),
+        compactionCount,
+      };
+    } catch {
       return null;
     }
   }
@@ -974,40 +1319,71 @@ export class dheeCoreManager {
    * session for the renderer to switch to. Returns the new id. Tears
    * down any in-memory ActiveSession for the old id along the way.
    */
+  /**
+   * Wipe the persisted chat for the project this session is focused on
+   * AND drop in-memory state. Mints a fresh sessionId.
+   *
+   * Bug fix: the old version only minted a new id without touching the
+   * on-disk JSONL files. When the renderer's `refreshHistory` next
+   * fired against the new id (after focusProject restored the
+   * session→project mapping), getSessionHistorySnapshot re-loaded the
+   * MOST-RECENT JSONL — the very file we'd claimed to delete in the
+   * confirm dialog. The chat re-appeared. The dialog was lying.
+   */
   clearChatHistory(
     oldSessionId: string,
     role?: 'interactive' | 'background',
-  ): { newSessionId: string } {
-    const cm = this.requireStarted();
-    // Drop the in-memory state (cancels any in-flight task).
-    try {
-      (cm as unknown as { deleteSession?: (id: string) => void }).deleteSession?.(oldSessionId);
-    } catch (err) {
-      log.warn('[dheeCoreManager] deleteSession during clearChatHistory failed:', err);
+  ): { newSessionId: string; archivedJsonlFiles: number } {
+    // Look up the focused project BEFORE dropping the mapping, so we
+    // know which slug to clean.
+    const projectDir = this.sessionProjects.get(oldSessionId);
+    let archivedJsonlFiles = 0;
+    if (projectDir) {
+      try {
+        const userData = app.getPath?.('userData');
+        if (userData) {
+          const r = clearProjectSessions(userData, projectDir);
+          archivedJsonlFiles = r.archived;
+        }
+      } catch {
+        // best-effort; clearing in-memory state below still proceeds.
+      }
     }
-    // Wipe the JSONL + sessionStore index.
-    try {
-      this.managerModule?.clearSessionHistory?.(oldSessionId);
-    } catch (err) {
-      log.warn('[dheeCoreManager] clearSessionHistory failed:', err);
+    // Dispose any in-memory pi AgentSession for this sessionId BEFORE
+    // dropping the entry. Without this, the AgentSession still holds
+    // a pi SessionManager pointing at the now-archived JSONL — and pi
+    // keeps writing future turns into the soft-deleted file. The next
+    // chatPrompt would rebuild via `continueRecent`, but only AFTER
+    // the manager is disposed (see chatPrompt's lazy-build path).
+    const agentEntry = this.agentSessions.get(oldSessionId);
+    if (agentEntry?.session) {
+      try {
+        agentEntry.session.dispose?.();
+      } catch {
+        // best-effort dispose
+      }
     }
+    this.agentSessions.delete(oldSessionId);
+    this.sessionProjects.delete(oldSessionId);
+    this.sessionFlags.delete(oldSessionId);
     const fresh = this.createSession(role);
-    return { newSessionId: fresh.id };
+    return { newSessionId: fresh.id, archivedJsonlFiles };
   }
 
+  /**
+   * Phase 6.3 stub: pin the session→projectDir mapping. Mirrors
+   * focusSessionProject — both IPC paths land in the same map so
+   * runTask + redoNode + invalidateNodes find the projectDir
+   * regardless of which one the renderer fired.
+   */
   async configureSessionForProject(
     sessionId: string,
     opts: ConfigureProjectOpts,
   ): Promise<void> {
-    const cm = this.requireStarted();
-    // Pass through whatever ConversationManager expects. The actual
-    // shape may differ per dhee-ink version; we forward the opts
-    // object as-is and let the manager validate.
-    await (
-      cm as unknown as {
-        configureSessionForProject: (...a: unknown[]) => Promise<void>;
-      }
-    ).configureSessionForProject(sessionId, opts);
+    if (opts.projectDir) {
+      this.sessionProjects.set(sessionId, opts.projectDir);
+    }
+    return;
   }
 
   /**
@@ -1020,75 +1396,213 @@ export class dheeCoreManager {
    * hasn't been started — the caller (IPC bridge) shouldn't have to
    * try/catch every call.
    */
+  /**
+   * Phase 6.2 rewire: dispatch a bundle DAG run via the
+   * BackgroundTaskRunner singleton — no longer routes through the
+   * dead ConversationManager.runTask facade. The `task` string is
+   * informational only (the runner reads the spec's projectDir +
+   * stage; it doesn't interpret natural language). For pi-agent-
+   * driven chat where the model picks tools, Phase 6.2b will hang
+   * pi-agent in-process and have it call dhee_run_bundle.
+   *
+   * Translates the runner's typed events (tool / result /
+   * notification / asset / terminal) into dheeCoreEvents matching
+   * the existing renderer vocabulary (tool_call / tool_result /
+   * status / asset / etc).
+   */
   async runTask(
     sessionId: string,
-    task: string,
+    _task: string,
     opts: RunTaskOpts,
     eventCb: dheeCoreEventCallback,
   ): Promise<RunResult> {
-    if (!this.cm) {
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
       return {
         status: 'failed',
-        error: 'dheeCoreManager not started — call start() first.',
+        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
       };
     }
-    const events = buildEventsAdapter(eventCb);
-    // Pin the events bridge for the lifetime of this session — server-
-    // initiated turns (supervisor pi-agent on runner `completed`) call
-    // runTask without an eventCb, and the manager's persistentEvents
-    // fallback uses this bridge so their tool calls / streaming text
-    // still reach the renderer. Idempotent: last bind wins (renderer
-    // reload swaps in a fresh webContents.send closure).
-    try {
-      (
-        this.cm as unknown as {
-          bindSessionEventBridge?: (s: string, e: ConversationEvents) => void;
-        }
-      ).bindSessionEventBridge?.(sessionId, events);
-    } catch {
-      /* older dhee-core without the bridge API — runTask still works */
-    }
-    try {
-      const result = await (
-        this.cm as unknown as {
-          runTask: (
-            sessionId: string,
-            task: string,
-            events?: ConversationEvents,
-            opts?: RunTaskOpts,
-          ) => Promise<{ status: string; output?: string; error?: string }>;
-        }
-      ).runTask(sessionId, task, events, opts);
-      return {
-        status: result.status as RunResult['status'],
-        ...(result.output ? { output: result.output } : {}),
-        ...(result.error ? { error: result.error } : {}),
-      };
-    } catch (err) {
+    const projectName = path.basename(projectDir);
+
+    const runnersMod = await loadRunnersModule();
+    const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+      dispatch: (spec: {
+        kind: 'run_to';
+        projectName: string;
+        params: { projectDir: string; stage?: string };
+        sessionId: string;
+      }) =>
+        | { status: 'started'; taskId: string }
+        | {
+            status: 'rejected';
+            reason: 'task_already_running';
+            activeTaskId: string;
+            activeTaskKind: string;
+            activeProjectName: string;
+          };
+      on: (event: string, handler: (payload: unknown) => void) => () => void;
+    };
+
+    const dispatchResult = runner.dispatch({
+      kind: 'run_to',
+      projectName,
+      params: {
+        projectDir,
+        ...(opts.stopAtStage ? { stage: opts.stopAtStage } : {}),
+      },
+      sessionId,
+    });
+
+    if (dispatchResult.status === 'rejected') {
       return {
         status: 'failed',
-        error: err instanceof Error ? err.message : String(err),
+        error: `task already running on project '${dispatchResult.activeProjectName}' (taskId ${dispatchResult.activeTaskId})`,
       };
     }
+
+    const taskId = dispatchResult.taskId;
+    const emit = (eventName: string, data: unknown) =>
+      eventCb({ eventName, sessionId, data });
+
+    return new Promise<RunResult>((resolve) => {
+      const offs: Array<() => void> = [];
+      const cleanup = () => {
+        for (const off of offs) off();
+      };
+      const matches = (e: unknown): e is { task?: { id?: string } } =>
+        typeof e === 'object' && e !== null && (e as { task?: { id?: string } }).task?.id === taskId;
+
+      offs.push(
+        runner.on('tool', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { toolName?: string; nodeId?: string };
+          emit('tool_call', {
+            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+            toolName: evt.toolName,
+            arguments: {},
+            status: 'in_progress',
+          });
+        }),
+      );
+      offs.push(
+        runner.on('result', (e) => {
+          if (!matches(e)) return;
+          const evt = e as {
+            toolName?: string;
+            nodeId?: string;
+            filePath?: string;
+            status?: string;
+            error?: string;
+          };
+          emit('tool_result', {
+            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+            toolName: evt.toolName,
+            result: {
+              filePath: evt.filePath,
+              status: evt.status,
+              error: evt.error,
+            },
+            isError: evt.status === 'error' || !!evt.error,
+          });
+        }),
+      );
+      offs.push(
+        runner.on('notification', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { level?: string; message?: string };
+          emit('status', { status: 'info', level: evt.level, message: evt.message });
+        }),
+      );
+      offs.push(
+        runner.on('asset', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { kind?: string; filePath?: string; nodeId?: string };
+          emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
+        }),
+      );
+      offs.push(
+        runner.on('completed', (e) => {
+          if (!matches(e)) return;
+          cleanup();
+          resolve({ status: 'completed' });
+        }),
+      );
+      offs.push(
+        runner.on('failed', (e) => {
+          if (!matches(e)) return;
+          const evt = e as { error?: string };
+          cleanup();
+          resolve({ status: 'failed', error: evt.error });
+        }),
+      );
+      offs.push(
+        runner.on('cancelled', (e) => {
+          if (!matches(e)) return;
+          cleanup();
+          resolve({ status: 'cancelled' });
+        }),
+      );
+    });
   }
 
   /**
-   * Mirror of ConversationManager.cancelTask. Tagged userInitiated
-   * because the IPC bridge only invokes this when the user clicks
-   * Stop in the chat header — server-side auto-cancels in the
-   * back-to-back runTask path call ConversationManager.cancelTask
-   * directly. The flag tells the silent-agent escape hatch in
-   * runTask to suppress the "Agent didn't respond — interrupted"
-   * notification (the user already knows; the extra warning is
-   * noise).
+   * Phase 6.2 rewire: cancel the active BackgroundTaskRunner task.
+   * Session id is informational only — the runner is global (one
+   * task at a time). Returns false when nothing is running.
+   *
+   * Phase 6.5c.e: ALSO aborts the per-session AgentSession (if one
+   * exists) so the Stop button halts pi-agent mid-prompt, not just
+   * the runner task. Without this the agent keeps reasoning + may
+   * call more tools even though the user clicked Stop.
    */
-  cancelTask(sessionId: string): boolean {
-    if (!this.cm) return false;
-    return (
-      this.cm as unknown as {
-        cancelTask: (s: string, p?: unknown, o?: { userInitiated?: boolean }) => boolean;
+  async cancelTask(sessionId: string): Promise<boolean> {
+    // Fire-and-forget both cancellation paths. cancelTask must NOT
+    // block on the agent's in-flight tool finishing — the user clicked
+    // Stop because they want control back NOW, not after the LLM
+    // stream / Comfy poll naturally settles.
+    //
+    //   1. runner.cancel() — fire-and-forget. Aborts the BG task
+    //      controller; the in-flight tool's terminal event fires
+    //      whenever the executor notices the abort. We don't await.
+    //   2. session.abort() — fire-and-forget. pi-coding-agent's abort
+    //      sets an internal "aborted" flag and tries to interrupt
+    //      the model stream. Internally it awaits the in-flight tool
+    //      to release the agent lock, which can take 30-90s in
+    //      practice (BG comfy poll holds the lock). We don't care —
+    //      we just need the abort SIGNAL fired so further tool
+    //      decisions are skipped.
+    //
+    // The long tail (in-flight tool finishing, walkState mutations
+    // it does on its way out) continues in the background. The agent
+    // session's `aborted` flag prevents NEW tool calls.
+    let runnerCancelled = false;
+    try {
+      const runnersMod = await loadRunnersModule();
+      runnerCancelled = runnersMod.getBackgroundTaskRunner().cancel();
+    } catch {
+      /* best-effort */
+    }
+
+    let abortFired = false;
+    const agentSession = this.agentSessions.get(sessionId);
+    if (agentSession?.session) {
+      const sess = agentSession.session as { abort?: () => Promise<void> };
+      if (typeof sess.abort === 'function') {
+        try {
+          // Trigger abort, but DO NOT await. abort() may take 30-90s
+          // to resolve because pi waits for in-flight tools to
+          // release the agent lock. The user clicked Stop — UI must
+          // return control immediately.
+          void sess.abort().catch(() => undefined);
+          abortFired = true;
+        } catch {
+          // pi-coding-agent's abort can throw synchronously if there's
+          // no current operation; that's fine.
+        }
       }
-    ).cancelTask(sessionId, undefined, { userInitiated: true });
+    }
+    return runnerCancelled || abortFired;
   }
 
   /**
@@ -1127,6 +1641,18 @@ export class dheeCoreManager {
     };
   }
 
+  /**
+   * Regenerate a single bundle node (or a single collection-item of a
+   * node). Looks up the session's focused projectDir from
+   * `sessionProjects`, then forwards to dhee-core/dag.regenerateNode
+   * — which invalidates the walkState entry, persists the change, and
+   * dispatches `runProjectViaBundle({runOnly:[nodeId]})` so the
+   * walker re-runs that node and its downstream.
+   *
+   * Phase 6 (BUG-016 proper fix): replaces the dead
+   * `ConversationManager.redoNode` facade. Pre-Phase-6 this method
+   * silently threw because the stub manager has no redoNode method.
+   */
   async redoNode(
     sessionId: string,
     nodeId: string,
@@ -1137,89 +1663,97 @@ export class dheeCoreManager {
     editedPrompt?: string;
     error?: string;
   }> {
-    if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
-    return (
-      this.cm as unknown as {
-        redoNode: (
-          s: string,
-          n: string,
-          o?: RedoNodeOpts,
-        ) => Promise<{
-          ok: boolean;
-          nodeId?: string;
-          editedPrompt?: string;
-          error?: string;
-        }>;
-      }
-    ).redoNode(sessionId, nodeId, opts);
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
+      return {
+        ok: false,
+        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
+      };
+    }
+    const dag = await this.getDagModule();
+    const result = await dag.regenerateNode({
+      projectDir,
+      nodeId,
+      ...(opts?.itemId ? { itemId: opts.itemId } : {}),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    });
+    return {
+      ok: result.ok,
+      ...(result.nodeId ? { nodeId: result.nodeId } : {}),
+      ...(result.error ? { error: result.error } : {}),
+    };
   }
 
   /**
-   * Mark executor nodes pending on disk without resuming the
-   * pipeline. Driven by the desktop's Prompts-tab edit flow.
+   * Mark walker nodes as invalidated on disk without dispatching a
+   * re-run. The walker picks them up on the next dispatch.
+   *
+   * Phase 6 (BUG-016 proper fix): replaces the dead
+   * `ConversationManager.invalidateNodes` facade.
    */
   async invalidateNodes(
     sessionId: string,
     nodeIds: string[],
     source?: string,
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
-    if (!this.cm) throw new Error('dheeCoreManager not started');
-    return (
-      this.cm as unknown as {
-        invalidateNodes(
-          s: string,
-          ids: string[],
-          src?: string,
-        ): Promise<{ invalidated: string[]; notFound: string[] }>;
-      }
-    ).invalidateNodes(sessionId, nodeIds, source);
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
+      throw new Error(
+        `no project focused for session ${sessionId} — call focusSessionProject first`,
+      );
+    }
+    const dag = await this.getDagModule();
+    const result = await dag.invalidateNodes({
+      projectDir,
+      nodeIds,
+      ...(source ? { source } : {}),
+    });
+    if (result.error) throw new Error(result.error);
+    return { invalidated: result.invalidated, notFound: result.notFound };
   }
 
+  // Phase 6.3 stubs — store the flags per session so the IPC handlers
+  // don't throw on the now-dead ConversationManager. No consumer reads
+  // them in this manager today; pi-agent-in-process (Phase 6.4) will.
+
   setAutonomousMode(sessionId: string, enabled: boolean): void {
-    if (!this.cm) return;
-    (
-      this.cm as unknown as {
-        setAutonomousMode: (s: string, e: boolean) => void;
-      }
-    ).setAutonomousMode(sessionId, enabled);
+    const f = this.sessionFlags.get(sessionId) ?? {};
+    f.autonomousMode = enabled;
+    this.sessionFlags.set(sessionId, f);
   }
 
   setPiOversight(sessionId: string, enabled: boolean): void {
-    if (!this.cm) return;
-    const fn = (this.cm as unknown as { setPiOversight?: (s: string, e: boolean) => void }).setPiOversight;
-    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
+    const f = this.sessionFlags.get(sessionId) ?? {};
+    f.piOversight = enabled;
+    this.sessionFlags.set(sessionId, f);
   }
 
   setVlmJudge(sessionId: string, enabled: boolean): void {
-    if (!this.cm) return;
-    const fn = (this.cm as unknown as { setVLMJudge?: (s: string, e: boolean) => void }).setVLMJudge;
-    if (typeof fn === 'function') fn.call(this.cm, sessionId, enabled);
+    const f = this.sessionFlags.get(sessionId) ?? {};
+    f.vlmJudge = enabled;
+    this.sessionFlags.set(sessionId, f);
   }
 
   // ── Custom ComfyUI workflow management ─────────────────────────────
-  // Pass-through to dhee-core's workflowIntegration helpers. Same
-  // helpers the pi-agent tools wrap, so a workflow saved via the
-  // Settings UI shows up in chat-driven generations and vice versa.
+  // Phase 6.4 stubs. The underlying services/comfyui/workflowIntegration.ts
+  // + services/providers/WorkflowModeRegistry.ts were deleted in d6f11bd
+  // (full legacy cleanup). Until the bundle architecture reintroduces
+  // a workflow registry, these methods keep the Settings → Workflows
+  // panel from crashing by reporting "no workflows" / "not supported."
+  // Re-enabling is tracked separately from BUG-016.
 
-  validateWorkflow(workflowPath: string):
+  validateWorkflow(_workflowPath: string):
     | { ok: true; totalNodes: number; detectedPipeline: string; inputNodeCount: number; loraCount: number }
     | { ok: false; reason: string }
     | { ok: false; reason: string; error: true } {
-    if (!this.managerModule?.validateWorkflowFile) {
-      return { ok: false, reason: 'dhee-core not started yet', error: true };
-    }
-    const result = this.managerModule.validateWorkflowFile(workflowPath);
-    if (!result.ok) return { ok: false, reason: result.reason };
     return {
-      ok: true,
-      totalNodes: result.parsed.totalNodes,
-      detectedPipeline: result.parsed.detectedPipeline,
-      inputNodeCount: result.parsed.inputNodes.length,
-      loraCount: result.parsed.loraNodes.length,
+      ok: false,
+      reason: 'Custom workflow validation is temporarily disabled (Phase 6.4 cleanup; reintroduces in the bundle-native workflow registry).',
+      error: true,
     };
   }
 
-  listWorkflows(opts?: { userOnly?: boolean }): Array<{
+  listWorkflows(_opts?: { userOnly?: boolean }): Array<{
     id: string;
     displayName: string;
     pipeline: string;
@@ -1227,58 +1761,310 @@ export class dheeCoreManager {
     isOverride: boolean;
     active: boolean;
   }> {
-    if (!this.managerModule?.listWorkflows) return [];
-    return this.managerModule.listWorkflows(opts);
+    return [];
   }
 
-  getWorkflow(id: string): Record<string, unknown> | undefined {
-    if (!this.managerModule?.getWorkflow) return undefined;
-    return this.managerModule.getWorkflow(id);
+  getWorkflow(_id: string): Record<string, unknown> | undefined {
+    return undefined;
   }
 
-  updateWorkflow(id: string, patch: Record<string, unknown>): Record<string, unknown> {
-    if (!this.managerModule?.updateWorkflow) {
-      throw new Error('dhee-core not started yet');
-    }
-    return this.managerModule.updateWorkflow(id, patch);
+  updateWorkflow(_id: string, _patch: Record<string, unknown>): Record<string, unknown> {
+    throw new Error(
+      'Custom workflow CRUD is temporarily disabled (Phase 6.4 cleanup; returns with the bundle-native workflow registry).',
+    );
   }
 
-  deleteWorkflow(id: string): void {
-    if (!this.managerModule?.deleteWorkflow) {
-      throw new Error('dhee-core not started yet');
-    }
-    this.managerModule.deleteWorkflow(id);
+  deleteWorkflow(_id: string): void {
+    throw new Error(
+      'Custom workflow CRUD is temporarily disabled (Phase 6.4 cleanup; returns with the bundle-native workflow registry).',
+    );
   }
 
+  /**
+   * Record which project a session is focused on. The renderer fires
+   * this from `useDheeSession.focusProject(projectName, projectDir)`
+   * when the user opens a project; redoNode / invalidateNodes both
+   * read from the resulting map to know which project's walkState to
+   * mutate (Phase 6 — see sessionProjects field).
+   *
+   * `projectDir` is optional only for backwards compat with the
+   * pre-Phase-6 IPC contract. Newer callers must pass it explicitly.
+   */
   async focusSessionProject(
     sessionId: string,
-    projectName: string,
+    _projectName: string,
+    projectDir?: string,
   ): Promise<OkResponse> {
-    if (!this.cm) return { ok: false, error: 'dheeCoreManager not started' };
+    if (projectDir) {
+      this.sessionProjects.set(sessionId, projectDir);
+    }
+    // The dead ConversationManager facade used to track project focus
+    // internally; we now own that mapping. Returning ok eagerly is
+    // safe — no other call path depends on the legacy stub anymore.
+    return { ok: true };
+  }
+
+  /**
+   * Phase 6.5: send a user message to the chat session's pi-agent and
+   * return the assistant text + tool-call summary.
+   *
+   * Lazy-builds an AgentSession on the first message of the session
+   * (focused on the project's directory so dhee-agent's tools see the
+   * right cwd). Subsequent messages reuse the same session for
+   * context continuity. Disposal happens in deleteSession.
+   *
+   * Errors are wrapped in {ok:false, error} envelopes so the IPC
+   * bridge can surface them in the chat panel without crashing.
+   */
+  async chatPrompt(
+    sessionId: string,
+    message: string,
+    eventCb?: dheeCoreEventCallback,
+  ): Promise<
+    | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
+    | { ok: false; error: string }
+  > {
+    const projectDir = this.sessionProjects.get(sessionId);
+    if (!projectDir) {
+      return {
+        ok: false,
+        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
+      };
+    }
+
+    // chatDeps is lazy-loaded from dhee-core; tests inject via __setChatDeps.
+    let deps: ChatDeps;
     try {
-      await (
-        this.cm as unknown as {
-          focusSessionProject: (s: string, p: string) => Promise<unknown>;
+      deps = await loadChatDeps();
+    } catch (err) {
+      return { ok: false, error: `failed to load pi-agent helpers: ${(err as Error).message}` };
+    }
+
+    let entry = this.agentSessions.get(sessionId);
+    if (!entry) {
+      // Phase 6.5b: derive the explicit {provider, modelId, apiKey} so
+      // pi-coding-agent doesn't fall back to its silent-no-op
+      // auto-discovery. Hard-fail with a clear message when settings
+      // don't yield a usable provider — better than the previous
+      // "ok:true with empty assistant_text" silent failure.
+      if (!this.lastSettings) {
+        return {
+          ok: false,
+          error: 'dheeCoreManager not started yet — chatPrompt needs cached settings.',
+        };
+      }
+      const piModel = resolvePiModelFromSettings(this.lastSettings);
+      if (!piModel) {
+        return {
+          ok: false,
+          error:
+            "No LLM provider configured. Open Settings → Quickstart to add an API key (OpenRouter / OpenAI / Gemini), then send the message again.",
+        };
+      }
+      try {
+        // Phase 6.5c.d: persist chat history per project. Pi-coding-
+        // agent's `continueRecent` picks the most recent JSONL in
+        // sessionsDir (or mints a new one); the desktop's chat panel
+        // gets resumable conversations across restarts.
+        //
+        // sessionsDir resolution is fault-tolerant — if app.getPath
+        // isn't available (jest electron-mock doesn't stub it) or
+        // the dir can't be created, we fall through to the in-memory
+        // session manager (no persistence; old behavior).
+        let sessionsDir: string | undefined;
+        try {
+          const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
+          const userData = app.getPath?.('userData');
+          if (userData) {
+            sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+            if (!fsExistsSync(sessionsDir)) {
+              fsMkdirSync(sessionsDir, { recursive: true });
+            }
+          }
+        } catch {
+          sessionsDir = undefined;
         }
-      ).focusSessionProject(sessionId, projectName);
-      return { ok: true };
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      return { ok: false, error: message };
+        const built = await deps.buildPiSession({
+          sessionManager: undefined as never,
+          cwd: projectDir,
+          ...(sessionsDir ? { sessionsDir } : {}),
+          modelProvider: piModel.provider,
+          modelId: piModel.modelId,
+          apiKey: piModel.apiKey,
+        });
+        entry = { session: built.session };
+        this.agentSessions.set(sessionId, entry);
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
     }
+
+    // Phase 6.5c.b: translate pi-agent events into dheeCoreEvents
+    // the renderer's chat panel already knows how to handle. Streaming
+    // text becomes 'stream_chunk' events; tool_execution_start
+    // becomes 'tool_call'; tool_execution_end becomes 'tool_result'
+    // (with details.file_path forwarded so the show_* tools render
+    // inline media). The chat panel's existing listeners (subscribe
+    // via window.dhee.on) pick these up; no panel changes needed.
+    let toolCallCounter = 0;
+    // Runtime cap on agent misbehavior: when the agent calls a
+    // rate-limited tool (e.g. dhee_get_status spammed in a polling
+    // loop) the tool returns a result whose content starts with
+    // "RATE LIMITED". If the agent ignores those hints and keeps
+    // re-calling, we abort the session after N consecutive
+    // rate-limited responses. Defense-in-depth over the SKILL.md
+    // "don't poll" rule — the agent has temporal awareness via the
+    // tool's timestamps; this is the backstop when it disregards them.
+    const MAX_CONSECUTIVE_RATE_LIMITED = 3;
+    let consecutiveRateLimited = 0;
+    let capTriggered = false;
+    const onEvent = eventCb
+      ? (ev: unknown) => {
+          const e = ev as {
+            type?: string;
+            assistantMessageEvent?: { type?: string; delta?: string };
+            toolName?: string;
+            toolCallId?: string;
+            args?: unknown;
+            arguments?: unknown;
+            result?: unknown;
+            isError?: boolean;
+            details?: unknown;
+          };
+          if (e.type === 'message_update' && e.assistantMessageEvent?.type === 'text_delta') {
+            const delta = e.assistantMessageEvent.delta ?? '';
+            if (delta) {
+              eventCb({
+                eventName: 'stream_chunk',
+                sessionId,
+                data: { content: delta, done: false },
+              });
+            }
+            return;
+          }
+          if (e.type === 'tool_execution_start') {
+            toolCallCounter += 1;
+            // Pi's ToolExecutionStartEvent uses `args` (not `arguments`)
+            // for the parsed parameters. ToolCallCard.summarizeArgs
+            // expects the renderer-side `arguments` key, so map.
+            const toolCallId = e.toolCallId ?? `tc-${sessionId}-${toolCallCounter}`;
+            const startEvt = ev as { args?: unknown };
+            eventCb({
+              eventName: 'tool_call',
+              sessionId,
+              data: {
+                toolCallId,
+                toolName: e.toolName ?? 'unknown',
+                arguments: startEvt.args ?? {},
+                status: 'in_progress',
+              },
+            });
+            return;
+          }
+          if (e.type === 'tool_execution_end') {
+            // Pi's ToolExecutionEndEvent.result is the AgentToolResult
+            // returned by the tool's execute() — has shape
+            // `{content: [...], details: {...}}`. ToolCallCard.tsx
+            // looks for `result.file_path` (top-level), so flatten
+            // details onto result so dhee_show_* tools' file_path
+            // surfaces inline.
+            const piResult = e.result as
+              | { content?: Array<{ type?: string; text?: string }>; details?: Record<string, unknown> }
+              | undefined;
+            const contentText =
+              Array.isArray(piResult?.content) && piResult.content[0]?.type === 'text'
+                ? piResult.content[0].text ?? ''
+                : '';
+            const flatResult: Record<string, unknown> = {
+              ...(piResult?.details ?? {}),
+              ...(contentText ? { content: contentText } : {}),
+            };
+            eventCb({
+              eventName: 'tool_result',
+              sessionId,
+              data: {
+                toolCallId: e.toolCallId,
+                toolName: e.toolName,
+                result: flatResult,
+                isError: e.isError ?? false,
+              },
+            });
+
+            // Consecutive-rate-limited cap. The tool-side rate limit
+            // (dhee_get_status etc.) prepends "RATE LIMITED" when the
+            // agent re-calls within the window. If we see that N times
+            // in a row, the agent is ignoring its own rate-limit hints
+            // and we abort. Any non-rate-limited tool result resets
+            // the counter — the cap targets RUNAWAY polling, not
+            // legitimate multi-tool workflows.
+            const isRateLimited = contentText.startsWith('RATE LIMITED');
+            if (isRateLimited) consecutiveRateLimited += 1;
+            else consecutiveRateLimited = 0;
+
+            if (!capTriggered && consecutiveRateLimited >= MAX_CONSECUTIVE_RATE_LIMITED) {
+              capTriggered = true;
+              log.warn(
+                `[chatPrompt] consecutive rate-limited cap exceeded (${consecutiveRateLimited} ≥ ${MAX_CONSECUTIVE_RATE_LIMITED}) — aborting session ${sessionId}`,
+              );
+              eventCb({
+                eventName: 'system_notice',
+                sessionId,
+                data: {
+                  level: 'warning',
+                  text: `Agent ignored rate-limit hints ${consecutiveRateLimited} times in a row. Stopping the loop — ask again when you want a fresh status.`,
+                },
+              });
+              const sess = (this.agentSessions.get(sessionId)?.session ?? null) as
+                | { abort?: () => Promise<void> }
+                | null;
+              if (sess?.abort) {
+                void sess.abort().catch(() => {});
+              }
+            }
+            return;
+          }
+        }
+      : undefined;
+
+    const result = await deps.runAgentTurn(entry.session, message, {
+      keepAlive: true,
+      ...(onEvent ? { onEvent } : {}),
+    });
+
+    // Emit a final stream_chunk(done:true) so the renderer can close
+    // any open streaming bubble. Idempotent — no-op if the chat panel
+    // didn't open one.
+    if (eventCb) {
+      eventCb({
+        eventName: 'stream_chunk',
+        sessionId,
+        data: { content: '', done: true },
+      });
+    }
+    return result;
   }
 
+  /**
+   * Phase 6.5: also dispose the long-lived AgentSession when its
+   * sessionId is deleted. Phase 6.3 just cleared the in-process
+   * mappings; now we also release the pi-agent JSONL handle + any
+   * provider sockets the agent opened.
+   */
   deleteSession(sessionId: string): void {
-    if (!this.cm) return;
-    (
-      this.cm as unknown as { deleteSession: (s: string) => void }
-    ).deleteSession(sessionId);
+    const agent = this.agentSessions.get(sessionId);
+    if (agent?.session.dispose) {
+      try {
+        agent.session.dispose();
+      } catch {
+        // Best-effort — never let disposal failure block the IPC handler.
+      }
+    }
+    this.agentSessions.delete(sessionId);
+    this.sessionProjects.delete(sessionId);
+    this.sessionFlags.delete(sessionId);
   }
 
-  private requireStarted(): ConversationManager {
-    if (!this.cm) {
-      throw new Error('dheeCoreManager not started — call start() first.');
-    }
-    return this.cm;
-  }
+  // Phase 6.4: requireStarted() removed — no embedded ConversationManager
+  // to require. Methods that need the started state read `this.started`
+  // directly.
 }

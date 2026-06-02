@@ -9,16 +9,19 @@ import { DheeSessionProvider } from './hooks/useDheeSession';
 import LandingScreen from './components/landing/LandingScreen/LandingScreen';
 import WorkspaceLayout from './components/layout/WorkspaceLayout/WorkspaceLayout';
 import ErrorBoundary from './components/ErrorBoundary';
+import { ShortcutsOverlay } from './shortcuts/ShortcutsOverlay';
 import './styles/global.scss';
 
 function AppContent() {
   const { projectDirectory } = useWorkspace();
 
-  if (!projectDirectory) {
-    return <LandingScreen />;
-  }
-
-  return <WorkspaceLayout />;
+  return (
+    <>
+      {projectDirectory ? <WorkspaceLayout /> : <LandingScreen />}
+      {/* Cmd+/ shortcuts panel — invokable anywhere in the app */}
+      <ShortcutsOverlay />
+    </>
+  );
 }
 
 export default function App() {

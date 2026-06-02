@@ -1,0 +1,62 @@
+.target {
+  display: contents;
+}
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: transparent;
+}
+
+.menu {
+  position: fixed;
+  z-index: 1000;
+  min-width: 160px;
+  background: var(--color-bg-panel-elevated);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+  font-family: 'SF Pro Display', 'Inter', system-ui, sans-serif;
+}
+
+.item {
+  display: block;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+  letter-spacing: -0.005em;
+}
+.item:hover {
+  background: var(--color-bg-panel-soft);
+  color: var(--color-accent-primary);
+}
+.item:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  color: var(--color-text-muted);
+}
+.item:disabled:hover {
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.itemDestructive {
+  color: var(--color-error);
+}
+.itemDestructive:hover {
+  background: rgba(var(--color-error-rgb), 0.12);
+  color: var(--color-error);
+}
+
+.divider {
+  height: 1px;
+  background: var(--color-border-subtle);
+  margin: 2px 0;
+}

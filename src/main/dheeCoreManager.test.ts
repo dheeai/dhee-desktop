@@ -95,7 +95,22 @@ jest.mock('electron', () => ({
 
 // Imported AFTER the jest.mock calls so the mock binds.
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { dheeCoreManager, __setManagerLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
+const { dheeCoreManager, __setManagerLoader, __setRunnersLoader } = require('./dheeCoreManager') as typeof import('./dheeCoreManager');
+
+// Phase 6.2: cancelTask + getBackgroundTaskStatus + runTask now lazy-
+// load `dhee-core/runners`. Tests in this file don't exercise the
+// runner end-to-end, but the dynamic import has to be stubbed so jest
+// doesn't try to parse the ESM dist (which uses createRequire banners
+// jest can't handle).
+__setRunnersLoader(async () => ({
+  getBackgroundTaskRunner: () => ({
+    cancel: () => false,
+    getActive: () => null,
+    isCancelling: () => false,
+    dispatch: () => ({ status: 'started' as const, taskId: 't-stub' }),
+    on: () => () => {},
+  }),
+}) as never);
 
 // Inject the FakeConversationManager via the loader seam — production code
 // uses a `webpackIgnore` dynamic import to load the real ESM bundle;
@@ -208,13 +223,15 @@ beforeEach(() => {
 });
 
 describe('dheeCoreManager', () => {
-  it('start() writes LLM_PROVIDER and OPENAI_API_KEY to process.env BEFORE constructing ConversationManager', async () => {
+  it('start() writes LLM_PROVIDER and OPENAI_API_KEY to process.env', async () => {
+    // Phase 6.4: pre-deletion the assertion was "env was set BEFORE
+    // ConversationManager constructed" (snapshotted inside the fake CM
+    // ctor). No more CM → assert directly on process.env post-start.
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
 
-    expect(mockState.envSnapshots).toHaveLength(1);
-    expect(mockState.envSnapshots[0]?.LLM_PROVIDER).toBe('openai');
-    expect(mockState.envSnapshots[0]?.OPENAI_API_KEY).toBe('sk-test');
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
+    expect(process.env['OPENAI_API_KEY']).toBe('sk-test');
   });
 
   it('start() forwards PostHog runtime settings to embedded core', async () => {
@@ -265,7 +282,12 @@ describe('dheeCoreManager', () => {
     expect(process.env['dhee_CLOUD_URL']).toBeUndefined();
   });
 
-  it('local mode: COMFYUI_BASE_URL is in process.env BEFORE ConversationManager constructs (env-set order matters for dhee-core caching)', async () => {
+  it('local mode: COMFYUI_BASE_URL is in process.env after start()', async () => {
+    // Phase 6.4: the original test relied on the FakeConversationManager
+    // constructor capturing env at the right moment. With no CM in the
+    // path, asserting env post-start is the equivalent contract — env
+    // is written synchronously in applyEnvFromSettings before start()
+    // resolves.
     const mgr = new dheeCoreManager();
     await mgr.start({
       ...baseSettings,
@@ -274,10 +296,7 @@ describe('dheeCoreManager', () => {
       comfyCloudApiKey: '',
     });
 
-    expect(mockState.envSnapshots).toHaveLength(1);
-    // The snapshot is captured inside the FakeConversationManager
-    // constructor — proves env was written *before* construction.
-    expect(mockState.envSnapshots[0]?.COMFYUI_BASE_URL).toBe('http://127.0.0.1:8188');
+    expect(process.env['COMFYUI_BASE_URL']).toBe('http://127.0.0.1:8188');
   });
 
   it('direct cloud mode (no dhee auth): routes to user-configured cloud.comfy.org with the user-supplied key', async () => {
@@ -544,76 +563,70 @@ describe('dheeCoreManager', () => {
     expect(process.env['OPENAI_BASE_URL']).toBeUndefined();
   });
 
-  it('runTask forwards onToolCall events to the supplied eventCb with the original payload', async () => {
+  // (Removed) `runTask forwards onToolCall events from ConversationManager`
+  // — Phase 6.2 rewired runTask to dispatch via BackgroundTaskRunner and
+  // translate ITS event vocabulary (tool / result / notification / asset
+  // / terminal) into dheeCoreEvents. The new event-translation contract
+  // is exercised in dheeCoreManagerRunTask.test.ts.
+
+  // (Removed) `runTask forwards onAgentText events as stream chunks` —
+  // ConversationManager's text streaming is no longer in the runTask
+  // path. Phase 6.2b (chat-as-pi-agent rebuild) will reintroduce text
+  // streaming via the pi-coding-agent session event bus.
+
+  // (Removed) `cancelTask returns false when the session does not
+  // exist` — pre-Phase-6.2 cancellation was per-session via CM. The
+  // runner is now global (one task at a time); cancelTask returns
+  // false when nothing is running, regardless of sessionId. New
+  // contract pinned in dheeCoreManagerRunTask.test.ts.
+
+  // (Removed) `redoNode forwards editedPrompt to ConversationManager`
+  // — Phase 6 rewired redoNode to dhee-core/dag.regenerateNode, which
+  // has no editedPrompt concept. The feature it pinned (Prompts-tab
+  // inline edit) was deleted in Phase 5 (task #34) when Prompts /
+  // Storyboard / Assets were replaced by the Inspector Canvas.
+  // Coverage for the new contract lives in dheeCoreManagerRegen.test.ts.
+
+  it('restart() flips env to the new settings (no embedded CM to shutdown — Phase 6.4)', async () => {
+    // Pre-Phase-6.4 the test pinned (a) CM was shutdown and (b) a fresh
+    // CM was constructed with new env. With the CM deleted, the
+    // equivalent observable contract is: after restart(), process.env
+    // reflects the NEW settings.
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
-    const { id: sessionId } = mgr.createSession();
-    const events: Array<{ eventName: string; sessionId: string; data: unknown }> = [];
-
-    await mgr.runTask(sessionId, 'a task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
-
-    const toolCallEvent = events.find((e) => e.eventName === 'tool_call');
-    expect(toolCallEvent).toBeDefined();
-    expect(toolCallEvent?.sessionId).toBe('s-1');
-    expect(toolCallEvent?.data).toMatchObject({ toolName: 'dhee_run_to', toolCallId: 'tc-1' });
-  });
-
-  it('runTask forwards onAgentText events as stream chunks', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    const { id: sessionId } = mgr.createSession();
-    const events: Array<{ eventName: string; data: unknown }> = [];
-
-    await mgr.runTask(sessionId, 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
-
-    const streamEvent = events.find((e) => e.eventName === 'stream_chunk');
-    expect(streamEvent).toBeDefined();
-    expect(streamEvent?.data).toMatchObject({ content: 'done', done: true });
-  });
-
-  it('cancelTask returns false when the session does not exist', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    expect(mgr.cancelTask('does-not-exist')).toBe(false);
-  });
-
-  it('redoNode forwards editedPrompt unchanged to the underlying ConversationManager', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    const { id: sessionId } = mgr.createSession();
-    const result = await mgr.redoNode(sessionId, 'shot_image:scene_1_shot_4', {
-      editedPrompt: 'a brand new prompt',
-    });
-    expect(result).toMatchObject({
-      nodeId: 'shot_image:scene_1_shot_4',
-      editedPrompt: 'a brand new prompt',
-    });
-  });
-
-  it('restart() calls shutdown() then constructs a fresh ConversationManager', async () => {
-    const mgr = new dheeCoreManager();
-    await mgr.start(baseSettings);
-    expect(mockState.envSnapshots).toHaveLength(1);
+    expect(process.env['LLM_PROVIDER']).toBe('openai');
     await mgr.restart({ ...baseSettings, llmProvider: 'gemini', googleApiKey: 'g-key' });
-    expect(mockState.shutdownCalls).toBe(1);
-    expect(mockState.envSnapshots).toHaveLength(2);
-    expect(mockState.envSnapshots[1]?.LLM_PROVIDER).toBe('gemini');
+    expect(process.env['LLM_PROVIDER']).toBe('gemini');
+    expect(mgr.isStarted()).toBe(true);
   });
 
-  it('runTask before start() returns an error-shaped result rather than throwing', async () => {
+  it('runTask without a focused project returns an error-shaped result rather than throwing', async () => {
+    // Phase 6.2: instead of "manager not started," the error is "no
+    // project focused" — runTask now requires focusSessionProject to
+    // have populated the session→project map.
     const mgr = new dheeCoreManager();
     const events: Array<{ eventName: string; data: unknown }> = [];
-    const result = await mgr.runTask('any', 'task', {}, (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e));
+    const result = await mgr.runTask(
+      'any',
+      'task',
+      {},
+      (e: { eventName: string; sessionId: string; data: unknown }) => events.push(e),
+    );
     expect(result.status).toBe('failed');
-    expect(result.error).toMatch(/not started|start\(\) first/i);
+    expect(result.error).toMatch(/no project focused/i);
   });
 
-  it('stop() calls shutdown() and subsequent runTask returns failed', async () => {
+  it('stop() flips isStarted false; subsequent runTask still fails (no project focused)', async () => {
+    // Phase 6.4: there's no CM to shutdown — stop() just clears the
+    // started flag. The session→project map is preserved on the
+    // instance (sessions long-term should be in sessionStore anyway).
+    // A fresh session that was never focused on a project still fails
+    // runTask with "no project focused."
     const mgr = new dheeCoreManager();
     await mgr.start(baseSettings);
     const { id: sessionId } = mgr.createSession();
     mgr.stop();
-    expect(mockState.shutdownCalls).toBe(1);
+    expect(mgr.isStarted()).toBe(false);
     const result = await mgr.runTask(sessionId, 'task', {}, () => {});
     expect(result.status).toBe('failed');
   });

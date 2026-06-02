@@ -39,6 +39,8 @@ import {
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type ChatPromptRequest,
+  type ChatPromptResponse,
   type SendResponseRequest,
   type CancelTaskRequest,
   type CancelTaskResponse,
@@ -60,6 +62,10 @@ import {
   type DeleteWorkflowResponse,
   type ValidateWorkflowRequest,
   type ValidateWorkflowResponse,
+  type ResolveBundleRequest,
+  type ResolveBundleResponse,
+  type ResolveInstanceGraphRequest,
+  type ResolveInstanceGraphResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
   type GetHistoryRequest,
@@ -309,6 +315,39 @@ const projectBridge = {
       relativePath,
       meta,
     );
+  },
+  /**
+   * Populate a freshly-created project folder with a complete project.json
+   * (bundle bound + caller-supplied inputs applied). Called by the
+   * Production Slate screen on submit; the agent then enters a fully-
+   * configured project, no chat-time setup.
+   */
+  initialize(payload: {
+    projectDir: string;
+    name: string;
+    bundleId: string;
+    description?: string;
+    inputs?: Record<string, unknown>;
+  }): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> {
+    return ipcRenderer.invoke('project:initialize', payload);
+  },
+  /**
+   * Enumerate every available bundle's metadata for the Production
+   * Slate's bundle picker. Pre-agent, pure read of bundle.json files
+   * across the search-root chain.
+   */
+  listBundles(): Promise<
+    Array<{
+      id: string;
+      version: string;
+      displayName: string;
+      summary: string;
+      techLine?: string;
+      description?: string;
+      inputs?: unknown[];
+    }>
+  > {
+    return ipcRenderer.invoke('bundle:list');
   },
   rename(oldPath: string, newName: string): Promise<string> {
     return ipcRenderer.invoke('project:rename', oldPath, newName);
@@ -737,6 +776,9 @@ const dheeBridge = {
   runTask(req: RunTaskRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUN_TASK, req);
   },
+  chatPrompt(req: ChatPromptRequest): Promise<ChatPromptResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.CHAT_PROMPT, req);
+  },
   sendResponse(req: SendResponseRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.SEND_RESPONSE, req);
   },
@@ -802,6 +844,25 @@ const dheeBridge = {
     validate(req: ValidateWorkflowRequest): Promise<ValidateWorkflowResponse> {
       return ipcRenderer.invoke(dhee_CHANNELS.VALIDATE_WORKFLOW, req);
     },
+  },
+  /**
+   * Resolve a project.json `bundleSource` value (e.g.
+   * 'built-in:narrative_qwen_chain_relay') to its parsed bundle
+   * definition. Desktop views use the returned bundle's per-node
+   * `displayCapability` tags to discover what artifacts exist —
+   * see docs/display-capabilities.md in dhee-core.
+   */
+  resolveBundle(req: ResolveBundleRequest): Promise<ResolveBundleResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_BUNDLE, req);
+  },
+  /**
+   * Resolve the per-instance dependency graph projection from the
+   * project's event log (.dhee/events.jsonl). Returns
+   * { instances[], edges[] } folded via dhee-core's
+   * `projectInstanceGraph`. Inspector Cards view's source of truth.
+   */
+  resolveInstanceGraph(req: ResolveInstanceGraphRequest): Promise<ResolveInstanceGraphResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_INSTANCE_GRAPH, req);
   },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.

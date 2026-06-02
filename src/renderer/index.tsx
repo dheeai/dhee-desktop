@@ -1,5 +1,12 @@
 import { createRoot } from 'react-dom/client';
 import App from './App';
+import { installResizeObserverLoopSuppressor } from './utils/suppressResizeObserverLoop';
+
+// Silence webpack-dev-server's overlay for the harmless
+// "ResizeObserver loop completed with undelivered notifications"
+// warning that xyflow's layout pass routinely emits. Real errors
+// still surface.
+installResizeObserverLoopSuppressor();
 
 const IS_TEST_BRIDGE = process.env.dhee_TEST_BRIDGE === '1';
 

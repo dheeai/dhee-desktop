@@ -26,6 +26,7 @@ import type {
   SceneRef,
   AssetInfo,
 } from '../types/dhee';
+import type { BundleSnapshot } from '../lib/bundleCapability';
 import type { SceneVersions } from '../types/dhee/timeline';
 import { DEFAULT_TIMELINE_STATE } from '../types/dhee';
 import { projectService } from '../services/project';
@@ -65,6 +66,18 @@ interface ProjectState {
 
   /** Context index */
   contextIndex: ContextIndex | null;
+
+  /**
+   * Resolved bundle for the currently open project. Null when:
+   *   - no project is open
+   *   - the project has no `bundleSource` field (legacy executor project)
+   *   - the IPC resolve call returned ok=false
+   *
+   * Hoisted into context in Phase 2 of the Inspector Canvas migration
+   * — every view that needs the bundle now reads `useProject().bundle`
+   * instead of fetching its own copy via `window.dhee.resolveBundle()`.
+   */
+  bundle: BundleSnapshot | null;
 }
 
 /**
@@ -206,6 +219,7 @@ const initialState: ProjectState = {
   assetManifest: null,
   timelineState: { ...DEFAULT_TIMELINE_STATE },
   contextIndex: null,
+  bundle: null,
 };
 
 function mergeAssetIntoManifest(
@@ -425,6 +439,44 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
           contextIndex: project.contextIndex,
         }));
         lastLoadedDir.current = projectDirectory;
+
+        // Resolve the bundle (BundleSnapshot) for the Inspector Canvas.
+        // bundleSource lives at the top of project.json — same place
+        // LandingScreen + PromptsView read it from. Failure modes
+        // collapse to `bundle: null`; consumers (Inspector + capability
+        // helpers) handle null gracefully.
+        try {
+          const rawProjectJson = await window.electron.project.readFile(
+            `${normalizedDir}/project.json`,
+          );
+          if (!cancelled) {
+            let bundleSource: string | undefined;
+            try {
+              if (rawProjectJson) {
+                const parsed = JSON.parse(rawProjectJson) as { bundleSource?: string };
+                bundleSource = parsed.bundleSource;
+              }
+            } catch {
+              bundleSource = undefined;
+            }
+            if (!bundleSource) {
+              setState((prev) => ({ ...prev, bundle: null }));
+            } else {
+              const resp = await window.dhee.resolveBundle({ bundleSource });
+              if (!cancelled) {
+                setState((prev) => ({
+                  ...prev,
+                  bundle: resp.ok && resp.bundle ? resp.bundle : null,
+                }));
+              }
+            }
+          }
+        } catch (err) {
+          if (!cancelled) {
+            setState((prev) => ({ ...prev, bundle: null }));
+            console.warn('[ProjectContext] bundle resolution failed:', err);
+          }
+        }
 
         // Set up explicit watches for manifest and placements
         try {

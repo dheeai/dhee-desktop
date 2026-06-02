@@ -23,7 +23,7 @@ import {
 } from '../../../contexts/FirstRunTourContext';
 import SettingsPanel from '../../SettingsPanel';
 import type { LandingProjectCard } from '../ProjectCard/ProjectCard';
-import NewProjectDialog from '../NewProjectDialog/NewProjectDialog';
+import NewProjectScreen from '../NewProjectScreen/NewProjectScreen';
 import ProjectCard from '../ProjectCard/ProjectCard';
 import DeleteProjectDialog from '../ProjectActionDialog/DeleteProjectDialog';
 import RenameProjectDialog from '../ProjectActionDialog/RenameProjectDialog';
@@ -37,8 +37,9 @@ import {
   sumScenesAndShots,
   type SVPShape,
 } from './projectMetadataHelpers';
+import { resolveTileDisplay } from '../../../lib/bundleDisplay';
 import { getBackendConfigStatus } from './backendConfigStatus';
-import BackendNotReadyDialog from './BackendNotReadyDialog';
+import { BackendNotReadyBanner } from './BackendNotReadyBanner';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
 import type { AccountInfo } from '../../../../shared/settingsTypes';
 
@@ -72,6 +73,14 @@ interface ProjectMetadata {
   sceneCount?: number | null;
   shotCount?: number | null;
   thumbnailPath?: string | null;
+  /**
+   * Bundle-declared tile stats — opaque list of {label, value} pairs.
+   * For narrative bundles these duplicate sceneCount/shotCount (kept
+   * for back-compat); for non-narrative bundles (music, 3D, etc.)
+   * these are the only meaningful numbers to render. Empty for
+   * legacy executor projects.
+   */
+  tileStats?: Array<{ label: string; value: number }>;
 }
 
 interface PendingProjectAction {
@@ -167,62 +176,82 @@ async function loadSingleProjectMetadata(
   projectPath: string,
 ): Promise<ProjectMetadata> {
   const metadata: ProjectMetadata = {};
-  const [projectContent, fileThumbnailPath, manifestContent] =
-    await Promise.all([
-      window.electron.project
-        .readFile(joinPath(projectPath, 'project.json'))
-        .catch(() => null),
-      findThumbnailPath(projectPath),
+  const [projectContent, fileThumbnailPath] = await Promise.all([
+    window.electron.project
+      .readFile(joinPath(projectPath, 'project.json'))
+      .catch(() => null),
+    findThumbnailPath(projectPath),
+  ]);
+
+  // Parse project.json — title, description, bundleSource, walkState.
+  type ProjectFileShape = BackendProjectFile & {
+    bundleSource?: string;
+    walkState?: { nodes?: Record<string, { status?: string; outputPath?: string }> };
+    executorState?: { nodes?: Record<string, { status?: string; outputPath?: string }> };
+  };
+  let parsedProject: ProjectFileShape | null = null;
+  if (projectContent) {
+    try {
+      parsedProject = safeJsonParse(projectContent);
+      metadata.manifestName = parsedProject?.title;
+      metadata.description = parsedProject?.description ?? null;
+    } catch {
+      /* malformed — fall through with null parsedProject */
+    }
+  }
+
+  // Bundle-arch path: ask kshana-core for the bundle definition, then
+  // let the bundle's display block drive thumbnail + stats. Bundle-
+  // specific knowledge (which capability holds the thumbnail, what
+  // labels to show) lives ENTIRELY in bundle.json. The desktop is
+  // generic.
+  let bundleStats: Array<{ label: string; value: number }> = [];
+  let bundleThumbRel: string | null = null;
+  if (parsedProject?.bundleSource) {
+    try {
+      const resp = await window.dhee.resolveBundle({ bundleSource: parsedProject.bundleSource });
+      if (resp.ok && resp.bundle) {
+        const display = await resolveTileDisplay(
+          resp.bundle,
+          { walkState: parsedProject.walkState, executorState: parsedProject.executorState },
+          (relPath) =>
+            window.electron.project
+              .readFile(joinPath(projectPath, relPath))
+              .catch(() => null),
+        );
+        bundleStats = display.stats;
+        bundleThumbRel = display.thumbnailPath;
+      }
+    } catch {
+      /* bundle resolution failure — fall through to legacy logic */
+    }
+  }
+
+  // Legacy fallback for pre-bundle (executor-shaped) projects.
+  // Computes scene/shot count from prompts/videos/scenes/scene_N.json
+  // and thumbnail from assets/manifest.json. Bundle projects skip this
+  // entirely — bundleStats / bundleThumbRel already filled.
+  let svps: Record<number, SVPShape | null> = {};
+  let legacySceneImages: ReturnType<typeof extractSceneImages> = [];
+  if (bundleStats.length === 0 && !bundleThumbRel) {
+    const [manifestContent] = await Promise.all([
       window.electron.project
         .readFile(joinPath(projectPath, 'assets/manifest.json'))
         .catch(() => null),
     ]);
-
-  if (projectContent) {
-    try {
-      const project = safeJsonParse<BackendProjectFile>(projectContent);
-      metadata.manifestName = project.title;
-      metadata.description = project.description ?? null;
-    } catch {
-      // Ignore malformed or missing project metadata.
+    if (manifestContent) {
+      try {
+        const manifest = safeJsonParse<{ assets: Array<unknown> }>(manifestContent);
+        legacySceneImages = extractSceneImages(manifest);
+      } catch {
+        /* malformed */
+      }
     }
-  }
-
-  // Counts come from the planner's per-scene `scene_video_prompt`
-  // files, NOT the asset manifest. The manifest stores asset versions
-  // (regenerating shot 1 eleven times produces 11 manifest entries all
-  // tagged `(scene=1, shot=1)`) so counting unique-pairs from there
-  // undercounts the actual shot count of the project. The planner files
-  // are the authoritative project shape: one file per scene,
-  // file.shots[].length = shot count for that scene.
-  //
-  // We also need the SVP parses for the thumbnail's meet_character
-  // matching below, so combine both passes here.
-  let sceneImages: ReturnType<typeof extractSceneImages> = [];
-  if (manifestContent) {
-    try {
-      const manifest = safeJsonParse<{ assets: Array<unknown> }>(
-        manifestContent,
-      );
-      sceneImages = extractSceneImages(manifest);
-    } catch {
-      /* malformed manifest — fall through with empty list */
-    }
-  }
-
-  // Discover which scenes the planner has produced by enumerating
-  // `prompts/videos/scenes/scene_<N>.json`. We don't know up-front how
-  // many scenes there are, so try a reasonable upper bound (32) in
-  // parallel. Missing files just return null and contribute zero.
-  const MAX_SCENES_TO_PROBE = 32;
-  const svps: Record<number, SVPShape | null> = {};
-  await Promise.all(
-    Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(
-      async (n) => {
+    const MAX_SCENES_TO_PROBE = 32;
+    await Promise.all(
+      Array.from({ length: MAX_SCENES_TO_PROBE }, (_, i) => i + 1).map(async (n) => {
         const content = await window.electron.project
-          .readFile(
-            joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`),
-          )
+          .readFile(joinPath(projectPath, `prompts/videos/scenes/scene_${n}.json`))
           .catch(() => null);
         if (!content) return;
         try {
@@ -230,25 +259,43 @@ async function loadSingleProjectMetadata(
         } catch {
           svps[n] = null;
         }
-      },
-    ),
-  );
+      }),
+    );
+    const legacyCounts = sumScenesAndShots(svps);
+    if (legacyCounts.scenes > 0 || legacyCounts.shots > 0) {
+      bundleStats = [
+        { label: 'scenes', value: legacyCounts.scenes },
+        { label: 'shots', value: legacyCounts.shots },
+      ];
+    }
+  }
 
-  const { scenes, shots } = sumScenesAndShots(svps);
-  metadata.sceneCount = scenes;
-  metadata.shotCount = shots;
+  // Surface the first two computed stats as sceneCount / shotCount on
+  // ProjectMetadata so the existing tile renderer (which renders
+  // "N scenes · M shots") doesn't have to change. Bundles whose
+  // stats use different labels show up via the labels eventually —
+  // for now we keep the legacy two-slot API; tile redesign is a
+  // separate task.
+  if (bundleStats.length > 0) {
+    metadata.sceneCount = bundleStats[0]?.value;
+    metadata.shotCount = bundleStats[1]?.value;
+  }
+  // Expose the labeled stats array so renderers that want richer
+  // display (e.g. "12 tracks · 47 min") can opt in.
+  metadata.tileStats = bundleStats;
 
-  // Thumbnail: prefer the persisted file written by
-  // ensureProjectThumbnailFromManifest at project-open time; otherwise
-  // synthesize a smart pick from the manifest, preferring shots tagged
-  // `meet_character` in their scene_video_prompt (hero introductions
-  // make the most identifiable thumbnails). Falls back to a random
-  // scene_image if no meet_character shots exist.
+  // Thumbnail selection precedence:
+  // 1. Persisted file (.dhee/ui/thumbnail.png).
+  // 2. Bundle-display-driven thumbnail (capability lookup).
+  // 3. Legacy manifest scene_image picker.
+  // 4. null → folder icon placeholder.
   if (fileThumbnailPath) {
     metadata.thumbnailPath = fileThumbnailPath;
-  } else if (sceneImages.length > 0) {
+  } else if (bundleThumbRel) {
+    metadata.thumbnailPath = joinPath(projectPath, bundleThumbRel);
+  } else if (legacySceneImages.length > 0) {
     const meetCharSet = collectMeetCharacterShots(svps);
-    const pick = selectSmartThumbnail(sceneImages, meetCharSet);
+    const pick = selectSmartThumbnail(legacySceneImages, meetCharSet);
     metadata.thumbnailPath = pick ? joinPath(projectPath, pick.path) : null;
   } else {
     metadata.thumbnailPath = null;
@@ -273,8 +320,11 @@ export default function LandingScreen() {
   } = useAppSettings();
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<LandingView>('projects');
-  const [settingsInitialTab, setSettingsInitialTab] =
-    useState<SettingsTabTarget>('appearance');
+  // First-run tour can ask LandingScreen to switch into the settings
+  // view targeting a specific tab. Our SettingsPanel (branch-of-truth)
+  // doesn't accept an initialTab prop, so the tab hint is recorded
+  // here and consumed when SettingsPanel adds that surface back.
+  const [, setSettingsInitialTab] = useState<SettingsTabTarget>('appearance');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
@@ -282,7 +332,6 @@ export default function LandingScreen() {
     Record<string, ProjectMetadata>
   >({});
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
-  const [showBackendNotReady, setShowBackendNotReady] = useState(false);
   const [renameTarget, setRenameTarget] = useState<PendingProjectAction | null>(
     null,
   );
@@ -392,6 +441,9 @@ export default function LandingScreen() {
       }),
     [metadataByPath, recentProjects],
   );
+  // Pagination removed (UX-10): the responsive .projectsGrid + scroll
+  // already handles any number of project cards. 9-per-page was a
+  // hostile cap for users with many projects.
 
   const openSettingsTab = useCallback(
     (tab: SettingsTabTarget) => {
@@ -441,17 +493,12 @@ export default function LandingScreen() {
   const handleCreateNewProject = useCallback(() => {
     setError(null);
     firstRunTour.notifyTourEvent('new_project_clicked');
-    // Gate creation on at least one working LLM + Comfy. Without
-    // either, the agent literally can't run anything — better to
-    // tell the user up front than let them spin up a project that
-    // dies on the first tool call.
-    const status = getBackendConfigStatus(settings, account);
-    if (!status.allConfigured && !firstRunTour.isActive) {
-      setShowBackendNotReady(true);
-      return;
-    }
+    // Config status is surfaced inline via BackendNotReadyBanner at
+    // the top of the screen — no more modal gate here. The user can
+    // still try to create; if backends aren't configured, the agent
+    // surfaces the failure in chat.
     setIsNewProjectDialogOpen(true);
-  }, [account, firstRunTour, settings]);
+  }, [firstRunTour]);
 
   const handleAccountSignIn = useCallback(async () => {
     setAuthStatus('waiting');
@@ -690,6 +737,18 @@ export default function LandingScreen() {
           <>
             {error && <p className={styles.error}>{error}</p>}
 
+            <BackendNotReadyBanner
+              unconfiguredLanes={backendStatus.unconfiguredLanes}
+              canSignIn={!account}
+              onOpenSettings={() => {
+                clearError();
+                setActiveView('settings');
+              }}
+              onSignIn={() => {
+                void handleAccountSignIn();
+              }}
+            />
+
             <section className={styles.projectsSection}>
               <div className={styles.projectsHeader}>
                 <h2 className={styles.projectsTitle}>
@@ -763,7 +822,6 @@ export default function LandingScreen() {
             <SettingsPanel
               isOpen
               variant="embedded"
-              initialTab={settingsInitialTab}
               settings={settings}
               onClose={() => setActiveView('projects')}
               onThemeChange={updateTheme}
@@ -786,22 +844,7 @@ export default function LandingScreen() {
         <span className={styles.bottomBarVersion}>{appVersion}</span>
       </footer>
 
-      <BackendNotReadyDialog
-        isOpen={showBackendNotReady}
-        unconfiguredLanes={backendStatus.unconfiguredLanes}
-        canSignIn={!account}
-        onClose={() => setShowBackendNotReady(false)}
-        onOpenSettings={() => {
-          setShowBackendNotReady(false);
-          openSettingsTab('connection');
-        }}
-        onSignIn={() => {
-          setShowBackendNotReady(false);
-          handleAccountSignIn().catch(() => undefined);
-        }}
-      />
-
-      <NewProjectDialog
+      <NewProjectScreen
         isOpen={isNewProjectDialogOpen}
         onClose={() => setIsNewProjectDialogOpen(false)}
       />

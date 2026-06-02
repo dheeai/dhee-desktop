@@ -171,6 +171,18 @@ export interface DheeSessionApi {
   clearChatHistory: () => Promise<{ ok: boolean; error?: string }>;
 
   runTask: (task: string, opts?: RunTaskOpts) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Phase 6.5c: chat-input path. Sends a user message to the in-
+   * process pi-agent (NOT BackgroundTaskRunner) and returns the
+   * assistant's reply + any tools the agent called. One-shot for
+   * now — streaming will come in 6.5c.b.
+   */
+  chatPrompt: (
+    message: string,
+  ) => Promise<
+    | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
+    | { ok: false; error: string }
+  >;
   cancel: () => Promise<{ cancelled: boolean }>;
   redoNode: (
     nodeId: string,
@@ -398,6 +410,42 @@ function useCreateKshanaSession(): DheeSessionApi {
     return window.dhee.cancelTask({ sessionId: id });
   }, []);
 
+  /**
+   * Phase 6.5c: chat-input path. Distinct from runTask which dispatches
+   * bundle runs via BackgroundTaskRunner. chatPrompt drives the per-
+   * session pi-agent and returns its reply.
+   *
+   * Flips local status to 'running' for the duration of the call so
+   * the chat panel's header Stop button surfaces (it's gated on
+   * `session.status === 'running'`). Without this flip, an agent
+   * looping through tool calls during onboarding / regen looked
+   * unstoppable from the UI — the only escape was killing the desktop.
+   */
+  const chatPrompt = useCallback<DheeSessionApi['chatPrompt']>(
+    async (message) => {
+      const id = sessionIdRef.current;
+      if (!id) return { ok: false, error: 'no active session' };
+      setStatus('running');
+      setError(null);
+      try {
+        const result = await window.dhee.chatPrompt({ sessionId: id, message });
+        if (result.ok) {
+          setStatus('idle');
+        } else {
+          setStatus('error');
+          setError(result.error ?? null);
+        }
+        return result;
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setStatus('error');
+        setError(msg);
+        return { ok: false, error: msg };
+      }
+    },
+    [],
+  );
+
   const redoNode = useCallback<DheeSessionApi['redoNode']>(
     (nodeId, opts) =>
       runWithSelfHeal((sessionId) =>
@@ -509,6 +557,7 @@ function useCreateKshanaSession(): DheeSessionApi {
     refreshHistory,
     clearChatHistory,
     runTask,
+    chatPrompt,
     cancel,
     redoNode,
     configureProject,
@@ -550,6 +599,7 @@ export function DheeSessionProvider({ children }: { children: ReactNode }) {
     api.refreshHistory,
     api.clearChatHistory,
     api.runTask,
+    api.chatPrompt,
     api.cancel,
     api.redoNode,
     api.configureProject,

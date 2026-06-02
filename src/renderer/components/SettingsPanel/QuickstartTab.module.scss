@@ -1,0 +1,118 @@
+.root {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  max-width: 540px;
+}
+
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.subtitle {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+  margin: 0;
+  letter-spacing: -0.005em;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  letter-spacing: 0.005em;
+}
+
+.inputRow {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.input {
+  flex: 1;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 13px;
+  padding: 9px 12px;
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  color: var(--color-text-primary);
+  letter-spacing: -0.01em;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 3px var(--color-accent-primary-dim);
+}
+
+.revealButton {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  background: var(--color-bg-panel-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 6px;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  padding: 0;
+}
+.revealButton:hover {
+  background: var(--color-bg-panel-soft);
+  color: var(--color-text-primary);
+}
+
+.helpLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--color-accent-primary);
+  text-decoration: none;
+  align-self: flex-start;
+  letter-spacing: -0.005em;
+}
+.helpLink:hover {
+  text-decoration: underline;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.saveButton {
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 22px;
+  background: var(--color-accent-primary);
+  color: var(--color-bg-app);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  letter-spacing: -0.005em;
+}
+.saveButton:hover:not(:disabled) {
+  background: var(--color-accent-primary-hover);
+}
+.saveButton:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
