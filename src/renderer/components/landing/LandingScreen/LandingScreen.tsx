@@ -235,6 +235,15 @@ async function loadSingleProjectMetadata(
             window.electron.project
               .readFile(joinPath(projectPath, relPath))
               .catch(() => null),
+          Math.random,
+          // Existence probe: skip thumbnail candidates whose artifact
+          // was orphaned (canonical moved aside by a failed re-render)
+          // and fall through to the next completed instance with a
+          // real file on disk.
+          (relPath) =>
+            window.electron.project
+              .checkFileExists(joinPath(projectPath, relPath))
+              .catch(() => false),
         );
         bundleStats = display.stats;
         bundleThumbRel = display.thumbnailPath;

@@ -42,13 +42,22 @@ export function resolveTileDisplay(
   /** File-read function for resolving `stats[].path` lookups. Returns null on miss. */
   readFile: (relPath: string) => Promise<string | null>,
   rng: () => number = Math.random,
+  /**
+   * Existence probe for thumbnail candidates. A completed instance
+   * whose artifact file was orphaned (preserve-on-overwrite moved it
+   * aside before a failed re-render) must be skipped rather than
+   * returned as a dead path. Defaults to "always exists" so pure
+   * callers / tests that don't care about disk keep the canonical
+   * pick behavior.
+   */
+  exists: (relPath: string) => Promise<boolean> = async () => true,
 ): Promise<ResolvedTileDisplay> {
   return (async (): Promise<ResolvedTileDisplay> => {
     const display = bundle?.display;
     if (!display) return { thumbnailPath: null, stats: [] };
 
     const thumbnailPath = display.thumbnail
-      ? resolveThumbnail(bundle, project, display.thumbnail, rng)
+      ? await resolveThumbnail(bundle, project, display.thumbnail, rng, exists)
       : null;
 
     const stats: Array<{ label: string; value: number }> = [];
@@ -61,12 +70,13 @@ export function resolveTileDisplay(
   })();
 }
 
-function resolveThumbnail(
+async function resolveThumbnail(
   bundle: BundleSnapshot | null | undefined,
   project: ProjectLike | null | undefined,
   thumbnail: NonNullable<NonNullable<BundleSnapshot['display']>['thumbnail']>,
   rng: () => number,
-): string | null {
+  exists: (relPath: string) => Promise<boolean>,
+): Promise<string | null> {
   const nodes = findByCapability(bundle, project, thumbnail.from);
   if (nodes.length === 0) return null;
   // Pool all completed instances across every node with that capability.
@@ -83,29 +93,37 @@ function resolveThumbnail(
   }
   if (completed.length === 0) return null;
 
-  const pick = thumbnail.pick ?? 'first_completed';
+  // Order the candidates by the pick strategy, then return the FIRST
+  // whose artifact actually exists on disk. Skipping orphaned-but-
+  // -completed instances (canonical file moved aside by a failed
+  // re-render) is what keeps the tile from showing a dead path.
+  const ordered = orderByPick(completed, thumbnail.pick ?? 'first_completed', rng);
+  for (const c of ordered) {
+    if (await exists(c.outputPath)) return c.outputPath;
+  }
+  return null;
+}
+
+function orderByPick(
+  completed: Array<{ outputPath: string; stateKey: string }>,
+  pick: 'first_completed' | 'latest_completed' | 'random_completed',
+  rng: () => number,
+): Array<{ outputPath: string; stateKey: string }> {
   switch (pick) {
     case 'random_completed': {
+      // Start at the rng-chosen index, then rotate so existence
+      // fallback continues deterministically through the rest.
       const idx = Math.min(Math.floor(rng() * completed.length), completed.length - 1);
-      return completed[idx]!.outputPath;
+      return [...completed.slice(idx), ...completed.slice(0, idx)];
     }
-    case 'latest_completed': {
-      // No walker-recorded timestamp on the snapshot — fall back to
-      // the highest key in lex order, which for scene_N_shot_M ids
-      // matches the most recently materialized chain step.
-      completed.sort((a, b) => b.stateKey.localeCompare(a.stateKey));
-      return completed[0]!.outputPath;
-    }
+    case 'latest_completed':
+      // Highest stateKey first — for scene_N_shot_M ids this is the
+      // most recently materialized chain step.
+      return [...completed].sort((a, b) => b.stateKey.localeCompare(a.stateKey));
     case 'first_completed':
-    default: {
-      // Lowest key in lex order → for scene_N_shot_M ids, this is the
-      // opening shot. For other naming schemes, it's the first item
-      // that was added to walkState (insertion order is preserved by
-      // Object.keys but lex sort gives a stable, schema-agnostic
-      // result without relying on insertion).
-      completed.sort((a, b) => a.stateKey.localeCompare(b.stateKey));
-      return completed[0]!.outputPath;
-    }
+    default:
+      // Lowest stateKey first — the opening shot for scene_N_shot_M ids.
+      return [...completed].sort((a, b) => a.stateKey.localeCompare(b.stateKey));
   }
 }
 
@@ -165,7 +183,12 @@ function dotPathLookup(obj: unknown, path: string): unknown {
   return cur;
 }
 
-/** Convenience re-export for callers that only want the thumbnail. */
+/**
+ * Convenience helper for callers that only want the thumbnail path and
+ * don't care about on-disk existence (pure / synchronous). Returns the
+ * canonical pick without probing disk — same as the existence-unaware
+ * default of resolveTileDisplay.
+ */
 export function thumbnailFromDisplay(
   bundle: BundleSnapshot | null | undefined,
   project: ProjectLike | null | undefined,
@@ -173,7 +196,18 @@ export function thumbnailFromDisplay(
 ): string | null {
   const thumbnail = bundle?.display?.thumbnail;
   if (!thumbnail) return null;
-  return resolveThumbnail(bundle, project, thumbnail, rng ?? Math.random);
+  const nodes = findByCapability(bundle, project, thumbnail.from);
+  if (nodes.length === 0) return null;
+  const completed: Array<{ outputPath: string; stateKey: string }> = [];
+  for (const cn of nodes) {
+    for (const inst of cn.instances) {
+      if (inst.status !== 'completed' || !inst.outputPath) continue;
+      completed.push({ outputPath: inst.outputPath, stateKey: inst.stateKey });
+    }
+  }
+  if (completed.length === 0) return null;
+  const ordered = orderByPick(completed, thumbnail.pick ?? 'first_completed', rng ?? Math.random);
+  return ordered[0]?.outputPath ?? null;
 }
 
 // Re-export so callers can also do their own ad-hoc lookups against
