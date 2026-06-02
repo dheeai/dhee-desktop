@@ -448,6 +448,7 @@ export default function VideoLibraryView({
   const sceneImageRequestIdRef = useRef(0);
   const isSeekingRef = useRef(false);
   const isVideoLoadingRef = useRef(false);
+  const intendedPlaybackRef = useRef(isPlaying);
   const playbackAnimationFrameRef = useRef<number | null>(null);
   const playbackClockRef = useRef<{
     lastTimestamp: number | null;
@@ -469,6 +470,11 @@ export default function VideoLibraryView({
   );
   const exportMenuRef = useRef<HTMLDivElement>(null);
   const lastPlaybackTimeRef = useRef(0);
+
+  useEffect(() => {
+    intendedPlaybackRef.current = isPlaying;
+  }, [isPlaying]);
+
   // Use production-grade playback controller instead of manual state management
   const { currentItem, currentItemIndex, timeIndex } = usePlaybackController(
     timelineItems,
@@ -563,6 +569,7 @@ export default function VideoLibraryView({
       safeSetPlaybackTime(boundedTarget, false);
 
       if (totalDuration > 0 && boundedTarget >= totalDuration - 0.001) {
+        intendedPlaybackRef.current = false;
         onPlaybackStateChange(false);
       }
     },
@@ -776,6 +783,7 @@ export default function VideoLibraryView({
   // Handle video play/pause
   const handlePlayPause = useCallback(() => {
     const newPlayingState = !isPlaying;
+    intendedPlaybackRef.current = newPlayingState;
     onPlaybackStateChange(newPlayingState);
 
     // Audio play/pause is handled by audio controller
@@ -1150,8 +1158,6 @@ export default function VideoLibraryView({
       srcMismatch,
     });
 
-    const wasPlaying = !videoElement.paused;
-
     // Pause current video before changing source
     videoElement.pause();
 
@@ -1234,8 +1240,8 @@ export default function VideoLibraryView({
         videoElement.currentTime = Math.max(0, videoTime);
       }
       clipTransitionTimeRef.current = null;
-      // Resume playback if it was playing
-      if (wasPlaying || isPlaying) {
+      // Resume only if shared playback state still intends to play.
+      if (intendedPlaybackRef.current) {
         videoElement.play().catch((playError) => {
           console.warn(
             `[VideoLibraryView] Play error for ${currentVideo.label}:`,
@@ -1269,8 +1275,8 @@ export default function VideoLibraryView({
         videoElement.currentTime = Math.max(0, videoTime);
       }
       clipTransitionTimeRef.current = null;
-      // Resume playback if it was playing
-      if (wasPlaying || isPlaying) {
+      // Resume only if shared playback state still intends to play.
+      if (intendedPlaybackRef.current) {
         videoElement.play().catch((playError) => {
           console.warn(
             `[VideoLibraryView] Play error for ${currentVideo.label}:`,
@@ -1297,7 +1303,7 @@ export default function VideoLibraryView({
       newSrc: currentVideoPath,
       oldSrc: videoElement.src,
       currentVideoLabel: currentVideo.label,
-      wasPlaying,
+      intendsPlayback: intendedPlaybackRef.current,
     });
     currentVideoPathRef.current = currentVideoPath;
     appliedClipIdentityRef.current = clipIdentity;
@@ -1325,7 +1331,6 @@ export default function VideoLibraryView({
     currentVideo,
     currentVideoPath,
     clipIdentity,
-    isPlaying,
     isDragging,
     effectiveVersionPath,
     projectDirectory,
@@ -1352,23 +1357,6 @@ export default function VideoLibraryView({
 
   // Initialization is handled by playback controller
   // No manual initialization needed - controller determines currentItemIndex from playbackTime
-
-  // Sync play state with video element
-  useEffect(() => {
-    if (!videoRef.current) return;
-
-    const videoElement = videoRef.current;
-    const handlePlay = () => onPlaybackStateChange(true);
-    const handlePause = () => onPlaybackStateChange(false);
-
-    videoElement.addEventListener('play', handlePlay);
-    videoElement.addEventListener('pause', handlePause);
-
-    return () => {
-      videoElement.removeEventListener('play', handlePlay);
-      videoElement.removeEventListener('pause', handlePause);
-    };
-  }, [onPlaybackStateChange, currentItemIndex]);
 
   // Sync video playback with shared state
   useEffect(() => {
@@ -2213,6 +2201,11 @@ export default function VideoLibraryView({
                   type="button"
                   className={styles.playPauseButton}
                   onClick={handlePlayPause}
+                  aria-label={
+                    isPlaying
+                      ? 'Pause timeline preview'
+                      : 'Play timeline preview'
+                  }
                 >
                   {isPlaying ? <Pause size={20} /> : <Play size={20} />}
                 </button>

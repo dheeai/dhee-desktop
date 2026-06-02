@@ -1,6 +1,6 @@
 {
   "name": "dhee-desktop",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Desktop application for Dhee Studios video generation",
   "main": "./dist/main/main.js",
   "dependencies": {

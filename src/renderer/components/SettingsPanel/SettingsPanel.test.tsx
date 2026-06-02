@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom';
 import { act, fireEvent, render, screen } from '@testing-library/react';
-jest.mock('react', () => jest.requireActual('react'));
 import SettingsPanel from './SettingsPanel';
+
+jest.mock('react', () => jest.requireActual('react'));
 
 const baseSettings = {
   backendMode: 'local' as const,
@@ -137,8 +138,8 @@ describe('SettingsPanel', () => {
     });
     expect(signIn).toHaveBeenCalledTimes(1);
 
-    // Auth bridge reports signed-in. Inline Sign In buttons disappear,
-    // toggles become enabled, and stay un-checked (no auto-flip).
+    // Auth bridge reports signed-in on Free. LLM can use Cloud, but
+    // ComfyUI stays BYO because hosted media is not in Free/Starter.
     await act(async () => {
       onChangeHandler?.({
         email: 'user@example.com',
@@ -150,13 +151,18 @@ describe('SettingsPanel', () => {
       });
     });
 
-    expect(
-      screen.queryAllByRole('button', { name: /^Sign In$/ }),
-    ).toHaveLength(0);
+    expect(screen.queryAllByRole('button', { name: /^Sign In$/ })).toHaveLength(
+      0,
+    );
     expect(llmCloudCheckbox.disabled).toBe(false);
-    expect(comfyCloudCheckbox.disabled).toBe(false);
+    expect(comfyCloudCheckbox.disabled).toBe(true);
     expect(llmCloudCheckbox.checked).toBe(false);
     expect(comfyCloudCheckbox.checked).toBe(false);
+    expect(
+      screen.getByText(
+        /Starter and Free accounts bring their own ComfyUI endpoint/i,
+      ),
+    ).toBeInTheDocument();
   });
 
   it('shows ComfyUI and provider settings on the Connection tab', async () => {
@@ -180,6 +186,94 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('Comfy Cloud API Key')).toBeInTheDocument();
     // "OpenAI-Compatible" appears in both LLM and VLM provider toggles.
     expect(screen.getAllByText('OpenAI-Compatible').length).toBeGreaterThan(0);
+  });
+
+  it('orders Gemini model before API key in provider settings', async () => {
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={{ ...baseSettings, llmProvider: 'gemini' }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    const modelLabel = screen.getByText('Gemini Model ID');
+    const apiKeyLabel = screen.getByText('Google API Key');
+
+    expect(modelLabel.compareDocumentPosition(apiKeyLabel)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it('opens directly to the requested initial tab', async () => {
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    expect(screen.getByRole('heading', { name: 'Connection' })).toBeInTheDocument();
+    expect(screen.getByLabelText('ComfyUI URL')).toBeInTheDocument();
+  });
+
+  it('runs advisory provider diagnostics from the Connection tab', async () => {
+    const run = jest.fn().mockResolvedValue({
+      checkedAt: 1,
+      items: [
+        {
+          id: 'llm',
+          label: 'LLM',
+          status: 'warning',
+          message: 'OpenAI-compatible LLM needs an API key.',
+        },
+      ],
+    });
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        providerDiagnostics: { run },
+      },
+    });
+
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={jest.fn()}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Test all providers' }));
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(
+      await screen.findByText('OpenAI-compatible LLM needs an API key.'),
+    ).toBeInTheDocument();
   });
 
   it('hides Medium and Light tier sections when "use same LLM for all tasks" is checked', async () => {
@@ -250,6 +344,75 @@ describe('SettingsPanel', () => {
       'Use Dhee Cloud for ComfyUI',
     ) as HTMLInputElement;
     expect(toggle.checked).toBe(true);
+  });
+
+  it('resets Starter accounts to BYO ComfyUI and saves ComfyUI as local', async () => {
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        account: {
+          get: jest.fn().mockResolvedValue({
+            userId: 'user_1',
+            email: 'user@example.com',
+            credits: 3000,
+            planId: 'starter_10',
+            planLabel: 'Starter',
+            subscriptionStatus: 'active',
+            token: 'desktop-jwt',
+          }),
+          getBillingUrl: jest.fn().mockResolvedValue(''),
+          signIn: jest.fn(),
+          signOut: jest.fn(),
+          refreshBalance: jest.fn(),
+          openBilling: jest.fn(),
+          onChange: () => () => {},
+        },
+      },
+    });
+    const onSave = jest.fn().mockResolvedValue(true);
+
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={{
+            ...baseSettings,
+            comfyBackend: 'cloud',
+            backendMode: 'cloud',
+          }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSave}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    expect(
+      await screen.findByText(
+        /Starter and Free accounts bring their own ComfyUI endpoint/i,
+      ),
+    ).toBeInTheDocument();
+
+    const comfyCloudCheckbox = screen.getByLabelText(
+      'Use Dhee Cloud for ComfyUI',
+    ) as HTMLInputElement;
+    expect(comfyCloudCheckbox.disabled).toBe(true);
+    expect(comfyCloudCheckbox.checked).toBe(false);
+
+    const urlInput = screen.getByLabelText('ComfyUI URL') as HTMLInputElement;
+    fireEvent.change(urlInput, { target: { value: 'http://127.0.0.1:8188' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));
+
+    expect(onSave).toHaveBeenCalled();
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      backendMode: 'local',
+      comfyBackend: 'local',
+      comfyuiMode: 'custom',
+      comfyuiUrl: 'http://127.0.0.1:8188',
+    });
   });
 
   it('hides ALL LLM provider inputs when "Use Dhee Cloud for LLM" is on', async () => {

@@ -42,6 +42,7 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
+import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
 import type { dheeEvent } from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
@@ -196,7 +197,8 @@ const RUNNER_STATUS_POLL_MS = 1500;
  * case is rare in practice.
  */
 function extractThinkingText(chunk: string): string {
-  if (!chunk.includes('<thinking>') && !chunk.includes('</thinking>')) return '';
+  if (!chunk.includes('<thinking>') && !chunk.includes('</thinking>'))
+    return '';
   const matches = chunk.match(/<thinking>([\s\S]*?)<\/thinking>/g) ?? [];
   return matches
     .map((m) => m.replace(/^<thinking>/, '').replace(/<\/thinking>$/, ''))
@@ -210,7 +212,9 @@ function extractThinkingText(chunk: string): string {
  * the tool log.
  */
 function stripThinkingTags(chunk: string): string {
-  return chunk.replace(/<thinking>[\s\S]*?<\/thinking>/g, '').replace(/<thinking>[\s\S]*$/, '');
+  return chunk
+    .replace(/<thinking>[\s\S]*?<\/thinking>/g, '')
+    .replace(/<thinking>[\s\S]*$/, '');
 }
 
 function dedupeDoubled(text: string): string {
@@ -223,7 +227,11 @@ function dedupeDoubled(text: string): string {
   return text;
 }
 
-function mergeStreamText(prev: string | undefined, chunk: string, done?: boolean): string {
+function mergeStreamText(
+  prev: string | undefined,
+  chunk: string,
+  done?: boolean,
+): string {
   const base = prev ?? '';
   if (!chunk) return done ? base : base;
 
@@ -290,6 +298,7 @@ function summarizeArgs(args: unknown): string {
 export default function ChatPanelEmbedded() {
   const session = useDheeSession();
   const { projectName, projectDirectory } = useWorkspace();
+  const firstRunTour = useOptionalFirstRunTour();
   const agent = useAgent();
   const chatQuestions = useChatQuestions();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -408,7 +417,7 @@ export default function ChatPanelEmbedded() {
     }
 
     rows.sort((a, b) => a.ts - b.ts);
-    setMessages(rows.map(r => r.msg));
+    setMessages(rows.map((r) => r.msg));
   }, [session.sessionId, session.history, session.consumeHistory]);
 
   // ── New-project wizard state ──────────────────────────────────────
@@ -696,18 +705,16 @@ export default function ChatPanelEmbedded() {
               (m.text && m.text.trim())),
         );
       const lastObserved = recentProgress
-        ? ((recentProgress.progressText ?? recentProgress.text ?? '')
+        ? (recentProgress.progressText ?? recentProgress.text ?? '')
             .trim()
-            .slice(0, 140))
+            .slice(0, 140)
         : '';
       // Fallback: name the in-progress tool card (usually
       // dhee_run_to wrapping the whole pipeline).
       const inProgressTool = state.messages
         .slice(-10)
         .reverse()
-        .find(
-          (m) => m.role === 'tool' && m.toolStatus === 'in_progress',
-        );
+        .find((m) => m.role === 'tool' && m.toolStatus === 'in_progress');
       let detail = '';
       if (lastObserved) {
         detail = ` Last observed: "${lastObserved}".`;
@@ -751,9 +758,16 @@ export default function ChatPanelEmbedded() {
     };
   }, [session.sessionId, projectName, projectDirectory, session.focusProject, session.refreshHistory]);
 
+  useEffect(() => {
+    firstRunTour.notifyTourEvent('chat_visible');
+  }, [firstRunTour]);
+
   // Auto-scroll to the latest message. (jsdom in tests omits scrollIntoView.)
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'end' });
+    messagesEndRef.current?.scrollIntoView?.({
+      behavior: 'smooth',
+      block: 'end',
+    });
   }, [messages]);
 
   // Click-outside handler for the project header dropdown menu.
@@ -1009,6 +1023,7 @@ export default function ChatPanelEmbedded() {
     const text = input.trim();
     // A turn must have either text or at least one attachment.
     if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
+    firstRunTour.notifyTourEvent('chat_prompt_sent');
 
     // If pi-agent is mid-turn (e.g. running a multi-step regen +
     // bash + regen sequence), the user often wants to interject
@@ -1024,9 +1039,10 @@ export default function ChatPanelEmbedded() {
     // Render the user-visible message — include a small "📎 N
     // attachment(s)" suffix when files were attached, so the chat
     // log reflects what was sent.
-    const visibleText = chatAttachments.length > 0
-      ? `${text}${text ? '\n\n' : ''}📎 ${chatAttachments.map(a => a.name).join(', ')}`
-      : text;
+    const visibleText =
+      chatAttachments.length > 0
+        ? `${text}${text ? '\n\n' : ''}📎 ${chatAttachments.map((a) => a.name).join(', ')}`
+        : text;
 
     setMessages((prev) => [
       ...prev,
@@ -1189,18 +1205,20 @@ export default function ChatPanelEmbedded() {
     });
   }, [projectDirectory, session.sessionId, messages]);
 
-  const handleSelectOption = useCallback(async (questionId: string, option: string) => {
-    setMessages((prev) =>
-      prev.map((m) => (m.id === questionId ? { ...m, answered: true } : m)),
-    );
-    await session.sendResponse(option);
-  }, [session]);
+  const handleSelectOption = useCallback(
+    async (questionId: string, option: string) => {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === questionId ? { ...m, answered: true } : m)),
+      );
+      await session.sendResponse(option);
+    },
+    [session],
+  );
 
   // Main-session readiness gates the textarea / send button. We
   // explicitly DON'T factor bgStatus in here — the user must be able
   // to chat while the long pipeline runs.
-  const isReady =
-    session.sessionId !== null && session.status !== 'connecting';
+  const isReady = session.sessionId !== null && session.status !== 'connecting';
   // The main session's own loop ('running' while it processes a user
   // turn). Used to disable Send during that brief window so we don't
   // pile prompts on top of each other in pi-agent.
@@ -1407,7 +1425,8 @@ export default function ChatPanelEmbedded() {
                   : 'var(--color-text-muted)',
               cursor: piOversight ? 'pointer' : 'not-allowed',
               opacity: piOversight ? 1 : 0.45,
-              transition: 'background 120ms ease, color 120ms ease, opacity 120ms ease',
+              transition:
+                'background 120ms ease, color 120ms ease, opacity 120ms ease',
             }}
           >
             <ScanEye size={14} />
@@ -1551,7 +1570,12 @@ export default function ChatPanelEmbedded() {
           <textarea
             ref={inputRef}
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              if (e.target.value.trim()) {
+                firstRunTour.notifyTourEvent('chat_prompt_valid');
+              }
+            }}
             placeholder={
               isMainBusy
                 ? 'Thinking…'
@@ -1564,10 +1588,12 @@ export default function ChatPanelEmbedded() {
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim().length > 0 || chatAttachments.length > 0) handleSend();
+                if (input.trim().length > 0 || chatAttachments.length > 0)
+                  handleSend();
               }
             }}
             className={styles.textarea}
+            data-tour-id="workspace-chat-input"
           />
           <button
             type="button"
@@ -1578,7 +1604,10 @@ export default function ChatPanelEmbedded() {
                 ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
-            disabled={!isReady || (input.trim().length === 0 && chatAttachments.length === 0)}
+            disabled={
+              !isReady ||
+              (input.trim().length === 0 && chatAttachments.length === 0)
+            }
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
           >
             {isMainBusy ? (
@@ -1678,7 +1707,11 @@ function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
         {expanded ? 'Hide run progress' : `Show run progress (${rows.length})`}
       </button>
       {visibleRows.map((row) => (
-        <div key={row.id} aria-label="Run progress" className={styles.progressRow}>
+        <div
+          key={row.id}
+          aria-label="Run progress"
+          className={styles.progressRow}
+        >
           {row.progressText}
         </div>
       ))}
@@ -1895,7 +1928,9 @@ function MessageRow({
         : m.notificationLevel === 'warning'
           ? ` ${styles.systemPillWarning ?? ''}`
           : '';
-    return <div className={`${styles.systemPill}${levelClass}`.trim()}>{m.text}</div>;
+    return (
+      <div className={`${styles.systemPill}${levelClass}`.trim()}>{m.text}</div>
+    );
   }
   if (m.role === 'phase') {
     return (
@@ -2274,7 +2309,11 @@ function handleEvent(
       return;
     }
     case 'stream_chunk': {
-      const data = event.data as { content?: string; done?: boolean; toolCallId?: string };
+      const data = event.data as {
+        content?: string;
+        done?: boolean;
+        toolCallId?: string;
+      };
       // tool_streaming events also use this channel — they include a
       // toolCallId. Each chunk gets its OWN row so the long
       // dhee_run_to log doesn't become one unreadable concatenated
@@ -2306,7 +2345,10 @@ function handleEvent(
             ) {
               return prev.map((m, i) =>
                 i === prev.length - 1
-                  ? { ...m, thinkingText: (m.thinkingText ?? '') + thinkingText }
+                  ? {
+                      ...m,
+                      thinkingText: (m.thinkingText ?? '') + thinkingText,
+                    }
                   : m,
               );
             }
@@ -2353,9 +2395,8 @@ function handleEvent(
         setMessages((prev) => {
           const last = prev[prev.length - 1];
           const NOW = Date.now();
-          const lastTs = (
-            last as ChatMessage & { _ts?: number } | undefined
-          )?._ts;
+          const lastTs = (last as (ChatMessage & { _ts?: number }) | undefined)
+            ?._ts;
           const canCoalesce =
             last?.role === 'progress' &&
             last.progressForToolCallId === data.toolCallId &&
@@ -2378,7 +2419,10 @@ function handleEvent(
           }
           // Each chunk that looks like multiple lines: split, push
           // one row per non-empty line.
-          const lines = chunk.split('\n').map((s) => s.trim()).filter(Boolean);
+          const lines = chunk
+            .split('\n')
+            .map((s) => s.trim())
+            .filter(Boolean);
           const newRows: ChatMessage[] = lines.map((line) => ({
             id: newMessageId(),
             role: 'progress' as const,
@@ -2395,7 +2439,9 @@ function handleEvent(
         const id = streamingMsgIdRef.current;
         if (id) {
           return prev.map((m) =>
-            m.id === id ? { ...m, text: mergeStreamText(m.text, chunk, data.done) } : m,
+            m.id === id
+              ? { ...m, text: mergeStreamText(m.text, chunk, data.done) }
+              : m,
           );
         }
         const newId = newMessageId();
@@ -2430,7 +2476,9 @@ function handleEvent(
       const id = streamingMsgIdRef.current;
       if (id) {
         setMessages((prev) =>
-          prev.map((m) => (m.id === id ? { ...m, text: finalOutput, streaming: false } : m)),
+          prev.map((m) =>
+            m.id === id ? { ...m, text: finalOutput, streaming: false } : m,
+          ),
         );
         streamingMsgIdRef.current = null;
       } else {
@@ -2463,7 +2511,11 @@ function handleEvent(
       return;
     }
     case 'media_generated': {
-      const data = event.data as { kind?: 'image' | 'video'; path?: string; project?: string };
+      const data = event.data as {
+        kind?: 'image' | 'video';
+        path?: string;
+        project?: string;
+      };
       streamingMsgIdRef.current = null;
       setMessages((prev) => [
         ...prev,
@@ -2530,7 +2582,8 @@ function handleEvent(
     }
     case 'context_usage': {
       const data = event.data as { used?: number; limit?: number };
-      if (typeof data.used !== 'number' || typeof data.limit !== 'number') return;
+      if (typeof data.used !== 'number' || typeof data.limit !== 'number')
+        return;
       setContextUsage({ used: data.used, limit: data.limit });
       return;
     }

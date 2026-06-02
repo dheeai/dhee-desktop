@@ -6,6 +6,11 @@ import type {
   LLMTierConfig,
   ThemeId,
 } from '../../../shared/settingsTypes';
+import type {
+  ProviderDiagnosticItem,
+  ProviderDiagnosticsSnapshot,
+  ProviderDiagnosticStatus,
+} from '../../../shared/providerDiagnosticsTypes';
 import { DESKTOP_THEMES } from '../../themes';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
@@ -44,6 +49,7 @@ function formatBytes(n: number): string {
 type Props = {
   isOpen: boolean;
   variant?: 'modal' | 'embedded';
+  initialTab?: SettingsTab;
   settings: AppSettings | null;
   onClose: () => void;
   onThemeChange: (themeId: ThemeId) => Promise<void> | void;
@@ -142,15 +148,57 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   };
 }
 
+function deriveBackendMode(
+  settings: Pick<AppSettings, 'llmBackend' | 'comfyBackend' | 'vlmBackend'>,
+) {
+  return settings.llmBackend === 'cloud' ||
+    settings.comfyBackend === 'cloud' ||
+    settings.vlmBackend === 'cloud'
+    ? 'cloud'
+    : 'local';
+}
+
+function canAccountUseHostedComfy(account: AccountInfo | null): boolean {
+  return (
+    account?.subscriptionStatus === 'active' &&
+    (
+      account.planId === 'standard_20' ||
+      account.planId === 'creator_35' ||
+      account.planId === 'pro_100'
+    )
+  );
+}
+
 function getAccountBridge() {
   return (window.electron as typeof window.electron & {
     account?: typeof window.electron.account;
   }).account;
 }
 
+function getProviderDiagnosticsBridge() {
+  return (window.electron as typeof window.electron & {
+    providerDiagnostics?: typeof window.electron.providerDiagnostics;
+  }).providerDiagnostics;
+}
+
+function diagnosticBadgeClass(status: ProviderDiagnosticStatus): string {
+  switch (status) {
+    case 'ready':
+      return styles.statusBadgeSuccess;
+    case 'error':
+      return styles.statusBadgeError;
+    case 'warning':
+      return styles.statusBadgeWarning;
+    case 'unknown':
+    default:
+      return styles.statusBadgeNeutral;
+  }
+}
+
 export default function SettingsPanel({
   isOpen,
   variant = 'modal',
+  initialTab = 'appearance',
   settings,
   onClose,
   onThemeChange,
@@ -175,6 +223,11 @@ export default function SettingsPanel({
     kind: 'success' | 'error';
     text: string;
   } | null>(null);
+  const [providerDiagnostics, setProviderDiagnostics] =
+    useState<ProviderDiagnosticsSnapshot | null>(null);
+  const [providerDiagnosticsBusy, setProviderDiagnosticsBusy] = useState(false);
+  const canUseHostedComfy = canAccountUseHostedComfy(account);
+  const isComfyBlockedByPlan = Boolean(account) && !canUseHostedComfy;
 
   useEffect(() => {
     if (activeTab !== 'diagnostics') return;
@@ -225,15 +278,38 @@ export default function SettingsPanel({
       setDiagnosticsBusy(null);
     }
   };
+
+  const handleProviderDiagnostics = async () => {
+    const bridge = getProviderDiagnosticsBridge();
+    if (!bridge) return;
+    setProviderDiagnosticsBusy(true);
+    try {
+      setProviderDiagnostics(await bridge.run());
+    } catch {
+      setProviderDiagnostics({
+        checkedAt: Date.now(),
+        items: [
+          {
+            id: 'llm',
+            label: 'Provider checks',
+            status: 'error',
+            message: 'Provider checks are unavailable in this build.',
+          },
+        ],
+      });
+    } finally {
+      setProviderDiagnosticsBusy(false);
+    }
+  };
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
   }, [settings, isVisible]);
 
   useEffect(() => {
     if (isVisible) {
-      setActiveTab('appearance');
+      setActiveTab(initialTab);
     }
-  }, [isVisible]);
+  }, [initialTab, isVisible]);
 
   useEffect(() => {
     if (!isOpen || isEmbedded) return;
@@ -261,6 +337,15 @@ export default function SettingsPanel({
       }
     });
   }, [isVisible]);
+
+  useEffect(() => {
+    if (!isComfyBlockedByPlan) return;
+    setForm((prev) => {
+      if (prev.comfyBackend !== 'cloud') return prev;
+      const next = { ...prev, comfyBackend: 'local' as const };
+      return { ...next, backendMode: deriveBackendMode(next) };
+    });
+  }, [isComfyBlockedByPlan]);
 
   const handleInlineSignIn = async () => {
     const accountBridge = getAccountBridge();
@@ -297,6 +382,9 @@ export default function SettingsPanel({
     if (isLaneToggle && value === 'cloud' && !account) {
       return;
     }
+    if (key === 'comfyBackend' && value === 'cloud' && !canUseHostedComfy) {
+      return;
+    }
 
     setForm((prev) => ({
       ...prev,
@@ -306,10 +394,12 @@ export default function SettingsPanel({
 
   const saveConnectionSettings = async (nextForm: AppSettings) => {
     const normalized = normalizeConnectionSettings(nextForm);
+    const comfyBackend = canUseHostedComfy ? normalized.comfyBackend : 'local';
+    const backendMode = deriveBackendMode({ ...normalized, comfyBackend });
     await onSaveConnection({
-      backendMode: normalized.backendMode,
+      backendMode,
       llmBackend: normalized.llmBackend,
-      comfyBackend: normalized.comfyBackend,
+      comfyBackend,
       vlmBackend: normalized.vlmBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
@@ -364,9 +454,24 @@ export default function SettingsPanel({
   // comfyBackend='cloud'; LLM provider/url/model/key inputs are inert
   // when llmBackend='cloud'. The two are independent — flipping one
   // doesn't affect the other.
-  const isComfyCloudMode = form.comfyBackend === 'cloud';
+  const isComfyCloudMode =
+    form.comfyBackend === 'cloud' && !isComfyBlockedByPlan;
   const isLlmCloudMode = form.llmBackend === 'cloud';
   const isVlmCloudMode = form.vlmBackend === 'cloud';
+  let comfyCloudToggleTitle: string | undefined;
+  if (!account) {
+    comfyCloudToggleTitle = 'Sign in to Dhee Cloud to enable Cloud mode';
+  } else if (isComfyBlockedByPlan) {
+    comfyCloudToggleTitle =
+      'Your current plan uses bring-your-own ComfyUI for image and video';
+  }
+  let comfyInfoText = 'Image / video jobs run on the ComfyUI server below.';
+  if (isComfyBlockedByPlan) {
+    comfyInfoText =
+      'Starter and Free accounts bring their own ComfyUI endpoint for image and video. Configure your ComfyUI server below.';
+  } else if (isComfyCloudMode) {
+    comfyInfoText = 'Image / video jobs run on Dhee Cloud (uses credits).';
+  }
   const statusLabel = isCloudReady || !isCloudMode ? 'Ready' : 'Sign in';
   const statusBadgeClass = isCloudReady || !isCloudMode
     ? styles.statusBadgeSuccess
@@ -422,19 +527,6 @@ export default function SettingsPanel({
         {cfg.provider === 'gemini' && (
           <>
             <label className={styles.label}>
-              Google API Key
-              <input
-                type="password"
-                className={styles.input}
-                value={cfg.googleApiKey}
-                disabled={isLlmCloudMode}
-                onChange={(event) =>
-                  handleTierInput(tier, 'googleApiKey', event.target.value)
-                }
-                placeholder="AIza..."
-              />
-            </label>
-            <label className={styles.label}>
               Gemini Model ID
               <input
                 type="text"
@@ -445,6 +537,19 @@ export default function SettingsPanel({
                   handleTierInput(tier, 'geminiModel', event.target.value)
                 }
                 placeholder="gemini-2.5-flash"
+              />
+            </label>
+            <label className={styles.label}>
+              Google API Key
+              <input
+                type="password"
+                className={styles.input}
+                value={cfg.googleApiKey}
+                disabled={isLlmCloudMode}
+                onChange={(event) =>
+                  handleTierInput(tier, 'googleApiKey', event.target.value)
+                }
+                placeholder="AIza..."
               />
             </label>
           </>
@@ -515,6 +620,24 @@ export default function SettingsPanel({
       />
       {label}
     </label>
+  );
+
+  const renderProviderDiagnostic = (item: ProviderDiagnosticItem) => (
+    <div key={item.id} className={styles.providerDiagnosticRow}>
+      <div>
+        <div className={styles.providerDiagnosticTitle}>{item.label}</div>
+        <p className={styles.providerDiagnosticMessage}>{item.message}</p>
+        {item.detail ? (
+          <p className={styles.providerDiagnosticDetail}>{item.detail}</p>
+        ) : null}
+      </div>
+      <div
+        className={`${styles.statusBadge} ${diagnosticBadgeClass(item.status)}`}
+      >
+        <span className={styles.statusDot} />
+        {item.status}
+      </div>
+    </div>
   );
 
   const panelContent = (
@@ -812,36 +935,53 @@ export default function SettingsPanel({
                 <div className={styles.statusCard}>
                   <div className={styles.statusTopRow}>
                     <div>
-                      <div className={styles.statusHeader}>
-                      Status
-                      </div>
+                      <div className={styles.statusHeader}>Status</div>
                       <div className={styles.statusHeadline}>
                         {statusHeadline}
                       </div>
-                    
                     </div>
                     <div className={`${styles.statusBadge} ${statusBadgeClass}`}>
                       <span className={styles.statusDot} />
                       {statusLabel}
                     </div>
                   </div>
+                  <div className={styles.providerDiagnosticsActions}>
+                    <button
+                      type="button"
+                      className={styles.submitButton}
+                      onClick={handleProviderDiagnostics}
+                      disabled={providerDiagnosticsBusy}
+                      data-tour-id="settings-provider-test"
+                    >
+                      {providerDiagnosticsBusy
+                        ? 'Checking...'
+                        : 'Test all providers'}
+                    </button>
+                  </div>
+                  {providerDiagnostics ? (
+                    <div
+                      className={styles.providerDiagnosticsList}
+                      aria-label="Provider readiness results"
+                    >
+                      {providerDiagnostics.items.map(renderProviderDiagnostic)}
+                    </div>
+                  ) : null}
                 </div>
 
                 <fieldset className={styles.fieldset}>
                   <legend>ComfyUI</legend>
-                  <div className={styles.cloudToggleRow}>
+                  <div
+                    className={styles.cloudToggleRow}
+                    data-tour-id="settings-cloud-toggles"
+                  >
                     <label
                       className={styles.checkboxLabel}
-                      title={
-                        !account
-                          ? 'Sign in to Dhee Cloud to enable Cloud mode'
-                          : undefined
-                      }
+                      title={comfyCloudToggleTitle}
                     >
                       <input
                         type="checkbox"
                         checked={isComfyCloudMode}
-                        disabled={!account}
+                        disabled={!canUseHostedComfy}
                         onChange={(event) =>
                           handleInput(
                             'comfyBackend',
@@ -857,15 +997,14 @@ export default function SettingsPanel({
                         className={styles.inlineSignInButton}
                         onClick={handleInlineSignIn}
                         disabled={signingIn}
+                        data-tour-id="settings-cloud-sign-in"
                       >
                         {signingIn ? 'Opening…' : 'Sign In'}
                       </button>
                     ) : null}
                   </div>
                   <p className={styles.infoText}>
-                    {isComfyCloudMode
-                      ? 'Image / video jobs run on Dhee Cloud (uses credits).'
-                      : 'Image / video jobs run on the ComfyUI server below.'}
+                    {comfyInfoText}
                   </p>
 
                   {!isComfyCloudMode && (
@@ -880,6 +1019,7 @@ export default function SettingsPanel({
                             handleInput('comfyuiUrl', event.target.value)
                           }
                           placeholder="http://localhost:8000"
+                          data-tour-id="settings-comfy-url"
                         />
                       </label>
 
@@ -957,7 +1097,10 @@ export default function SettingsPanel({
                           prompts, motion directives — and the pi-agent
                           orchestrator.
                         </p>
-                        <div className={styles.radios}>
+                        <div
+                          className={styles.radios}
+                          data-tour-id="settings-llm-provider"
+                        >
                           {renderProviderToggle('gemini', 'Gemini')}
                           {renderProviderToggle('openai', 'OpenAI-Compatible')}
                         </div>
@@ -965,19 +1108,6 @@ export default function SettingsPanel({
 
                       {form.llmProvider === 'gemini' && (
                         <>
-                          <label className={styles.label}>
-                            Google API Key
-                            <input
-                              type="password"
-                              className={styles.input}
-                              value={form.googleApiKey}
-                              onChange={(event) =>
-                                handleInput('googleApiKey', event.target.value)
-                              }
-                              placeholder="AIza..."
-                            />
-                          </label>
-
                           <label className={styles.label}>
                             Gemini Model ID
                             <input
@@ -988,6 +1118,21 @@ export default function SettingsPanel({
                                 handleInput('geminiModel', event.target.value)
                               }
                               placeholder="gemini-2.5-flash"
+                              data-tour-id="settings-llm-model"
+                            />
+                          </label>
+
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.googleApiKey}
+                              onChange={(event) =>
+                                handleInput('googleApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
+                              data-tour-id="settings-llm-api-key"
                             />
                           </label>
                         </>
@@ -1020,6 +1165,7 @@ export default function SettingsPanel({
                               }
                               placeholder="https://api.openai.com/v1"
                               aria-label="Base URL"
+                              data-tour-id="settings-llm-base-url"
                             />
                           </div>
 
@@ -1033,6 +1179,7 @@ export default function SettingsPanel({
                                 handleInput('openaiModel', event.target.value)
                               }
                               placeholder="gpt-4o"
+                              data-tour-id="settings-llm-model"
                             />
                           </label>
 
@@ -1046,6 +1193,7 @@ export default function SettingsPanel({
                                 handleInput('openaiApiKey', event.target.value)
                               }
                               placeholder="sk-..."
+                              data-tour-id="settings-llm-api-key"
                             />
                           </label>
                         </>
@@ -1166,18 +1314,6 @@ export default function SettingsPanel({
                       {form.vlmProvider === 'gemini' ? (
                         <>
                           <label className={styles.label}>
-                            Google API Key
-                            <input
-                              type="password"
-                              className={styles.input}
-                              value={form.vlmApiKey}
-                              onChange={(event) =>
-                                handleInput('vlmApiKey', event.target.value)
-                              }
-                              placeholder="AIza..."
-                            />
-                          </label>
-                          <label className={styles.label}>
                             Gemini Vision Model ID
                             <input
                               type="text"
@@ -1187,6 +1323,18 @@ export default function SettingsPanel({
                                 handleInput('vlmModel', event.target.value)
                               }
                               placeholder="gemini-2.5-pro"
+                            />
+                          </label>
+                          <label className={styles.label}>
+                            Google API Key
+                            <input
+                              type="password"
+                              className={styles.input}
+                              value={form.vlmApiKey}
+                              onChange={(event) =>
+                                handleInput('vlmApiKey', event.target.value)
+                              }
+                              placeholder="AIza..."
                             />
                           </label>
                         </>
@@ -1249,6 +1397,7 @@ export default function SettingsPanel({
                 type="submit"
                 className={styles.submitButton}
                 disabled={isSavingConnection}
+                data-tour-id="settings-save-connection"
               >
                 {isSavingConnection ? 'Saving…' : 'Save & Restart'}
               </button>

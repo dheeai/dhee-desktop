@@ -13,6 +13,11 @@
   overflow: hidden;
 }
 
+.panelTourTarget {
+  height: 100%;
+  min-height: 0;
+}
+
 .resizeHandle {
   width: 4px;
   background-color: rgba(var(--color-bg-panel-soft-rgb), 0.2);

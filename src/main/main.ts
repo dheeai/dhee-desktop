@@ -57,9 +57,15 @@ import {
   refreshBalance,
   setAccount,
 } from './accountManager';
+import {
+  completeOnboarding,
+  getOnboardingState,
+} from './onboardingManager';
+import { runProviderDiagnostics } from './providerDiagnostics';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import {
   captureDesktopAuthStarted,
+  captureDesktopProjectCreated,
   identifyDesktopUser,
   resetDesktopAnalyticsIdentity,
   startDesktopAnalytics,
@@ -383,6 +389,21 @@ ipcMain.handle(
     return updated;
   },
 );
+
+ipcMain.handle('onboarding:get-state', () => {
+  return getOnboardingState();
+});
+
+ipcMain.handle(
+  'onboarding:complete',
+  (_event, req?: { skipped?: boolean }) => {
+    return completeOnboarding(req ?? {});
+  },
+);
+
+ipcMain.handle('provider-diagnostics:run', async () => {
+  return runProviderDiagnostics(getSettings(), getAccount());
+});
 
 // Project / File System IPC handlers
 // New-Project default-workspace handler.
@@ -1436,8 +1457,10 @@ ipcMain.handle(
     const absoluteBase = path.isAbsolute(basePath)
       ? path.resolve(basePath)
       : null;
+    const isNewProjectCreate =
+      meta?.source === 'renderer' && meta?.intent === 'new_project_parent';
     let activeProjectRoot: string | null;
-    if (meta?.source === 'renderer' && meta?.intent === 'new_project_parent') {
+    if (isNewProjectCreate) {
       if (!absoluteBase) {
         throw createIpcFileOpError(
           'INVALID_FILE_PATH',
@@ -1483,6 +1506,11 @@ ipcMain.handle(
       );
       await assertCanonicalProjectContainment(resolvedPath, activeProjectRoot);
       await fs.mkdir(resolvedPath, { recursive: true });
+      if (isNewProjectCreate) {
+        captureDesktopProjectCreated(dheeCoreManager, {
+          projectName: relativePath,
+        });
+      }
       return resolvedPath;
     } catch (error) {
       throwFileOpError({

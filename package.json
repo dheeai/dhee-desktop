@@ -1,6 +1,6 @@
 {
   "name": "dhee-desktop",
-  "version": "1.2.0",
+  "version": "0.1.0",
   "description": "Desktop application for Dhee Studios video generation",
   "keywords": [
     "dhee",
@@ -103,6 +103,11 @@
     },
     "setupFiles": [
       "./.erb/scripts/check-build-exists.ts"
+    ],
+    "modulePathIgnorePatterns": [
+      "<rootDir>/assets/remotion-infographics-template/package.json",
+      "<rootDir>/dhee-core/remotion-infographics/package.json",
+      "<rootDir>/release/app/package.json"
     ],
     "testEnvironment": "jsdom",
     "testEnvironmentOptions": {
@@ -248,11 +253,19 @@
     "@electron/rebuild": "^3.7.1"
   },
   "build": {
-    "productName": "Dhee Studio",
+    "productName": "Dhee",
     "appId": "com.dheeai.desktop",
+    "protocols": [
+      {
+        "name": "Dhee",
+        "role": "Viewer",
+        "schemes": [
+          "dhee"
+        ]
+      }
+    ],
     "asar": true,
     "afterSign": ".erb/scripts/notarize.js",
-    "afterAllArtifactBuild": ".erb/scripts/stable-release-artifacts.cjs",
     "asarUnpack": [
       "**\\*.{node,dll}",
       "**/node_modules/@ffmpeg-installer/**",
@@ -335,8 +348,7 @@
       "target": {
         "target": "default",
         "arch": [
-          "arm64",
-          "x64"
+          "arm64"
         ]
       },
       "type": "distribution",
@@ -409,7 +421,7 @@
     "publish": {
       "provider": "github",
       "owner": "dheeai",
-      "repo": "dhee-studio",
+      "repo": "dhee-desktop",
       "releaseType": "release"
     }
   },

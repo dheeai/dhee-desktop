@@ -4,6 +4,7 @@ import { ProjectProvider } from './contexts/ProjectContext';
 import { AgentProvider } from './contexts/AgentContext';
 import { AppSettingsProvider } from './contexts/AppSettingsContext';
 import { ChatQuestionsProvider } from './contexts/ChatQuestionsContext';
+import { FirstRunTourProvider } from './contexts/FirstRunTourContext';
 import { DheeSessionProvider } from './hooks/useDheeSession';
 import LandingScreen from './components/landing/LandingScreen/LandingScreen';
 import WorkspaceLayout from './components/layout/WorkspaceLayout/WorkspaceLayout';
@@ -29,15 +30,17 @@ export default function App() {
       <AppSettingsProvider>
         <DheeSessionProvider>
           <WorkspaceProvider>
-            <ProjectProvider>
-              <TimelineProvider>
-                <AgentProvider>
-                  <ChatQuestionsProvider>
-                    <AppContent />
-                  </ChatQuestionsProvider>
-                </AgentProvider>
-              </TimelineProvider>
-            </ProjectProvider>
+            <FirstRunTourProvider>
+              <ProjectProvider>
+                <TimelineProvider>
+                  <AgentProvider>
+                    <ChatQuestionsProvider>
+                      <AppContent />
+                    </ChatQuestionsProvider>
+                  </AgentProvider>
+                </TimelineProvider>
+              </ProjectProvider>
+            </FirstRunTourProvider>
           </WorkspaceProvider>
         </DheeSessionProvider>
       </AppSettingsProvider>

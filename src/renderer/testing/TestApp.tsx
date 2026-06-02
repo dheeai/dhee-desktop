@@ -14,14 +14,14 @@
  *   Storyboard, Preview, etc.).
  */
 import { useEffect, useState } from 'react';
-import {
-  WorkspaceProvider,
-  useWorkspace,
-} from '../contexts/WorkspaceContext';
+import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
 import { TimelineProvider } from '../contexts/TimelineContext';
 import { ProjectProvider } from '../contexts/ProjectContext';
 import { AgentProvider } from '../contexts/AgentContext';
 import { AppSettingsProvider } from '../contexts/AppSettingsContext';
+import { FirstRunTourProvider } from '../contexts/FirstRunTourContext';
+import { ChatQuestionsProvider } from '../contexts/ChatQuestionsContext';
+import { DheeSessionProvider } from '../hooks/useDheeSession';
 import LandingScreen from '../components/landing/LandingScreen/LandingScreen';
 import WorkspaceLayout from '../components/layout/WorkspaceLayout/WorkspaceLayout';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -96,13 +96,19 @@ function ProjectBootstrap({
 /** Original chat-only mount — preserved for the existing 9 specs. */
 function ChatSurface() {
   return (
-    <WorkspaceProvider>
-      <ProjectBootstrap>
-        <div style={{ width: '100vw', height: '100vh', display: 'flex' }}>
-          <ChatPanelEmbedded />
-        </div>
-      </ProjectBootstrap>
-    </WorkspaceProvider>
+    <AppSettingsProvider>
+      <DheeSessionProvider>
+        <WorkspaceProvider>
+          <ChatQuestionsProvider>
+            <ProjectBootstrap>
+              <div style={{ width: '100vw', height: '100vh', display: 'flex' }}>
+                <ChatPanelEmbedded />
+              </div>
+            </ProjectBootstrap>
+          </ChatQuestionsProvider>
+        </WorkspaceProvider>
+      </DheeSessionProvider>
+    </AppSettingsProvider>
   );
 }
 
@@ -124,21 +130,27 @@ function FullAppSurface({ autoOpen }: { autoOpen: boolean }) {
   return (
     <ErrorBoundary>
       <AppSettingsProvider>
-        <WorkspaceProvider>
-          <ProjectProvider>
-            <TimelineProvider>
-              <AgentProvider>
-                {autoOpen ? (
-                  <ProjectBootstrap showPickerOnEmpty={false}>
-                    <AppContent />
-                  </ProjectBootstrap>
-                ) : (
-                  <AppContent />
-                )}
-              </AgentProvider>
-            </TimelineProvider>
-          </ProjectProvider>
-        </WorkspaceProvider>
+        <DheeSessionProvider>
+          <WorkspaceProvider>
+            <FirstRunTourProvider>
+              <ProjectProvider>
+                <TimelineProvider>
+                  <AgentProvider>
+                    <ChatQuestionsProvider>
+                      {autoOpen ? (
+                        <ProjectBootstrap showPickerOnEmpty={false}>
+                          <AppContent />
+                        </ProjectBootstrap>
+                      ) : (
+                        <AppContent />
+                      )}
+                    </ChatQuestionsProvider>
+                  </AgentProvider>
+                </TimelineProvider>
+              </ProjectProvider>
+            </FirstRunTourProvider>
+          </WorkspaceProvider>
+        </DheeSessionProvider>
       </AppSettingsProvider>
     </ErrorBoundary>
   );
@@ -147,8 +159,7 @@ function FullAppSurface({ autoOpen }: { autoOpen: boolean }) {
 export default function TestApp() {
   // Surface decision is made once on mount; tests pre-seed the scenario
   // via initScript so it's already loaded.
-  const surface: ScenarioSurface =
-    window.__dheeTest?.getSurface() ?? 'chat';
+  const surface: ScenarioSurface = window.__dheeTest?.getSurface() ?? 'chat';
 
   switch (surface) {
     case 'landing':

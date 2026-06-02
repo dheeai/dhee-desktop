@@ -198,6 +198,42 @@ describe('desktop analytics', () => {
     );
   });
 
+  it('captures project_created with the raw project name and desktop session context', async () => {
+    mockStoreData.installId = 'install-stable';
+    mockStoreData.firstDesktopStartCaptured = true;
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.startDesktopAnalytics({
+      manager: manager as unknown as dheeCoreManager,
+    });
+    manager.captureAnalyticsEvent.mockClear();
+
+    analytics.captureDesktopProjectCreated(
+      manager as unknown as dheeCoreManager,
+      { projectName: '  Client Launch Film  ' },
+    );
+
+    expect(manager.captureAnalyticsEvent).toHaveBeenCalledWith(
+      'project_created',
+      expect.objectContaining({
+        $session_id: expect.any(String),
+        analytics_session_id: expect.any(String),
+        app_version: '9.9.9',
+        project_name: 'Client Launch Film',
+        project_name_length: 18,
+        creation_surface: 'new_project_dialog',
+        project_creation_source: 'desktop',
+      }),
+    );
+    const properties = manager.captureAnalyticsEvent.mock.calls[0]?.[1] as
+      | Record<string, unknown>
+      | undefined;
+    expect(properties).not.toHaveProperty('project_directory');
+    expect(properties).not.toHaveProperty('project_dir');
+    expect(properties).not.toHaveProperty('workspace_path');
+  });
+
   it('can defer the final flush until core shutdown has queued session-ended events', async () => {
     mockStoreData.installId = 'install-stable';
     mockStoreData.firstDesktopStartCaptured = true;

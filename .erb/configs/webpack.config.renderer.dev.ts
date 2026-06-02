@@ -2,12 +2,12 @@ import type { Configuration } from 'webpack';
 import type WebpackDevServer from 'webpack-dev-server';
 import path from 'path';
 import fs from 'fs';
-import webpack from './webpack.instance';
 import HtmlWebpackPlugin from 'html-webpack-plugin';
 import chalk from 'chalk';
 import { mergeWithCustomize } from 'webpack-merge';
 import { execSync, spawn } from 'child_process';
 import ReactRefreshWebpackPlugin from '@pmmmwh/react-refresh-webpack-plugin';
+import webpack from './webpack.instance';
 import baseConfig from './webpack.config.base';
 import webpackPaths from './webpack.paths';
 import checkNodeEnv from '../scripts/check-node-env';
@@ -163,6 +163,7 @@ const configuration: Configuration = {
     new webpack.EnvironmentPlugin({
       NODE_ENV: 'development',
       dhee_TEST_BRIDGE: '0',
+      dhee_FIRST_RUN_TOUR_DEV_MODE: '0',
     }),
 
     new webpack.LoaderOptionsPlugin({
@@ -256,7 +257,7 @@ const configuration: Configuration = {
           !dep.includes('remark'),
       );
       return deps;
-    } catch (error) {
+    } catch {
       console.warn(
         'Could not read package.json for externals, using empty externals list',
       );

@@ -216,7 +216,7 @@ type RunnersModule = {
       spec: { kind: string; projectName: string; sessionId: string };
       startedAt: number;
     };
-    isCancelling: () => boolean;
+    isCancelling?: () => boolean;
   };
 };
 
@@ -1632,7 +1632,7 @@ export class dheeCoreManager {
     if (!active) return { active: false };
     return {
       active: true,
-      cancelling: runner.isCancelling(),
+      cancelling: runner.isCancelling?.() ?? false,
       taskId: active.id,
       kind: active.spec.kind,
       projectName: active.spec.projectName,

@@ -46,7 +46,10 @@ export default function WorkspaceLayout() {
   const { bundle } = useProject();
   const { active: runnerActive, cancel: cancelRunner } = useRunnerStatus();
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
-  const displayProjectName = getProjectDisplayName(projectName, projectDirectory);
+  const displayProjectName = getProjectDisplayName(
+    projectName,
+    projectDirectory,
+  );
 
   const handleBack = useCallback(async () => {
     if (runnerActive) {
@@ -107,7 +110,12 @@ export default function WorkspaceLayout() {
               collapsible
               collapsedSize={0}
             >
-              <ChatPanel />
+              <div
+                className={styles.panelTourTarget}
+                data-tour-id="workspace-chat-panel"
+              >
+                <ChatPanel />
+              </div>
             </Panel>
           </PanelGroup>
         </div>

@@ -3,7 +3,7 @@
 
 .container {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto 1fr auto;
   height: 100%;
   width: 100%;
   min-height: 0;
@@ -509,8 +509,15 @@
 
 .mainLight {
   background-image:
-    linear-gradient(rgba(var(--color-text-primary-rgb), 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(var(--color-text-primary-rgb), 0.04) 1px, transparent 1px);
+    linear-gradient(
+      rgba(var(--color-text-primary-rgb), 0.04) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(var(--color-text-primary-rgb), 0.04) 1px,
+      transparent 1px
+    );
 }
 
 .mainSettings {
