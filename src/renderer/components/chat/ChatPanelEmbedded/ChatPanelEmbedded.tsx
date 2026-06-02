@@ -174,6 +174,22 @@ function newMessageId(): string {
 const RUNNER_STATUS_POLL_MS = 1500;
 
 /**
+ * Defense-in-depth for the "silent run" bug. The real fix is making
+ * regenerate runs dispatch through the BackgroundTaskRunner so
+ * `runnerStatus()` reflects them (that poll is the authoritative,
+ * continuous signal). This is a secondary backstop: a `media_generated`
+ * event proves a node just produced output, so we keep the indicator
+ * lit briefly after one in case a run surfaces media before the next
+ * poll catches it (or via some future event-emitting path that
+ * `runnerStatus` misses). `media_generated` is used — not
+ * tool_call/result — because only renders emit it, so it can't
+ * false-positive on ordinary agent file tools (bash/read/edit). Kept
+ * short so it merely bridges poll latency and never lingers noticeably
+ * after a run ends.
+ */
+const RENDER_ACTIVITY_TTL_MS = 4_000;
+
+/**
  * Detect the "text concatenated with itself" pattern that the
  * upstream LLM stream sometimes produces (e.g. an entire multi-
  * paragraph response repeated twice in a single bubble) and return
@@ -528,6 +544,9 @@ export default function ChatPanelEmbedded() {
   // results.
   const toolNameByCallIdRef = useRef<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // Timestamp of the last render `asset` event — used as a defense-in-
+  // depth running signal (see RENDER_ACTIVITY_TTL_MS).
+  const lastRenderEventRef = useRef<number>(0);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -550,6 +569,13 @@ export default function ChatPanelEmbedded() {
       const sid = event.sessionId;
       if (sid && sid !== mainId && sid !== bgSessionId) {
         return;
+      }
+      // Defense-in-depth running signal: a `media_generated` event means
+      // a node actually rendered something. Stamp the time so the
+      // indicator stays lit even if `runnerStatus` somehow doesn't
+      // reflect the run.
+      if (event.eventName === 'media_generated') {
+        lastRenderEventRef.current = Date.now();
       }
       // The header Stop button is no longer driven by tool-name
       // sniffing here. The previous tool-name allowlist
@@ -608,7 +634,11 @@ export default function ChatPanelEmbedded() {
       try {
         const status = await window.dhee.runnerStatus();
         if (cancelled) return;
-        setRunnerActive(!!status?.active);
+        // Authoritative signal OR a recent render-asset window. The
+        // poll owns turning it OFF (so it can't stick on); the asset
+        // window catches any run that doesn't surface via runnerStatus.
+        const recentRender = Date.now() - lastRenderEventRef.current < RENDER_ACTIVITY_TTL_MS;
+        setRunnerActive(!!status?.active || recentRender);
         // Mirror server-side `cancelling` into local pendingCancel.
         // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"

@@ -1564,88 +1564,109 @@ export class dheeCoreManager {
     }
 
     const taskId = dispatchResult.taskId;
-    const emit = (eventName: string, data: unknown) =>
-      eventCb({ eventName, sessionId, data });
 
     return new Promise<RunResult>((resolve) => {
-      const offs: Array<() => void> = [];
-      const cleanup = () => {
-        for (const off of offs) off();
-      };
-      const matches = (e: unknown): e is { task?: { id?: string } } =>
-        typeof e === 'object' && e !== null && (e as { task?: { id?: string } }).task?.id === taskId;
-
-      offs.push(
-        runner.on('tool', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { toolName?: string; nodeId?: string };
-          emit('tool_call', {
-            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
-            toolName: evt.toolName,
-            arguments: {},
-            status: 'in_progress',
-          });
-        }),
-      );
-      offs.push(
-        runner.on('result', (e) => {
-          if (!matches(e)) return;
-          const evt = e as {
-            toolName?: string;
-            nodeId?: string;
-            filePath?: string;
-            status?: string;
-            error?: string;
-          };
-          emit('tool_result', {
-            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
-            toolName: evt.toolName,
-            result: {
-              filePath: evt.filePath,
-              status: evt.status,
-              error: evt.error,
-            },
-            isError: evt.status === 'error' || !!evt.error,
-          });
-        }),
-      );
-      offs.push(
-        runner.on('notification', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { level?: string; message?: string };
-          emit('status', { status: 'info', level: evt.level, message: evt.message });
-        }),
-      );
-      offs.push(
-        runner.on('asset', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { kind?: string; filePath?: string; nodeId?: string };
-          emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
-        }),
-      );
-      offs.push(
-        runner.on('completed', (e) => {
-          if (!matches(e)) return;
-          cleanup();
-          resolve({ status: 'completed' });
-        }),
-      );
-      offs.push(
-        runner.on('failed', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { error?: string };
-          cleanup();
-          resolve({ status: 'failed', error: evt.error });
-        }),
-      );
-      offs.push(
-        runner.on('cancelled', (e) => {
-          if (!matches(e)) return;
-          cleanup();
-          resolve({ status: 'cancelled' });
-        }),
-      );
+      this.wireRunnerTaskEvents(runner, taskId, sessionId, eventCb, resolve);
     });
+  }
+
+  /**
+   * Wire a dispatched BackgroundTaskRunner task's typed events to the
+   * renderer event sink (tool / result / notification / asset) and
+   * resolve a terminal result on completed / failed / cancelled.
+   *
+   * Shared by `runTask` (awaits the terminal result for the chat
+   * round-trip) and `redoNode` (fire-and-forget — it streams progress
+   * but doesn't block on completion). Returns a cleanup that detaches
+   * every listener; terminal events self-detach. Scoped to `taskId` so
+   * concurrent listeners don't cross-talk.
+   */
+  private wireRunnerTaskEvents(
+    runner: { on: (event: string, handler: (payload: unknown) => void) => () => void },
+    taskId: string,
+    sessionId: string,
+    eventCb: dheeCoreEventCallback,
+    onTerminal: (result: RunResult) => void,
+  ): () => void {
+    const emit = (eventName: string, data: unknown) => eventCb({ eventName, sessionId, data });
+    const offs: Array<() => void> = [];
+    const cleanup = () => {
+      for (const off of offs) off();
+    };
+    const matches = (e: unknown): e is { task?: { id?: string } } =>
+      typeof e === 'object' && e !== null && (e as { task?: { id?: string } }).task?.id === taskId;
+
+    offs.push(
+      runner.on('tool', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { toolName?: string; nodeId?: string };
+        emit('tool_call', {
+          toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+          toolName: evt.toolName,
+          arguments: {},
+          status: 'in_progress',
+        });
+      }),
+    );
+    offs.push(
+      runner.on('result', (e) => {
+        if (!matches(e)) return;
+        const evt = e as {
+          toolName?: string;
+          nodeId?: string;
+          filePath?: string;
+          status?: string;
+          error?: string;
+        };
+        emit('tool_result', {
+          toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+          toolName: evt.toolName,
+          result: {
+            filePath: evt.filePath,
+            status: evt.status,
+            error: evt.error,
+          },
+          isError: evt.status === 'error' || !!evt.error,
+        });
+      }),
+    );
+    offs.push(
+      runner.on('notification', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { level?: string; message?: string };
+        emit('status', { status: 'info', level: evt.level, message: evt.message });
+      }),
+    );
+    offs.push(
+      runner.on('asset', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { kind?: string; filePath?: string; nodeId?: string };
+        emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
+      }),
+    );
+    offs.push(
+      runner.on('completed', (e) => {
+        if (!matches(e)) return;
+        cleanup();
+        onTerminal({ status: 'completed' });
+      }),
+    );
+    offs.push(
+      runner.on('failed', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { error?: string };
+        cleanup();
+        onTerminal({ status: 'failed', error: evt.error });
+      }),
+    );
+    offs.push(
+      runner.on('cancelled', (e) => {
+        if (!matches(e)) return;
+        cleanup();
+        onTerminal({ status: 'cancelled' });
+      }),
+    );
+    return cleanup;
   }
 
   /**
@@ -1744,16 +1765,27 @@ export class dheeCoreManager {
   }
 
   /**
-   * Regenerate a single bundle node (or a single collection-item of a
-   * node). Looks up the session's focused projectDir from
-   * `sessionProjects`, then forwards to dhee-core/dag.regenerateNode
-   * — which invalidates the walkState entry, persists the change, and
-   * dispatches `runProjectViaBundle({runOnly:[nodeId]})` so the
-   * walker re-runs that node and its downstream.
+   * Regenerate a single bundle node (or a single collection-item).
    *
-   * Phase 6 (BUG-016 proper fix): replaces the dead
-   * `ConversationManager.redoNode` facade. Pre-Phase-6 this method
-   * silently threw because the stub manager has no redoNode method.
+   * Two steps: (1) invalidate the node + its downstream cascade (cheap,
+   * no render — clears walkState so the walker re-runs them); (2)
+   * dispatch the actual re-render through the BackgroundTaskRunner —
+   * the SAME tracked path `runTask` uses.
+   *
+   * Why route through the runner (BUG: silent uncancellable GPU run):
+   * the old path called `dag.regenerateNode` → `runProjectViaBundle`
+   * DIRECTLY, so the run never registered with the runner. Result:
+   * `runnerStatus()` reported `{active:false}` while Comfy churned,
+   * the UI showed no running indicator, and `runnerCancel()` was a
+   * no-op — the user only knew a run was happening because the GPU
+   * fan spun up. Dispatching through the runner makes the run visible
+   * to `getBackgroundTaskStatus` (→ the polled UI indicator + Stop
+   * button) and stoppable via `cancelTask`/`runnerCancel`.
+   *
+   * Fire-and-forget: resolves once the run is DISPATCHED (or the
+   * dispatch is rejected because a run is already active), not when the
+   * render completes. Progress streams to the renderer via the shared
+   * `wireRunnerTaskEvents` wiring.
    */
   async redoNode(
     sessionId: string | undefined,
@@ -1772,18 +1804,91 @@ export class dheeCoreManager {
         error: `no project focused for session ${sessionId ?? '(none)'} — focus a session first or pass projectDir`,
       };
     }
+    const key = opts?.itemId ? `${nodeId}:${opts.itemId}` : nodeId;
+
+    // 1. Invalidate target + downstream (persisted BEFORE dispatch so a
+    //    retry resumes correctly). Cheap — clears walkState, no Comfy.
     const dag = await this.getDagModule();
-    const result = await dag.regenerateNode({
-      projectDir,
-      nodeId,
-      ...(opts?.itemId ? { itemId: opts.itemId } : {}),
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    });
-    return {
-      ok: result.ok,
-      ...(result.nodeId ? { nodeId: result.nodeId } : {}),
-      ...(result.error ? { error: result.error } : {}),
+    const inv = await dag.invalidateNodes({ projectDir, nodeIds: [key] });
+    if (inv.error) {
+      return { ok: false, error: inv.error };
+    }
+
+    // 2. Dispatch the re-render through the tracked runner.
+    const projectName = path.basename(projectDir);
+    this.lastEventCb && void this.ensureRunWakeSubscription();
+    const runnersMod = await loadRunnersModule();
+    const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+      dispatch: (spec: {
+        kind: 'run_to';
+        projectName: string;
+        params: { projectDir: string; stage?: string };
+        sessionId: string;
+      }) =>
+        | { status: 'started'; taskId: string }
+        | {
+            status: 'rejected';
+            reason: 'task_already_running';
+            activeTaskId: string;
+            activeTaskKind: string;
+            activeProjectName: string;
+          };
+      on: (event: string, handler: (payload: unknown) => void) => () => void;
     };
+
+    const dispatchResult = runner.dispatch({
+      kind: 'run_to',
+      projectName,
+      params: { projectDir },
+      // The runner uses sessionId only to re-wake the owning agent on
+      // completion. The Inspector has no chat session, so fall back to
+      // a project-scoped id — the wake nudge is skipped when there's no
+      // live agent for the id.
+      sessionId: sessionId ?? `inspector:${projectName}`,
+    });
+    log.info('[redoNode] dispatched re-render through runner', {
+      key,
+      projectName,
+      projectDir,
+      dispatch: dispatchResult,
+    });
+
+    if (dispatchResult.status === 'rejected') {
+      return {
+        ok: false,
+        error: `a run is already active on '${dispatchResult.activeProjectName}' (taskId ${dispatchResult.activeTaskId}) — stop it before regenerating ${key}`,
+      };
+    }
+
+    // Stream the run's progress to the renderer (fire-and-forget; the
+    // listeners self-detach on the terminal event).
+    if (this.lastEventCb) {
+      this.wireRunnerTaskEvents(
+        runner,
+        dispatchResult.taskId,
+        sessionId ?? `inspector:${projectName}`,
+        this.lastEventCb,
+        (result) => {
+          log.info('[redoNode] re-render task terminal', { key, result });
+        },
+      );
+    } else {
+      // No live event sink (Inspector with no chat session): still log
+      // the terminal state for observability.
+      this.wireRunnerTaskEvents(
+        runner,
+        dispatchResult.taskId,
+        sessionId ?? `inspector:${projectName}`,
+        () => {
+          /* no renderer sink */
+        },
+        (result) => {
+          log.info('[redoNode] re-render task terminal (no sink)', { key, result });
+        },
+      );
+    }
+
+    return { ok: true, nodeId };
   }
 
   /**
