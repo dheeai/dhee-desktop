@@ -329,7 +329,14 @@ export interface CancelTaskResponse {
 }
 
 export interface RedoNodeRequest {
-  sessionId: string;
+  /**
+   * Chat session id (resolves to the focused project). Optional — pass
+   * `projectDir` instead when calling from a projectDir-native surface
+   * like the Inspector Cards view, which has no chat session.
+   */
+  sessionId?: string;
+  /** Absolute project dir. Takes precedence over sessionId when set. */
+  projectDir?: string;
   nodeId: string;
   editedPrompt?: string;
   frame?: string;
@@ -376,7 +383,14 @@ export interface DeleteSessionRequest {
 }
 
 export interface InvalidateNodesRequest {
-  sessionId: string;
+  /**
+   * Chat session id (resolves to the focused project). Optional — pass
+   * `projectDir` instead from a projectDir-native surface (Inspector
+   * Cards view) that has no chat session.
+   */
+  sessionId?: string;
+  /** Absolute project dir. Takes precedence over sessionId when set. */
+  projectDir?: string;
   nodeIds: string[];
   /**
    * Free-form origin tag forwarded to the kshana-core supervisor event.

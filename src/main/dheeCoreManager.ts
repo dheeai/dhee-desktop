@@ -383,6 +383,12 @@ export interface RedoNodeOpts {
   itemId?: string;
   /** Cooperative cancellation forwarded to the runner. */
   signal?: AbortSignal;
+  /**
+   * Explicit project dir. When set, takes precedence over the
+   * sessionId→project lookup. Lets projectDir-native surfaces (the
+   * Inspector Cards view) drive regen without a chat session.
+   */
+  projectDir?: string;
 }
 
 export interface ConfigureProjectOpts {
@@ -1750,7 +1756,7 @@ export class dheeCoreManager {
    * silently threw because the stub manager has no redoNode method.
    */
   async redoNode(
-    sessionId: string,
+    sessionId: string | undefined,
     nodeId: string,
     opts?: RedoNodeOpts,
   ): Promise<{
@@ -1759,11 +1765,11 @@ export class dheeCoreManager {
     editedPrompt?: string;
     error?: string;
   }> {
-    const projectDir = this.sessionProjects.get(sessionId);
+    const projectDir = opts?.projectDir ?? (sessionId ? this.sessionProjects.get(sessionId) : undefined);
     if (!projectDir) {
       return {
         ok: false,
-        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
+        error: `no project focused for session ${sessionId ?? '(none)'} — focus a session first or pass projectDir`,
       };
     }
     const dag = await this.getDagModule();
@@ -1788,14 +1794,15 @@ export class dheeCoreManager {
    * `ConversationManager.invalidateNodes` facade.
    */
   async invalidateNodes(
-    sessionId: string,
+    sessionId: string | undefined,
     nodeIds: string[],
     source?: string,
+    explicitProjectDir?: string,
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
-    const projectDir = this.sessionProjects.get(sessionId);
+    const projectDir = explicitProjectDir ?? (sessionId ? this.sessionProjects.get(sessionId) : undefined);
     if (!projectDir) {
       throw new Error(
-        `no project focused for session ${sessionId} — call focusSessionProject first`,
+        `no project focused for session ${sessionId ?? '(none)'} — focus a session first or pass projectDir`,
       );
     }
     const dag = await this.getDagModule();

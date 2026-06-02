@@ -221,6 +221,7 @@ export function registerdheeIpcBridge(
         ...(req.frame ? { frame: req.frame } : {}),
         ...(req.scope ? { scope: req.scope } : {}),
         ...(req.itemId ? { itemId: req.itemId } : {}),
+        ...(req.projectDir ? { projectDir: req.projectDir } : {}),
       });
       return result.ok ? { ok: true } : { ok: false, ...(result.error ? { error: result.error } : {}) };
     },
@@ -289,6 +290,7 @@ export function registerdheeIpcBridge(
           req.sessionId,
           req.nodeIds,
           req.source,
+          req.projectDir,
         );
         return {
           ok: true,

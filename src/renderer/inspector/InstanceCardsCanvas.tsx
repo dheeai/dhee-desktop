@@ -271,17 +271,65 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
     [graph],
   );
   const onModalClose = useCallback(() => setOpenInstance(null), []);
-  const onModalAction = useCallback((action: CardAction, inst: InstanceGraphNode) => {
-    // Action dispatch goes via IPC in a follow-up. For now log so the
-    // wire-up is visible during dev iteration.
-    // eslint-disable-next-line no-console
-    console.log('[Inspector] action', action, 'on', keyOf(inst.nodeId, inst.itemId));
-    if (action === 'open-file' && projectDir && inst.outputPath) {
-      // open the file in the OS default viewer via webPreferences
-      // file:// access — webSecurity is disabled so this just works.
-      window.open(`file://${projectDir}/${inst.outputPath}`, '_blank');
-    }
-  }, [projectDir]);
+  const onModalAction = useCallback(
+    async (action: CardAction, inst: InstanceGraphNode) => {
+      if (!projectDir) return;
+      const key = keyOf(inst.nodeId, inst.itemId);
+
+      if (action === 'open-file') {
+        if (inst.outputPath) {
+          // webSecurity is disabled in dev → file:// opens directly.
+          window.open(`file://${projectDir}/${inst.outputPath}`, '_blank');
+        }
+        return;
+      }
+
+      if (action === 'invalidate') {
+        // Mark stale → invalidate this instance AND cascade downstream.
+        // Core emits node.invalidated for the whole cascade; an
+        // immediate refresh re-reads the projection so the downstream
+        // cards flip to 'invalidated' (blank) right away instead of
+        // waiting for the 3s poll.
+        try {
+          await window.dhee.invalidateNodes({
+            projectDir,
+            nodeIds: [key],
+            source: 'inspector_mark_stale',
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[Inspector] invalidate failed', e);
+        }
+        setOpenInstance(null);
+        await refresh();
+        return;
+      }
+
+      if (action === 'regenerate') {
+        // Invalidate + re-run this node (and its cascade) via the
+        // established redoNode path.
+        try {
+          await window.dhee.redoNode({
+            projectDir,
+            nodeId: inst.nodeId,
+            ...(inst.itemId ? { itemId: inst.itemId } : {}),
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[Inspector] regenerate failed', e);
+        }
+        setOpenInstance(null);
+        await refresh();
+        return;
+      }
+
+      // 'show-versions' / 'edit' — not yet wired (version tray + inline
+      // editor are a separate surface). Logged so the gap is explicit.
+      // eslint-disable-next-line no-console
+      console.warn('[Inspector] action not implemented yet:', action, 'on', key);
+    },
+    [projectDir, refresh],
+  );
 
   if (!projectDir) {
     return (
