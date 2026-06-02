@@ -20,7 +20,7 @@ import { useProject } from '../../../contexts/ProjectContext';
 import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import SettingsPanel from '../../SettingsPanel';
 import type { LandingProjectCard } from '../ProjectCard/ProjectCard';
-import NewProjectDialog from '../NewProjectDialog/NewProjectDialog';
+import NewProjectScreen from '../NewProjectScreen/NewProjectScreen';
 import ProjectCard from '../ProjectCard/ProjectCard';
 import DeleteProjectDialog from '../ProjectActionDialog/DeleteProjectDialog';
 import RenameProjectDialog from '../ProjectActionDialog/RenameProjectDialog';
@@ -792,7 +792,7 @@ export default function LandingScreen() {
         )}
       </main>
 
-      <NewProjectDialog
+      <NewProjectScreen
         isOpen={isNewProjectDialogOpen}
         onClose={() => setIsNewProjectDialogOpen(false)}
       />

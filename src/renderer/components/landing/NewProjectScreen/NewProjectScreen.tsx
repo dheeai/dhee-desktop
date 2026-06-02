@@ -1,0 +1,495 @@
+/**
+ * NewProjectScreen — the "Production Slate" fullscreen takeover that
+ * replaces the old NewProjectDialog. The user picks a bundle, fills its
+ * declared required inputs (story, duration, style, aspect), names the
+ * project, and clicks ROLL. We then:
+ *
+ *   1. Create the project folder (project:create-folder IPC).
+ *   2. Write project.json + inputs/story.md fully populated
+ *      (project:initialize IPC → kshana-core/initializeProject).
+ *   3. Open the project (workspace context).
+ *
+ * The agent enters the chat with a project that's already initialized
+ * — no setup grind in chat.
+ *
+ * Visual language: warm-black canvas, Fraunces display + JetBrains Mono
+ * labels, single amber accent. Subtle film grain + vignette overlays.
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
+import {
+  buildDefaultWorkspaceFolder,
+  readPersistedWorkspacePath,
+  resolveDefaultWorkspacePath,
+  writePersistedWorkspacePath,
+} from '../../../utils/workspacePathDefaults';
+import styles from './NewProjectScreen.module.scss';
+
+interface BundleInputOption {
+  value: string | number | boolean;
+  label: string;
+}
+
+interface BundleInputDecl {
+  id: string;
+  kind: 'file' | 'project';
+  path?: string;
+  field?: string;
+  required?: boolean;
+  default?: unknown;
+  label?: string;
+  placeholder?: string;
+  multiline?: boolean;
+  control?: 'textarea' | 'text' | 'pills' | 'select' | 'number';
+  options?: BundleInputOption[];
+  unit?: string;
+}
+
+interface BundleSummary {
+  id: string;
+  version: string;
+  displayName: string;
+  summary: string;
+  techLine?: string;
+  description?: string;
+  inputs?: BundleInputDecl[];
+  pickerEligible?: boolean;
+}
+
+interface NewProjectScreenProps {
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+const STORY_INPUT_ID = 'story_input';
+const WORDS_PER_SECOND_NARRATION = 2.5;
+
+function safeFolderName(name: string): string {
+  return name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60);
+}
+
+function deriveTitleFromStory(story: string): string {
+  const firstLine = story.split('\n').find((line) => line.trim().length > 0);
+  if (!firstLine) return '';
+  // Take first sentence or first ~6 words.
+  const dotIdx = firstLine.indexOf('.');
+  const slice = dotIdx > 0 ? firstLine.slice(0, dotIdx) : firstLine;
+  const words = slice.trim().split(/\s+/).slice(0, 6).join(' ');
+  return words;
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
+}
+
+function estimateReadSeconds(wordCount: number): number {
+  return Math.round(wordCount / WORDS_PER_SECOND_NARRATION);
+}
+
+function formatSeconds(s: number): string {
+  if (s < 60) return `0:${String(s).padStart(2, '0')}`;
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${m}:${String(r).padStart(2, '0')}`;
+}
+
+export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenProps) {
+  const { openProject } = useWorkspace();
+
+  const [bundles, setBundles] = useState<BundleSummary[]>([]);
+  const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
+  const [inputValues, setInputValues] = useState<Record<string, unknown>>({});
+  const [titleOverride, setTitleOverride] = useState<string | null>(null);
+  const [workspacePath, setWorkspacePath] = useState<string>('');
+  const [productionNumber, setProductionNumber] = useState<number>(1);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Load bundles + initial workspace path on open.
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const list = (await window.electron.project.listBundles()) as BundleSummary[];
+        if (cancelled) return;
+        // Picker-eligible bundles only: bundle.json must explicitly
+        // declare BOTH displayName AND summary. Falls back to the full
+        // list if nothing matches (dev environment with no curated
+        // bundles yet).
+        const eligible = list.filter((b) => b.pickerEligible);
+        setBundles(eligible.length > 0 ? eligible : list);
+      } catch {
+        if (!cancelled) setBundles([]);
+      }
+
+      try {
+        let homeDefault = '';
+        try {
+          homeDefault = await window.electron.project.getDefaultWorkspacePath();
+        } catch {
+          // best-effort
+        }
+        if (cancelled) return;
+        const stored = readPersistedWorkspacePath(window.localStorage);
+        const fallback = homeDefault || buildDefaultWorkspaceFolder(null);
+        const resolved = resolveDefaultWorkspacePath({
+          storedPath: stored,
+          fallbackDefault: fallback,
+        });
+        if (!cancelled) setWorkspacePath(resolved);
+      } catch {
+        // best-effort
+      }
+
+      try {
+        const recent = await window.electron.project.getRecent();
+        if (!cancelled) {
+          setProductionNumber((recent?.length ?? 0) + 1);
+        }
+      } catch {
+        // best-effort
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  // ESC closes.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSubmitting) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => {
+      window.removeEventListener('keydown', handler);
+    };
+  }, [isOpen, isSubmitting, onClose]);
+
+  const selectedBundle = useMemo(
+    () => bundles.find((b) => b.id === selectedBundleId) ?? null,
+    [bundles, selectedBundleId],
+  );
+
+  // Apply bundle defaults the moment a bundle is selected (so the form
+  // is sensibly populated even before the user touches anything).
+  useEffect(() => {
+    if (!selectedBundle) return;
+    setInputValues((prev) => {
+      const next: Record<string, unknown> = { ...prev };
+      for (const decl of selectedBundle.inputs ?? []) {
+        if (decl.kind === 'project' && next[decl.id] === undefined && decl.default !== undefined) {
+          next[decl.id] = decl.default;
+        }
+      }
+      return next;
+    });
+  }, [selectedBundle]);
+
+  const storyText = String(inputValues[STORY_INPUT_ID] ?? '');
+  const wordCount = countWords(storyText);
+  const readSeconds = estimateReadSeconds(wordCount);
+
+  // Auto-derive title from story unless the user has manually edited
+  // it. titleOverride === null means "follow the story".
+  const derivedTitle = deriveTitleFromStory(storyText);
+  const title = titleOverride !== null ? titleOverride : derivedTitle;
+
+  const canRoll =
+    !!selectedBundleId &&
+    storyText.trim().length >= 8 &&
+    title.trim().length > 0 &&
+    workspacePath.trim().length > 0 &&
+    !isSubmitting;
+
+  const handleSelectBundle = useCallback((id: string) => {
+    setSelectedBundleId(id);
+    setError(null);
+  }, []);
+
+  const handleInputChange = useCallback((id: string, value: unknown) => {
+    setInputValues((prev) => ({ ...prev, [id]: value }));
+  }, []);
+
+  const handleTitleChange = useCallback((next: string) => {
+    setTitleOverride(next);
+  }, []);
+
+  const handleBrowseWorkspace = useCallback(async () => {
+    try {
+      const chosen = await window.electron.project.selectDirectory();
+      if (chosen) {
+        setWorkspacePath(chosen);
+        writePersistedWorkspacePath(window.localStorage, chosen);
+      }
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  const handleRoll = useCallback(async () => {
+    if (!canRoll || !selectedBundleId || !selectedBundle) return;
+    setError(null);
+    setIsSubmitting(true);
+    try {
+      const folderName = safeFolderName(title) || `production-${productionNumber}`;
+      // 1. Make sure parent workspace folder exists, then create the project folder.
+      const created = await window.electron.project.createFolder(
+        workspacePath,
+        folderName,
+        { source: 'renderer', intent: 'new_project_parent' } as never,
+      );
+      if (!created) {
+        setError('Could not create the project folder. Check the workspace path and try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 2. Populate project.json + bundle inputs.
+      const result = await window.electron.project.initialize({
+        projectDir: created,
+        name: title.trim(),
+        bundleId: selectedBundleId,
+        inputs: inputValues,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        setIsSubmitting(false);
+        return;
+      }
+
+      // 3. Open the project. The workspace context flips routing to the
+      //    workspace layout; the agent enters a fully-configured project.
+      await openProject(created);
+      onClose();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to create project: ${message}`);
+      setIsSubmitting(false);
+    }
+  }, [
+    canRoll,
+    selectedBundleId,
+    selectedBundle,
+    title,
+    workspacePath,
+    productionNumber,
+    inputValues,
+    openProject,
+    onClose,
+  ]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className={styles.screen}>
+      <div className={styles.frame}>
+        <header className={styles.header}>
+          <button type="button" className={styles.headerEsc} onClick={onClose} aria-label="Close">
+            ESC
+          </button>
+          <div className={styles.headerCenter}>
+            <span className={styles.headerRule} aria-hidden="true" />
+            <span>N E W &nbsp; P R O D U C T I O N</span>
+            <span className={styles.headerRule} aria-hidden="true" />
+          </div>
+          <div className={styles.headerNumber}>
+            No. {String(productionNumber).padStart(3, '0')}
+          </div>
+        </header>
+
+        <h1 className={styles.question}>What kind of film?</h1>
+
+        <div className={styles.bundleGrid}>
+          {bundles.map((bundle) => {
+            const selected = bundle.id === selectedBundleId;
+            return (
+              <button
+                key={bundle.id}
+                type="button"
+                onClick={() => handleSelectBundle(bundle.id)}
+                className={`${styles.bundleCard} ${selected ? styles.bundleCardSelected : ''}`}
+              >
+                <h2 className={styles.bundleName}>{bundle.displayName}</h2>
+                <p className={styles.bundleSummary}>{bundle.summary}</p>
+                {bundle.techLine ? (
+                  <div className={styles.bundleSpec}>{bundle.techLine}</div>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+
+        <div
+          className={`${styles.inputsBlock} ${!selectedBundle ? styles.inputsBlockDisabled : ''}`}
+        >
+          {/* The Story */}
+          {selectedBundle ? (
+            <>
+              <hr className={styles.divider} />
+              <h3 className={styles.sectionLabel}>The Story</h3>
+              <div className={styles.storyTextareaWrap}>
+                <textarea
+                  className={styles.storyTextarea}
+                  placeholder={
+                    selectedBundle.inputs?.find((i) => i.id === STORY_INPUT_ID)?.placeholder ??
+                    'Type your story here...'
+                  }
+                  value={storyText}
+                  onChange={(e) => handleInputChange(STORY_INPUT_ID, e.target.value)}
+                />
+              </div>
+              <div className={styles.storyMeta}>
+                {wordCount} words · {formatSeconds(readSeconds)} read
+              </div>
+
+              <hr className={styles.divider} style={{ marginTop: '40px' }} />
+              <h3 className={styles.sectionLabel}>Production</h3>
+
+              {(selectedBundle.inputs ?? [])
+                .filter((decl) => decl.kind === 'project')
+                .map((decl) => (
+                  <FormRow
+                    key={decl.id}
+                    decl={decl}
+                    value={inputValues[decl.id]}
+                    onChange={(v) => handleInputChange(decl.id, v)}
+                  />
+                ))}
+
+              <hr className={styles.divider} style={{ marginTop: '40px' }} />
+
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>Title</span>
+                <input
+                  type="text"
+                  className={styles.textInput}
+                  placeholder="name your production"
+                  value={title}
+                  onChange={(e) => handleTitleChange(e.target.value)}
+                />
+              </div>
+
+              <div className={styles.row}>
+                <span className={styles.rowLabel}>Workspace</span>
+                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
+                  <input
+                    type="text"
+                    className={styles.textInput}
+                    value={workspacePath}
+                    onChange={(e) => setWorkspacePath(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleBrowseWorkspace}
+                    className={styles.headerEsc}
+                  >
+                    BROWSE
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </div>
+
+        <div className={styles.footer}>
+          <div className={styles.error}>{error}</div>
+          <button
+            type="button"
+            className={`${styles.rollButton} ${canRoll ? styles.rollButtonReady : ''} ${isSubmitting ? styles.rollButtonLoading : ''}`}
+            disabled={!canRoll}
+            onClick={handleRoll}
+          >
+            <span className={`${styles.recDot} ${canRoll ? styles.recDotReady : ''}`} />
+            <span>{isSubmitting ? 'Rolling…' : 'Roll'}</span>
+            <span className={styles.arrow}>→</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── FormRow: renders the right control for a BundleInputDecl ─── */
+
+function FormRow({
+  decl,
+  value,
+  onChange,
+}: {
+  decl: BundleInputDecl;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const control = decl.control ?? (decl.options ? 'select' : 'text');
+  const label = (decl.label ?? decl.id).toString();
+
+  return (
+    <div className={styles.row}>
+      <span className={styles.rowLabel}>{label}</span>
+      <div>
+        {control === 'pills' && decl.options ? (
+          <div className={styles.pillGroup}>
+            {decl.options.map((opt) => {
+              const selected = value === opt.value;
+              return (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => onChange(opt.value)}
+                  className={`${styles.pill} ${selected ? styles.pillSelected : ''}`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : control === 'select' && decl.options ? (
+          <select
+            className={styles.select}
+            value={String(value ?? '')}
+            onChange={(e) => {
+              const raw = e.target.value;
+              const opt = decl.options!.find((o) => String(o.value) === raw);
+              onChange(opt ? opt.value : raw);
+            }}
+          >
+            {decl.options.map((opt) => (
+              <option key={String(opt.value)} value={String(opt.value)}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        ) : control === 'number' ? (
+          <input
+            type="number"
+            className={styles.textInput}
+            style={{ maxWidth: 160 }}
+            value={value === undefined || value === null ? '' : String(value)}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+        ) : (
+          <input
+            type="text"
+            className={styles.textInput}
+            placeholder={decl.placeholder ?? ''}
+            value={value === undefined || value === null ? '' : String(value)}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}

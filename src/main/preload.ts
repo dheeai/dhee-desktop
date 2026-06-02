@@ -296,6 +296,39 @@ const projectBridge = {
       meta,
     );
   },
+  /**
+   * Populate a freshly-created project folder with a complete project.json
+   * (bundle bound + caller-supplied inputs applied). Called by the
+   * Production Slate screen on submit; the agent then enters a fully-
+   * configured project, no chat-time setup.
+   */
+  initialize(payload: {
+    projectDir: string;
+    name: string;
+    bundleId: string;
+    description?: string;
+    inputs?: Record<string, unknown>;
+  }): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> {
+    return ipcRenderer.invoke('project:initialize', payload);
+  },
+  /**
+   * Enumerate every available bundle's metadata for the Production
+   * Slate's bundle picker. Pre-agent, pure read of bundle.json files
+   * across the search-root chain.
+   */
+  listBundles(): Promise<
+    Array<{
+      id: string;
+      version: string;
+      displayName: string;
+      summary: string;
+      techLine?: string;
+      description?: string;
+      inputs?: unknown[];
+    }>
+  > {
+    return ipcRenderer.invoke('bundle:list');
+  },
   rename(oldPath: string, newName: string): Promise<string> {
     return ipcRenderer.invoke('project:rename', oldPath, newName);
   },

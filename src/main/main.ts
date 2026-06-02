@@ -1498,6 +1498,92 @@ ipcMain.handle(
   },
 );
 
+/**
+ * project:initialize — populate a freshly-created project folder with a
+ * fully-formed project.json (bundle bound + caller-supplied inputs
+ * applied) BEFORE the chat / agent loads.
+ *
+ * Called by the renderer's "Production Slate" screen on click of ROLL.
+ * The renderer has already created the empty folder via
+ * `project:create-folder`; this handler resolves the bundle, writes
+ * `inputs/story.md` (and any other file-kind inputs), populates
+ * project-kind fields, and writes `project.json`.
+ *
+ * Returns `{ ok: true, projectDir }` on success or
+ * `{ ok: false, error }` on validation / disk failure. The renderer
+ * surfaces the error inline on the slate.
+ */
+type ProjectInitModule = {
+  initializeProject: (params: {
+    projectDir: string;
+    name: string;
+    bundleId: string;
+    description?: string;
+    inputs?: Record<string, unknown>;
+  }) =>
+    | { ok: true; projectDir: string }
+    | { ok: false; error: string };
+  listBundles: () => Array<{
+    id: string;
+    version: string;
+    displayName: string;
+    summary: string;
+    techLine?: string;
+    description?: string;
+    inputs?: unknown[];
+  }>;
+};
+
+ipcMain.handle(
+  'bundle:list',
+  async (): Promise<
+    Array<{
+      id: string;
+      version: string;
+      displayName: string;
+      summary: string;
+      techLine?: string;
+      description?: string;
+      inputs?: unknown[];
+    }>
+  > => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
+      return mod.listBundles();
+    } catch {
+      return [];
+    }
+  },
+);
+
+ipcMain.handle(
+  'project:initialize',
+  async (
+    _event,
+    payload: {
+      projectDir: string;
+      name: string;
+      bundleId: string;
+      description?: string;
+      inputs?: Record<string, unknown>;
+    },
+  ): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> => {
+    try {
+      // Indirect the module path through a variable so the TS compiler
+      // doesn't try to resolve types statically — kshana-core's dist
+      // ships without .d.ts (tsup `dts: false`). Same pattern as
+      // dheeCoreManager.ts's `loadDagModule`.
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
+      return mod.initializeProject(payload);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      return { ok: false, error: message };
+    }
+  },
+);
+
 ipcMain.handle(
   'project:rename',
   async (_event, oldPath: string, newName: string): Promise<string> => {
