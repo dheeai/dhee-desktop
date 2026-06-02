@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { prepareEdit, applyEdit, readDotPath, setDotPath } from './nodeTextEdit';
+import { prepareEdit, applyEdit, readDotPath, setDotPath, prepareReadableView } from './nodeTextEdit';
 
 describe('prepareEdit — what the user actually edits', () => {
   it('md file → whole text, kind=text', () => {
@@ -100,6 +100,60 @@ describe('applyEdit — merge back to canonical bytes', () => {
       const p = JSON.parse(applied.content);
       expect(p.imagePrompt).toBe('b');
       expect(p.cameraWork).toBe('wide');
+    }
+  });
+});
+
+describe('prepareReadableView — the default view without JSON guts', () => {
+  it('json + headlineField → leads with the prose, rest become details (headline NOT duplicated)', () => {
+    const content = JSON.stringify({
+      imagePrompt: 'a wide establishing shot',
+      aspectRatio: '16:9',
+      generationMode: 'image_edit',
+      references: [{ id: 'elara', type: 'character' }],
+    });
+    const v = prepareReadableView({ content, outputPath: 's.json', headlineField: 'imagePrompt' });
+    expect(v.kind).toBe('json');
+    if (v.kind === 'json') {
+      expect(v.headline).toBe('a wide establishing shot');
+      expect(v.headlineLabel).toMatch(/image prompt/i);
+      // imagePrompt is the headline → excluded from the details list.
+      expect(v.fields.map((f) => f.key)).toEqual(['aspectRatio', 'generationMode', 'references']);
+      // raw is still available for the toggle.
+      expect(v.raw).toContain('"imagePrompt"');
+    }
+  });
+
+  it('md/txt → text kind, verbatim (already prose)', () => {
+    const v = prepareReadableView({ content: '# Plot\n\nOnce…', outputPath: 'p.md' });
+    expect(v.kind).toBe('text');
+    if (v.kind === 'text') expect(v.text).toContain('Once');
+  });
+
+  it('json with no usable headline → raw (pretty)', () => {
+    const v = prepareReadableView({ content: JSON.stringify({ a: 1, b: 2 }), outputPath: 's.json' });
+    expect(v.kind).toBe('raw');
+    if (v.kind === 'raw') expect(v.raw).toContain('"a": 1');
+  });
+
+  it('json where headlineField is not a string → raw', () => {
+    const v = prepareReadableView({ content: JSON.stringify({ refs: ['a'] }), outputPath: 's.json', headlineField: 'refs' });
+    expect(v.kind).toBe('raw');
+  });
+
+  it('unparseable json → raw with original bytes', () => {
+    const v = prepareReadableView({ content: '{ broken', outputPath: 's.json', headlineField: 'imagePrompt' });
+    expect(v.kind).toBe('raw');
+    if (v.kind === 'raw') expect(v.raw).toBe('{ broken');
+  });
+
+  it('nested headline path excludes only its TOP-level key from details', () => {
+    const content = JSON.stringify({ frames: { first: { imagePrompt: 'hi' } }, aspectRatio: '1:1' });
+    const v = prepareReadableView({ content, outputPath: 's.json', headlineField: 'frames.first.imagePrompt' });
+    expect(v.kind).toBe('json');
+    if (v.kind === 'json') {
+      expect(v.headline).toBe('hi');
+      expect(v.fields.map((f) => f.key)).toEqual(['aspectRatio']); // 'frames' excluded
     }
   });
 });

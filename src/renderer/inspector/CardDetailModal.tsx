@@ -26,7 +26,7 @@ import {
   instanceKey,
   type CardAction,
 } from './cardDetailModel';
-import { prepareEdit, applyEdit, type PreparedEdit } from './nodeTextEdit';
+import { prepareEdit, applyEdit, prepareReadableView, type PreparedEdit, type ReadableField } from './nodeTextEdit';
 
 interface Props {
   instance: InstanceGraphNode | null;
@@ -82,6 +82,130 @@ const BTN_GHOST: React.CSSProperties = {
   fontSize: 12,
 };
 
+/** Render a single supporting field's value — references as chips,
+ * arrays/objects compactly, primitives as text. */
+function FieldValue({ value }: { value: unknown }) {
+  // Array of {id, type?} → reference chips (the common shot-prompt shape).
+  if (Array.isArray(value) && value.every((v) => v && typeof v === 'object' && 'id' in (v as object))) {
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+        {(value as Array<Record<string, unknown>>).map((ref, i) => (
+          <span
+            key={`${String(ref.id)}-${i}`}
+            style={{
+              fontSize: 11,
+              fontFamily: 'ui-monospace, Menlo, monospace',
+              color: '#e5e1d8',
+              background: 'rgba(95, 136, 178, 0.12)',
+              border: '1px solid rgba(95, 136, 178, 0.3)',
+              borderRadius: 5,
+              padding: '3px 8px',
+            }}
+          >
+            {String(ref.id)}{ref.type ? <span style={{ color: 'rgba(229,225,216,0.5)' }}> · {String(ref.type)}</span> : null}
+          </span>
+        ))}
+      </div>
+    );
+  }
+  if (Array.isArray(value)) {
+    return <span>{value.map((v) => (typeof v === 'object' ? JSON.stringify(v) : String(v))).join(', ')}</span>;
+  }
+  if (value !== null && typeof value === 'object') {
+    return <span style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 11 }}>{JSON.stringify(value)}</span>;
+  }
+  return <span>{String(value)}</span>;
+}
+
+/** Readable view of a JSON node: prose headline + supporting details,
+ * with a toggle to the raw JSON. Default is the friendly view — the raw
+ * guts are one click away, not the first thing you see. */
+function JsonReadableBody({
+  content,
+  outputPath,
+  headlineField,
+  showRaw,
+  onToggleRaw,
+}: {
+  content: string;
+  outputPath: string | undefined;
+  headlineField?: string;
+  showRaw: boolean;
+  onToggleRaw: () => void;
+}) {
+  const view = prepareReadableView({ content, outputPath, ...(headlineField ? { headlineField } : {}) });
+  // Only offer the toggle when there's a friendly view to toggle FROM.
+  const canToggle = view.kind === 'json';
+  const showingRaw = showRaw || !canToggle;
+
+  return (
+    <div style={{ padding: 24, position: 'relative' }}>
+      {canToggle && (
+        <button
+          onClick={onToggleRaw}
+          style={{
+            position: 'absolute',
+            top: 16,
+            right: 16,
+            background: 'transparent',
+            border: '1px solid rgba(168, 156, 139, 0.24)',
+            color: 'rgba(229,225,216,0.7)',
+            padding: '4px 10px',
+            borderRadius: 5,
+            cursor: 'pointer',
+            fontSize: 10,
+            fontFamily: 'ui-monospace, Menlo, monospace',
+          }}
+        >
+          {showRaw ? '✦ Formatted' : '{ } Raw JSON'}
+        </button>
+      )}
+
+      {showingRaw && (
+        <pre
+          style={{
+            margin: 0,
+            paddingRight: 90,
+            fontFamily: 'ui-monospace, Menlo, monospace',
+            fontSize: 12,
+            lineHeight: 1.6,
+            color: '#d6d2c8',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+          }}
+        >
+          {view.kind === 'raw' ? view.raw : view.kind === 'json' ? view.raw : content}
+        </pre>
+      )}
+
+      {!showingRaw && view.kind === 'json' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingRight: 90 }}>
+          <div>
+            <div style={{ fontSize: 11, color: '#a9b0ba', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+              {view.headlineLabel}
+            </div>
+            <div style={{ fontSize: 15, lineHeight: 1.6, color: '#e5e1d8' }}>{view.headline}</div>
+          </div>
+          {view.fields.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, borderTop: '1px solid rgba(168, 156, 139, 0.12)', paddingTop: 16 }}>
+              {view.fields.map((f: ReadableField) => (
+                <div key={f.key} style={{ display: 'flex', gap: 16, alignItems: 'baseline' }}>
+                  <div style={{ width: 140, flexShrink: 0, fontSize: 11, color: 'rgba(229,225,216,0.5)', textTransform: 'uppercase', letterSpacing: 0.4 }}>
+                    {f.label}
+                  </div>
+                  <div style={{ flex: 1, fontSize: 13, color: '#d6d2c8', minWidth: 0 }}>
+                    <FieldValue value={f.value} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function CardDetailModal({ instance, projectDir, headlineField, onClose, onAction, onChanged }: Props) {
   const [text, setText] = useState<string | null>(null);
 
@@ -98,6 +222,8 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
   const [saving, setSaving] = useState(false);
   /** High-blast-radius preview text awaiting an explicit confirm. */
   const [blastPreview, setBlastPreview] = useState<string | null>(null);
+  /** JSON view: show raw guts instead of the readable summary. */
+  const [showRaw, setShowRaw] = useState(false);
 
   const instKey = instance ? instanceKey(instance) : null;
 
@@ -111,6 +237,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
     setPrepared(null);
     setEditErr(null);
     setBlastPreview(null);
+    setShowRaw(false);
   }, [instKey]);
 
   // ESC to close (or back out of a panel).
@@ -368,7 +495,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                   <audio src={fileUrl} controls style={{ width: '100%', maxWidth: 600 }} />
                 </div>
               )}
-              {(fmt === 'md' || fmt === 'json') && (
+              {fmt === 'md' && (
                 <pre
                   style={{
                     margin: 0,
@@ -383,6 +510,19 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                 >
                   {text === null ? '(loading…)' : text}
                 </pre>
+              )}
+              {fmt === 'json' && (
+                text === null ? (
+                  <div style={{ padding: 24, color: 'rgba(229,225,216,0.55)', fontSize: 13 }}>(loading…)</div>
+                ) : (
+                  <JsonReadableBody
+                    content={text}
+                    outputPath={instance.outputPath}
+                    headlineField={headlineField}
+                    showRaw={showRaw}
+                    onToggleRaw={() => setShowRaw((v) => !v)}
+                  />
+                )
               )}
               {(fmt === 'unknown' || !fileUrl) && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: 'rgba(229,225,216,0.55)', fontSize: 13 }}>

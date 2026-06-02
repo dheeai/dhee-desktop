@@ -141,3 +141,61 @@ export function applyEdit(opts: {
   setDotPath(parsed, opts.headlineField, opts.edited);
   return { ok: true, content: JSON.stringify(parsed, null, 2) };
 }
+
+/**
+ * Readable VIEW model for a node's artifact — the read-only counterpart
+ * to prepareEdit. Same principle: don't dump JSON guts. For a JSON node
+ * with a string headlineField we lead with that text as prose and list
+ * the remaining top-level fields as supporting "details"; the raw JSON
+ * is always available too (the modal exposes it behind a toggle).
+ *
+ *   - text/other → { kind:'text' } (already prose).
+ *   - json + string headline → { kind:'json', headline, fields, raw }.
+ *   - json w/o usable headline OR unparseable → { kind:'raw' }.
+ */
+export interface ReadableField {
+  key: string;
+  label: string;
+  value: unknown;
+}
+
+export type ReadableView =
+  | { kind: 'text'; text: string }
+  | { kind: 'raw'; raw: string }
+  | { kind: 'json'; headline: string; headlineLabel: string; fields: ReadableField[]; raw: string };
+
+export function prepareReadableView(opts: {
+  content: string;
+  outputPath: string | undefined;
+  headlineField?: string;
+}): ReadableView {
+  const fmt = fmtOf(opts.outputPath);
+  if (fmt === 'text' || fmt === 'other') {
+    return { kind: 'text', text: opts.content };
+  }
+  // json
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(opts.content);
+  } catch {
+    return { kind: 'raw', raw: opts.content };
+  }
+  const pretty = JSON.stringify(parsed, null, 2);
+  const headlineVal = opts.headlineField ? readDotPath(parsed, opts.headlineField) : undefined;
+  if (typeof headlineVal !== 'string' || !(parsed && typeof parsed === 'object' && !Array.isArray(parsed))) {
+    return { kind: 'raw', raw: pretty };
+  }
+  // The top-level key the headline lives under — excluded from details so
+  // we don't show the prose twice.
+  const headlineTopKey = (opts.headlineField ?? '').split('.')[0];
+  const fields: ReadableField[] = Object.entries(parsed as Record<string, unknown>)
+    .filter(([k]) => k !== headlineTopKey)
+    .map(([k, value]) => ({ key: k, label: labelFor(k), value }));
+  return {
+    kind: 'json',
+    headline: headlineVal,
+    headlineLabel: labelFor((opts.headlineField ?? '').split('.').pop() ?? opts.headlineField ?? ''),
+    fields,
+    raw: pretty,
+  };
+}
