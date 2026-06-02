@@ -31,7 +31,7 @@ import {
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
-import { buildCompletedNudge, buildFailedNudge, extractNodeId } from './runWakeNudge';
+import { buildCompletedNudge, buildFailedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -993,6 +993,15 @@ export class dheeCoreManager {
   private runWakeSubscribed = false;
 
   /**
+   * Per-project count of system-level auto-retries spent on the current
+   * run chain (C3). Reset when the run completes OR when the user
+   * manually dispatches a fresh run. Caps how many times a transient
+   * failure auto-resumes before we stop and surface it.
+   */
+  private autoRetriedRuns = new Map<string, number>();
+  private static readonly MAX_AUTO_RETRIES = 1;
+
+  /**
    * Subscribe ONCE to the shared BackgroundTaskRunner's terminal events
    * so a background run (dispatched by the non-blocking dhee_start_run
    * tool, or by runTask) re-wakes the owning agent session when it
@@ -1030,10 +1039,11 @@ export class dheeCoreManager {
     };
     const spec = payload.task?.spec;
     const projectDir = spec?.params?.projectDir;
+    const nodeId = extractNodeId(payload.error);
 
-    // Prefer an explicit chat sessionId on the spec; otherwise reverse-
-    // look-up the agent session focused on this run's project (the
-    // agent-initiated dhee_start_run path doesn't know its chat id).
+    // Resolve the owning live agent chat session (for the nudge): prefer
+    // an explicit chat sessionId on the spec; otherwise reverse-look-up
+    // the agent session focused on this run's project.
     let sessionId: string | undefined =
       spec?.sessionId && this.agentSessions.has(spec.sessionId) ? spec.sessionId : undefined;
     if (!sessionId && projectDir) {
@@ -1044,20 +1054,143 @@ export class dheeCoreManager {
         }
       }
     }
-    if (!sessionId) return; // headless run or no live agent session — nothing to wake
-    if (this.busySessions.has(sessionId)) return; // agent mid-turn — pull covers it
-    if (!this.lastEventCb) return; // no publish path yet
 
-    const nudge =
-      kind === 'completed'
-        ? buildCompletedNudge({})
-        : buildFailedNudge({
-            ...(payload.error ? { error: payload.error } : {}),
-            ...(extractNodeId(payload.error) ? { nodeId: extractNodeId(payload.error)! } : {}),
-          });
-    void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
-      log.warn('[dheeCoreManager] run-wake nudge failed:', err);
-    });
+    if (kind === 'completed') {
+      // Fresh budget for the next run chain on this project.
+      if (projectDir) this.autoRetriedRuns.delete(projectDir);
+      // Nudge the agent to announce (only when there's a live, idle session).
+      if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
+        void this.chatPrompt(sessionId, buildCompletedNudge({}), this.lastEventCb).catch((err) => {
+          log.warn('[dheeCoreManager] run-wake nudge failed:', err);
+        });
+      }
+      return;
+    }
+
+    // ── failed ──────────────────────────────────────────────────────
+    const transient = isTransientFailure(payload.error);
+    const where = nodeId ? ` at ${nodeId}` : '';
+    const errShort = (payload.error ?? '(no detail)').slice(0, 220);
+
+    // C3 — transient failure: auto-resume the run ONCE at the system
+    // level (don't depend on the LLM choosing to). Re-dispatching a
+    // run_to resumes from where it stopped (the failed node re-attempts;
+    // completed nodes are cached). Capped by MAX_AUTO_RETRIES per project.
+    if (transient && projectDir) {
+      const spent = this.autoRetriedRuns.get(projectDir) ?? 0;
+      if (spent < dheeCoreManager.MAX_AUTO_RETRIES) {
+        this.autoRetriedRuns.set(projectDir, spent + 1);
+        this.emitRunNotice(
+          sessionId,
+          'warning',
+          `Run hit a transient error${where} (${errShort}). Auto-retrying (${spent + 1}/${dheeCoreManager.MAX_AUTO_RETRIES})…`,
+        );
+        // Defer: the runner clears its `active` slot in a finally AFTER
+        // this terminal listener returns, so dispatch on the next tick.
+        setTimeout(() => {
+          void this.autoResumeRun(projectDir, spec?.sessionId);
+        }, 50);
+        return;
+      }
+    }
+
+    // C2 — ALWAYS surface a visible failure message, independent of
+    // whether there's a live agent session to nudge. Previously three
+    // early-returns (no session / busy / no publish path) could let a
+    // failed run die with zero UI output — the "silent GPU run" the
+    // user hit. The notice carries an empty sessionId when there's no
+    // owning chat session so the renderer's permissive filter shows it.
+    this.emitRunNotice(
+      sessionId,
+      'error',
+      `Run failed${where}: ${errShort}.` +
+        (transient ? ' Auto-retry did not recover it —' : '') +
+        ' Regenerate that node or ask me to resume.',
+    );
+
+    // Wake the agent to react (offer/perform a retry) when there's a
+    // live, idle session and a publish path.
+    if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
+      void this.chatPrompt(
+        sessionId,
+        buildFailedNudge({
+          ...(payload.error ? { error: payload.error } : {}),
+          ...(nodeId ? { nodeId } : {}),
+        }),
+        this.lastEventCb,
+      ).catch((err) => {
+        log.warn('[dheeCoreManager] run-wake nudge failed:', err);
+      });
+    }
+  }
+
+  /**
+   * Emit a visible system-row notification to the renderer's chat
+   * (C2). Tagged with the owning chat session when known, else an
+   * empty sessionId so the renderer's session filter still shows it.
+   * No-op when no publish path has been established yet.
+   */
+  private emitRunNotice(
+    sessionId: string | undefined,
+    level: 'info' | 'warning' | 'error',
+    message: string,
+  ): void {
+    if (!this.lastEventCb) return;
+    try {
+      this.lastEventCb({ eventName: 'notification', sessionId: sessionId ?? '', data: { level, message } });
+    } catch (err) {
+      log.warn('[dheeCoreManager] emitRunNotice failed:', err);
+    }
+  }
+
+  /**
+   * Auto-resume a transient-failed run by re-dispatching a `run_to`
+   * through the BackgroundTaskRunner (C3). Goes through the runner so
+   * the resumed run is visible to runnerStatus + cancellable, exactly
+   * like a manual run. The walker resumes: the failed node re-attempts
+   * (it isn't 'completed'); everything done is cached.
+   */
+  private async autoResumeRun(projectDir: string, specSessionId?: string): Promise<void> {
+    try {
+      const projectName = path.basename(projectDir);
+      const runnersMod = await loadRunnersModule();
+      const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+        dispatch: (spec: {
+          kind: 'run_to';
+          projectName: string;
+          params: { projectDir: string };
+          sessionId: string;
+        }) =>
+          | { status: 'started'; taskId: string }
+          | { status: 'rejected'; activeProjectName: string; activeTaskId: string };
+        on: (event: string, handler: (payload: unknown) => void) => () => void;
+      };
+      const dispatch = runner.dispatch({
+        kind: 'run_to',
+        projectName,
+        params: { projectDir },
+        sessionId: specSessionId ?? `auto-retry:${projectName}`,
+      });
+      if (dispatch.status === 'rejected') {
+        log.warn('[dheeCoreManager] auto-resume rejected — a run is already active', dispatch);
+        return;
+      }
+      log.info('[dheeCoreManager] auto-resumed transient-failed run', { projectDir, taskId: dispatch.taskId });
+      if (this.lastEventCb) {
+        this.wireRunnerTaskEvents(
+          runner,
+          dispatch.taskId,
+          specSessionId ?? `auto-retry:${projectName}`,
+          this.lastEventCb,
+          () => {
+            /* terminal handled by the global run-wake subscription */
+          },
+        );
+      }
+    } catch (err) {
+      log.warn('[dheeCoreManager] auto-resume failed:', err);
+      this.emitRunNotice(undefined, 'error', `Auto-retry could not start: ${(err as Error).message}`);
+    }
   }
 
   private async getDagModule(): Promise<DagModule> {
@@ -1522,6 +1655,9 @@ export class dheeCoreManager {
     }
     const projectName = path.basename(projectDir);
 
+    // Fresh auto-retry budget — this is a user-initiated run.
+    this.autoRetriedRuns.delete(projectDir);
+
     // Interruptible-runs: cache the publish path + arm the run-wake
     // subscription so terminal events re-wake the owning agent.
     this.lastEventCb = eventCb;
@@ -1805,6 +1941,9 @@ export class dheeCoreManager {
       };
     }
     const key = opts?.itemId ? `${nodeId}:${opts.itemId}` : nodeId;
+
+    // Fresh auto-retry budget — this is a user-initiated run.
+    this.autoRetriedRuns.delete(projectDir);
 
     // 1. Invalidate target + downstream (persisted BEFORE dispatch so a
     //    retry resumes correctly). Cheap — clears walkState, no Comfy.

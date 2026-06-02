@@ -26,16 +26,31 @@ import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 jest.mock('electron', () => ({ app: { isPackaged: false } }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { dheeCoreManager, __setChatDeps } =
+const { dheeCoreManager, __setChatDeps, __setRunnersLoader } =
   require('./dheeCoreManager') as typeof import('./dheeCoreManager');
 
 type AnyAsync = (...args: unknown[]) => Promise<unknown>;
+type AnyFn = (...args: unknown[]) => unknown;
 const buildSessionSpy = jest.fn<AnyAsync>();
 const runTurnSpy = jest.fn<AnyAsync>();
 __setChatDeps({
   buildPiSession: buildSessionSpy as never,
   runAgentTurn: runTurnSpy as never,
 });
+
+// Stub the BackgroundTaskRunner so the C3 auto-retry path
+// (autoResumeRun → runner.dispatch) doesn't hit the real runner.
+const dispatchSpy = jest.fn<AnyFn>(() => ({ status: 'started', taskId: 'task-retry' }));
+const onSpy = jest.fn<AnyFn>(() => () => {});
+__setRunnersLoader(async () => ({
+  getBackgroundTaskRunner: () => ({
+    cancel: () => true,
+    getActive: () => null,
+    isCancelling: () => false,
+    dispatch: dispatchSpy as never,
+    on: onSpy as never,
+  }),
+}) as never);
 
 const TEST_SETTINGS = {
   llmProvider: 'openai',
@@ -68,6 +83,9 @@ function terminalEvent(projectDir: string, error?: string, sessionId?: string) {
 beforeEach(() => {
   buildSessionSpy.mockReset();
   runTurnSpy.mockReset();
+  dispatchSpy.mockClear();
+  dispatchSpy.mockReturnValue({ status: 'started', taskId: 'task-retry' });
+  onSpy.mockClear();
   buildSessionSpy.mockResolvedValue({
     session: {
       sessionId: 'pi-stub',
@@ -109,31 +127,63 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     expect(msg).toMatch(/^\[system\]/);
   });
 
-  it('2. failed (structural) + idle → fix-upstream framing', async () => {
+  it('2. failed (structural) + idle → fix-upstream framing + visible notice (C2)', async () => {
     const mgr = makeMgr();
-    await primeSession(mgr, 's-2', '/tmp/proj-b');
+    const events = await primeSession(mgr, 's-2', '/tmp/proj-b');
     runTurnSpy.mockClear();
 
-    mgr.onRunTerminal('failed', terminalEvent('/tmp/proj-b', 'LLM returned empty response'));
+    mgr.onRunTerminal('failed', terminalEvent('/tmp/proj-b', 'schema validation failed: mood not in enum'));
     await new Promise((r) => setTimeout(r, 0));
 
+    // Structural → nudge the agent to fix the upstream node.
     expect(runTurnSpy).toHaveBeenCalledTimes(1);
     const msg = runTurnSpy.mock.calls[0]![1] as string;
     expect(msg).toMatch(/structural/i);
     expect(msg).toMatch(/dhee_critique_node|dhee_write_node_content/);
+    // C2 — a visible error notification is ALSO emitted (never silent).
+    const notices = events.filter((e) => (e as { eventName?: string }).eventName === 'notification');
+    expect(notices.length).toBeGreaterThanOrEqual(1);
+    expect((notices[0] as { data?: { level?: string } }).data?.level).toBe('error');
+    // Structural failures are NOT auto-retried.
+    expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
-  it('3. failed (transient) + idle → retry framing', async () => {
+  it('3. failed (transient) + idle → auto-retries the run, NO nudge yet (C3)', async () => {
     const mgr = makeMgr();
-    await primeSession(mgr, 's-3', '/tmp/proj-c');
+    const events = await primeSession(mgr, 's-3', '/tmp/proj-c');
     runTurnSpy.mockClear();
 
     mgr.onRunTerminal(
       'failed',
       terminalEvent('/tmp/proj-c', 'comfy.image: transient upstream error after 3 attempts — 502'),
     );
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 80)); // auto-retry dispatch is deferred ~50ms
 
+    // It auto-resumes through the runner instead of nudging the LLM.
+    expect(dispatchSpy).toHaveBeenCalledTimes(1);
+    expect(dispatchSpy.mock.calls[0]![0]).toMatchObject({ kind: 'run_to', params: { projectDir: '/tmp/proj-c' } });
+    expect(runTurnSpy).not.toHaveBeenCalled();
+    // And a "retrying" notice is shown.
+    const notices = events.filter((e) => (e as { eventName?: string }).eventName === 'notification');
+    expect(notices.some((n) => /retry/i.test(String((n as { data?: { message?: string } }).data?.message)))).toBe(true);
+  });
+
+  it('3b. transient AGAIN after the auto-retry budget is spent → nudge with retry framing, no second auto-retry', async () => {
+    const mgr = makeMgr();
+    await primeSession(mgr, 's-3b', '/tmp/proj-c2');
+    const transientErr = 'comfy.image: transient upstream error after 3 attempts — 502';
+
+    // First transient → auto-retry (spends the budget).
+    mgr.onRunTerminal('failed', terminalEvent('/tmp/proj-c2', transientErr));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(dispatchSpy).toHaveBeenCalledTimes(1);
+    runTurnSpy.mockClear();
+    dispatchSpy.mockClear();
+
+    // Second transient → budget exhausted → surface + nudge (no new dispatch).
+    mgr.onRunTerminal('failed', terminalEvent('/tmp/proj-c2', transientErr));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(dispatchSpy).not.toHaveBeenCalled();
     expect(runTurnSpy).toHaveBeenCalledTimes(1);
     const msg = runTurnSpy.mock.calls[0]![1] as string;
     expect(msg).toMatch(/transient|recovered|flaky/i);
@@ -183,5 +233,26 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     mgr.onRunTerminal('completed', terminalEvent('/tmp/proj-d', undefined, 's-7'));
     await new Promise((r) => setTimeout(r, 0));
     expect(runTurnSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('8. failed run with NO owning agent session still surfaces a visible notice (C2 — no silent death)', async () => {
+    const mgr = makeMgr();
+    // Prime a session for a DIFFERENT project (establishes a publish path),
+    // then fail a run for an unrelated project with no live session.
+    const events = await primeSession(mgr, 's-8', '/tmp/proj-other');
+    runTurnSpy.mockClear();
+    events.length = 0;
+
+    mgr.onRunTerminal('failed', terminalEvent('/tmp/proj-orphan', 'schema validation failed: mood not in enum'));
+    await new Promise((r) => setTimeout(r, 0));
+
+    // No agent to nudge…
+    expect(runTurnSpy).not.toHaveBeenCalled();
+    // …but the failure is still visible in the chat (the key fix).
+    const notices = events.filter((e) => (e as { eventName?: string }).eventName === 'notification');
+    expect(notices.length).toBe(1);
+    const data = (notices[0] as { data?: { level?: string; message?: string } }).data;
+    expect(data?.level).toBe('error');
+    expect(data?.message).toMatch(/failed/i);
   });
 });
