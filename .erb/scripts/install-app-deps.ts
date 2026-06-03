@@ -50,6 +50,23 @@ function resolvedheeInkPath(): string {
   return path.resolve(webpackPaths.rootPath, '../dhee-core');
 }
 
+/**
+ * Deps webpack BUNDLES into `dist/renderer/renderer.js` (i.e. NOT externalized)
+ * must not also be installed into `release/app/node_modules` — they'd be dead
+ * weight duplicated on disk (e.g. lucide-react ships ~44MB raw despite being
+ * tree-shaken into the bundle). This mirrors the externals filter in
+ * `.erb/configs/webpack.config.renderer.prod.ts`, which bundles every root
+ * dependency whose name contains `react`, `lucide`, or `remark`. The main
+ * process imports none of these, so excluding them is safe at runtime.
+ */
+function isBundledIntoRenderer(depName: string): boolean {
+  return (
+    depName.includes('react') ||
+    depName.includes('lucide') ||
+    depName.includes('remark')
+  );
+}
+
 function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: string) {
   const mainPackage = JSON.parse(
     fs.readFileSync(mainPackagePath, 'utf-8'),
@@ -60,13 +77,19 @@ function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: str
     dependencies?: Record<string, string>;
   };
 
+  const runtimeDependencies = Object.fromEntries(
+    Object.entries(mainPackage.dependencies || {}).filter(
+      ([depName]) => !isBundledIntoRenderer(depName),
+    ),
+  );
+
   const appPackage = {
     name: mainPackage.name || 'dhee-desktop',
     version: mainPackage.version || '1.0.0',
     description: mainPackage.description || '',
     main: './dist/main/main.js',
     dependencies: {
-      ...(mainPackage.dependencies || {}),
+      ...runtimeDependencies,
       'dhee-core': `file:${tarballRelativePath}`,
     },
   };
@@ -181,22 +204,23 @@ function installAppDeps(): void {
     stdio: 'inherit',
   });
 
+  // Phase 6.4: dhee-core is embedded in-process via its main barrel
+  // (dist/index.js), not the old spawn-based dist/server/cli.cjs.
   const installedServerCliPath = path.join(
     webpackPaths.appNodeModulesPath,
     'dhee-core',
     'dist',
-    'server',
-    'cli.cjs',
+    'index.js',
   );
 
   if (!fs.existsSync(installedServerCliPath)) {
     throw new Error(
-      `Installed dhee-core server entry not found at ${installedServerCliPath}`,
+      `Installed dhee-core entry not found at ${installedServerCliPath}`,
     );
   }
 
   console.log(`✓ Installed app dependencies with bundled dhee-core`);
-  console.log(`✓ Verified bundled server entry at ${installedServerCliPath}`);
+  console.log(`✓ Verified bundled dhee-core entry at ${installedServerCliPath}`);
 }
 
 try {

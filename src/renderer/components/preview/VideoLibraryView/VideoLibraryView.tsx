@@ -46,11 +46,7 @@ import {
 import type { Artifact } from '../../../types/projectState';
 import type { SceneRef } from '../../../types/dhee/entities';
 import type { SceneVersions } from '../../../types/dhee/timeline';
-import type { PromptOverlayCue, TextOverlayCue } from '../../../types/captions';
-import {
-  getActiveCue,
-  getActiveWordIndex,
-} from '../../../utils/captionGrouping';
+import type { PromptOverlayCue } from '../../../types/captions';
 import styles from './VideoLibraryView.module.scss';
 
 const PREVIEW_WATERMARK_TEXT = 'dhee';
@@ -385,7 +381,6 @@ export default function VideoLibraryView({
   const {
     timelineItems,
     overlayItems,
-    textOverlayCues,
     totalDuration,
     timelineSource,
     error: timelineError,
@@ -508,25 +503,6 @@ export default function VideoLibraryView({
     return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
-  const renderCaptionCue = useCallback(
-    (cue: TextOverlayCue, highlightedWordIndex: number): React.ReactNode => {
-      return cue.words.map((word, index) => (
-        <span
-          key={`${cue.id}-${word.startTime}-${word.endTime}-${index}`}
-          className={
-            index === highlightedWordIndex
-              ? styles.wordCaptionWordActive
-              : styles.wordCaptionWord
-          }
-        >
-          {index > 0 ? ' ' : ''}
-          {word.text}
-        </span>
-      ));
-    },
-    [],
-  );
-
   // Wrapper to prevent backward jumps during normal playback
   // Backward jumps are only allowed during explicit seeks or when dragging
   const safeSetPlaybackTime = useCallback(
@@ -610,15 +586,6 @@ export default function VideoLibraryView({
   }, [overlayItems, playbackTime]);
 
   const activeOverlay = currentItem?.type === 'image' ? currentOverlay : null;
-
-  const activeTextCue = useMemo(
-    () => getActiveCue(textOverlayCues, playbackTime),
-    [textOverlayCues, playbackTime],
-  );
-  const activeWordIndex = useMemo(
-    () => getActiveWordIndex(activeTextCue, playbackTime),
-    [activeTextCue, playbackTime],
-  );
 
   const nextTimelineItem = useMemo(() => {
     if (!currentItem) return null;
@@ -1704,10 +1671,9 @@ export default function VideoLibraryView({
       itemsData,
       resolvedAudioPath,
       overlayItemsData,
-      textOverlayCues,
       promptOverlayCues,
     };
-  }, [projectDirectory, timelineItems, overlayItems, textOverlayCues]);
+  }, [projectDirectory, timelineItems, overlayItems]);
 
   const handleOpenExportChooser = useCallback(() => {
     if (
@@ -1760,7 +1726,6 @@ export default function VideoLibraryView({
             startTime: number;
             endTime: number;
           }>,
-          textOverlayCues?: TextOverlayCue[],
           promptOverlayCues?: PromptOverlayCue[],
           exportOptions?: ExportRenderOptions,
         ) => Promise<{ success: boolean; outputPath?: string; error?: string }>;
@@ -1770,7 +1735,6 @@ export default function VideoLibraryView({
           projectDirectory,
           data.resolvedAudioPath || undefined,
           data.overlayItemsData,
-          data.textOverlayCues,
           data.promptOverlayCues,
           options,
         );
@@ -1877,7 +1841,6 @@ export default function VideoLibraryView({
           endTime: number;
           label?: string;
         }>,
-        textOverlayCues?: TextOverlayCue[],
         promptOverlayCues?: PromptOverlayCue[],
       ) => Promise<{ success: boolean; outputPath?: string; error?: string }>;
 
@@ -1886,7 +1849,6 @@ export default function VideoLibraryView({
         projectDirectory,
         data.resolvedAudioPath || undefined,
         data.overlayItemsData,
-        data.textOverlayCues || undefined,
         data.promptOverlayCues || undefined,
       );
 
@@ -2183,13 +2145,6 @@ export default function VideoLibraryView({
                   </div>
                   <div className={styles.expandedPromptText}>
                     {activePromptText}
-                  </div>
-                </div>
-              )}
-              {activeTextCue && (
-                <div className={styles.wordCaptionOverlay}>
-                  <div className={styles.wordCaptionText}>
-                    {renderCaptionCue(activeTextCue, activeWordIndex)}
                   </div>
                 </div>
               )}

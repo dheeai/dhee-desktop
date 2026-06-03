@@ -1079,8 +1079,6 @@ export default function TimelinePanel({
     useState(false);
   const [contextMenuState, setContextMenuState] =
     useState<TimelineContextMenuState | null>(null);
-  const [isGeneratingWordCaptions, setIsGeneratingWordCaptions] =
-    useState(false);
   const [captionGenerationMessage, setCaptionGenerationMessage] = useState<
     string | null
   >(null);
@@ -1584,63 +1582,6 @@ export default function TimelinePanel({
     undoLastTimelineEdit();
   }, [undoLastTimelineEdit]);
 
-  const handleGenerateWordCaptions = useCallback(async () => {
-    if (!projectDirectory || isGeneratingWordCaptions) return;
-
-    const contextualAudioPath =
-      contextMenuState?.item?.type === 'audio'
-        ? contextMenuState.item.audioPath
-        : undefined;
-    const fallbackAudioPath =
-      audioTimelineItems.length > 0
-        ? [...audioTimelineItems].sort((a, b) => b.duration - a.duration)[0]
-            ?.audioPath
-        : undefined;
-    const selectedAudioPath = contextualAudioPath || fallbackAudioPath;
-
-    if (!selectedAudioPath) {
-      setCaptionGenerationMessage('No audio track available for captions.');
-      return;
-    }
-
-    setIsGeneratingWordCaptions(true);
-    setCaptionGenerationMessage(
-      'Generating captions... they will appear in the timeline when ready.',
-    );
-
-    try {
-      const result = await window.electron.project.generateWordCaptions(
-        projectDirectory,
-        selectedAudioPath,
-      );
-
-      if (!result.success) {
-        setCaptionGenerationMessage(
-          result.error || 'Failed to generate word captions.',
-        );
-        return;
-      }
-
-      const wordCount = result.words?.length ?? 0;
-      setCaptionGenerationMessage(
-        `Generated word captions (${wordCount} words).`,
-      );
-    } catch (error) {
-      setCaptionGenerationMessage(
-        error instanceof Error
-          ? error.message
-          : 'Failed to generate word captions.',
-      );
-    } finally {
-      setIsGeneratingWordCaptions(false);
-    }
-  }, [
-    projectDirectory,
-    isGeneratingWordCaptions,
-    contextMenuState,
-    audioTimelineItems,
-  ]);
-
   const handleDeleteAudioFromContextMenu = useCallback(async () => {
     if (!projectDirectory || contextMenuState?.item?.type !== 'audio') {
       return;
@@ -1682,8 +1623,6 @@ export default function TimelinePanel({
     refreshAssetManifest,
     refreshAudioFiles,
   ]);
-
-  const canGenerateWordCaptions = audioTimelineItems.length > 0;
 
   // Handle playhead drag start
   const handlePlayheadMouseDown = useCallback(
@@ -2803,14 +2742,11 @@ export default function TimelinePanel({
               x={contextMenuState.x}
               y={contextMenuState.y}
               canUndo={canUndo}
-              canGenerateWordCaptions={canGenerateWordCaptions}
-              isGeneratingWordCaptions={isGeneratingWordCaptions}
               showRegenerateShotAction={isServerTimelineShotContextTarget}
               showVideoEditActions={isPlacementVideoContextTarget}
               showDeleteAudioAction={contextMenuState.item?.type === 'audio'}
               onUndo={handleUndoFromContextMenu}
               onRegenerateShot={handleRegenerateShotFromContextMenu}
-              onGenerateWordCaptions={handleGenerateWordCaptions}
               onSplitClip={
                 isPlacementVideoContextTarget && canSplitContextTarget
                   ? handleContextSplitClip

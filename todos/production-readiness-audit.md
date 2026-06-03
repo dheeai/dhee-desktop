@@ -1,7 +1,7 @@
 # Production-Readiness Audit
 
 **Date:** 2026-05-15
-**Scope:** kshana-desktop (renderer + main) + kshana-core (embedded engine)
+**Scope:** dhee-desktop (renderer + main) + kshana-core (embedded engine)
 **Method:** Parallel deep-dive across onboarding, error handling, observability, deployment plumbing, settings, cost visibility, multi-project concurrency, crash recovery, and project lifecycle.
 
 This document captures every gap found, ranked by severity. The intent is to surface blind spots before launch — not to bikeshed polish. Items are grouped by when they will hurt: **day-one (data/money loss)** → **first-week (user bounce)** → **second-month (slow burn)**.
@@ -35,7 +35,7 @@ These will cause irrecoverable user experience within the first ~50 installs. Ea
 
 ### 4. API keys stored in plaintext
 
-- **Where:** `kshana-desktop/src/main/settingsManager.ts:62-66` writes settings (including OpenRouter / OpenAI / Gemini / ComfyUI Cloud keys) to `~/Library/Application Support/kshana/kshana-settings.json` via electron-store. No encryption layer.
+- **Where:** `dhee-desktop/src/main/settingsManager.ts:62-66` writes settings (including OpenRouter / OpenAI / Gemini / ComfyUI Cloud keys) to `~/Library/Application Support/kshana/kshana-settings.json` via electron-store. No encryption layer.
 - **Symptom:** Any other process on the box can read the user's paid-API keys. Standard security regression for any app shipping to non-developers.
 - **Fix:** Use `keytar` or `electron.safeStorage` for credential fields (`openaiApiKey`, `googleApiKey`, `openRouterApiKey`, `comfyCloudApiKey`). Keep non-sensitive settings (URLs, model names) in electron-store. ~half-day swap.
 - **Severity:** BLOCKER
@@ -55,14 +55,14 @@ These determine whether anyone *stays* past install. None are correctness bugs; 
 
 ### 6. Zero first-run guidance / setup wizard
 
-- **Where:** `kshana-desktop/src/renderer/components/landing/LandingScreen/LandingScreen.tsx:230, 628-641` — app opens to "No projects yet — Create your first project." Click → `NewProjectDialog.tsx:741` asks for a workspace folder with no explanation of what to pick or why.
+- **Where:** `dhee-desktop/src/renderer/components/landing/LandingScreen/LandingScreen.tsx:230, 628-641` — app opens to "No projects yet — Create your first project." Click → `NewProjectDialog.tsx:741` asks for a workspace folder with no explanation of what to pick or why.
 - **Symptom:** Non-technical user has no idea what folder to pick, has no idea they need an LLM key + ComfyUI URL configured first. Creates a project against a bad setup, the agent silently fails on the first generation, user bounces.
 - **Fix:** Add a first-run modal that (a) explains workspace folder choice, (b) walks through the three configuration lanes (LLM provider, ComfyUI mode, optional VLM), (c) refuses to advance until at least one LLM lane is configured. Keep it skippable for power users but make the default flow safe.
 - **Severity:** HIGH
 
 ### 7. No "test this key" validation in Settings
 
-- **Where:** `kshana-desktop/src/renderer/components/SettingsPanel/` — accepts any string for API keys with no validation, no test endpoint, no preflight.
+- **Where:** `dhee-desktop/src/renderer/components/SettingsPanel/` — accepts any string for API keys with no validation, no test endpoint, no preflight.
 - **Symptom:** User pastes a typo'd OpenAI key, hits Save, opens a project, types in chat. Generation fails with a cryptic error deep in the agent loop. User can't tell whether the key, the model, the URL, or their prompt is wrong.
 - **Fix:** Add a "Test key" button per provider that hits a tiny known endpoint (e.g., `GET /models` for OpenAI-compatible). Show green check / red X with the real error message. Same affordance for ComfyUI URL ("Ping server").
 - **Severity:** HIGH
@@ -76,7 +76,7 @@ These determine whether anyone *stays* past install. None are correctness bugs; 
 
 ### 9. No initial chat guidance / discoverability
 
-- **Where:** `kshana-desktop/src/renderer/components/chat/ChatPanelEmbedded/ChatPanelEmbedded.tsx:600-650` — after project setup, the chat opens with an empty input and no example prompts, no `/help`, no quick-actions.
+- **Where:** `dhee-desktop/src/renderer/components/chat/ChatPanelEmbedded/ChatPanelEmbedded.tsx:600-650` — after project setup, the chat opens with an empty input and no example prompts, no `/help`, no quick-actions.
 - **Symptom:** User has no idea what to type. The pi-orchestrator has rich tools (`kshana_run_to`, `kshana_status`, scene generation, override flows) that are completely undiscoverable. Compare to ChatGPT's example prompt cards on a fresh chat.
 - **Fix:** Inject a starter message ("Hi! Tell me about the video you want to make — a story, a script, or a single scene") with 3-4 clickable example prompts ("Generate a 30-second sci-fi trailer", "Break down this script into shots", "Resume my last project"). Document `/help` as a hidden command.
 - **Severity:** MEDIUM (high for non-power users)
@@ -103,14 +103,14 @@ These are real but recoverable. Fix in order over the first month while users ar
 
 ### 12. No crash reporting / telemetry
 
-- **Where:** `kshana-desktop/src/main/main.ts:3535-3542` handles `unhandledRejection` and `uncaughtException` via `electron-log` only. No Sentry. No upload. No user-facing "error occurred" toast.
+- **Where:** `dhee-desktop/src/main/main.ts:3535-3542` handles `unhandledRejection` and `uncaughtException` via `electron-log` only. No Sentry. No upload. No user-facing "error occurred" toast.
 - **Symptom:** User hits a bug → emails "the app crashed" → support has nothing to investigate. `debug.log` lives at `~/Library/Application Support/kshana/logs/debug.log` and the user doesn't know it exists.
 - **Fix:** Wire Sentry (or equivalent) for crash + unhandled-rejection capture. Surface a one-click "Report this bug" affordance from the chat error UI that bundles the last N log lines and the project name (with PII redaction). `exportLogsZip` in `main.ts:1690` already exists — surface it from the error path instead of buried in Settings → Diagnostics.
 - **Severity:** HIGH (support load)
 
 ### 13. No portable project export
 
-- **Where:** `kshana-desktop/src/main/exporters/capcutGenerator.ts` exports a CapCut-shaped XML. No "zip up the whole project" affordance. No "import zipped project" path.
+- **Where:** `dhee-desktop/src/main/exporters/capcutGenerator.ts` exports a CapCut-shaped XML. No "zip up the whole project" affordance. No "import zipped project" path.
 - **Symptom:** Users can't share projects with teammates, can't back up to Drive without manual folder copy, can't move between machines cleanly. Orphaned media paths if they copy partially.
 - **Fix:** Add an "Export project" menu that zips `project.json`, `assets/`, `prompts/`, `chapters/` into a `*.kshana-archive` file. Symmetric import.
 - **Severity:** MEDIUM

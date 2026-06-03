@@ -85,7 +85,7 @@ Timeline + opens the matching Prompts card.
 ## Required core-side change
 
 A new structured event channel from `kshana-core`'s `ExecutorAgent` to
-`kshana-desktop`'s main process, emitted *alongside* the existing
+`dhee-desktop`'s main process, emitted *alongside* the existing
 `stream_chunk` text. Proposed shape:
 
 ```ts

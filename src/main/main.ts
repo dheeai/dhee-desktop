@@ -1,5 +1,4 @@
 /* eslint global-require: off, no-console: off, promise/always-return: off */
-import './utils/bootstrapRemotionRuntime';
 
 /**
  * This module executes inside of electron's main process. You can start
@@ -77,16 +76,7 @@ import {
   type RuntimeConfigSource,
 } from './cloudRuntimeConfig';
 import fileSystemManager from './fileSystemManager';
-import { remotionManager } from './remotionManager';
-import { generateWordCaptions } from './services/wordCaptionService';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
-import type {
-  RemotionTimelineItem,
-  ParsedInfographicPlacement,
-  RemotionServerRenderRequest,
-  RemotionServerRenderResult,
-  RemotionServerRenderProgress,
-} from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
@@ -95,7 +85,6 @@ import {
   generateCapcutProject,
   type ExportTimelineItem,
   type ExportOverlayItem,
-  type ExportTextOverlayCue,
   type ExportPromptOverlayCue,
 } from './exporters/capcutGenerator';
 import {
@@ -629,29 +618,6 @@ ipcMain.handle(
       );
       return 0;
     }
-  },
-);
-
-ipcMain.handle(
-  'project:generate-word-captions',
-  async (
-    _event,
-    projectDirectory: string,
-    audioPath?: string,
-  ): Promise<{
-    success: boolean;
-    outputPath?: string;
-    words?: unknown[];
-    error?: string;
-  }> => {
-    const result = await generateWordCaptions(projectDirectory, audioPath);
-    if (result.success && result.outputPath) {
-      fileSystemManager.emit('file-change', {
-        type: 'change',
-        path: result.outputPath,
-      });
-    }
-    return result;
   },
 );
 
@@ -1845,7 +1811,6 @@ ipcMain.handle(
     projectDirectory: string,
     audioPath?: string,
     overlayItems?: ExportOverlayItem[],
-    textOverlayCues?: ExportTextOverlayCue[],
     promptOverlayCues?: ExportPromptOverlayCue[],
   ): Promise<{
     success: boolean;
@@ -1863,7 +1828,7 @@ ipcMain.handle(
         projectDirectory,
         audioPath,
         overlayItems,
-        textOverlayCues,
+        undefined,
         promptOverlayCues,
       );
 
@@ -1915,22 +1880,6 @@ interface OverlayItem {
   endTime: number;
 }
 
-interface TextOverlayWord {
-  text: string;
-  startTime: number;
-  endTime: number;
-  charStart: number;
-  charEnd: number;
-}
-
-interface TextOverlayCue {
-  id: string;
-  startTime: number;
-  endTime: number;
-  text: string;
-  words: TextOverlayWord[];
-}
-
 interface RenderResolution {
   width: number;
   height: number;
@@ -1952,44 +1901,6 @@ const SYSTEM_FONT_CANDIDATES =
           '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
           '/usr/share/fonts/dejavu/DejaVuSans.ttf',
         ];
-
-function formatAssTimestamp(seconds: number): string {
-  const totalCentiseconds = Math.max(0, Math.round(seconds * 100));
-  const centiseconds = totalCentiseconds % 100;
-  const totalSeconds = Math.floor(totalCentiseconds / 100);
-  const secs = totalSeconds % 60;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const mins = totalMinutes % 60;
-  const hours = Math.floor(totalMinutes / 60);
-  return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
-}
-
-function escapeAssText(input: string): string {
-  return input
-    .replace(/\\/g, '\\\\')
-    .replace(/{/g, '(')
-    .replace(/}/g, ')')
-    .replace(/\r?\n/g, ' ')
-    .trim();
-}
-
-function buildAssDialogueText(cue: TextOverlayCue): string {
-  if (cue.words.length === 0) {
-    return escapeAssText(cue.text);
-  }
-
-  const segments: string[] = [];
-  cue.words.forEach((word, index) => {
-    const safeText = escapeAssText(word.text);
-    const durationCentiseconds = Math.max(
-      1,
-      Math.round((word.endTime - word.startTime) * 100),
-    );
-    const suffix = index < cue.words.length - 1 ? ' ' : '';
-    segments.push(`{\\k${durationCentiseconds}}${safeText}${suffix}`);
-  });
-  return segments.join('');
-}
 
 async function findAvailableSystemFont(): Promise<string | null> {
   for (const candidate of SYSTEM_FONT_CANDIDATES) {
@@ -2107,42 +2018,6 @@ async function getProjectRenderResolution(
   }
 
   return fallback;
-}
-
-function buildAssFromTextOverlayCues(
-  cues: TextOverlayCue[],
-  resolution: RenderResolution = { width: 1920, height: 1080 },
-): string {
-  const header = [
-    '[Script Info]',
-    'ScriptType: v4.00+',
-    `PlayResX: ${resolution.width}`,
-    `PlayResY: ${resolution.height}`,
-    'WrapStyle: 2',
-    'ScaledBorderAndShadow: yes',
-    '',
-    '[V4+ Styles]',
-    'Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding',
-    'Style: WordSync,Arial,42,&H00FFFFFF,&H00FFD700,&H00000000,&HA0000000,1,0,0,0,100,100,0,0,3,2,0,2,80,80,60,1',
-    '',
-    '[Events]',
-    'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text',
-  ];
-
-  const events = cues
-    .filter(
-      (cue) => Number.isFinite(cue.startTime) && Number.isFinite(cue.endTime),
-    )
-    .filter((cue) => cue.endTime > cue.startTime)
-    .sort((a, b) => a.startTime - b.startTime)
-    .map((cue) => {
-      const start = formatAssTimestamp(cue.startTime);
-      const end = formatAssTimestamp(cue.endTime);
-      const text = buildAssDialogueText(cue);
-      return `Dialogue: 0,${start},${end},WordSync,,0,0,0,,${text}`;
-    });
-
-  return [...header, ...events, ''].join('\n');
 }
 
 async function burnWordCaptionsIntoVideo(
@@ -2323,7 +2198,6 @@ ipcMain.handle(
     projectDirectory: string,
     audioPath?: string,
     overlayItems?: OverlayItem[],
-    textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
     exportOptions?: ExportRenderOptions,
   ): Promise<{
@@ -3028,36 +2902,6 @@ ipcMain.handle(
 
       let finalOutputPath = overlayedOutputPath;
 
-      if (textOverlayCues && textOverlayCues.length > 0) {
-        const assPath = path.join(tempDir, 'word-captions.ass');
-        const captionedOutputPath = path.join(
-          tempDir,
-          'composed-video-captions.mp4',
-        );
-        const assContent = buildAssFromTextOverlayCues(
-          textOverlayCues,
-          renderResolution,
-        );
-        await fs.writeFile(assPath, assContent, 'utf-8');
-        cleanupFiles.push(assPath);
-
-        try {
-          await burnWordCaptionsIntoVideo(
-            overlayedOutputPath,
-            assPath,
-            captionedOutputPath,
-          );
-          cleanupFiles.push(captionedOutputPath);
-          finalOutputPath = captionedOutputPath;
-        } catch (error) {
-          console.warn(
-            `[VideoComposition] Word caption burn failed, proceeding without captions: ${
-              error instanceof Error ? error.message : 'Unknown error'
-            }`,
-          );
-        }
-      }
-
       const watermarkedOutputPath = path.join(
         tempDir,
         'composed-video-watermarked.mp4',
@@ -3129,62 +2973,6 @@ fileSystemManager.on('file-change', (event: FileChangeEvent) => {
       path: normalizedPath,
       at: Date.now(),
     });
-  }
-});
-
-// Remotion IPC handlers
-ipcMain.handle(
-  'remotion:render-infographics',
-  async (
-    _event,
-    projectDirectory: string,
-    timelineItems: RemotionTimelineItem[],
-    infographicPlacements: ParsedInfographicPlacement[],
-  ) => {
-    return remotionManager.startRender(
-      projectDirectory,
-      timelineItems,
-      infographicPlacements,
-    );
-  },
-);
-
-ipcMain.handle('remotion:cancel-job', async (_event, jobId: string) => {
-  remotionManager.cancelJob(jobId);
-});
-
-ipcMain.handle('remotion:get-job', async (_event, jobId: string) => {
-  return remotionManager.getJob(jobId);
-});
-
-ipcMain.handle(
-  'remotion:render-from-server-request',
-  async (
-    _event,
-    projectDirectory: string,
-    request: RemotionServerRenderRequest,
-  ): Promise<RemotionServerRenderResult> => {
-    return remotionManager.renderFromServerRequest(
-      projectDirectory,
-      request,
-      (progress: RemotionServerRenderProgress) => {
-        if (mainWindow) {
-          mainWindow.webContents.send('remotion:server-progress', progress);
-        }
-      },
-    );
-  },
-);
-
-remotionManager.on('progress', (progress) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('remotion:progress', progress);
-  }
-});
-
-remotionManager.on('job-complete', (job) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('remotion:job-complete', job);
   }
 });
 
@@ -3955,11 +3743,6 @@ app
   .then(async () => {
     // Initialize logger for this session
     desktopLogger.initUILog();
-
-    // Clean up stale Remotion temp jobs from previous sessions
-    remotionManager.cleanupOnStartup().catch((err) => {
-      log.warn('[RemotionManager] Startup cleanup error:', err);
-    });
 
     // Create window first so UI appears immediately
     await createWindow();

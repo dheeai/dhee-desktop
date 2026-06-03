@@ -39,7 +39,11 @@ function runGit(repoPath: string, command: string): string | undefined {
 function verifydheeCore(): void {
   const dheeCorePath = resolvedheeCorePath();
   const packageJsonPath = path.join(dheeCorePath, 'package.json');
-  const serverCliPath = path.join(dheeCorePath, 'dist', 'server', 'cli.cjs');
+  // Phase 6.4: dhee-core is embedded in-process via its main barrel
+  // (`dhee-core` → dist/index.js) + `dhee-core/runners`. The old
+  // spawn-based `dist/server/cli.cjs` entry is gone, so verify the
+  // barrel entry that the embed host actually imports.
+  const serverCliPath = path.join(dheeCorePath, 'dist', 'index.js');
   const releaseAppPath = webpackPaths.appPath;
   const metadataPath = path.join(releaseAppPath, '.dhee-core-version.json');
 
