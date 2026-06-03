@@ -204,22 +204,23 @@ function installAppDeps(): void {
     stdio: 'inherit',
   });
 
+  // Phase 6.4: dhee-core is embedded in-process via its main barrel
+  // (dist/index.js), not the old spawn-based dist/server/cli.cjs.
   const installedServerCliPath = path.join(
     webpackPaths.appNodeModulesPath,
     'dhee-core',
     'dist',
-    'server',
-    'cli.cjs',
+    'index.js',
   );
 
   if (!fs.existsSync(installedServerCliPath)) {
     throw new Error(
-      `Installed dhee-core server entry not found at ${installedServerCliPath}`,
+      `Installed dhee-core entry not found at ${installedServerCliPath}`,
     );
   }
 
   console.log(`✓ Installed app dependencies with bundled dhee-core`);
-  console.log(`✓ Verified bundled server entry at ${installedServerCliPath}`);
+  console.log(`✓ Verified bundled dhee-core entry at ${installedServerCliPath}`);
 }
 
 try {
