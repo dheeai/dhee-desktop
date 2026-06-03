@@ -37,9 +37,6 @@ export class FileSystemManager extends EventEmitter {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private imagePlacementsWatcher: any = null;
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private infographicPlacementsWatcher: any = null;
-
   private store: Store<FileSystemStore>;
 
   // Debounced event batching
@@ -303,73 +300,6 @@ export class FileSystemManager extends EventEmitter {
       });
   }
 
-  /**
-   * Watch infographic-placements directory with optimized settings
-   */
-  async watchInfographicPlacements(infographicPlacementsDir: string): Promise<void> {
-    if (this.infographicPlacementsWatcher) {
-      this.infographicPlacementsWatcher.close();
-    }
-
-    // Ensure directory exists
-    try {
-      await fs.promises.mkdir(infographicPlacementsDir, { recursive: true });
-    } catch (error) {
-      console.warn(
-        `[FileSystemManager] Could not create infographic-placements directory: ${error}`,
-      );
-    }
-
-    const chokidar = await import('chokidar');
-    this.infographicPlacementsWatcher = chokidar.watch(infographicPlacementsDir, {
-      ignored: IGNORED_PATTERNS,
-      persistent: true,
-      ignoreInitial: true,
-      depth: 1,
-      awaitWriteFinish: {
-        stabilityThreshold: 500, // mp4 writes can take longer
-        pollInterval: 150,
-      },
-      usePolling: false,
-    });
-
-    const emitChange = (type: FileChangeEvent['type'], filePath: string) => {
-      this.emitDebouncedChange(type, filePath);
-    };
-
-    this.infographicPlacementsWatcher
-      .on('add', (p: string) => {
-        console.log(`[FileSystemManager] Infographic added: ${p}`);
-        emitChange('add', p);
-      })
-      .on('change', (p: string) => {
-        console.log(`[FileSystemManager] Infographic changed: ${p}`);
-        emitChange('change', p);
-      })
-      .on('unlink', (p: string) => {
-        console.log(`[FileSystemManager] Infographic removed: ${p}`);
-        emitChange('unlink', p);
-      })
-      .on('error', (error: Error) => {
-        console.error(
-          '[FileSystemManager] Infographic placements watcher error:',
-          error,
-        );
-        setTimeout(() => {
-          if (fs.existsSync(infographicPlacementsDir)) {
-            this.watchInfographicPlacements(infographicPlacementsDir).catch(
-              (err) => {
-                console.error(
-                  '[FileSystemManager] Failed to retry infographic placements watch:',
-                  err,
-                );
-              },
-            );
-          }
-        }, 1000);
-      });
-  }
-
   async watchDirectory(dirPath: string): Promise<void> {
     const resolvedRoot = path.resolve(dirPath);
     this.activeProjectRoot = resolvedRoot;
@@ -417,10 +347,6 @@ export class FileSystemManager extends EventEmitter {
     if (this.imagePlacementsWatcher) {
       this.imagePlacementsWatcher.close();
       this.imagePlacementsWatcher = null;
-    }
-    if (this.infographicPlacementsWatcher) {
-      this.infographicPlacementsWatcher.close();
-      this.infographicPlacementsWatcher = null;
     }
     // Clear debounce timeout
     if (this.debounceTimeout) {

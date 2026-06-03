@@ -200,54 +200,6 @@ export function buildUpdatedImageOverride(
   };
 }
 
-export function buildUpdatedInfographicOverride(
-  currentOverrides: Record<string, ImageTimingOverride>,
-  placementNumber: number,
-  sourceStartTime: number,
-  sourceEndTime: number,
-  editedStartTime: number,
-  editedEndTime: number,
-): Record<string, ImageTimingOverride> {
-  if (!Number.isFinite(placementNumber)) {
-    return currentOverrides;
-  }
-
-  if (!isValidTimingRange(editedStartTime, editedEndTime)) {
-    return currentOverrides;
-  }
-
-  const key = String(placementNumber);
-  const isSameAsSource =
-    Math.abs(editedStartTime - sourceStartTime) < EPSILON &&
-    Math.abs(editedEndTime - sourceEndTime) < EPSILON;
-
-  if (isSameAsSource) {
-    if (!(key in currentOverrides)) {
-      return currentOverrides;
-    }
-    const nextOverrides = { ...currentOverrides };
-    delete nextOverrides[key];
-    return nextOverrides;
-  }
-
-  const existing = currentOverrides[key];
-  if (
-    existing &&
-    Math.abs(existing.start_time_seconds - editedStartTime) < EPSILON &&
-    Math.abs(existing.end_time_seconds - editedEndTime) < EPSILON
-  ) {
-    return currentOverrides;
-  }
-
-  return {
-    ...currentOverrides,
-    [key]: {
-      start_time_seconds: editedStartTime,
-      end_time_seconds: editedEndTime,
-    },
-  };
-}
-
 export function buildUpdatedSegmentTimingOverride(
   currentOverrides: Record<string, SegmentTimingOverride>,
   segmentId: string | undefined,
@@ -300,34 +252,6 @@ export function applyImageTimingOverridesToItems<
 >(items: T[], overrides: Record<string, ImageTimingOverride>): T[] {
   return items.map((item) => {
     if (item.type !== 'image' || item.placementNumber === undefined) {
-      return item;
-    }
-
-    const sourceStartTime = item.sourceStartTime ?? item.startTime;
-    const sourceEndTime = item.sourceEndTime ?? item.endTime;
-    const override = overrides[String(item.placementNumber)];
-    const resolved = resolveImageTimingRange(
-      sourceStartTime,
-      sourceEndTime,
-      override,
-    );
-
-    return {
-      ...item,
-      sourceStartTime,
-      sourceEndTime,
-      startTime: resolved.startTime,
-      endTime: resolved.endTime,
-      duration: resolved.duration,
-    };
-  });
-}
-
-export function applyInfographicTimingOverridesToItems<
-  T extends ImageTimelineItemLike,
->(items: T[], overrides: Record<string, ImageTimingOverride>): T[] {
-  return items.map((item) => {
-    if (item.type !== 'infographic' || item.placementNumber === undefined) {
       return item;
     }
 

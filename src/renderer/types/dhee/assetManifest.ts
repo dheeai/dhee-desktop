@@ -15,7 +15,6 @@ export type AssetType =
   // Scene assets
   | 'scene_image'
   | 'scene_video'
-  | 'scene_infographic'
   | 'scene_thumbnail'
   // Audio assets
   | 'scene_dialogue_audio'

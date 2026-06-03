@@ -129,11 +129,6 @@ interface ProjectActions {
     overrides: dheeTimelineState['image_timing_overrides'],
   ) => void;
 
-  /** Update per-infographic timeline timing overrides */
-  updateInfographicTimingOverrides: (
-    overrides: dheeTimelineState['infographic_timing_overrides'],
-  ) => void;
-
   /** Update per-video split overrides */
   updateVideoSplitOverrides: (
     overrides: dheeTimelineState['video_split_overrides'],
@@ -482,14 +477,10 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
         try {
           const manifestPath = `${normalizedDir}/assets/manifest.json`;
           const imagePlacementsDir = `${normalizedDir}/assets/images`;
-          const infographicPlacementsDir = `${normalizedDir}/assets/infographics`;
 
           await window.electron.project.watchManifest(manifestPath);
           await window.electron.project.watchImagePlacements(
             imagePlacementsDir,
-          );
-          await window.electron.project.watchInfographicPlacements(
-            infographicPlacementsDir,
           );
           console.log(
             '[ProjectContext] Set up explicit watches for manifest and placements',
@@ -1003,19 +994,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     [],
   );
 
-  const updateInfographicTimingOverrides = useCallback(
-    (overrides: dheeTimelineState['infographic_timing_overrides']) => {
-      setState((prev) => ({
-        ...prev,
-        timelineState: {
-          ...prev.timelineState,
-          infographic_timing_overrides: overrides,
-        },
-      }));
-    },
-    [],
-  );
-
   const updateVideoSplitOverrides = useCallback(
     (overrides: dheeTimelineState['video_split_overrides']) => {
       setState((prev) => ({
@@ -1175,8 +1153,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       markers: state.timelineState.markers,
       imported_clips: state.timelineState.imported_clips,
       image_timing_overrides: state.timelineState.image_timing_overrides,
-      infographic_timing_overrides:
-        state.timelineState.infographic_timing_overrides,
       video_split_overrides: state.timelineState.video_split_overrides,
       segment_timing_overrides: state.timelineState.segment_timing_overrides,
     });
@@ -1214,7 +1190,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
     JSON.stringify(state.timelineState.markers),
     JSON.stringify(state.timelineState.imported_clips),
     JSON.stringify(state.timelineState.image_timing_overrides),
-    JSON.stringify(state.timelineState.infographic_timing_overrides),
     JSON.stringify(state.timelineState.video_split_overrides),
     JSON.stringify(state.timelineState.segment_timing_overrides),
     saveTimelineState,
@@ -1265,7 +1240,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       updateMarkers,
       updateImportedClips,
       updateImageTimingOverrides,
-      updateInfographicTimingOverrides,
       updateVideoSplitOverrides,
       updateSegmentTimingOverrides,
       addAsset,
@@ -1290,7 +1264,6 @@ export function ProjectProvider({ children }: ProjectProviderProps) {
       updateMarkers,
       updateImportedClips,
       updateImageTimingOverrides,
-      updateInfographicTimingOverrides,
       updateVideoSplitOverrides,
       updateSegmentTimingOverrides,
       addAsset,

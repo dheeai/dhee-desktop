@@ -21,7 +21,6 @@
     "tests",
     "release/build",
     "release/app/dist",
-    ".erb/dll",
-    "assets/remotion-infographics-template"
+    ".erb/dll"
   ]
 }

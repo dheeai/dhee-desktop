@@ -102,7 +102,9 @@ export default function ProjectCard({
             )}
             {stats && <p className={styles.stats}>{stats}</p>}
             <p className={styles.meta}>
-              {shortenPath(project.path)} ·{' '}
+              <span className={styles.path}>
+                {shortenPath(project.path)} ·{' '}
+              </span>
               {formatRelativeTime(project.lastOpened)}
             </p>
           </div>

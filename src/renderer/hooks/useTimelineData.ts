@@ -21,13 +21,7 @@ import { debugRendererDebug } from '../utils/debugLogger';
 export interface TimelineItem {
   id: string;
   assetId?: string;
-  type:
-    | 'image'
-    | 'video'
-    | 'infographic'
-    | 'placeholder'
-    | 'audio'
-    | 'text_overlay';
+  type: 'image' | 'video' | 'placeholder' | 'audio' | 'text_overlay';
   startTime: number;
   endTime: number;
   duration: number;
