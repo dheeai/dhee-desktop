@@ -28,9 +28,8 @@ describe('TimelineContextMenu', () => {
     expect(screen.queryByText('Regenerate Shot')).not.toBeNull();
   });
 
-  it('invokes regenerate and preserves other menu actions', () => {
+  it('invokes regenerate and closes the menu', () => {
     const onRegenerateShot = jest.fn();
-    const onGenerateWordCaptions = jest.fn();
     const onClose = jest.fn();
 
     render(
@@ -38,18 +37,13 @@ describe('TimelineContextMenu', () => {
         x={10}
         y={20}
         showRegenerateShotAction
-        canGenerateWordCaptions
         onRegenerateShot={onRegenerateShot}
-        onGenerateWordCaptions={onGenerateWordCaptions}
         onClose={onClose}
       />,
     );
 
     fireEvent.click(screen.getByText('Regenerate Shot'));
     expect(onRegenerateShot).toHaveBeenCalledTimes(1);
-
-    fireEvent.click(screen.getByText('Generate Word Captions'));
-    expect(onGenerateWordCaptions).toHaveBeenCalledTimes(1);
-    expect(onClose).toHaveBeenCalledTimes(2);
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

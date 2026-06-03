@@ -420,7 +420,6 @@ const fakeElectron = {
     },
     getAudioDuration: () => Promise.resolve(0),
     getAudioWaveform: () => Promise.resolve({ peaks: [], duration: 0 }),
-    generateWordCaptions: () => Promise.resolve({ success: false }),
     readTree: (p: string) => {
       record('project.readTree', p);
       return Promise.resolve(
@@ -560,29 +559,6 @@ const fakeElectron = {
       subscribeElectron('project:file-change', cb),
     onManifestWritten: (cb: (payload: unknown) => void) =>
       subscribeElectron('project:manifest-written', cb),
-  },
-  remotion: {
-    renderInfographics: (p: unknown) => {
-      record('remotion.renderInfographics', p);
-      return Promise.resolve(
-        bridgeReturn('remotion.renderInfographics', { jobId: 'fake' }),
-      );
-    },
-    cancelJob: (jobId: string) => {
-      record('remotion.cancelJob', jobId);
-      return Promise.resolve();
-    },
-    getJob: () => Promise.resolve(null),
-    renderFromServerRequest: (p: unknown) => {
-      record('remotion.renderFromServerRequest', p);
-      return Promise.resolve(
-        bridgeReturn('remotion.renderFromServerRequest', { success: false }),
-      );
-    },
-    onProgress: (cb: (payload: unknown) => void) =>
-      subscribeElectron('remotion:progress', cb),
-    onJobComplete: (cb: (payload: unknown) => void) =>
-      subscribeElectron('remotion:job-complete', cb),
   },
   logger: {
     init: noopAsync,

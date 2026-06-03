@@ -7,7 +7,6 @@ import { useMemo, useEffect, useState, useCallback, useRef } from 'react';
 import { useProject } from '../contexts/ProjectContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { useTranscript } from './useTranscript';
-import { useWordCaptions } from './useWordCaptions';
 import type { AssetInfo } from '../types/dhee/assetManifest';
 import type { SceneVersions } from '../types/dhee/timeline';
 import type { TextOverlayCue } from '../types/captions';
@@ -1011,7 +1010,6 @@ export function useTimelineData(
     useProject();
   const { projectDirectory } = useWorkspace();
   const { totalDuration: transcriptDuration } = useTranscript();
-  const { cues: wordCaptionCues } = useWordCaptions();
   const [audioFiles, setAudioFiles] = useState<TimelineAudioFile[]>([]);
   const [isAudioLoading, setIsAudioLoading] = useState(false);
   const [isTimelineLoading, setIsTimelineLoading] = useState(false);
@@ -1292,26 +1290,7 @@ export function useTimelineData(
     timelineState.segment_timing_overrides,
   ]);
 
-  const textOverlayItems: TimelineItem[] = useMemo(() => {
-    if (wordCaptionCues.length === 0) return [];
-    const cueStart = Math.min(...wordCaptionCues.map((cue) => cue.startTime));
-    const cueEnd = Math.max(...wordCaptionCues.map((cue) => cue.endTime));
-    const startTime = Number.isFinite(cueStart) ? Math.max(0, cueStart) : 0;
-    const endTime = Number.isFinite(cueEnd)
-      ? Math.max(startTime + 0.01, cueEnd)
-      : startTime + 0.01;
-
-    return [
-      {
-        id: 'text-overlay-track',
-        type: 'text_overlay',
-        startTime,
-        endTime,
-        duration: endTime - startTime,
-        label: 'Text Captions',
-      },
-    ];
-  }, [wordCaptionCues]);
+  const textOverlayItems: TimelineItem[] = useMemo(() => [], []);
 
   const serverSegments = useMemo(
     () => getTimelineSegments(timelineFileState.timeline),
@@ -1353,18 +1332,13 @@ export function useTimelineData(
       audioFiles.length > 0
         ? Math.max(...audioFiles.map((audioFile) => audioFile.duration || 0))
         : 0;
-    const textOverlayDuration =
-      wordCaptionCues.length > 0
-        ? Math.max(...wordCaptionCues.map((cue) => cue.endTime))
-        : 0;
 
     return Math.max(
       serverTimelineDuration,
       maxAudioDuration,
       transcriptDuration || 0,
-      textOverlayDuration,
     );
-  }, [audioFiles, serverTimelineDuration, transcriptDuration, wordCaptionCues]);
+  }, [audioFiles, serverTimelineDuration, transcriptDuration]);
 
   const timelineItems = useMemo(() => {
     const visualItems =
@@ -1402,7 +1376,7 @@ export function useTimelineData(
     timelineItems,
     overlayItems: [],
     textOverlayItems,
-    textOverlayCues: wordCaptionCues,
+    textOverlayCues: [],
     totalDuration: calculatedTotalDuration,
     refreshTimeline,
     refreshAudioFiles,

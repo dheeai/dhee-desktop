@@ -7,15 +7,6 @@ import type {
   RecentProject,
   FileChangeEvent,
 } from '../shared/fileSystemTypes';
-import type {
-  RemotionJob,
-  RemotionProgress,
-  RemotionTimelineItem,
-  ParsedInfographicPlacement,
-  RemotionServerRenderRequest,
-  RemotionServerRenderResult,
-  RemotionServerRenderProgress,
-} from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import type {
   CompleteOnboardingRequest,
@@ -76,29 +67,6 @@ import {
   type GetHistoryRequest,
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
-
-interface WordTimestamp {
-  text: string;
-  startTime: number;
-  endTime: number;
-  confidence?: number;
-}
-
-interface TextOverlayWord {
-  text: string;
-  startTime: number;
-  endTime: number;
-  charStart: number;
-  charEnd: number;
-}
-
-interface TextOverlayCue {
-  id: string;
-  startTime: number;
-  endTime: number;
-  text: string;
-  words: TextOverlayWord[];
-}
 
 interface PromptOverlayCue {
   id: string;
@@ -215,21 +183,6 @@ const projectBridge = {
     options?: { sampleCount?: number },
   ): Promise<{ peaks: number[]; duration: number }> {
     return ipcRenderer.invoke('project:get-audio-waveform', audioPath, options);
-  },
-  generateWordCaptions(
-    projectDirectory: string,
-    audioPath?: string,
-  ): Promise<{
-    success: boolean;
-    outputPath?: string;
-    words?: WordTimestamp[];
-    error?: string;
-  }> {
-    return ipcRenderer.invoke(
-      'project:generate-word-captions',
-      projectDirectory,
-      audioPath,
-    );
   },
   // extractYoutubeAudio removed - can be re-added later if needed
   readTree(dirPath: string, depth?: number): Promise<FileNode> {
@@ -449,7 +402,6 @@ const projectBridge = {
       startTime: number;
       endTime: number;
     }>,
-    textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
     exportOptions?: {
       aspectRatio: '16:9' | '9:16';
@@ -467,7 +419,6 @@ const projectBridge = {
       projectDirectory,
       audioPath,
       overlayItems,
-      textOverlayCues,
       promptOverlayCues,
       exportOptions,
     );
@@ -491,7 +442,6 @@ const projectBridge = {
       endTime: number;
       label?: string;
     }>,
-    textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
   ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
     return ipcRenderer.invoke(
@@ -500,7 +450,6 @@ const projectBridge = {
       projectDirectory,
       audioPath,
       overlayItems,
-      textOverlayCues,
       promptOverlayCues,
     );
   },
@@ -527,75 +476,6 @@ const projectBridge = {
     return () => {
       ipcRenderer.removeListener('project:manifest-written', subscription);
     };
-  },
-};
-
-const remotionBridge = {
-  renderInfographics(
-    projectDirectory: string,
-    timelineItems: RemotionTimelineItem[],
-    infographicPlacements: ParsedInfographicPlacement[],
-  ): Promise<{ jobId: string; error?: string }> {
-    return ipcRenderer.invoke(
-      'remotion:render-infographics',
-      projectDirectory,
-      timelineItems,
-      infographicPlacements,
-    );
-  },
-  cancelJob(jobId: string): Promise<void> {
-    return ipcRenderer.invoke('remotion:cancel-job', jobId);
-  },
-  getJob(jobId: string): Promise<RemotionJob | null> {
-    return ipcRenderer.invoke('remotion:get-job', jobId);
-  },
-  async renderFromServerRequest(
-    projectDirectory: string,
-    request: RemotionServerRenderRequest,
-    onProgress?: (progress: RemotionServerRenderProgress) => void,
-  ): Promise<RemotionServerRenderResult> {
-    const subscription = (
-      _event: IpcRendererEvent,
-      progress: RemotionServerRenderProgress,
-    ) => {
-      if (!onProgress) {
-        return;
-      }
-      if (progress.requestId !== request.requestId) {
-        return;
-      }
-      onProgress(progress);
-    };
-    if (onProgress) {
-      ipcRenderer.on('remotion:server-progress', subscription);
-    }
-
-    try {
-      return await ipcRenderer.invoke(
-        'remotion:render-from-server-request',
-        projectDirectory,
-        request,
-      );
-    } finally {
-      if (onProgress) {
-        ipcRenderer.removeListener('remotion:server-progress', subscription);
-      }
-    }
-  },
-  onProgress(callback: (progress: RemotionProgress) => void) {
-    const subscription = (
-      _event: IpcRendererEvent,
-      progress: RemotionProgress,
-    ) => callback(progress);
-    ipcRenderer.on('remotion:progress', subscription);
-    return () => ipcRenderer.removeListener('remotion:progress', subscription);
-  },
-  onJobComplete(callback: (job: RemotionJob) => void) {
-    const subscription = (_event: IpcRendererEvent, job: RemotionJob) =>
-      callback(job);
-    ipcRenderer.on('remotion:job-complete', subscription);
-    return () =>
-      ipcRenderer.removeListener('remotion:job-complete', subscription);
   },
 };
 
@@ -953,7 +833,6 @@ const electronHandler = {
   onboarding: onboardingBridge,
   providerDiagnostics: providerDiagnosticsBridge,
   project: projectBridge,
-  remotion: remotionBridge,
   logger: loggerBridge,
   logs: logsBridge,
   updates: updateBridge,
