@@ -174,6 +174,30 @@ function newMessageId(): string {
 const RUNNER_STATUS_POLL_MS = 1500;
 
 /**
+ * Defense-in-depth for the "silent run" bug. The real fix is making
+ * regenerate runs dispatch through the BackgroundTaskRunner so
+ * `runnerStatus()` reflects them (that poll is the authoritative,
+ * continuous signal). This is a secondary backstop: a `media_generated`
+ * event proves a node just produced output, so we keep the indicator
+ * lit briefly after one in case a run surfaces media before the next
+ * poll catches it (or via some future event-emitting path that
+ * `runnerStatus` misses). `media_generated` is used — not
+ * tool_call/result — because only renders emit it, so it can't
+ * false-positive on ordinary agent file tools (bash/read/edit). Kept
+ * short so it merely bridges poll latency and never lingers noticeably
+ * after a run ends.
+ */
+const RENDER_ACTIVITY_TTL_MS = 4_000;
+
+/**
+ * Cap on the "Still cancelling…" notice loop. The main process force-
+ * resets a wedged session after ~90s; this is a renderer backstop so
+ * the notice can't count up indefinitely if that signal is missed.
+ * Comfortably larger than the 90s watchdog.
+ */
+const CANCEL_NOTICE_CAP_SEC = 180;
+
+/**
  * Detect the "text concatenated with itself" pattern that the
  * upstream LLM stream sometimes produces (e.g. an entire multi-
  * paragraph response repeated twice in a single bubble) and return
@@ -528,6 +552,9 @@ export default function ChatPanelEmbedded() {
   // results.
   const toolNameByCallIdRef = useRef<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // Timestamp of the last render `asset` event — used as a defense-in-
+  // depth running signal (see RENDER_ACTIVITY_TTL_MS).
+  const lastRenderEventRef = useRef<number>(0);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -550,6 +577,13 @@ export default function ChatPanelEmbedded() {
       const sid = event.sessionId;
       if (sid && sid !== mainId && sid !== bgSessionId) {
         return;
+      }
+      // Defense-in-depth running signal: a `media_generated` event means
+      // a node actually rendered something. Stamp the time so the
+      // indicator stays lit even if `runnerStatus` somehow doesn't
+      // reflect the run.
+      if (event.eventName === 'media_generated') {
+        lastRenderEventRef.current = Date.now();
       }
       // The header Stop button is no longer driven by tool-name
       // sniffing here. The previous tool-name allowlist
@@ -608,7 +642,11 @@ export default function ChatPanelEmbedded() {
       try {
         const status = await window.dhee.runnerStatus();
         if (cancelled) return;
-        setRunnerActive(!!status?.active);
+        // Authoritative signal OR a recent render-asset window. The
+        // poll owns turning it OFF (so it can't stick on); the asset
+        // window catches any run that doesn't surface via runnerStatus.
+        const recentRender = Date.now() - lastRenderEventRef.current < RENDER_ACTIVITY_TTL_MS;
+        setRunnerActive(!!status?.active || recentRender);
         // Mirror server-side `cancelling` into local pendingCancel.
         // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"
@@ -684,6 +722,22 @@ export default function ChatPanelEmbedded() {
     const handle = setInterval(() => {
       const state = cancelStatusRef.current;
       if (!state.runnerActive && !state.chatBusy) return; // clearing imminent — skip
+      // Backstop: the main process force-resets a wedged session after
+      // ~90s (returning control). If for any reason that signal never
+      // reaches us, stop spamming after this cap and tell the user how
+      // to recover, rather than counting up forever (the 7h "Still
+      // cancelling…" wall).
+      const elapsedCapSec = Math.round((Date.now() - startedAt) / 1000);
+      if (elapsedCapSec >= CANCEL_NOTICE_CAP_SEC) {
+        postChatNotice({
+          level: 'warning',
+          message:
+            `Stop has been pending ${elapsedCapSec}s — the in-flight call isn't releasing the lock. ` +
+            `It should auto-reset shortly; if the chat stays locked, reload the window (⌘R) to recover.`,
+        });
+        clearInterval(handle);
+        return;
+      }
       const lanes: string[] = [];
       if (state.runnerActive) lanes.push('the pipeline runner');
       if (state.chatBusy) lanes.push('the chat session');

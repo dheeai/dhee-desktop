@@ -17,8 +17,14 @@ describe('isTransientFailure', () => {
   });
   it('does NOT flag structural errors', () => {
     expect(isTransientFailure('node 999 not found in workflow')).toBe(false);
-    expect(isTransientFailure('LLM returned empty response')).toBe(false);
+    expect(isTransientFailure('schema validation failed: characters[0].mood not in enum')).toBe(false);
     expect(isTransientFailure(undefined)).toBe(false);
+  });
+  it('flags an empty LLM response as transient (model hiccup, retryable)', () => {
+    expect(
+      isTransientFailure('llm.generate: all 3 attempts failed. Last error: LLM returned empty response (no content).'),
+    ).toBe(true);
+    expect(isTransientFailure('LLM returned empty response')).toBe(true);
   });
 });
 
@@ -42,10 +48,19 @@ describe('buildFailedNudge', () => {
     expect(n).toContain('shot_image:scene_1_shot_5');
   });
   it('structural failure → frames as fix-the-upstream-node', () => {
-    const n = buildFailedNudge({ error: 'LLM returned empty response', nodeId: 'story' });
+    const n = buildFailedNudge({ error: 'schema validation failed: characters[0].mood not in enum', nodeId: 'characters_plan' });
     expect(n).toMatch(/structural/i);
     expect(n).toMatch(/dhee_critique_node|dhee_write_node_content/);
-    expect(n).toContain('story');
+    expect(n).toContain('characters_plan');
+  });
+  it('empty LLM response → transient framing (retry, not fix-node)', () => {
+    const n = buildFailedNudge({
+      error: 'llm.generate: all 3 attempts failed. Last error: LLM returned empty response (no content).',
+      nodeId: 'shot_image_prompt:scene_3_shot_18',
+    });
+    expect(n).toMatch(/transient|recovered|flaky/i);
+    expect(n).toMatch(/retry/i);
+    expect(n).not.toMatch(/structural/i);
   });
   it('tolerates missing error + nodeId', () => {
     expect(buildFailedNudge({})).toMatch(/^\[system\].*failed/i);

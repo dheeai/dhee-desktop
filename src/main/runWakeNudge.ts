@@ -28,6 +28,13 @@ const TRANSIENT_HINTS = [
   'etimedout',
   'fetch failed',
   'socket hang up',
+  // An empty LLM response is a model/gateway hiccup, not a content
+  // problem — treat it as transient so the agent is told to retry,
+  // not to "fix the upstream node". (llm.generate already retries it
+  // internally; this covers the case where every attempt came back
+  // empty.)
+  'empty response',
+  'no content',
 ];
 
 export function isTransientFailure(error: string | undefined): boolean {

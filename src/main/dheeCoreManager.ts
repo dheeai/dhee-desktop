@@ -31,7 +31,7 @@ import {
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
-import { buildCompletedNudge, buildFailedNudge, extractNodeId } from './runWakeNudge';
+import { buildCompletedNudge, buildFailedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -412,6 +412,12 @@ export interface RedoNodeOpts {
   itemId?: string;
   /** Cooperative cancellation forwarded to the runner. */
   signal?: AbortSignal;
+  /**
+   * Explicit project dir. When set, takes precedence over the
+   * sessionId→project lookup. Lets projectDir-native surfaces (the
+   * Inspector Cards view) drive regen without a chat session.
+   */
+  projectDir?: string;
 }
 
 export interface ConfigureProjectOpts {
@@ -1029,6 +1035,40 @@ export class dheeCoreManager {
   private runWakeSubscribed = false;
 
   /**
+   * Per-project count of system-level auto-retries spent on the current
+   * run chain (C3). Reset when the run completes OR when the user
+   * manually dispatches a fresh run. Caps how many times a transient
+   * failure auto-resumes before we stop and surface it.
+   */
+  private autoRetriedRuns = new Map<string, number>();
+  private static readonly MAX_AUTO_RETRIES = 1;
+
+  /**
+   * Hard-cancel watchdogs (one per session). A Stop fires
+   * `session.abort()` fire-and-forget, but if the in-flight LLM/Comfy
+   * call never releases the agent lock (e.g. a Comfy poll stuck on a
+   * dead tunnel), `abort()` never completes and the chat session stays
+   * `running` forever — the renderer spins "Still cancelling…" and the
+   * user is locked out (observed: 7+ hours). After `hardCancelMs` the
+   * watchdog force-resets the session so control is always returned.
+   */
+  private hardCancelTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * Per-session reject hook for the in-flight chat turn. The renderer's
+   * `status` is tied to the `chatPrompt` IPC promise resolving, so the
+   * watchdog calls this to make a wedged turn resolve (as a failure)
+   * even when the underlying tool never returns.
+   */
+  private sessionForceReject = new Map<string, (reason: Error) => void>();
+  /** Overridable so tests don't wait the real 90s. */
+  private hardCancelMs = 90_000;
+
+  /** Test seam — shorten the hard-cancel watchdog. */
+  __setHardCancelMsForTesting(ms: number): void {
+    this.hardCancelMs = ms;
+  }
+
+  /**
    * Subscribe ONCE to the shared BackgroundTaskRunner's terminal events
    * so a background run (dispatched by the non-blocking dhee_start_run
    * tool, or by runTask) re-wakes the owning agent session when it
@@ -1066,10 +1106,11 @@ export class dheeCoreManager {
     };
     const spec = payload.task?.spec;
     const projectDir = spec?.params?.projectDir;
+    const nodeId = extractNodeId(payload.error);
 
-    // Prefer an explicit chat sessionId on the spec; otherwise reverse-
-    // look-up the agent session focused on this run's project (the
-    // agent-initiated dhee_start_run path doesn't know its chat id).
+    // Resolve the owning live agent chat session (for the nudge): prefer
+    // an explicit chat sessionId on the spec; otherwise reverse-look-up
+    // the agent session focused on this run's project.
     let sessionId: string | undefined =
       spec?.sessionId && this.agentSessions.has(spec.sessionId) ? spec.sessionId : undefined;
     if (!sessionId && projectDir) {
@@ -1080,20 +1121,143 @@ export class dheeCoreManager {
         }
       }
     }
-    if (!sessionId) return; // headless run or no live agent session — nothing to wake
-    if (this.busySessions.has(sessionId)) return; // agent mid-turn — pull covers it
-    if (!this.lastEventCb) return; // no publish path yet
 
-    const nudge =
-      kind === 'completed'
-        ? buildCompletedNudge({})
-        : buildFailedNudge({
-            ...(payload.error ? { error: payload.error } : {}),
-            ...(extractNodeId(payload.error) ? { nodeId: extractNodeId(payload.error)! } : {}),
-          });
-    void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
-      log.warn('[dheeCoreManager] run-wake nudge failed:', err);
-    });
+    if (kind === 'completed') {
+      // Fresh budget for the next run chain on this project.
+      if (projectDir) this.autoRetriedRuns.delete(projectDir);
+      // Nudge the agent to announce (only when there's a live, idle session).
+      if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
+        void this.chatPrompt(sessionId, buildCompletedNudge({}), this.lastEventCb).catch((err) => {
+          log.warn('[dheeCoreManager] run-wake nudge failed:', err);
+        });
+      }
+      return;
+    }
+
+    // ── failed ──────────────────────────────────────────────────────
+    const transient = isTransientFailure(payload.error);
+    const where = nodeId ? ` at ${nodeId}` : '';
+    const errShort = (payload.error ?? '(no detail)').slice(0, 220);
+
+    // C3 — transient failure: auto-resume the run ONCE at the system
+    // level (don't depend on the LLM choosing to). Re-dispatching a
+    // run_to resumes from where it stopped (the failed node re-attempts;
+    // completed nodes are cached). Capped by MAX_AUTO_RETRIES per project.
+    if (transient && projectDir) {
+      const spent = this.autoRetriedRuns.get(projectDir) ?? 0;
+      if (spent < dheeCoreManager.MAX_AUTO_RETRIES) {
+        this.autoRetriedRuns.set(projectDir, spent + 1);
+        this.emitRunNotice(
+          sessionId,
+          'warning',
+          `Run hit a transient error${where} (${errShort}). Auto-retrying (${spent + 1}/${dheeCoreManager.MAX_AUTO_RETRIES})…`,
+        );
+        // Defer: the runner clears its `active` slot in a finally AFTER
+        // this terminal listener returns, so dispatch on the next tick.
+        setTimeout(() => {
+          void this.autoResumeRun(projectDir, spec?.sessionId);
+        }, 50);
+        return;
+      }
+    }
+
+    // C2 — ALWAYS surface a visible failure message, independent of
+    // whether there's a live agent session to nudge. Previously three
+    // early-returns (no session / busy / no publish path) could let a
+    // failed run die with zero UI output — the "silent GPU run" the
+    // user hit. The notice carries an empty sessionId when there's no
+    // owning chat session so the renderer's permissive filter shows it.
+    this.emitRunNotice(
+      sessionId,
+      'error',
+      `Run failed${where}: ${errShort}.` +
+        (transient ? ' Auto-retry did not recover it —' : '') +
+        ' Regenerate that node or ask me to resume.',
+    );
+
+    // Wake the agent to react (offer/perform a retry) when there's a
+    // live, idle session and a publish path.
+    if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
+      void this.chatPrompt(
+        sessionId,
+        buildFailedNudge({
+          ...(payload.error ? { error: payload.error } : {}),
+          ...(nodeId ? { nodeId } : {}),
+        }),
+        this.lastEventCb,
+      ).catch((err) => {
+        log.warn('[dheeCoreManager] run-wake nudge failed:', err);
+      });
+    }
+  }
+
+  /**
+   * Emit a visible system-row notification to the renderer's chat
+   * (C2). Tagged with the owning chat session when known, else an
+   * empty sessionId so the renderer's session filter still shows it.
+   * No-op when no publish path has been established yet.
+   */
+  private emitRunNotice(
+    sessionId: string | undefined,
+    level: 'info' | 'warning' | 'error',
+    message: string,
+  ): void {
+    if (!this.lastEventCb) return;
+    try {
+      this.lastEventCb({ eventName: 'notification', sessionId: sessionId ?? '', data: { level, message } });
+    } catch (err) {
+      log.warn('[dheeCoreManager] emitRunNotice failed:', err);
+    }
+  }
+
+  /**
+   * Auto-resume a transient-failed run by re-dispatching a `run_to`
+   * through the BackgroundTaskRunner (C3). Goes through the runner so
+   * the resumed run is visible to runnerStatus + cancellable, exactly
+   * like a manual run. The walker resumes: the failed node re-attempts
+   * (it isn't 'completed'); everything done is cached.
+   */
+  private async autoResumeRun(projectDir: string, specSessionId?: string): Promise<void> {
+    try {
+      const projectName = path.basename(projectDir);
+      const runnersMod = await loadRunnersModule();
+      const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+        dispatch: (spec: {
+          kind: 'run_to';
+          projectName: string;
+          params: { projectDir: string };
+          sessionId: string;
+        }) =>
+          | { status: 'started'; taskId: string }
+          | { status: 'rejected'; activeProjectName: string; activeTaskId: string };
+        on: (event: string, handler: (payload: unknown) => void) => () => void;
+      };
+      const dispatch = runner.dispatch({
+        kind: 'run_to',
+        projectName,
+        params: { projectDir },
+        sessionId: specSessionId ?? `auto-retry:${projectName}`,
+      });
+      if (dispatch.status === 'rejected') {
+        log.warn('[dheeCoreManager] auto-resume rejected — a run is already active', dispatch);
+        return;
+      }
+      log.info('[dheeCoreManager] auto-resumed transient-failed run', { projectDir, taskId: dispatch.taskId });
+      if (this.lastEventCb) {
+        this.wireRunnerTaskEvents(
+          runner,
+          dispatch.taskId,
+          specSessionId ?? `auto-retry:${projectName}`,
+          this.lastEventCb,
+          () => {
+            /* terminal handled by the global run-wake subscription */
+          },
+        );
+      }
+    } catch (err) {
+      log.warn('[dheeCoreManager] auto-resume failed:', err);
+      this.emitRunNotice(undefined, 'error', `Auto-retry could not start: ${(err as Error).message}`);
+    }
   }
 
   private async getDagModule(): Promise<DagModule> {
@@ -1559,6 +1723,9 @@ export class dheeCoreManager {
     }
     const projectName = path.basename(projectDir);
 
+    // Fresh auto-retry budget — this is a user-initiated run.
+    this.autoRetriedRuns.delete(projectDir);
+
     // Interruptible-runs: cache the publish path + arm the run-wake
     // subscription so terminal events re-wake the owning agent.
     this.lastEventCb = eventCb;
@@ -1601,88 +1768,109 @@ export class dheeCoreManager {
     }
 
     const taskId = dispatchResult.taskId;
-    const emit = (eventName: string, data: unknown) =>
-      eventCb({ eventName, sessionId, data });
 
     return new Promise<RunResult>((resolve) => {
-      const offs: Array<() => void> = [];
-      const cleanup = () => {
-        for (const off of offs) off();
-      };
-      const matches = (e: unknown): e is { task?: { id?: string } } =>
-        typeof e === 'object' && e !== null && (e as { task?: { id?: string } }).task?.id === taskId;
-
-      offs.push(
-        runner.on('tool', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { toolName?: string; nodeId?: string };
-          emit('tool_call', {
-            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
-            toolName: evt.toolName,
-            arguments: {},
-            status: 'in_progress',
-          });
-        }),
-      );
-      offs.push(
-        runner.on('result', (e) => {
-          if (!matches(e)) return;
-          const evt = e as {
-            toolName?: string;
-            nodeId?: string;
-            filePath?: string;
-            status?: string;
-            error?: string;
-          };
-          emit('tool_result', {
-            toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
-            toolName: evt.toolName,
-            result: {
-              filePath: evt.filePath,
-              status: evt.status,
-              error: evt.error,
-            },
-            isError: evt.status === 'error' || !!evt.error,
-          });
-        }),
-      );
-      offs.push(
-        runner.on('notification', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { level?: string; message?: string };
-          emit('status', { status: 'info', level: evt.level, message: evt.message });
-        }),
-      );
-      offs.push(
-        runner.on('asset', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { kind?: string; filePath?: string; nodeId?: string };
-          emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
-        }),
-      );
-      offs.push(
-        runner.on('completed', (e) => {
-          if (!matches(e)) return;
-          cleanup();
-          resolve({ status: 'completed' });
-        }),
-      );
-      offs.push(
-        runner.on('failed', (e) => {
-          if (!matches(e)) return;
-          const evt = e as { error?: string };
-          cleanup();
-          resolve({ status: 'failed', error: evt.error });
-        }),
-      );
-      offs.push(
-        runner.on('cancelled', (e) => {
-          if (!matches(e)) return;
-          cleanup();
-          resolve({ status: 'cancelled' });
-        }),
-      );
+      this.wireRunnerTaskEvents(runner, taskId, sessionId, eventCb, resolve);
     });
+  }
+
+  /**
+   * Wire a dispatched BackgroundTaskRunner task's typed events to the
+   * renderer event sink (tool / result / notification / asset) and
+   * resolve a terminal result on completed / failed / cancelled.
+   *
+   * Shared by `runTask` (awaits the terminal result for the chat
+   * round-trip) and `redoNode` (fire-and-forget — it streams progress
+   * but doesn't block on completion). Returns a cleanup that detaches
+   * every listener; terminal events self-detach. Scoped to `taskId` so
+   * concurrent listeners don't cross-talk.
+   */
+  private wireRunnerTaskEvents(
+    runner: { on: (event: string, handler: (payload: unknown) => void) => () => void },
+    taskId: string,
+    sessionId: string,
+    eventCb: dheeCoreEventCallback,
+    onTerminal: (result: RunResult) => void,
+  ): () => void {
+    const emit = (eventName: string, data: unknown) => eventCb({ eventName, sessionId, data });
+    const offs: Array<() => void> = [];
+    const cleanup = () => {
+      for (const off of offs) off();
+    };
+    const matches = (e: unknown): e is { task?: { id?: string } } =>
+      typeof e === 'object' && e !== null && (e as { task?: { id?: string } }).task?.id === taskId;
+
+    offs.push(
+      runner.on('tool', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { toolName?: string; nodeId?: string };
+        emit('tool_call', {
+          toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+          toolName: evt.toolName,
+          arguments: {},
+          status: 'in_progress',
+        });
+      }),
+    );
+    offs.push(
+      runner.on('result', (e) => {
+        if (!matches(e)) return;
+        const evt = e as {
+          toolName?: string;
+          nodeId?: string;
+          filePath?: string;
+          status?: string;
+          error?: string;
+        };
+        emit('tool_result', {
+          toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
+          toolName: evt.toolName,
+          result: {
+            filePath: evt.filePath,
+            status: evt.status,
+            error: evt.error,
+          },
+          isError: evt.status === 'error' || !!evt.error,
+        });
+      }),
+    );
+    offs.push(
+      runner.on('notification', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { level?: string; message?: string };
+        emit('status', { status: 'info', level: evt.level, message: evt.message });
+      }),
+    );
+    offs.push(
+      runner.on('asset', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { kind?: string; filePath?: string; nodeId?: string };
+        emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
+      }),
+    );
+    offs.push(
+      runner.on('completed', (e) => {
+        if (!matches(e)) return;
+        cleanup();
+        onTerminal({ status: 'completed' });
+      }),
+    );
+    offs.push(
+      runner.on('failed', (e) => {
+        if (!matches(e)) return;
+        const evt = e as { error?: string };
+        cleanup();
+        onTerminal({ status: 'failed', error: evt.error });
+      }),
+    );
+    offs.push(
+      runner.on('cancelled', (e) => {
+        if (!matches(e)) return;
+        cleanup();
+        onTerminal({ status: 'cancelled' });
+      }),
+    );
+    return cleanup;
   }
 
   /**
@@ -1740,8 +1928,89 @@ export class dheeCoreManager {
           // no current operation; that's fine.
         }
       }
+      // Arm the hard-cancel watchdog: if abort() can't land within
+      // hardCancelMs (the in-flight tool never releases the lock), we
+      // force-reset so the user isn't wedged at "Still cancelling…".
+      this.scheduleHardCancel(sessionId);
     }
     return runnerCancelled || abortFired;
+  }
+
+  /**
+   * Arm a one-shot watchdog for a pending cancel. If the session is
+   * still busy after `hardCancelMs`, force-reset it. Idempotent per
+   * session (re-clicking Stop doesn't stack timers).
+   */
+  private scheduleHardCancel(sessionId: string): void {
+    if (this.hardCancelTimers.has(sessionId)) return;
+    const timer = setTimeout(() => {
+      this.hardCancelTimers.delete(sessionId);
+      if (!this.busySessions.has(sessionId)) return; // cancel landed cleanly
+      log.warn(
+        `[dheeCoreManager] hard-cancel: session ${sessionId} still busy ${this.hardCancelMs}ms after Stop — force-resetting`,
+      );
+      this.forceResetSession(sessionId);
+    }, this.hardCancelMs);
+    // Don't keep the process alive just for this timer.
+    (timer as { unref?: () => void }).unref?.();
+    this.hardCancelTimers.set(sessionId, timer);
+  }
+
+  /** Cancel a pending hard-cancel watchdog (turn ended on its own). */
+  private clearHardCancel(sessionId: string): void {
+    const timer = this.hardCancelTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.hardCancelTimers.delete(sessionId);
+    }
+  }
+
+  /**
+   * Force a wedged session back to a usable state: trip the in-flight
+   * turn's force-reject (so the chatPrompt IPC resolves and the
+   * renderer leaves 'running'), dispose + drop the agent session so the
+   * next message builds a fresh one, clear the busy flag, and surface a
+   * visible notice. The orphaned in-flight tool (if any) is left to
+   * settle into the void — the user gets control back now.
+   */
+  private forceResetSession(sessionId: string): void {
+    // 1. Trip the chatPrompt race so the pending IPC resolves.
+    const reject = this.sessionForceReject.get(sessionId);
+    if (reject) {
+      try {
+        reject(new Error('chat session force-reset after Stop (in-flight call never released the lock)'));
+      } catch {
+        /* best-effort */
+      }
+    }
+    // 2. Dispose + drop the agent session — next message rebuilds it.
+    const entry = this.agentSessions.get(sessionId);
+    try {
+      entry?.session.dispose?.();
+    } catch {
+      /* best-effort */
+    }
+    this.agentSessions.delete(sessionId);
+    this.busySessions.delete(sessionId);
+    this.sessionForceReject.delete(sessionId);
+    // 3. Surface to the renderer: leave 'running' + tell the user.
+    if (this.lastEventCb) {
+      try {
+        this.lastEventCb({ eventName: 'session_status', sessionId, data: { status: 'idle' } });
+        this.lastEventCb({
+          eventName: 'notification',
+          sessionId,
+          data: {
+            level: 'warning',
+            message:
+              'Stop took too long — the in-flight call never released the lock, so I force-reset the chat session. ' +
+              'You can send a new message now. Any work already written to disk is preserved.',
+          },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   /**
@@ -1781,19 +2050,30 @@ export class dheeCoreManager {
   }
 
   /**
-   * Regenerate a single bundle node (or a single collection-item of a
-   * node). Looks up the session's focused projectDir from
-   * `sessionProjects`, then forwards to dhee-core/dag.regenerateNode
-   * — which invalidates the walkState entry, persists the change, and
-   * dispatches `runProjectViaBundle({runOnly:[nodeId]})` so the
-   * walker re-runs that node and its downstream.
+   * Regenerate a single bundle node (or a single collection-item).
    *
-   * Phase 6 (BUG-016 proper fix): replaces the dead
-   * `ConversationManager.redoNode` facade. Pre-Phase-6 this method
-   * silently threw because the stub manager has no redoNode method.
+   * Two steps: (1) invalidate the node + its downstream cascade (cheap,
+   * no render — clears walkState so the walker re-runs them); (2)
+   * dispatch the actual re-render through the BackgroundTaskRunner —
+   * the SAME tracked path `runTask` uses.
+   *
+   * Why route through the runner (BUG: silent uncancellable GPU run):
+   * the old path called `dag.regenerateNode` → `runProjectViaBundle`
+   * DIRECTLY, so the run never registered with the runner. Result:
+   * `runnerStatus()` reported `{active:false}` while Comfy churned,
+   * the UI showed no running indicator, and `runnerCancel()` was a
+   * no-op — the user only knew a run was happening because the GPU
+   * fan spun up. Dispatching through the runner makes the run visible
+   * to `getBackgroundTaskStatus` (→ the polled UI indicator + Stop
+   * button) and stoppable via `cancelTask`/`runnerCancel`.
+   *
+   * Fire-and-forget: resolves once the run is DISPATCHED (or the
+   * dispatch is rejected because a run is already active), not when the
+   * render completes. Progress streams to the renderer via the shared
+   * `wireRunnerTaskEvents` wiring.
    */
   async redoNode(
-    sessionId: string,
+    sessionId: string | undefined,
     nodeId: string,
     opts?: RedoNodeOpts,
   ): Promise<{
@@ -1802,25 +2082,101 @@ export class dheeCoreManager {
     editedPrompt?: string;
     error?: string;
   }> {
-    const projectDir = this.sessionProjects.get(sessionId);
+    const projectDir = opts?.projectDir ?? (sessionId ? this.sessionProjects.get(sessionId) : undefined);
     if (!projectDir) {
       return {
         ok: false,
-        error: `no project focused for session ${sessionId} — call focusSessionProject first`,
+        error: `no project focused for session ${sessionId ?? '(none)'} — focus a session first or pass projectDir`,
       };
     }
+    const key = opts?.itemId ? `${nodeId}:${opts.itemId}` : nodeId;
+
+    // Fresh auto-retry budget — this is a user-initiated run.
+    this.autoRetriedRuns.delete(projectDir);
+
+    // 1. Invalidate target + downstream (persisted BEFORE dispatch so a
+    //    retry resumes correctly). Cheap — clears walkState, no Comfy.
     const dag = await this.getDagModule();
-    const result = await dag.regenerateNode({
-      projectDir,
-      nodeId,
-      ...(opts?.itemId ? { itemId: opts.itemId } : {}),
-      ...(opts?.signal ? { signal: opts.signal } : {}),
-    });
-    return {
-      ok: result.ok,
-      ...(result.nodeId ? { nodeId: result.nodeId } : {}),
-      ...(result.error ? { error: result.error } : {}),
+    const inv = await dag.invalidateNodes({ projectDir, nodeIds: [key] });
+    if (inv.error) {
+      return { ok: false, error: inv.error };
+    }
+
+    // 2. Dispatch the re-render through the tracked runner.
+    const projectName = path.basename(projectDir);
+    this.lastEventCb && void this.ensureRunWakeSubscription();
+    const runnersMod = await loadRunnersModule();
+    const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+      dispatch: (spec: {
+        kind: 'run_to';
+        projectName: string;
+        params: { projectDir: string; stage?: string };
+        sessionId: string;
+      }) =>
+        | { status: 'started'; taskId: string }
+        | {
+            status: 'rejected';
+            reason: 'task_already_running';
+            activeTaskId: string;
+            activeTaskKind: string;
+            activeProjectName: string;
+          };
+      on: (event: string, handler: (payload: unknown) => void) => () => void;
     };
+
+    const dispatchResult = runner.dispatch({
+      kind: 'run_to',
+      projectName,
+      params: { projectDir },
+      // The runner uses sessionId only to re-wake the owning agent on
+      // completion. The Inspector has no chat session, so fall back to
+      // a project-scoped id — the wake nudge is skipped when there's no
+      // live agent for the id.
+      sessionId: sessionId ?? `inspector:${projectName}`,
+    });
+    log.info('[redoNode] dispatched re-render through runner', {
+      key,
+      projectName,
+      projectDir,
+      dispatch: dispatchResult,
+    });
+
+    if (dispatchResult.status === 'rejected') {
+      return {
+        ok: false,
+        error: `a run is already active on '${dispatchResult.activeProjectName}' (taskId ${dispatchResult.activeTaskId}) — stop it before regenerating ${key}`,
+      };
+    }
+
+    // Stream the run's progress to the renderer (fire-and-forget; the
+    // listeners self-detach on the terminal event).
+    if (this.lastEventCb) {
+      this.wireRunnerTaskEvents(
+        runner,
+        dispatchResult.taskId,
+        sessionId ?? `inspector:${projectName}`,
+        this.lastEventCb,
+        (result) => {
+          log.info('[redoNode] re-render task terminal', { key, result });
+        },
+      );
+    } else {
+      // No live event sink (Inspector with no chat session): still log
+      // the terminal state for observability.
+      this.wireRunnerTaskEvents(
+        runner,
+        dispatchResult.taskId,
+        sessionId ?? `inspector:${projectName}`,
+        () => {
+          /* no renderer sink */
+        },
+        (result) => {
+          log.info('[redoNode] re-render task terminal (no sink)', { key, result });
+        },
+      );
+    }
+
+    return { ok: true, nodeId };
   }
 
   /**
@@ -1831,14 +2187,15 @@ export class dheeCoreManager {
    * `ConversationManager.invalidateNodes` facade.
    */
   async invalidateNodes(
-    sessionId: string,
+    sessionId: string | undefined,
     nodeIds: string[],
     source?: string,
+    explicitProjectDir?: string,
   ): Promise<{ invalidated: string[]; notFound: string[] }> {
-    const projectDir = this.sessionProjects.get(sessionId);
+    const projectDir = explicitProjectDir ?? (sessionId ? this.sessionProjects.get(sessionId) : undefined);
     if (!projectDir) {
       throw new Error(
-        `no project focused for session ${sessionId} — call focusSessionProject first`,
+        `no project focused for session ${sessionId ?? '(none)'} — focus a session first or pass projectDir`,
       );
     }
     const dag = await this.getDagModule();
@@ -2180,14 +2537,33 @@ export class dheeCoreManager {
     // rule reconciles instead). Cleared in finally so an error can't
     // leave the session wedged "busy" forever.
     this.busySessions.add(sessionId);
+    // Race the turn against a force-reset hook the hard-cancel watchdog
+    // can trip. Without it, a turn whose in-flight tool never returns
+    // would hang this await forever — leaving the renderer stuck at
+    // 'running' (the "Still cancelling…" wedge).
+    const forceReset = new Promise<never>((_, reject) => {
+      this.sessionForceReject.set(sessionId, reject);
+    });
+    // A floating .catch keeps an un-raced rejection from becoming an
+    // unhandledRejection if runAgentTurn wins the race first.
+    forceReset.catch(() => undefined);
     let result: Awaited<ReturnType<ChatDeps['runAgentTurn']>>;
     try {
-      result = await deps.runAgentTurn(entry.session, message, {
-        keepAlive: true,
-        ...(onEvent ? { onEvent } : {}),
-      });
+      result = await Promise.race([
+        deps.runAgentTurn(entry.session, message, {
+          keepAlive: true,
+          ...(onEvent ? { onEvent } : {}),
+        }),
+        forceReset,
+      ]);
+    } catch (err) {
+      // Force-reset trip (Stop watchdog) or a genuine turn error —
+      // either way, return control to the renderer instead of hanging.
+      result = { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.busySessions.delete(sessionId);
+      this.sessionForceReject.delete(sessionId);
+      this.clearHardCancel(sessionId);
     }
 
     // Emit a final stream_chunk(done:true) so the renderer can close

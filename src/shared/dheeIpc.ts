@@ -105,6 +105,24 @@ export const dhee_CHANNELS = {
    * .dhee/events.jsonl by `projectInstanceGraph` in dhee-core.
    */
   RESOLVE_INSTANCE_GRAPH: 'dhee:resolveInstanceGraph',
+  /**
+   * List the version tray for a node instance (every node.completed
+   * folded from the event log, with the selected one flagged). Backs
+   * the Inspector modal's Versions panel.
+   */
+  LIST_VERSIONS: 'dhee:listVersions',
+  /**
+   * Select a specific version for a node instance (emits
+   * version.selected). Downstream resolution + the canvas pick it up.
+   */
+  SELECT_VERSION: 'dhee:selectVersion',
+  /**
+   * Overwrite a node instance's content with user-edited bytes (from
+   * the Inspector modal's inline editor). Marks the node user-completed
+   * and cascades downstream — same core path as the agent's
+   * dhee_write_node_content tool.
+   */
+  WRITE_NODE_CONTENT: 'dhee:writeNodeContent',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -329,7 +347,14 @@ export interface CancelTaskResponse {
 }
 
 export interface RedoNodeRequest {
-  sessionId: string;
+  /**
+   * Chat session id (resolves to the focused project). Optional — pass
+   * `projectDir` instead when calling from a projectDir-native surface
+   * like the Inspector Cards view, which has no chat session.
+   */
+  sessionId?: string;
+  /** Absolute project dir. Takes precedence over sessionId when set. */
+  projectDir?: string;
   nodeId: string;
   editedPrompt?: string;
   frame?: string;
@@ -376,7 +401,14 @@ export interface DeleteSessionRequest {
 }
 
 export interface InvalidateNodesRequest {
-  sessionId: string;
+  /**
+   * Chat session id (resolves to the focused project). Optional — pass
+   * `projectDir` instead from a projectDir-native surface (Inspector
+   * Cards view) that has no chat session.
+   */
+  sessionId?: string;
+  /** Absolute project dir. Takes precedence over sessionId when set. */
+  projectDir?: string;
   nodeIds: string[];
   /**
    * Free-form origin tag forwarded to the kshana-core supervisor event.
@@ -563,6 +595,74 @@ export interface ResolveInstanceGraphResponse {
     instances: InstanceGraphNode[];
     edges: InstanceGraphEdge[];
   };
+  error?: string;
+}
+
+// ── LIST_VERSIONS / SELECT_VERSION ─────────────────────────────────────
+
+export interface ListVersionsRequest {
+  projectDir: string;
+  nodeId: string;
+  itemId?: string;
+  branchId?: string;
+}
+
+export interface VersionTrayEntry {
+  versionId: string;
+  outputPath: string;
+  selected: boolean;
+  createdAt: number;
+  /** Generation tool that produced it ('llm.generate', 'comfy.image', 'user', …). */
+  tool?: string;
+}
+
+export interface ListVersionsResponse {
+  ok: boolean;
+  versions?: VersionTrayEntry[];
+  error?: string;
+}
+
+export interface SelectVersionRequest {
+  projectDir: string;
+  nodeId: string;
+  versionId: string;
+  itemId?: string;
+  branchId?: string;
+}
+
+// ── WRITE_NODE_CONTENT ─────────────────────────────────────────────────
+
+export interface WriteNodeContentRequest {
+  projectDir: string;
+  nodeId: string;
+  itemId?: string;
+  /** UTF-8 text content the user edited in the Inspector modal. */
+  content: string;
+  /** Short note recorded on the event log. */
+  reason?: string;
+  /**
+   * Required to proceed on a high-blast-radius write (e.g. a fan-out
+   * source node). Call first without confirm to get `preview`, then
+   * re-call with confirm=true to apply.
+   */
+  confirm?: boolean;
+}
+
+export interface WriteNodeContentResponse {
+  ok: boolean;
+  /**
+   * 'written' — the edit was applied. 'preview' — high blast radius;
+   * nothing written, `preview` holds the warning + `confirm` re-call
+   * is needed.
+   */
+  status?: 'written' | 'preview';
+  /** status='written' — relative path that was overwritten. */
+  outputPath?: string;
+  /** status='written' — downstream instance keys invalidated by the edit. */
+  invalidatedKeys?: string[];
+  /** status='preview' — the blast-radius warning to show the user. */
+  preview?: string;
+  /** Set when ok=false. */
   error?: string;
 }
 

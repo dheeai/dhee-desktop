@@ -33,13 +33,22 @@ class FakeConversationManager {
 __setManagerLoader(async () => ({
   ConversationManager: FakeConversationManager as unknown as new (cfg: unknown) => unknown,
 }) as never);
+
+// The BackgroundTaskRunner mock — redoNode now dispatches the actual
+// re-render through here (so the run is visible to runnerStatus +
+// cancellable), instead of calling dag.regenerateNode directly.
+type AnyFn = (...args: unknown[]) => unknown;
+const dispatchSpy = jest.fn<AnyFn>();
+const onSpy = jest.fn<AnyFn>(() => () => {});
 __setRunnersLoader(async () => ({
   getBackgroundTaskRunner: () => ({
     cancel: () => true,
     getActive: () => null,
     isCancelling: () => false,
+    dispatch: dispatchSpy as never,
+    on: onSpy as never,
   }),
-}));
+}) as never);
 
 type AnyAsync = (...args: unknown[]) => Promise<unknown>;
 const regenerateNodeSpy = jest.fn<AnyAsync>();
@@ -52,68 +61,104 @@ __setDagLoader(async () => ({
 // No baseSettings needed — these tests skip mgr.start() and exercise
 // only the post-Phase-6 paths (redoNode / invalidateNodes / focus).
 
-describe('dheeCoreManager.redoNode (Phase 6 rewire)', () => {
+describe('dheeCoreManager.redoNode (routes through the tracked runner)', () => {
   beforeEach(() => {
     regenerateNodeSpy.mockReset();
     invalidateNodesSpy.mockReset();
-    regenerateNodeSpy.mockResolvedValue({ ok: true, nodeId: 'story' });
+    dispatchSpy.mockReset();
+    onSpy.mockClear();
     invalidateNodesSpy.mockResolvedValue({ invalidated: ['story'], notFound: [] });
+    dispatchSpy.mockReturnValue({ status: 'started', taskId: 't-1' });
   });
 
-  it('looks up the focused projectDir for the session and forwards to dhee-core/dag.regenerateNode', async () => {
-    // No need to call mgr.start() — redoNode/invalidateNodes after
-    // Phase 6 don't touch the embedded ConversationManager, they only
-    // read sessionProjects + lazy-load the dag module.
+  it('invalidates the node then dispatches a run_to through the BackgroundTaskRunner — NOT a direct (untracked) regenerateNode', async () => {
     const mgr = new dheeCoreManager();
-
-    // Pretend the renderer told us this session is focused on /tmp/projects/Ruby_V4.
     await mgr.focusSessionProject('s-1', 'Ruby V4', '/tmp/projects/Ruby_V4');
 
     const result = await mgr.redoNode('s-1', 'story');
 
     expect(result.ok).toBe(true);
-    expect(regenerateNodeSpy).toHaveBeenCalledWith(
+    // Cheap invalidate first.
+    expect(invalidateNodesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ projectDir: '/tmp/projects/Ruby_V4', nodeIds: ['story'] }),
+    );
+    // The render is dispatched through the runner so it's visible to
+    // runnerStatus + cancellable — this is the whole fix.
+    expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        projectDir: '/tmp/projects/Ruby_V4',
-        nodeId: 'story',
+        kind: 'run_to',
+        projectName: 'Ruby_V4',
+        params: expect.objectContaining({ projectDir: '/tmp/projects/Ruby_V4' }),
       }),
     );
-
-    // mgr.stop() not needed — nothing was started.
+    // It must NOT use the old untracked direct-run path.
+    expect(regenerateNodeSpy).not.toHaveBeenCalled();
   });
 
-  it('errors clearly when redoNode is called before the session has been focused on any project', async () => {
-    // No need to call mgr.start() — redoNode/invalidateNodes after
-    // Phase 6 don't touch the embedded ConversationManager, they only
-    // read sessionProjects + lazy-load the dag module.
+  it('forwards itemId into the per-instance invalidation key', async () => {
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-2', 'Ruby V4', '/tmp/projects/Ruby_V4');
+
+    await mgr.redoNode('s-2', 'shot_image', { itemId: 'scene_1_shot_3' });
+
+    expect(invalidateNodesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ nodeIds: ['shot_image:scene_1_shot_3'] }),
+    );
+    expect(dispatchSpy).toHaveBeenCalled();
+  });
+
+  it('works with an explicit projectDir + no session (the Inspector path)', async () => {
+    const mgr = new dheeCoreManager();
+
+    const result = await mgr.redoNode(undefined, 'story', { projectDir: '/tmp/projects/Ruby_V4' });
+
+    expect(result.ok).toBe(true);
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: 'run_to',
+        params: expect.objectContaining({ projectDir: '/tmp/projects/Ruby_V4' }),
+      }),
+    );
+  });
+
+  it('returns a clear error when a run is already active (dispatch rejected) — does not silently no-op', async () => {
+    dispatchSpy.mockReturnValue({
+      status: 'rejected',
+      reason: 'task_already_running',
+      activeTaskId: 't-prev',
+      activeTaskKind: 'run_to',
+      activeProjectName: 'Ruby V4',
+    });
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-3', 'Ruby V4', '/tmp/projects/Ruby_V4');
+
+    const result = await mgr.redoNode('s-3', 'story');
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/already (running|active)/i);
+  });
+
+  it('errors clearly when called before the session has been focused on any project (no invalidate, no dispatch)', async () => {
     const mgr = new dheeCoreManager();
 
     const result = await mgr.redoNode('s-orphan', 'story');
 
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/no project focused/i);
-    expect(regenerateNodeSpy).not.toHaveBeenCalled();
-
-    // mgr.stop() not needed — nothing was started.
+    expect(invalidateNodesSpy).not.toHaveBeenCalled();
+    expect(dispatchSpy).not.toHaveBeenCalled();
   });
 
-  it('forwards itemId for per-collection-item regeneration', async () => {
-    // No need to call mgr.start() — redoNode/invalidateNodes after
-    // Phase 6 don't touch the embedded ConversationManager, they only
-    // read sessionProjects + lazy-load the dag module.
+  it('aborts (no dispatch) when the invalidate step fails', async () => {
+    invalidateNodesSpy.mockResolvedValue({ invalidated: [], notFound: [], error: 'boom' });
     const mgr = new dheeCoreManager();
-    await mgr.focusSessionProject('s-2', 'Ruby V4', '/tmp/projects/Ruby_V4');
+    await mgr.focusSessionProject('s-4', 'Ruby V4', '/tmp/projects/Ruby_V4');
 
-    await mgr.redoNode('s-2', 'shot_image', { itemId: 'scene_1_shot_3' });
+    const result = await mgr.redoNode('s-4', 'story');
 
-    expect(regenerateNodeSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        projectDir: '/tmp/projects/Ruby_V4',
-        nodeId: 'shot_image',
-        itemId: 'scene_1_shot_3',
-      }),
-    );
-    // mgr.stop() not needed — nothing was started.
+    expect(result.ok).toBe(false);
+    expect(result.error).toBe('boom');
+    expect(dispatchSpy).not.toHaveBeenCalled();
   });
 });
 
