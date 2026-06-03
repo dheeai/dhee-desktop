@@ -490,6 +490,37 @@ const fakeElectron = {
         bridgeReturn('project.createFolder', `${parent}/${name}`),
       );
     },
+    initialize: (payload: unknown) => {
+      record('project.initialize', payload);
+      return Promise.resolve(
+        bridgeReturn('project.initialize', {
+          ok: true,
+          projectDir: state.project.directory ?? '/tmp/fake-project.dhee',
+        }),
+      );
+    },
+    listBundles: () => {
+      record('project.listBundles', undefined);
+      return Promise.resolve(bridgeReturn('project.listBundles', []));
+    },
+    installBundlePackage: (payload: unknown) => {
+      record('project.installBundlePackage', payload);
+      return Promise.resolve(
+        bridgeReturn('project.installBundlePackage', {
+          ok: true,
+          packageName: '@dhee/fake-bundle',
+          version: '0.1.0',
+          bundleId: 'fake_bundle',
+          bundleDir: '/tmp/bundles/fake_bundle',
+        }),
+      );
+    },
+    getDefaultWorkspacePath: () => {
+      record('project.getDefaultWorkspacePath', undefined);
+      return Promise.resolve(
+        bridgeReturn('project.getDefaultWorkspacePath', '/tmp/dhee-studios'),
+      );
+    },
     rename: (p: string) => Promise.resolve(p),
     delete: (p: string) => {
       record('project.delete', p);

@@ -79,6 +79,10 @@ import {
 import fileSystemManager from './fileSystemManager';
 import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
+import {
+  defaultUserBundlesDir,
+  installDheeBundleFromNpm,
+} from './services/npmBundleInstaller';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type {
   RemotionTimelineItem,
@@ -1546,6 +1550,7 @@ type ProjectInitModule = {
     projectDir: string;
     name: string;
     bundleId: string;
+    bundleSource?: string;
     description?: string;
     inputs?: Record<string, unknown>;
   }) =>
@@ -1554,6 +1559,8 @@ type ProjectInitModule = {
   listBundles: () => Array<{
     id: string;
     version: string;
+    bundleSource: string;
+    sourceScheme: 'built-in' | 'user';
     displayName: string;
     summary: string;
     techLine?: string;
@@ -1568,6 +1575,8 @@ ipcMain.handle(
     Array<{
       id: string;
       version: string;
+      bundleSource: string;
+      sourceScheme: 'built-in' | 'user';
       displayName: string;
       summary: string;
       techLine?: string;
@@ -1586,6 +1595,30 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  'bundle:install-npm',
+  async (
+    _event,
+    payload: { packageSpec: string; registryUrl?: string },
+  ): Promise<
+    | {
+        ok: true;
+        packageName: string;
+        version: string;
+        bundleId: string;
+        bundleDir: string;
+      }
+    | { ok: false; error: string }
+  > => {
+    const targetBundlesDir = defaultUserBundlesDir(app.getPath('home'));
+    return installDheeBundleFromNpm({
+      packageSpec: payload.packageSpec,
+      registryUrl: payload.registryUrl,
+      targetBundlesDir,
+    });
+  },
+);
+
+ipcMain.handle(
   'project:initialize',
   async (
     _event,
@@ -1593,6 +1626,7 @@ ipcMain.handle(
       projectDir: string;
       name: string;
       bundleId: string;
+      bundleSource?: string;
       description?: string;
       inputs?: Record<string, unknown>;
     },
