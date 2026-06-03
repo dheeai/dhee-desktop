@@ -40,7 +40,7 @@ This rules out every Mac, every laptop without a beefy NVIDIA GPU, every integra
 ### The real question is local vs cloud, not ComfyUI vs not-ComfyUI
 
 If TAM goal is "anyone with a laptop," the move is cloud-first:
-- User installs kshana-desktop (~200MB Electron app, no GPU needed)
+- User installs dhee-desktop (~200MB Electron app, no GPU needed)
 - App calls fal.ai / Replicate / BFL / direct LTX provider APIs
 - User either uses our API key (we bill them) or brings their own
 - Renders happen in seconds-to-minutes on cloud GPUs
@@ -205,7 +205,7 @@ Network effects in compute marketplaces are durable when achieved:
 
 1. **Cold start is the entire game.** Marketplaces don't die from competition; they die from never reaching liquidity. Need credible plan for first ~50 providers + ~50 active renderers. Options:
    - **Seed yourself:** buy/rent 10 GPUs, list as "kshana network," sell renders cheap. Real providers join once demand is visible.
-   - **Convert existing local users:** anyone running kshana-desktop with a GPU becomes a potential provider with one toggle. "Lend idle GPU, earn credits toward cloud renders." Cleverest path — supply piggybacks on existing app installs.
+   - **Convert existing local users:** anyone running dhee-desktop with a GPU becomes a potential provider with one toggle. "Lend idle GPU, earn credits toward cloud renders." Cleverest path — supply piggybacks on existing app installs.
    - **Anchor partner:** one small studio or Discord (50+ enthusiasts) commits to using kshana network exclusively for 3 months in exchange for free credits.
 
 2. **Multi-homing is the durability risk.** Providers can list on kshana + Salad + io.net simultaneously (zero switching cost). Users can submit to kshana + fal (zero switching cost). What stops migration? Real lock-in candidates:
