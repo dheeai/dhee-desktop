@@ -237,6 +237,7 @@
       }
     ],
     "asar": true,
+    "afterPack": ".erb/scripts/prune-native.js",
     "afterSign": ".erb/scripts/notarize.js",
     "asarUnpack": [
       "**\\*.{node,dll}",
