@@ -235,6 +235,45 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     expect(runTurnSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('9. hard-cancel watchdog force-resets a turn whose in-flight tool never releases the lock', async () => {
+    const mgr = makeMgr();
+    mgr.__setHardCancelMsForTesting(30);
+    await mgr.focusSessionProject('s-wedge', 'p', '/tmp/p-wedge');
+
+    // The turn hangs forever (the in-flight LLM/Comfy call never returns).
+    runTurnSpy.mockImplementationOnce(() => new Promise(() => {}));
+    const events: unknown[] = [];
+    const chatP = mgr.chatPrompt('s-wedge', 'go', (e) => events.push(e));
+    await new Promise((r) => setTimeout(r, 10)); // enter the turn (busy)
+
+    // User clicks Stop → arms the 30ms watchdog.
+    await mgr.cancelTask('s-wedge');
+    await new Promise((r) => setTimeout(r, 80)); // past the watchdog
+
+    // The wedged turn was force-resolved (not left hanging) …
+    const res = (await chatP) as { ok: boolean };
+    expect(res.ok).toBe(false);
+    // … and a visible notice was surfaced.
+    expect(events.some((e) => (e as { eventName?: string }).eventName === 'notification')).toBe(true);
+  });
+
+  it('10. a turn that is NOT stuck is never force-reset (watchdog cleared on normal completion)', async () => {
+    const mgr = makeMgr();
+    mgr.__setHardCancelMsForTesting(40);
+    await primeSession(mgr, 's-live', '/tmp/p-live'); // a normal completed turn
+
+    // Stop arms a watchdog, but nothing is in flight (not busy) → it must
+    // not tear down the session.
+    await mgr.cancelTask('s-live');
+    await new Promise((r) => setTimeout(r, 90));
+
+    // The session is intact + usable: a follow-up turn still runs.
+    runTurnSpy.mockClear();
+    const r2 = await mgr.chatPrompt('s-live', 'again', () => {});
+    expect(r2.ok).toBe(true);
+    expect(runTurnSpy).toHaveBeenCalledTimes(1);
+  });
+
   it('8. failed run with NO owning agent session still surfaces a visible notice (C2 — no silent death)', async () => {
     const mgr = makeMgr();
     // Prime a session for a DIFFERENT project (establishes a publish path),

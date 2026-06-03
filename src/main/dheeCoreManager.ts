@@ -1002,6 +1002,31 @@ export class dheeCoreManager {
   private static readonly MAX_AUTO_RETRIES = 1;
 
   /**
+   * Hard-cancel watchdogs (one per session). A Stop fires
+   * `session.abort()` fire-and-forget, but if the in-flight LLM/Comfy
+   * call never releases the agent lock (e.g. a Comfy poll stuck on a
+   * dead tunnel), `abort()` never completes and the chat session stays
+   * `running` forever — the renderer spins "Still cancelling…" and the
+   * user is locked out (observed: 7+ hours). After `hardCancelMs` the
+   * watchdog force-resets the session so control is always returned.
+   */
+  private hardCancelTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  /**
+   * Per-session reject hook for the in-flight chat turn. The renderer's
+   * `status` is tied to the `chatPrompt` IPC promise resolving, so the
+   * watchdog calls this to make a wedged turn resolve (as a failure)
+   * even when the underlying tool never returns.
+   */
+  private sessionForceReject = new Map<string, (reason: Error) => void>();
+  /** Overridable so tests don't wait the real 90s. */
+  private hardCancelMs = 90_000;
+
+  /** Test seam — shorten the hard-cancel watchdog. */
+  __setHardCancelMsForTesting(ms: number): void {
+    this.hardCancelMs = ms;
+  }
+
+  /**
    * Subscribe ONCE to the shared BackgroundTaskRunner's terminal events
    * so a background run (dispatched by the non-blocking dhee_start_run
    * tool, or by runTask) re-wakes the owning agent session when it
@@ -1860,8 +1885,89 @@ export class dheeCoreManager {
           // no current operation; that's fine.
         }
       }
+      // Arm the hard-cancel watchdog: if abort() can't land within
+      // hardCancelMs (the in-flight tool never releases the lock), we
+      // force-reset so the user isn't wedged at "Still cancelling…".
+      this.scheduleHardCancel(sessionId);
     }
     return runnerCancelled || abortFired;
+  }
+
+  /**
+   * Arm a one-shot watchdog for a pending cancel. If the session is
+   * still busy after `hardCancelMs`, force-reset it. Idempotent per
+   * session (re-clicking Stop doesn't stack timers).
+   */
+  private scheduleHardCancel(sessionId: string): void {
+    if (this.hardCancelTimers.has(sessionId)) return;
+    const timer = setTimeout(() => {
+      this.hardCancelTimers.delete(sessionId);
+      if (!this.busySessions.has(sessionId)) return; // cancel landed cleanly
+      log.warn(
+        `[dheeCoreManager] hard-cancel: session ${sessionId} still busy ${this.hardCancelMs}ms after Stop — force-resetting`,
+      );
+      this.forceResetSession(sessionId);
+    }, this.hardCancelMs);
+    // Don't keep the process alive just for this timer.
+    (timer as { unref?: () => void }).unref?.();
+    this.hardCancelTimers.set(sessionId, timer);
+  }
+
+  /** Cancel a pending hard-cancel watchdog (turn ended on its own). */
+  private clearHardCancel(sessionId: string): void {
+    const timer = this.hardCancelTimers.get(sessionId);
+    if (timer) {
+      clearTimeout(timer);
+      this.hardCancelTimers.delete(sessionId);
+    }
+  }
+
+  /**
+   * Force a wedged session back to a usable state: trip the in-flight
+   * turn's force-reject (so the chatPrompt IPC resolves and the
+   * renderer leaves 'running'), dispose + drop the agent session so the
+   * next message builds a fresh one, clear the busy flag, and surface a
+   * visible notice. The orphaned in-flight tool (if any) is left to
+   * settle into the void — the user gets control back now.
+   */
+  private forceResetSession(sessionId: string): void {
+    // 1. Trip the chatPrompt race so the pending IPC resolves.
+    const reject = this.sessionForceReject.get(sessionId);
+    if (reject) {
+      try {
+        reject(new Error('chat session force-reset after Stop (in-flight call never released the lock)'));
+      } catch {
+        /* best-effort */
+      }
+    }
+    // 2. Dispose + drop the agent session — next message rebuilds it.
+    const entry = this.agentSessions.get(sessionId);
+    try {
+      entry?.session.dispose?.();
+    } catch {
+      /* best-effort */
+    }
+    this.agentSessions.delete(sessionId);
+    this.busySessions.delete(sessionId);
+    this.sessionForceReject.delete(sessionId);
+    // 3. Surface to the renderer: leave 'running' + tell the user.
+    if (this.lastEventCb) {
+      try {
+        this.lastEventCb({ eventName: 'session_status', sessionId, data: { status: 'idle' } });
+        this.lastEventCb({
+          eventName: 'notification',
+          sessionId,
+          data: {
+            level: 'warning',
+            message:
+              'Stop took too long — the in-flight call never released the lock, so I force-reset the chat session. ' +
+              'You can send a new message now. Any work already written to disk is preserved.',
+          },
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
   }
 
   /**
@@ -2384,14 +2490,33 @@ export class dheeCoreManager {
     // rule reconciles instead). Cleared in finally so an error can't
     // leave the session wedged "busy" forever.
     this.busySessions.add(sessionId);
+    // Race the turn against a force-reset hook the hard-cancel watchdog
+    // can trip. Without it, a turn whose in-flight tool never returns
+    // would hang this await forever — leaving the renderer stuck at
+    // 'running' (the "Still cancelling…" wedge).
+    const forceReset = new Promise<never>((_, reject) => {
+      this.sessionForceReject.set(sessionId, reject);
+    });
+    // A floating .catch keeps an un-raced rejection from becoming an
+    // unhandledRejection if runAgentTurn wins the race first.
+    forceReset.catch(() => undefined);
     let result: Awaited<ReturnType<ChatDeps['runAgentTurn']>>;
     try {
-      result = await deps.runAgentTurn(entry.session, message, {
-        keepAlive: true,
-        ...(onEvent ? { onEvent } : {}),
-      });
+      result = await Promise.race([
+        deps.runAgentTurn(entry.session, message, {
+          keepAlive: true,
+          ...(onEvent ? { onEvent } : {}),
+        }),
+        forceReset,
+      ]);
+    } catch (err) {
+      // Force-reset trip (Stop watchdog) or a genuine turn error —
+      // either way, return control to the renderer instead of hanging.
+      result = { ok: false, error: err instanceof Error ? err.message : String(err) };
     } finally {
       this.busySessions.delete(sessionId);
+      this.sessionForceReject.delete(sessionId);
+      this.clearHardCancel(sessionId);
     }
 
     // Emit a final stream_chunk(done:true) so the renderer can close

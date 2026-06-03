@@ -190,6 +190,14 @@ const RUNNER_STATUS_POLL_MS = 1500;
 const RENDER_ACTIVITY_TTL_MS = 4_000;
 
 /**
+ * Cap on the "Still cancelling…" notice loop. The main process force-
+ * resets a wedged session after ~90s; this is a renderer backstop so
+ * the notice can't count up indefinitely if that signal is missed.
+ * Comfortably larger than the 90s watchdog.
+ */
+const CANCEL_NOTICE_CAP_SEC = 180;
+
+/**
  * Detect the "text concatenated with itself" pattern that the
  * upstream LLM stream sometimes produces (e.g. an entire multi-
  * paragraph response repeated twice in a single bubble) and return
@@ -714,6 +722,22 @@ export default function ChatPanelEmbedded() {
     const handle = setInterval(() => {
       const state = cancelStatusRef.current;
       if (!state.runnerActive && !state.chatBusy) return; // clearing imminent — skip
+      // Backstop: the main process force-resets a wedged session after
+      // ~90s (returning control). If for any reason that signal never
+      // reaches us, stop spamming after this cap and tell the user how
+      // to recover, rather than counting up forever (the 7h "Still
+      // cancelling…" wall).
+      const elapsedCapSec = Math.round((Date.now() - startedAt) / 1000);
+      if (elapsedCapSec >= CANCEL_NOTICE_CAP_SEC) {
+        postChatNotice({
+          level: 'warning',
+          message:
+            `Stop has been pending ${elapsedCapSec}s — the in-flight call isn't releasing the lock. ` +
+            `It should auto-reset shortly; if the chat stays locked, reload the window (⌘R) to recover.`,
+        });
+        clearInterval(handle);
+        return;
+      }
       const lanes: string[] = [];
       if (state.runnerActive) lanes.push('the pipeline runner');
       if (state.chatBusy) lanes.push('the chat session');
