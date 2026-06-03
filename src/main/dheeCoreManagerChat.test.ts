@@ -107,6 +107,35 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
     expect(opts?.keepAlive).toBe(true);
   });
 
+  it('passes the Dhee Cloud proxy base URL into buildPiSession when LLM backend is cloud', async () => {
+    const mgr = new dheeCoreManager();
+    mgr.__setLastSettingsForTesting({
+      llmBackend: 'cloud',
+      llmProvider: 'openai',
+      openaiApiKey: '',
+      openaiBaseUrl: 'https://api.openai.com/v1',
+      openaiModel: 'gpt-4o',
+      googleApiKey: '',
+      geminiModel: '',
+    } as never);
+    mgr.__setCloudAuthForTesting({
+      websiteUrl: 'https://desktop.example.test/',
+      desktopToken: 'desktop-jwt',
+    });
+    await mgr.focusSessionProject('s-cloud', 'p', '/tmp/p');
+
+    const r = await mgr.chatPrompt('s-cloud', 'resume');
+
+    expect(r.ok).toBe(true);
+    expect(buildSessionSpy).toHaveBeenCalledTimes(1);
+    expect(buildSessionSpy.mock.calls[0]![0]).toMatchObject({
+      modelProvider: 'cloud',
+      apiKey: 'desktop-jwt',
+      modelBaseUrl: 'https://desktop.example.test/openai/api/v1',
+    });
+    expect(buildSessionSpy.mock.calls[0]![0]).not.toHaveProperty('modelId');
+  });
+
   it('errors clearly when chatPrompt is called for a session that has never been focused on a project', async () => {
     const mgr = makeMgr();
     const r = await mgr.chatPrompt('s-orphan', 'hi');

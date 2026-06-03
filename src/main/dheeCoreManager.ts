@@ -281,6 +281,7 @@ type ChatDeps = {
     modelProvider?: string;
     modelId?: string;
     apiKey?: string;
+    modelBaseUrl?: string;
   }) => Promise<{
     session: {
       sessionId?: string;
@@ -317,14 +318,16 @@ export function __setChatDeps(deps: ChatDeps): void {
 }
 
 /**
- * Phase 6.5b: derive the {provider, modelId, apiKey} pi-agent needs
- * from AppSettings. Returns null when no usable provider is configured —
- * the chatPrompt caller surfaces a clean "no LLM configured" error
- * instead of letting pi-coding-agent's auto-discovery silently no-op.
+ * Phase 6.5b: derive the {provider, modelId, apiKey, baseUrl}
+ * pi-agent needs from AppSettings. Returns null when no usable
+ * provider is configured — the chatPrompt caller surfaces a clean
+ * "no LLM configured" error instead of letting pi-coding-agent's
+ * auto-discovery silently no-op.
  *
  * Settings → pi-ai mapping (no chained imports of pi-ai's model
  * tables — provider/model ids are strings, validated downstream by
  * getModel()):
+ *   - llmBackend='cloud' + cloudAuth → { cloud, no modelId, desktopToken, cloud proxy URL }
  *   - llmProvider='gemini' + googleApiKey → { google, geminiModel, googleApiKey }
  *   - llmProvider='openai' + openaiBaseUrl contains 'openrouter.ai'
  *     + openaiApiKey + openaiModel → { openrouter, openaiModel, openaiApiKey }
@@ -337,21 +340,47 @@ export function __setChatDeps(deps: ChatDeps): void {
  */
 export function resolvePiModelFromSettings(
   s: AppSettings,
-): { provider: string; modelId: string; apiKey: string } | null {
+  cloudAuth?: dheeCloudAuthRuntime | null,
+): { provider: string; modelId?: string; apiKey: string; baseUrl?: string } | null {
+  if (s.llmBackend === 'cloud') {
+    const cloudToken = cloudAuth?.desktopToken.trim();
+    const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
+    if (!cloudToken || !cloudWebsiteUrl) return null;
+    return {
+      provider: 'cloud',
+      apiKey: cloudToken,
+      baseUrl: joinUrl(cloudWebsiteUrl, '/openai/api/v1'),
+    };
+  }
+
   if (s.llmProvider === 'gemini') {
     const apiKey = s.googleApiKey?.trim();
     const modelId = (s.geminiModel || 'gemini-2.5-flash').trim();
     if (!apiKey || !modelId) return null;
     return { provider: 'google', modelId, apiKey };
   }
+
+  if (s.llmProvider === 'openrouter') {
+    const apiKey = s.openRouterApiKey?.trim();
+    const modelId = (s.openRouterModel || 'z-ai/glm-4.7-flash').trim();
+    if (!apiKey || !modelId) return null;
+    return {
+      provider: 'openrouter',
+      modelId,
+      apiKey,
+      baseUrl: 'https://openrouter.ai/api/v1',
+    };
+  }
+
   // openai (default)
   const apiKey = s.openaiApiKey?.trim();
   const modelId = (s.openaiModel || 'gpt-4o').trim();
+  const baseUrl = (s.openaiBaseUrl || 'https://api.openai.com/v1').trim();
   if (!apiKey || !modelId) return null;
-  if (s.openaiBaseUrl?.toLowerCase().includes('openrouter.ai')) {
-    return { provider: 'openrouter', modelId, apiKey };
+  if (baseUrl.toLowerCase().includes('openrouter.ai')) {
+    return { provider: 'openrouter', modelId, apiKey, baseUrl };
   }
-  return { provider: 'openai', modelId, apiKey };
+  return { provider: 'openai', modelId, apiKey, baseUrl };
 }
 
 /**
@@ -925,12 +954,25 @@ export class dheeCoreManager {
   private lastSettings: AppSettings | null = null;
 
   /**
+   * Phase 6.5b cloud companion to `lastSettings`. The env path can
+   * route Dhee Cloud LLM calls from `applyEnvFromSettings`, but
+   * chatPrompt builds an explicit pi-agent model triple and therefore
+   * needs the same desktop token + website URL cached here.
+   */
+  private lastCloudAuth: dheeCloudAuthRuntime | null = null;
+
+  /**
    * Test seam — seed `lastSettings` without going through start().
    * Tests inject minimal AppSettings so chatPrompt's resolver can
    * return a model triple. Production callers go through start().
    */
   __setLastSettingsForTesting(s: AppSettings): void {
     this.lastSettings = s;
+  }
+
+  /** Test seam — seed cloud auth without going through start(). */
+  __setCloudAuthForTesting(cloudAuth: dheeCloudAuthRuntime | null): void {
+    this.lastCloudAuth = cloudAuth;
   }
 
   /**
@@ -1166,6 +1208,7 @@ export class dheeCoreManager {
     // Phase 6.5b: cache settings so chatPrompt can derive
     // {provider, modelId, apiKey} for the pi-agent.
     this.lastSettings = settings;
+    this.lastCloudAuth = cloudAuth ?? null;
 
     // Seed process-wide oversight + VLM flags from persisted
     // AppSettings on the very first run. Pi-agent-in-process
@@ -1955,7 +1998,10 @@ export class dheeCoreManager {
           error: 'dheeCoreManager not started yet — chatPrompt needs cached settings.',
         };
       }
-      const piModel = resolvePiModelFromSettings(this.lastSettings);
+      const piModel = resolvePiModelFromSettings(
+        this.lastSettings,
+        this.lastCloudAuth,
+      );
       if (!piModel) {
         return {
           ok: false,
@@ -1991,8 +2037,9 @@ export class dheeCoreManager {
           cwd: projectDir,
           ...(sessionsDir ? { sessionsDir } : {}),
           modelProvider: piModel.provider,
-          modelId: piModel.modelId,
           apiKey: piModel.apiKey,
+          ...(piModel.modelId ? { modelId: piModel.modelId } : {}),
+          ...(piModel.baseUrl ? { modelBaseUrl: piModel.baseUrl } : {}),
         });
         entry = { session: built.session };
         this.agentSessions.set(sessionId, entry);

@@ -18,6 +18,36 @@ const base = {
 };
 
 describe('resolvePiModelFromSettings', () => {
+  it('returns the Dhee Cloud proxy triple when llmBackend is cloud and cloud auth is present', () => {
+    const result = resolvePiModelFromSettings(
+      {
+        ...base,
+        llmBackend: 'cloud',
+        llmProvider: 'openai',
+        openaiApiKey: '',
+      } as never,
+      {
+        websiteUrl: 'https://desktop.example.test/',
+        desktopToken: 'desktop-jwt',
+      },
+    );
+    expect(result).toEqual({
+      provider: 'cloud',
+      apiKey: 'desktop-jwt',
+      baseUrl: 'https://desktop.example.test/openai/api/v1',
+    });
+  });
+
+  it('returns null for cloud LLM when cloud auth is missing', () => {
+    const result = resolvePiModelFromSettings({
+      ...base,
+      llmBackend: 'cloud',
+      llmProvider: 'openai',
+      openaiApiKey: 'sk-local-ignored',
+    } as never);
+    expect(result).toBeNull();
+  });
+
   it('returns the openrouter triple when openaiBaseUrl points at openrouter.ai', () => {
     const result = resolvePiModelFromSettings({
       ...base,
@@ -29,6 +59,22 @@ describe('resolvePiModelFromSettings', () => {
       provider: 'openrouter',
       modelId: 'deepseek/deepseek-v4-flash',
       apiKey: 'or-secret',
+      baseUrl: 'https://openrouter.ai/api/v1',
+    });
+  });
+
+  it('returns the explicit openrouter triple when llmProvider is openrouter', () => {
+    const result = resolvePiModelFromSettings({
+      ...base,
+      llmProvider: 'openrouter',
+      openRouterApiKey: 'or-explicit-secret',
+      openRouterModel: 'z-ai/glm-4.7-flash',
+    } as never);
+    expect(result).toEqual({
+      provider: 'openrouter',
+      modelId: 'z-ai/glm-4.7-flash',
+      apiKey: 'or-explicit-secret',
+      baseUrl: 'https://openrouter.ai/api/v1',
     });
   });
 
@@ -43,6 +89,7 @@ describe('resolvePiModelFromSettings', () => {
       provider: 'openai',
       modelId: 'gpt-4o',
       apiKey: 'sk-real',
+      baseUrl: 'https://api.openai.com/v1',
     });
   });
 
