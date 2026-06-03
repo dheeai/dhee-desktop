@@ -1,6 +1,6 @@
 /**
  * Hook to read and watch placement markdown files
- * Watches for changes to image-placements.md, video-placements.md, and infographic-placements.md
+ * Watches for changes to image-placements.md and video-placements.md
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -8,16 +8,13 @@ import { useWorkspace } from '../contexts/WorkspaceContext';
 import {
   parseImagePlacementsWithErrors,
   parseVideoPlacements,
-  parseInfographicPlacementsWithErrors,
   type ParsedImagePlacement,
   type ParsedVideoPlacement,
-  type ParsedInfographicPlacement,
 } from '../utils/placementParsers';
 
 interface PlacementFilesState {
   imagePlacements: ParsedImagePlacement[];
   videoPlacements: ParsedVideoPlacement[];
-  infographicPlacements: ParsedInfographicPlacement[];
   isLoading: boolean;
   error: string | null;
 }
@@ -41,7 +38,6 @@ export function usePlacementFiles(
   const [state, setState] = useState<PlacementFilesState>({
     imagePlacements: [],
     videoPlacements: [],
-    infographicPlacements: [],
     isLoading: true,
     error: null,
   });
@@ -54,7 +50,6 @@ export function usePlacementFiles(
         if (
           prev.imagePlacements.length === 0 &&
           prev.videoPlacements.length === 0 &&
-          prev.infographicPlacements.length === 0 &&
           prev.isLoading === false &&
           prev.error === null
         ) {
@@ -64,7 +59,6 @@ export function usePlacementFiles(
         return {
           imagePlacements: [],
           videoPlacements: [],
-          infographicPlacements: [],
           isLoading: false,
           error: null,
         };
@@ -75,24 +69,14 @@ export function usePlacementFiles(
     try {
       const imagePlacementsPath = `${projectDirectory}/plans/image-placements.md`;
       const videoPlacementsPath = `${projectDirectory}/plans/video-placements.md`;
-      const infographicPlacementsPath = `${projectDirectory}/plans/infographic-placements.md`;
 
-      const [imageContent, videoContent, infographicContent] =
-        await Promise.all([
-          window.electron.project
-            .readFile(imagePlacementsPath)
-            .catch(() => null),
-          window.electron.project
-            .readFile(videoPlacementsPath)
-            .catch(() => null),
-          window.electron.project
-            .readFile(infographicPlacementsPath)
-            .catch(() => null),
-        ]);
+      const [imageContent, videoContent] = await Promise.all([
+        window.electron.project.readFile(imagePlacementsPath).catch(() => null),
+        window.electron.project.readFile(videoPlacementsPath).catch(() => null),
+      ]);
 
       let imagePlacements: ParsedImagePlacement[] = [];
       let videoPlacements: ParsedVideoPlacement[] = [];
-      let infographicPlacements: ParsedInfographicPlacement[] = [];
       let parseError: string | null = null;
 
       if (imageContent) {
@@ -140,36 +124,6 @@ export function usePlacementFiles(
         }
       }
 
-      if (infographicContent) {
-        try {
-          const infographicResult = parseInfographicPlacementsWithErrors(
-            infographicContent,
-            false,
-          );
-          infographicPlacements = infographicResult.placements;
-          if (infographicResult.warnings?.length) {
-            console.warn(
-              '[usePlacementFiles] Infographic placement warnings:',
-              infographicResult.warnings,
-            );
-          }
-          if (infographicResult.errors?.length) {
-            console.warn(
-              '[usePlacementFiles] Infographic placement errors:',
-              infographicResult.errors,
-            );
-          }
-        } catch (error) {
-          console.error(
-            '[usePlacementFiles] Failed to parse infographic placements:',
-            error,
-          );
-          parseError = parseError
-            ? `${parseError}; Failed to parse infographic-placements.md: ${error instanceof Error ? error.message : String(error)}`
-            : `Failed to parse infographic-placements.md: ${error instanceof Error ? error.message : String(error)}`;
-        }
-      }
-
       setState((prev) => {
         const unchanged =
           prev.isLoading === false &&
@@ -177,9 +131,7 @@ export function usePlacementFiles(
           serializePlacementList(prev.imagePlacements) ===
             serializePlacementList(imagePlacements) &&
           serializePlacementList(prev.videoPlacements) ===
-            serializePlacementList(videoPlacements) &&
-          serializePlacementList(prev.infographicPlacements) ===
-            serializePlacementList(infographicPlacements);
+            serializePlacementList(videoPlacements);
 
         if (unchanged) {
           return prev;
@@ -188,7 +140,6 @@ export function usePlacementFiles(
         return {
           imagePlacements,
           videoPlacements,
-          infographicPlacements,
           isLoading: false,
           error: parseError,
         };
@@ -207,7 +158,6 @@ export function usePlacementFiles(
         if (
           prev.imagePlacements.length === 0 &&
           prev.videoPlacements.length === 0 &&
-          prev.infographicPlacements.length === 0 &&
           prev.isLoading === false &&
           prev.error === nextError
         ) {
@@ -217,7 +167,6 @@ export function usePlacementFiles(
         return {
           imagePlacements: [],
           videoPlacements: [],
-          infographicPlacements: [],
           isLoading: false,
           error: nextError,
         };
@@ -240,8 +189,7 @@ export function usePlacementFiles(
       // Check if placement files changed
       if (
         filePath.includes('image-placements.md') ||
-        filePath.includes('video-placements.md') ||
-        filePath.includes('infographic-placements.md')
+        filePath.includes('video-placements.md')
       ) {
         // Clear existing timeout
         if (debounceTimeoutRef.current) {

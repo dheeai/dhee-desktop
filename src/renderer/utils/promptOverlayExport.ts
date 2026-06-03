@@ -61,7 +61,6 @@ export function buildPromptOverlayCues(
 export function mapTimelineTypeForExport(
   type: string,
 ): 'video' | 'image' | 'placeholder' {
-  if (type === 'infographic') return 'video';
   if (type === 'image' || type === 'video' || type === 'placeholder') {
     return type;
   }

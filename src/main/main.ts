@@ -686,15 +686,6 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
-  'project:watch-infographic-placements',
-  async (_event, infographicPlacementsDir: string) => {
-    await fileSystemManager.watchInfographicPlacements(
-      infographicPlacementsDir,
-    );
-  },
-);
-
-ipcMain.handle(
   'project:refresh-assets',
   async (_event, projectDirectory: string) => {
     const manifestPath = path.join(

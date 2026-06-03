@@ -7,7 +7,6 @@ import TimelinePanel from './TimelinePanel';
 
 const mockUpdateImageTimingOverrides = jest.fn();
 const mockUpdateSegmentTimingOverrides = jest.fn();
-const mockUpdateInfographicTimingOverrides = jest.fn();
 const mockUpdateVideoSplitOverrides = jest.fn();
 const mockUpdateMarkers = jest.fn();
 const mockUpdateImportedClips = jest.fn();
@@ -26,7 +25,6 @@ const mockTimelineState = {
   markers: [],
   imported_clips: [],
   image_timing_overrides: {},
-  infographic_timing_overrides: {},
   video_split_overrides: {},
   segment_timing_overrides: {},
 };
@@ -64,7 +62,6 @@ jest.mock('../../../contexts/ProjectContext', () => ({
     updateMarkers: mockUpdateMarkers,
     updateImportedClips: mockUpdateImportedClips,
     updateImageTimingOverrides: mockUpdateImageTimingOverrides,
-    updateInfographicTimingOverrides: mockUpdateInfographicTimingOverrides,
     updateVideoSplitOverrides: mockUpdateVideoSplitOverrides,
     updateSegmentTimingOverrides: mockUpdateSegmentTimingOverrides,
     addAsset: mockAddAsset,

@@ -1574,10 +1574,7 @@ export default function VideoLibraryView({
         .map(async (item) => {
           let resolvedPath = '';
           try {
-            if (
-              (item.type === 'video' || item.type === 'infographic') &&
-              item.videoPath
-            ) {
+            if (item.type === 'video' && item.videoPath) {
               resolvedPath = await resolveAssetPathForDisplay(
                 item.videoPath,
                 projectDirectory,

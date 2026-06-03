@@ -507,7 +507,6 @@ const fakeElectron = {
     },
     watchManifest: noopAsync,
     watchImagePlacements: noopAsync,
-    watchInfographicPlacements: noopAsync,
     refreshAssets: () => Promise.resolve({ success: true }),
     unwatchDirectory: noopAsync,
     getRecent: () => {

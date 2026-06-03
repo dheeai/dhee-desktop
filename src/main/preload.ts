@@ -346,12 +346,6 @@ const projectBridge = {
       imagePlacementsDir,
     );
   },
-  watchInfographicPlacements(infographicPlacementsDir: string): Promise<void> {
-    return ipcRenderer.invoke(
-      'project:watch-infographic-placements',
-      infographicPlacementsDir,
-    );
-  },
   refreshAssets(
     projectDirectory: string,
   ): Promise<{ success: boolean; error?: string }> {

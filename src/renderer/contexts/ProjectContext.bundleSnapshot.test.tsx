@@ -65,7 +65,6 @@ beforeAll(() => {
       readTree: jest.fn().mockResolvedValue([]),
       watchManifest: jest.fn().mockResolvedValue(undefined),
       watchImagePlacements: jest.fn().mockResolvedValue(undefined),
-      watchInfographicPlacements: jest.fn().mockResolvedValue(undefined),
       // Subscriptions return unsubscribe functions; ProjectContext
       // teardown calls them on cleanup.
       onFileChange: jest.fn().mockReturnValue(() => {}),

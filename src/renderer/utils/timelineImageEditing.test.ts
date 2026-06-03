@@ -1,10 +1,8 @@
 import { describe, expect, test } from '@jest/globals';
 import {
   applyImageTimingOverridesToItems,
-  applyInfographicTimingOverridesToItems,
   applyVideoSplitOverridesToItems,
   applyRippleTimingFromImageDurationEdits,
-  buildUpdatedInfographicOverride,
   buildUpdatedImageOverride,
   buildUpdatedVideoSplitOverride,
   clampImageMove,
@@ -101,43 +99,6 @@ describe('timelineImageEditing', () => {
     expect(next['13']).toEqual({ start_time_seconds: 9, end_time_seconds: 12 });
   });
 
-  test('adds infographic override when timing is moved', () => {
-    const current = {
-      '4': { start_time_seconds: 10, end_time_seconds: 13 },
-    };
-
-    const next = buildUpdatedInfographicOverride(
-      current,
-      2,
-      6,
-      8,
-      9,
-      11,
-    );
-
-    expect(next['2']).toEqual({ start_time_seconds: 9, end_time_seconds: 11 });
-    expect(next['4']).toEqual({ start_time_seconds: 10, end_time_seconds: 13 });
-  });
-
-  test('removes infographic override when edited range matches source range', () => {
-    const current = {
-      '2': { start_time_seconds: 9, end_time_seconds: 11 },
-      '4': { start_time_seconds: 10, end_time_seconds: 13 },
-    };
-
-    const next = buildUpdatedInfographicOverride(
-      current,
-      2,
-      6,
-      8,
-      6,
-      8,
-    );
-
-    expect(next['2']).toBeUndefined();
-    expect(next['4']).toEqual({ start_time_seconds: 10, end_time_seconds: 13 });
-  });
-
   test('applies image overrides and keeps non-image items unchanged', () => {
     const items = [
       {
@@ -193,40 +154,6 @@ describe('timelineImageEditing', () => {
       endTime: 14,
       duration: 4,
     });
-  });
-
-  test('applies infographic overrides and keeps non-infographic items unchanged', () => {
-    const items = [
-      {
-        id: 'info-placement-1',
-        type: 'infographic',
-        placementNumber: 1,
-        startTime: 3,
-        endTime: 7,
-        duration: 4,
-      },
-      {
-        id: 'PLM-2',
-        type: 'image',
-        placementNumber: 2,
-        startTime: 7,
-        endTime: 10,
-        duration: 3,
-      },
-    ];
-
-    const updated = applyInfographicTimingOverridesToItems(items, {
-      '1': { start_time_seconds: 5, end_time_seconds: 9 },
-    });
-
-    expect(updated[0]).toMatchObject({
-      startTime: 5,
-      endTime: 9,
-      duration: 4,
-      sourceStartTime: 3,
-      sourceEndTime: 7,
-    });
-    expect(updated[1]).toEqual(items[1]);
   });
 
   test('ripple shifts following video left when image is shortened by 1 second', () => {
