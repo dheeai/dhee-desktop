@@ -384,7 +384,7 @@
         ]
       },
       {
-        "from": "../kshana-core/dist/bundles",
+        "from": "../dhee-core/dist/bundles",
         "to": "bundles",
         "filter": [
           "**/*"

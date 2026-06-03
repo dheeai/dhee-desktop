@@ -1341,11 +1341,11 @@ export class dheeCoreManager {
         process.env.DHEE_APP_BUNDLES_DIR = appBundles;
       } else {
         // Dev fallback — `pnpm tsup` writes dist/bundles in the
-        // sibling kshana-core source tree. `__dirname` here is
+        // sibling dhee-core source tree. `__dirname` here is
         // dhee-desktop/src/main; walk up to the workspace root.
         const devAppBundles = path.resolve(
           __dirname,
-          '..', '..', '..', 'kshana-core', 'dist', 'bundles',
+          '..', '..', '..', 'dhee-core', 'dist', 'bundles',
         );
         if (fsExistsSync(devAppBundles)) {
           process.env.DHEE_APP_BUNDLES_DIR = devAppBundles;
