@@ -42,6 +42,14 @@ interface BundleInputDecl {
   multiline?: boolean;
   control?: 'textarea' | 'text' | 'pills' | 'select' | 'number';
   options?: BundleInputOption[];
+  /**
+   * Mirror of dhee-core's BundleInputDecl.allowCustom. When true, FormRow
+   * renders an "Other…" affordance beside the presets so the user can
+   * enter a value outside `options` (free-form style → world_style, an
+   * arbitrary duration, a non-listed resolution). The custom value is
+   * sent to project.<field> verbatim.
+   */
+  allowCustom?: boolean;
   unit?: string;
 }
 
@@ -415,6 +423,31 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
                   />
                 ))}
 
+              {/* Non-story file inputs (e.g. an optional style-guide that
+                  becomes plans/world_style.md verbatim) render as their own
+                  multiline textareas — the desktop otherwise only renders
+                  project-kind FormRows + the special story textarea. */}
+              {(selectedBundle.inputs ?? [])
+                .filter((decl) => decl.kind === 'file' && decl.id !== STORY_INPUT_ID)
+                .map((decl) => (
+                  <div key={decl.id} style={{ marginTop: 20 }}>
+                    <span className={styles.rowLabel}>
+                      {(decl.label ?? decl.id).toString()}
+                    </span>
+                    <textarea
+                      className={styles.storyTextarea}
+                      style={{ minHeight: 110, marginTop: 6 }}
+                      placeholder={decl.placeholder ?? ''}
+                      value={
+                        typeof inputValues[decl.id] === 'string'
+                          ? (inputValues[decl.id] as string)
+                          : ''
+                      }
+                      onChange={(e) => handleInputChange(decl.id, e.target.value)}
+                    />
+                  </div>
+                ))}
+
               <hr className={styles.divider} style={{ marginTop: '40px' }} />
 
               <div className={styles.row}>
@@ -471,7 +504,9 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
 
 /* ─── FormRow: renders the right control for a BundleInputDecl ─── */
 
-function FormRow({
+const CUSTOM_SENTINEL = '__custom__';
+
+export function FormRow({
   decl,
   value,
   onChange,
@@ -482,6 +517,19 @@ function FormRow({
 }) {
   const control = decl.control ?? (decl.options ? 'select' : 'text');
   const label = (decl.label ?? decl.id).toString();
+  const options = decl.options ?? [];
+  // Numeric presets (duration/resolution) → the custom input is a number.
+  const numericPresets = options.length > 0 && options.every((o) => typeof o.value === 'number');
+  const isPreset = options.some((o) => o.value === value);
+  const hasValue = value !== undefined && value !== null && value !== '';
+  const [customMode, setCustomMode] = useState(false);
+  // Show the custom box when the user opted in, OR the current value
+  // isn't one of the presets (e.g. a loaded custom value from project.json).
+  const showCustom = Boolean(decl.allowCustom) && (customMode || (hasValue && !isPreset));
+  const parseCustom = (raw: string): unknown => {
+    if (!(numericPresets || control === 'number')) return raw;
+    return raw === '' ? '' : Number(raw);
+  };
 
   return (
     <div className={styles.row}>
@@ -490,35 +538,76 @@ function FormRow({
         {control === 'pills' && decl.options ? (
           <div className={styles.pillGroup}>
             {decl.options.map((opt) => {
-              const selected = value === opt.value;
+              const selected = !showCustom && value === opt.value;
               return (
                 <button
                   key={String(opt.value)}
                   type="button"
-                  onClick={() => onChange(opt.value)}
+                  onClick={() => {
+                    setCustomMode(false);
+                    onChange(opt.value);
+                  }}
                   className={`${styles.pill} ${selected ? styles.pillSelected : ''}`}
                 >
                   {opt.label}
                 </button>
               );
             })}
+            {decl.allowCustom && (
+              <button
+                type="button"
+                onClick={() => setCustomMode(true)}
+                className={`${styles.pill} ${showCustom ? styles.pillSelected : ''}`}
+              >
+                Other…
+              </button>
+            )}
+            {showCustom && (
+              <input
+                type={numericPresets ? 'number' : 'text'}
+                className={styles.textInput}
+                style={{ maxWidth: 120, marginLeft: 8 }}
+                placeholder={decl.unit ?? 'custom'}
+                value={hasValue ? String(value) : ''}
+                onChange={(e) => onChange(parseCustom(e.target.value))}
+              />
+            )}
           </div>
         ) : control === 'select' && decl.options ? (
-          <select
-            className={styles.select}
-            value={String(value ?? '')}
-            onChange={(e) => {
-              const raw = e.target.value;
-              const opt = decl.options!.find((o) => String(o.value) === raw);
-              onChange(opt ? opt.value : raw);
-            }}
-          >
-            {decl.options.map((opt) => (
-              <option key={String(opt.value)} value={String(opt.value)}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
+          <>
+            <select
+              className={styles.select}
+              value={showCustom ? CUSTOM_SENTINEL : String(value ?? '')}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === CUSTOM_SENTINEL) {
+                  setCustomMode(true);
+                  onChange('');
+                  return;
+                }
+                setCustomMode(false);
+                const opt = decl.options!.find((o) => String(o.value) === raw);
+                onChange(opt ? opt.value : raw);
+              }}
+            >
+              {decl.options.map((opt) => (
+                <option key={String(opt.value)} value={String(opt.value)}>
+                  {opt.label}
+                </option>
+              ))}
+              {decl.allowCustom && <option value={CUSTOM_SENTINEL}>Other…</option>}
+            </select>
+            {showCustom && (
+              <input
+                type="text"
+                className={styles.textInput}
+                style={{ marginTop: 6, width: '100%' }}
+                placeholder={decl.placeholder ?? 'Describe your own style…'}
+                value={hasValue ? String(value) : ''}
+                onChange={(e) => onChange(e.target.value)}
+              />
+            )}
+          </>
         ) : control === 'number' ? (
           <input
             type="number"

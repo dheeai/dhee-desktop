@@ -1682,4 +1682,81 @@ describe('ChatPanelEmbedded', () => {
       ).toBeInTheDocument();
     });
   });
+
+  // ── dhee_ask_question picker (production content shape) ──────────
+  // The main process flattens the pi tool result's `content` array to a
+  // plain STRING before forwarding (dheeCoreManager tool_execution_end
+  // mapping). A picker parser that only accepts the array shape silently
+  // skips — the field bug where the agent's question rendered as a plain
+  // tool card with no clickable options. These pin the string shape
+  // end-to-end (and keep the legacy array shape working).
+  describe('dhee_ask_question renders a clickable picker', () => {
+    const QUESTION_PAYLOAD = {
+      kind: 'question_choices',
+      question: 'Add Chitra the leopard?',
+      options: [
+        { id: 'yes', label: 'Yes, add Chitra', description: 'Regenerate everything' },
+        { id: 'skip', label: 'Skip for now' },
+      ],
+      multiSelect: false,
+      _agentDirective: 'QUESTION POSTED. END YOUR TURN NOW.',
+    };
+
+    async function mountAndAskQuestion(content: unknown) {
+      renderPanel();
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(() => {
+        expect(mockState.listeners.some((l) => l.active)).toBe(true);
+      });
+      act(() => {
+        publishEvent('tool_call', {
+          toolCallId: 'tc-ask',
+          toolName: 'dhee_ask_question',
+          arguments: { question: 'Add Chitra the leopard?' },
+          status: 'in_progress',
+        });
+        publishEvent('tool_result', {
+          toolCallId: 'tc-ask',
+          toolName: 'dhee_ask_question',
+          isError: false,
+          result: { content },
+        });
+      });
+    }
+
+    it('renders the question + option buttons when content is a STRING (real production shape)', async () => {
+      await mountAndAskQuestion(JSON.stringify(QUESTION_PAYLOAD));
+      await waitFor(() => {
+        expect(screen.getByText('Add Chitra the leopard?')).toBeInTheDocument();
+      });
+      expect(
+        screen.getByRole('button', { name: /Yes, add Chitra/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /Skip for now/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('still renders the picker when content is the legacy ARRAY shape (back-compat)', async () => {
+      await mountAndAskQuestion([{ type: 'text', text: JSON.stringify(QUESTION_PAYLOAD) }]);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /Yes, add Chitra/i }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('clicking a single-select option submits its label via chatPrompt', async () => {
+      await mountAndAskQuestion(JSON.stringify(QUESTION_PAYLOAD));
+      const yesBtn = await screen.findByRole('button', { name: /Yes, add Chitra/i });
+      await act(async () => {
+        fireEvent.click(yesBtn);
+      });
+      await waitFor(() => {
+        expect(
+          mockState.chatPromptCalls.some((c) => /Yes, add Chitra/i.test(c.message)),
+        ).toBe(true);
+      });
+    });
+  });
 });

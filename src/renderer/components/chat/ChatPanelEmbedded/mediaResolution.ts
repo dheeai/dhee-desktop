@@ -17,7 +17,10 @@
  */
 
 export interface MaybeToolResult {
-  content?: Array<{ type?: string; text?: string }>;
+  // The main process flattens the pi result's content array to a plain
+  // string before forwarding; accept both shapes (this helper only reads
+  // file_path/details, so it's shape-agnostic about content anyway).
+  content?: string | Array<{ type?: string; text?: string }>;
   details?: { file_path?: string; asset_type?: string; created_at?: number };
   // Legacy flat shape (some old tools / pi conventions):
   file_path?: string;
