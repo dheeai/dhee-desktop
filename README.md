@@ -1,31 +1,38 @@
 # Dhee Desktop
 
-Electron desktop application for **Dhee Studios**. The app bundles the `dhee-core` TypeScript backend and runs it **in the Electron main process** — there is no separate server, no localhost port, no spawned CLI. The renderer talks to the embedded `ConversationManager` over a typed IPC bridge (see `src/shared/dheeIpc.ts`).
+Electron desktop app for **dhee** — a local-first generative-media studio. It bundles the [`dhee-core`](https://github.com/dheeai/dhee-core) TypeScript engine and runs it **inside the Electron main process** — no separate server, no localhost port, no spawned CLI. The renderer talks to the embedded engine over a typed IPC bridge (see `src/shared/dheeIpc.ts`).
 
-Hosted/cloud dhee-core mode has been descoped — the app is local-only at present. ComfyUI cloud (pointing at `https://cloud.comfy.org` or another remote ComfyUI URL) is unrelated and still supported in Settings → Connection.
+The app is **local-only**: the agent, the engine, and your projects all live on your machine, and there is no SaaS backend. Pointing ComfyUI at `https://cloud.comfy.org` (or any remote ComfyUI URL) in Settings → Connection is a separate, still-supported way to offload image/video generation — it does not make the app cloud-hosted.
+
+## How it embeds dhee-core
+
+The Electron main process (`src/main/dheeCoreManager.ts`, logs as `DheeCoreManager`) lazy-imports `dhee-core` and owns the embedded engine for the lifetime of the app. There are two kinds of work:
+
+- **Chat** — `buildPiSession` / `runAgentTurn` from `dhee-core` run an in-process agent (branded **dhee**) per chat session. Free-form interaction: the agent replies, calls tools, and decides what to do next.
+- **Runs** — a `BackgroundTaskRunner` (from `dhee-core/runners`) kicks the bundle-DAG **walker** to actually generate a project. Long runs live on a dedicated background session so a chat message never blocks on a multi-hour render.
+
+The old `ConversationManager` / `dhee-core/manager` entry point and the spawn-based server CLI are both gone — the desktop drives the engine purely in-process via the helpers above plus `dhee-core/dag` (node regen + event-log graph projections).
 
 ## Prerequisites
 
-- Node.js 20+
-- npm
-- sibling `dhee-core` repo at `../dhee-core`
-- ComfyUI if you want local image/video generation
-- LM Studio, Gemini, or OpenAI-compatible credentials if you want local LLM-backed generation
+- Node.js 20+ and npm
+- A sibling `dhee-core` checkout at `../dhee-core`
+- ComfyUI for local image/video generation (or a remote/cloud ComfyUI URL)
+- LM Studio, Gemini, or any OpenAI-compatible LLM credentials (OpenRouter works via the OpenAI-compatible path); a VLM provider (e.g. OpenRouter) for the optional fidelity judge
 
-Notes:
-
-- The product no longer depends on a Python backend.
-- Local packaging can still rebuild native Node modules used by `dhee-core`, so build machines may still need a working native toolchain.
+There is no Python backend. In a packaged build, ffmpeg ships with the app (via `@ffmpeg-installer`); native modules may still trigger an Electron rebuild on the build machine depending on dependency state.
 
 ## Development
 
-### 1. Build `dhee-core`
+### 1. Build the sibling `dhee-core`
 
 ```bash
 cd ../dhee-core
 pnpm install
 pnpm build
 ```
+
+The desktop imports the built `dist/` from `../dhee-core`, so it must exist before you start.
 
 ### 2. Install desktop dependencies
 
@@ -34,170 +41,118 @@ cd ../dhee-desktop
 npm install
 ```
 
-### 3. Start the desktop app
+### 3. Start the app
 
 ```bash
-npm run start
+npm start
 ```
 
-In development:
-
-- `dhee-core/manager` is dynamically imported by the Electron main process at app start (see `src/main/dheeCoreManager.ts`); it owns the `ConversationManager` for the lifetime of the app.
-- No subprocess is spawned and no localhost port is opened — everything runs in-process.
-
-You do not need to run `dhee-core` separately for the normal desktop flow. You only need `pnpm build` in the sibling repo so the dist that the manager imports exists.
+Everything runs in-process — no subprocess is spawned and no localhost port is opened. You do not run `dhee-core` separately; you only need its `pnpm build` output to exist.
 
 ## Settings
 
-Connection settings cover ComfyUI and the LLM provider for the bundled local backend. Currently supported providers:
+Settings → Connection covers ComfyUI and the LLM provider for the embedded engine. Supported providers:
 
 - LM Studio
 - Gemini
-- OpenAI-compatible providers
+- Any OpenAI-compatible provider (including OpenRouter)
 
-## Production Packaging
+A separate toggle controls the VLM judge used for the optional keyframe fidelity audit.
 
-### How bundling works
+## Project format
 
-`dhee-core` is bundled as a package artifact, not as a symlink.
-
-Current flow:
-
-1. `verify:dhee-core`
-   - checks that `../dhee-core` exists
-   - checks that the built server entry exists
-   - writes `release/app/.dhee-core-version.json`
-2. `prepare:app-deps`
-   - runs `npm pack` in `../dhee-core`
-   - writes the tarball into `release/app/vendor`
-   - rewrites `release/app/package.json` to depend on that tarball
-   - runs a production `npm install` in `release/app`
-3. `build`
-   - builds Electron main and renderer
-4. `electron-builder build`
-   - packages `release/app` into the final installers
-
-This avoids the old `file:../dhee-core` symlink problem inside packaged Electron apps.
-
-### Local packaging
-
-```bash
-npm run package
-```
-
-Build macOS artifacts only:
-
-```bash
-npm run package:mac
-```
-
-Build Windows artifacts only:
-
-```bash
-npm run package:win
-```
-
-Build every configured local target:
-
-```bash
-npm run package:all
-```
-
-`npm run package:all` needs substantially more disk space than `npm run package`.
-
-### Release packaging
-
-```bash
-npm run release
-```
-
-## Runtime Model
-
-- `dheeCoreManager` (Electron main; logs as `DheeCoreManager`) dynamically imports `dhee-core/manager` and constructs a `ConversationManager` once on app start
-- the renderer calls into it via the typed `window.dhee.*` bridge (preload) which `ipcRenderer.invoke`s the channels in `src/shared/dheeIpc.ts`
-- streaming events from the conversation manager (`tool_call`, `progress`, `agent_response`, `media_generated`, …) are republished from main → renderer over a single `dhee:event` channel
-
-## Bundled Backend Assets
-
-The packaged `dhee-core` artifact includes:
-
-- `dist/`
-- `prompts/`
-- `workflows/`
-
-These are required at runtime for:
-
-- server startup
-- prompt loading
-- ComfyUI workflow loading
-
-## Project Structure
-
-```text
-dhee-desktop/
-├── src/
-│   ├── main/
-│   ├── renderer/
-│   └── shared/
-├── .erb/
-│   └── scripts/
-├── release/
-│   └── app/
-└── assets/
-```
-
-## Project Creation
-
-Desktop projects use a normal folder root:
+A desktop project is an ordinary folder (no special extension):
 
 ```text
 my-project/
+├── project.json        Projected graph state (node statuses, bundleSource)
 ├── .dhee/
-├── assets/
-└── prompts/
+│   └── events.jsonl     Append-only event log — the source of truth
+├── inputs/              Your inputs (story.md, …)
+└── images/  videos/     Generated keyframes, clips, final cut
 ```
 
-The outer project folder does not need a `.dhee` extension.
+Every view in the app — the Inspector's Cards and Canvas, the version tray — is a **projection folded from `.dhee/events.jsonl`**. That's why the app can show node versions, branches, and time-travel (`asOfSeq`) without re-running anything.
 
-## Known Build Caveats
+## Runtime model
 
-- `dhee-core` still includes some native modules such as `sharp`
-- packaging may trigger Electron/native rebuild steps depending on dependency state
-- local build machines should use a current Node/npm toolchain compatible with the Electron version in this repo
+- `dheeCoreManager` (Electron main) lazy-imports `dhee-core` (chat: `buildPiSession` / `runAgentTurn`), `dhee-core/runners` (the `BackgroundTaskRunner` that drives the walker), and `dhee-core/dag` (regen + instance-graph projections).
+- The renderer calls in via the typed `window.dhee.*` preload bridge (`src/main/preload.ts`), which `ipcRenderer.invoke`s the channels defined in `src/shared/dheeIpc.ts`.
+- Streaming events flow main → renderer on a single `dhee:event` channel as `{ eventName, sessionId, data }`; `eventName` mirrors dhee-core's `ServerMessageType`.
+
+## Packaging
+
+`dhee-core` is bundled as a packed artifact, not a symlink (which avoids the old `file:../dhee-core` symlink problem inside packaged Electron apps):
+
+1. **`verify:dhee-core`** — checks `../dhee-core` exists and its built library entry (`dist/index.js`) is present, then writes `release/app/.dhee-core-version.json`.
+2. **`prepare:app-deps`** — `npm pack`s `../dhee-core` into `release/app/vendor`, rewrites `release/app/package.json` to depend on that tarball, and runs a production `npm install` in `release/app`.
+3. **`build`** — builds the Electron main + renderer.
+4. **`electron-builder build`** — packages `release/app` into the final installers.
+
+```bash
+npm run package        # mac + win
+npm run package:mac    # macOS (arm64)
+npm run package:win    # Windows
+npm run package:linux  # Linux
+npm run release        # build + publish
+```
+
+`package:*` multi-platform targets need substantially more disk than a single-platform build.
+
+### What ships inside the bundled dhee-core
+
+The packed tarball carries the engine's `dist/` (which includes the first-party bundles and the agent skill) plus `prompts/` and `workflows/` — required at runtime for engine startup, prompt loading, the agent's system prompt, ComfyUI workflow loading, and the default bundles.
 
 ## IPC API
 
-There is no network protocol. The renderer talks to the embedded
-`ConversationManager` over typed Electron IPC. All channels and
-payload shapes live in `src/shared/dheeIpc.ts`. The renderer-
-facing surface is `window.dhee.*` (see `src/main/preload.ts`).
+There is no network protocol — the renderer talks to the embedded engine over typed Electron IPC. All channels and payload shapes live in `src/shared/dheeIpc.ts`; the renderer-facing surface is `window.dhee.*` (`src/main/preload.ts`).
 
 ### Renderer → main (request/response)
 
 | Channel | Purpose |
 |---------|---------|
-| `dhee:createSession` | Create a chat session (returns `sessionId`) |
-| `dhee:configureProject` | Bind a session to a project + template/style/duration |
+| `dhee:createSession` | Create (or resume) a chat session — `interactive` or `background` role |
+| `dhee:configureProject` | Bind a session to a project + bundle |
 | `dhee:focusProject` | Switch the session to an existing project on disk |
-| `dhee:runTask` | Dispatch a user message; streams events on `dhee:event` |
+| `dhee:chatPrompt` | Send a free-form message to the session's agent; returns text + tool calls |
+| `dhee:runTask` | Dispatch a bundle run (kicks the walker via `BackgroundTaskRunner`); streams on `dhee:event` |
 | `dhee:sendResponse` | Reply to an `agent_question` |
 | `dhee:cancelTask` | Cancel the in-flight chat turn |
+| `dhee:runnerCancel` / `dhee:runnerStatus` | Cancel / snapshot the active background run (independent of any chat session) |
 | `dhee:redoNode` | Edit a prompt + invalidate dependents + resume |
-| `dhee:invalidateNodes` | Mark executor nodes pending without resuming (Prompts-tab edit flow) |
-| `dhee:setAutonomous` | Toggle autonomous mode for the session |
-| `dhee:setPiOversight` | Toggle pi-agent oversight |
-| `dhee:setVlmJudge` | Toggle VLM judge (gated by oversight) |
-| `dhee:runnerCancel` | Cancel the active background task (dhee_run_to et al) |
-| `dhee:runnerStatus` | Snapshot of the active background task or `null` |
+| `dhee:invalidateNodes` | Mark nodes pending without resuming (Prompts-tab edit flow) |
+| `dhee:writeNodeContent` | Overwrite a node's content with user-edited bytes (cascades downstream) |
+| `dhee:resolveBundle` | Resolve a `bundleSource` to its node graph (Inspector / project tiles) |
+| `dhee:resolveInstanceGraph` | Fold `.dhee/events.jsonl` into an instance graph (Inspector Cards) |
+| `dhee:listVersions` / `dhee:selectVersion` | List / pick a node's candidate versions |
+| `dhee:listWorkflows` · `getWorkflow` · `updateWorkflow` · `deleteWorkflow` · `validateWorkflow` | Custom ComfyUI workflow management (Settings → Workflows) |
+| `dhee:setAutonomous` / `setPiOversight` / `setVlmJudge` | Session toggles |
+| `dhee:getHistory` / `clearChatHistory` | Read / reset the persisted chat transcript |
 | `dhee:deleteSession` | Tear down a session |
 
 ### Main → renderer (streaming events)
 
-All events publish on the single `dhee:event` channel as
-`{ eventName, sessionId, data }`. `eventName` mirrors `dhee-core`'s
-`ServerMessageType`:
+All events publish on the single `dhee:event` channel as `{ eventName, sessionId, data }`:
 
-`progress`, `tool_call`, `tool_result`, `todo_updated`,
-`agent_response`, `agent_question`, `status`, `stream_chunk`,
-`context_usage`, `phase_transition`, `timeline_update`,
-`notification`, `project_focused`, `media_generated`.
+`progress`, `tool_call`, `tool_result`, `todo_updated`, `agent_response`, `agent_question`, `status`, `stream_chunk`, `context_usage`, `phase_transition`, `timeline_update`, `notification`, `project_focused`, `media_generated`, `session_status`.
+
+## Project structure
+
+```text
+dhee-desktop/
+├── src/
+│   ├── main/        Electron main: dheeCoreManager, IPC bridge, preload, settings
+│   ├── renderer/    React UI (chat, landing, Inspector canvas/cards)
+│   └── shared/      IPC + type contracts (dheeIpc.ts, chatTypes.ts, …)
+├── .erb/scripts/    Build / packaging helpers (verify-dhee-core, install-app-deps, …)
+├── release/app/     Packaging staging dir
+└── assets/
+```
+
+## Testing
+
+```bash
+npm test            # Jest unit tests
+npm run test:e2e    # Playwright end-to-end
+npm run lint
+```
