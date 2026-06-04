@@ -319,6 +319,25 @@ function summarizeArgs(args: unknown): string {
   return parts.join(' ');
 }
 
+/**
+ * Extract the text body of a pi tool result regardless of shape.
+ *
+ * The pi tool's execute() returns `content: [{type:'text', text}]`, but
+ * the main process flattens that to a plain string before forwarding to
+ * the renderer (see dheeCoreManager's tool_execution_end mapping). The
+ * picker parsers (bundle_choices / question_choices) need the raw text
+ * either way, so accept both shapes and return '' when neither matches.
+ */
+function toolResultText(
+  content: string | Array<{ type?: string; text?: string }> | undefined,
+): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.find((c) => c?.type === 'text')?.text ?? '';
+  }
+  return '';
+}
+
 export default function ChatPanelEmbedded() {
   const session = useDheeSession();
   const { projectName, projectDirectory } = useWorkspace();
@@ -2183,7 +2202,10 @@ function handleEvent(
         result?: {
           file_path?: string;
           asset_type?: string;
-          content?: Array<{ type?: string; text?: string }>;
+          // The main process flattens the pi tool result's content
+          // ([{type:'text',text}]) to a plain string before forwarding
+          // (dheeCoreManager tool_execution_end mapping). Accept BOTH.
+          content?: string | Array<{ type?: string; text?: string }>;
           details?: { file_path?: string; asset_type?: string; created_at?: number };
         };
       };
@@ -2200,10 +2222,9 @@ function handleEvent(
       if (
         !data.isError
         && toolNameForChoices === 'dhee_present_bundle_choices'
-        && Array.isArray(data.result?.content)
       ) {
         try {
-          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const txt = toolResultText(data.result?.content);
           const parsed = JSON.parse(txt) as {
             kind?: string;
             bundleIds?: string[];
@@ -2248,10 +2269,9 @@ function handleEvent(
       if (
         !data.isError
         && toolNameForChoices === 'dhee_ask_question'
-        && Array.isArray(data.result?.content)
       ) {
         try {
-          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const txt = toolResultText(data.result?.content);
           const parsed = JSON.parse(txt) as {
             kind?: string;
             question?: string;
