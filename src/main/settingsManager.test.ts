@@ -84,4 +84,20 @@ describe('settingsManager theme normalization', () => {
     expect(normalized.comfyuiUrl).toBe('https://cloud.comfy.org');
     expect(normalized.comfyCloudApiKey).toBe('cloud-test-key');
   });
+
+  it('normalizes generic runner credentials by env-var name', () => {
+    const normalized = normalizeSettings({
+      ...baseSettings,
+      runnerCredentials: {
+        FAL_KEY: ' fal-secret ',
+        'bad-name': 'ignored',
+        OPENROUTER_API_KEY: 'or-secret',
+      },
+    });
+
+    expect(normalized.runnerCredentials).toEqual({
+      FAL_KEY: 'fal-secret',
+      OPENROUTER_API_KEY: 'or-secret',
+    });
+  });
 });

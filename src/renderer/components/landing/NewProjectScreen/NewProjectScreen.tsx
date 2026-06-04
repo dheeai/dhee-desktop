@@ -29,6 +29,7 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import type { BundleRunnerReadiness } from '../../../../shared/bundleReadinessTypes';
 import styles from './NewProjectScreen.module.scss';
 
 interface BundleInputOption {
@@ -223,6 +224,154 @@ function FormRow({
   );
 }
 
+function RunnerReadinessPanel({
+  readiness,
+  isChecking,
+  credentialValues,
+  isSavingCredentials,
+  onCredentialChange,
+  onSaveCredentials,
+}: {
+  readiness: BundleRunnerReadiness | null;
+  isChecking: boolean;
+  credentialValues: Record<string, string>;
+  isSavingCredentials: boolean;
+  onCredentialChange: (key: string, value: string) => void;
+  onSaveCredentials: () => void;
+}) {
+  if (isChecking) {
+    return (
+      <div className={styles.readinessCard}>
+        <div className={styles.readinessTitle}>Checking runner pack</div>
+        <p className={styles.readinessText}>
+          Reading installed runner manifests.
+        </p>
+      </div>
+    );
+  }
+  if (!readiness) return null;
+  if (
+    readiness.ok &&
+    readiness.requiredRunners.length === 0 &&
+    readiness.requiredCredentials.length === 0
+  ) {
+    return null;
+  }
+
+  const hasCredentialValues = readiness.missingCredentials.some(
+    (key) => (credentialValues[key] ?? '').trim().length > 0,
+  );
+  const categorizedErrorCount =
+    readiness.missingRunners.length +
+    readiness.versionMismatches.length +
+    readiness.missingCredentials.length;
+
+  return (
+    <div
+      className={`${styles.readinessCard} ${
+        readiness.ok ? styles.readinessCardOk : styles.readinessCardWarn
+      }`}
+    >
+      <div className={styles.readinessTitle}>
+        {readiness.ok ? 'Runner pack ready' : 'Runner setup needed'}
+      </div>
+
+      {readiness.missingRunners.length > 0 ? (
+        <>
+          <p className={styles.readinessText}>
+            This bundle needs runners that are not installed.
+          </p>
+          <ul className={styles.readinessList}>
+            {readiness.missingRunners.map((runner) => (
+              <li key={runner.tool}>
+                {runner.tool} {runner.range}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {readiness.versionMismatches.length > 0 ? (
+        <>
+          <p className={styles.readinessText}>
+            Installed runner versions do not satisfy this bundle.
+          </p>
+          <ul className={styles.readinessList}>
+            {readiness.versionMismatches.map((runner) => (
+              <li key={runner.tool}>
+                {runner.tool}: installed {runner.version}, needs {runner.range}
+              </li>
+            ))}
+          </ul>
+        </>
+      ) : null}
+
+      {readiness.missingCredentials.length > 0 ? (
+        <>
+          <p className={styles.readinessText}>
+            Enter the local API keys required by the installed runner. Dhee
+            stores them securely and forwards them as environment variables
+            before the run.
+          </p>
+          <div className={styles.credentialGrid}>
+            {readiness.missingCredentials.map((key) => {
+              const inputId = `runner-credential-${key}`;
+              return (
+                <label
+                  key={key}
+                  className={styles.credentialRow}
+                  htmlFor={inputId}
+                >
+                  <span>{key}</span>
+                  <input
+                    id={inputId}
+                    type="password"
+                    className={styles.textInput}
+                    value={credentialValues[key] ?? ''}
+                    onChange={(event) =>
+                      onCredentialChange(key, event.target.value)
+                    }
+                    placeholder={`Enter ${key}`}
+                  />
+                </label>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className={styles.readinessButton}
+            disabled={isSavingCredentials || !hasCredentialValues}
+            onClick={onSaveCredentials}
+          >
+            {isSavingCredentials ? 'Saving credentials' : 'Save credentials'}
+          </button>
+        </>
+      ) : null}
+
+      {!readiness.ok && categorizedErrorCount === 0 ? (
+        <ul className={styles.readinessList}>
+          {readiness.errors.map((message) => (
+            <li key={message}>{message}</li>
+          ))}
+        </ul>
+      ) : null}
+
+      {readiness.ok && readiness.requiredRunners.length > 0 ? (
+        <p className={styles.readinessText}>
+          Required runners:{' '}
+          {readiness.requiredRunners.map((runner) => runner.tool).join(', ')}
+        </p>
+      ) : null}
+
+      {readiness.ok && readiness.requiredCredentials.length > 0 ? (
+        <p className={styles.readinessText}>
+          Credentials configured: {readiness.requiredCredentials.join(', ')}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function NewProjectScreen({
   isOpen,
   onClose,
@@ -237,6 +386,14 @@ export default function NewProjectScreen({
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInstallingBundle, setIsInstallingBundle] = useState(false);
+  const [isCheckingReadiness, setIsCheckingReadiness] = useState(false);
+  const [isSavingRunnerCredentials, setIsSavingRunnerCredentials] =
+    useState(false);
+  const [runnerReadiness, setRunnerReadiness] =
+    useState<BundleRunnerReadiness | null>(null);
+  const [runnerCredentialValues, setRunnerCredentialValues] = useState<
+    Record<string, string>
+  >({});
   const [npmBundleSpec, setNpmBundleSpec] = useState(
     '@dhee_ai/youtube-short-bundle',
   );
@@ -330,6 +487,67 @@ export default function NewProjectScreen({
     [bundles, selectedBundleId],
   );
 
+  const selectedBundleSource = useMemo(() => {
+    if (!selectedBundle || !selectedBundleId) return null;
+    return selectedBundle.bundleSource ?? `built-in:${selectedBundleId}`;
+  }, [selectedBundle, selectedBundleId]);
+
+  const refreshRunnerReadiness = useCallback(async (bundleSource: string) => {
+    return window.electron.project.checkBundleReadiness({ bundleSource });
+  }, []);
+
+  useEffect(() => {
+    if (!selectedBundleSource) {
+      setRunnerReadiness(null);
+      return undefined;
+    }
+    let cancelled = false;
+    setIsCheckingReadiness(true);
+    setRunnerReadiness(null);
+    const loadReadiness = async () => {
+      try {
+        const readiness = await refreshRunnerReadiness(selectedBundleSource);
+        if (!cancelled) {
+          setRunnerReadiness(readiness);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : String(err);
+          setRunnerReadiness({
+            ok: false,
+            bundleSource: selectedBundleSource,
+            requiredRunners: [],
+            installedRunners: [],
+            missingRunners: [],
+            versionMismatches: [],
+            requiredCredentials: [],
+            missingCredentials: [],
+            errors: [message],
+          });
+        }
+      } finally {
+        if (!cancelled) {
+          setIsCheckingReadiness(false);
+        }
+      }
+    };
+    loadReadiness().catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshRunnerReadiness, selectedBundleSource]);
+
+  useEffect(() => {
+    if (!runnerReadiness) return;
+    setRunnerCredentialValues((prev) => {
+      const next = { ...prev };
+      runnerReadiness.missingCredentials.forEach((key) => {
+        if (next[key] === undefined) next[key] = '';
+      });
+      return next;
+    });
+  }, [runnerReadiness]);
+
   // Apply bundle defaults the moment a bundle is selected (so the form
   // is sensibly populated even before the user touches anything).
   useEffect(() => {
@@ -361,6 +579,8 @@ export default function NewProjectScreen({
 
   const canRoll =
     !!selectedBundleId &&
+    !!runnerReadiness?.ok &&
+    !isCheckingReadiness &&
     storyText.trim().length >= 8 &&
     title.trim().length > 0 &&
     workspacePath.trim().length > 0 &&
@@ -385,6 +605,7 @@ export default function NewProjectScreen({
         return;
       }
       await loadBundles();
+      setRunnerReadiness(result.readiness);
       setSelectedBundleId(result.bundleId);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -404,6 +625,59 @@ export default function NewProjectScreen({
   const handleInputChange = useCallback((id: string, value: unknown) => {
     setInputValues((prev) => ({ ...prev, [id]: value }));
   }, []);
+
+  const handleRunnerCredentialChange = useCallback(
+    (key: string, value: string) => {
+      setRunnerCredentialValues((prev) => ({ ...prev, [key]: value }));
+    },
+    [],
+  );
+
+  const handleSaveRunnerCredentials = useCallback(async () => {
+    if (
+      !runnerReadiness ||
+      !selectedBundleSource ||
+      isSavingRunnerCredentials
+    ) {
+      return;
+    }
+    const patch = runnerReadiness.missingCredentials.reduce<
+      Record<string, string>
+    >((acc, key) => {
+      const value = (runnerCredentialValues[key] ?? '').trim();
+      if (value) acc[key] = value;
+      return acc;
+    }, {});
+    if (Object.keys(patch).length === 0) {
+      setError('Enter at least one runner credential before saving.');
+      return;
+    }
+    setError(null);
+    setIsSavingRunnerCredentials(true);
+    try {
+      await window.electron.settings.update({ runnerCredentials: patch });
+      const readiness = await refreshRunnerReadiness(selectedBundleSource);
+      setRunnerReadiness(readiness);
+      setRunnerCredentialValues((prev) => {
+        const next = { ...prev };
+        Object.keys(patch).forEach((key) => {
+          delete next[key];
+        });
+        return next;
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to save runner credentials: ${message}`);
+    } finally {
+      setIsSavingRunnerCredentials(false);
+    }
+  }, [
+    isSavingRunnerCredentials,
+    refreshRunnerReadiness,
+    runnerCredentialValues,
+    runnerReadiness,
+    selectedBundleSource,
+  ]);
 
   const handleTitleChange = useCallback((next: string) => {
     setTitleOverride(next);
@@ -561,6 +835,14 @@ export default function NewProjectScreen({
             <>
               <hr className={styles.divider} />
               <h3 className={styles.sectionLabel}>The Story</h3>
+              <RunnerReadinessPanel
+                readiness={runnerReadiness}
+                isChecking={isCheckingReadiness}
+                credentialValues={runnerCredentialValues}
+                isSavingCredentials={isSavingRunnerCredentials}
+                onCredentialChange={handleRunnerCredentialChange}
+                onSaveCredentials={handleSaveRunnerCredentials}
+              />
               <div className={styles.storyTextareaWrap}>
                 <textarea
                   className={styles.storyTextarea}

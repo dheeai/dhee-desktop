@@ -81,8 +81,10 @@ import { remotionManager } from './remotionManager';
 import { generateWordCaptions } from './services/wordCaptionService';
 import {
   defaultUserBundlesDir,
+  defaultUserRunnersDir,
   installDheeBundleFromNpm,
 } from './services/npmBundleInstaller';
+import type { BundleRunnerReadiness } from '../shared/bundleReadinessTypes';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type {
   RemotionTimelineItem,
@@ -1567,7 +1569,19 @@ type ProjectInitModule = {
     description?: string;
     inputs?: unknown[];
   }>;
+  checkBundleSourceRunnerReadiness: (bundleSource: string) => BundleRunnerReadiness;
 };
+
+function ensureUserBundleRunnerRootEnv(): {
+  targetBundlesDir: string;
+  targetRunnersDir: string;
+} {
+  const targetBundlesDir = defaultUserBundlesDir(app.getPath('home'));
+  const targetRunnersDir = defaultUserRunnersDir(app.getPath('home'));
+  process.env.DHEE_USER_BUNDLES_DIR = targetBundlesDir;
+  process.env.DHEE_USER_RUNNERS_DIR = targetRunnersDir;
+  return { targetBundlesDir, targetRunnersDir };
+}
 
 ipcMain.handle(
   'bundle:list',
@@ -1585,11 +1599,39 @@ ipcMain.handle(
     }>
   > => {
     try {
+      ensureUserBundleRunnerRootEnv();
       const dagModulePath = 'dhee-core/dag';
       const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
       return mod.listBundles();
     } catch {
       return [];
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:readiness',
+  async (
+    _event,
+    payload: { bundleSource: string },
+  ): Promise<BundleRunnerReadiness> => {
+    try {
+      ensureUserBundleRunnerRootEnv();
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
+      return mod.checkBundleSourceRunnerReadiness(payload.bundleSource);
+    } catch (err) {
+      return {
+        ok: false,
+        bundleSource: payload.bundleSource,
+        requiredRunners: [],
+        installedRunners: [],
+        missingRunners: [],
+        versionMismatches: [],
+        requiredCredentials: [],
+        missingCredentials: [],
+        errors: [err instanceof Error ? err.message : String(err)],
+      };
     }
   },
 );
@@ -1606,15 +1648,33 @@ ipcMain.handle(
         version: string;
         bundleId: string;
         bundleDir: string;
+        runnerDirs: string[];
+        runners: Array<{
+          tool: string;
+          version: string;
+          credentials: string[];
+          displayName?: string;
+          description?: string;
+          runnerDir: string;
+        }>;
+        readiness: BundleRunnerReadiness;
       }
     | { ok: false; error: string }
   > => {
-    const targetBundlesDir = defaultUserBundlesDir(app.getPath('home'));
-    return installDheeBundleFromNpm({
+    const { targetBundlesDir, targetRunnersDir } = ensureUserBundleRunnerRootEnv();
+    const installed = await installDheeBundleFromNpm({
       packageSpec: payload.packageSpec,
       registryUrl: payload.registryUrl,
       targetBundlesDir,
+      targetRunnersDir,
     });
+    if (!installed.ok) return installed;
+    const dagModulePath = 'dhee-core/dag';
+    const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
+    const readiness = mod.checkBundleSourceRunnerReadiness(
+      `user:${installed.bundleId}`,
+    );
+    return { ...installed, readiness };
   },
 );
 

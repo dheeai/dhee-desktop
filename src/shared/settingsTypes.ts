@@ -164,4 +164,11 @@ export interface AppSettings {
   vlmBaseUrl: string;
   vlmApiKey: string;
   vlmModel: string;
+  /**
+   * Generic credentials required by installed external runners. Keys are
+   * env-var names from runner.json credentials[] (for example FAL_KEY).
+   * Values are encrypted at rest by settingsManager and forwarded into
+   * process.env before runner discovery/execution.
+   */
+  runnerCredentials?: Record<string, string>;
 }

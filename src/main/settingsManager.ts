@@ -69,6 +69,7 @@ const defaults: AppSettings = {
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...DEFAULT_TIER_CONFIG },
   llmTierLight: { ...DEFAULT_TIER_CONFIG },
+  runnerCredentials: {},
 };
 
 const store = new Store<AppSettings>({
@@ -146,6 +147,21 @@ function normalizeString(value: unknown, fallback = ''): string {
   return value.trim();
 }
 
+function normalizeRunnerCredentials(value: unknown): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return out;
+  }
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const envKey = key.trim();
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(envKey)) continue;
+    if (typeof raw === 'string') {
+      out[envKey] = raw.trim();
+    }
+  }
+  return out;
+}
+
 function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings {
   const comfyuiUrl = normalizeComfyUIUrl(value?.comfyuiUrl);
   // Backend lanes: prefer the new explicit fields. If they're absent
@@ -215,6 +231,10 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
       : true;
   const llmTierMedium = normalizeTierConfig(value?.llmTierMedium);
   const llmTierLight = normalizeTierConfig(value?.llmTierLight);
+  const runnerCredentials = normalizeRunnerCredentials(
+    (value as { runnerCredentials?: unknown } | null | undefined)
+      ?.runnerCredentials,
+  );
 
   // Backward compatibility:
   // - Missing mode + empty URL => inherit
@@ -274,6 +294,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     llmUseSameForAllTiers,
     llmTierMedium,
     llmTierLight,
+    runnerCredentials,
   };
 
   if (projectDir) {
@@ -305,6 +326,13 @@ function decryptCredentialFields(s: AppSettings): AppSettings {
       }
     }
   }
+  const runnerCredentials = s.runnerCredentials ?? {};
+  for (const [key, raw] of Object.entries(runnerCredentials)) {
+    if (typeof raw === 'string') {
+      runnerCredentials[key] = decryptCredential(raw);
+    }
+  }
+  s.runnerCredentials = runnerCredentials;
   return s;
 }
 
@@ -318,6 +346,7 @@ function encryptCredentialFields(s: AppSettings): AppSettings {
     ...s,
     llmTierMedium: { ...s.llmTierMedium },
     llmTierLight: { ...s.llmTierLight },
+    runnerCredentials: { ...(s.runnerCredentials ?? {}) },
   };
   for (const field of TOP_LEVEL_CREDENTIAL_FIELDS) {
     const v = (cloned as unknown as Record<string, unknown>)[field];
@@ -334,6 +363,11 @@ function encryptCredentialFields(s: AppSettings): AppSettings {
           (tier as unknown as Record<string, string>)[field] = encryptCredential(v);
         }
       }
+    }
+  }
+  for (const [key, raw] of Object.entries(cloned.runnerCredentials ?? {})) {
+    if (typeof raw === 'string') {
+      cloned.runnerCredentials![key] = encryptCredential(raw);
     }
   }
   return cloned;
@@ -358,9 +392,17 @@ export const updateSettings = (patch: Partial<AppSettings>): AppSettings => {
   // plaintext to the caller.
   const stored = normalizeSettings(store.store as Partial<AppSettings>);
   const currentDecrypted = decryptCredentialFields(stored);
+  const mergedRunnerCredentials =
+    patch.runnerCredentials !== undefined
+      ? {
+          ...(currentDecrypted.runnerCredentials ?? {}),
+          ...patch.runnerCredentials,
+        }
+      : currentDecrypted.runnerCredentials;
   const merged = {
     ...currentDecrypted,
     ...patch,
+    runnerCredentials: mergedRunnerCredentials,
   };
   const normalized = normalizeSettings(merged);
   store.set(encryptCredentialFields(normalized));

@@ -22,6 +22,10 @@ import type {
   OnboardingState,
 } from '../shared/onboardingTypes';
 import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
+import type {
+  BundleRunnerReadiness,
+  RunnerManifestSummary,
+} from '../shared/bundleReadinessTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -342,10 +346,18 @@ const projectBridge = {
         version: string;
         bundleId: string;
         bundleDir: string;
+        runnerDirs: string[];
+        runners: RunnerManifestSummary[];
+        readiness: BundleRunnerReadiness;
       }
     | { ok: false; error: string }
   > {
     return ipcRenderer.invoke('bundle:install-npm', payload);
+  },
+  checkBundleReadiness(payload: {
+    bundleSource: string;
+  }): Promise<BundleRunnerReadiness> {
+    return ipcRenderer.invoke('bundle:readiness', payload);
   },
   /**
    * Enumerate every available bundle's metadata for the Production

@@ -325,6 +325,88 @@
   filter: grayscale(0.6);
 }
 
+// ─── Runner readiness ─────────────────────────────────────────────
+
+.readinessCard {
+  margin: 0 0 28px;
+  padding: 16px;
+  background: var(--slate-surface);
+  border: 1px solid var(--slate-border);
+  border-radius: 4px;
+}
+
+.readinessCardOk {
+  border-color: rgba(92, 166, 113, 0.45);
+}
+
+.readinessCardWarn {
+  border-color: rgba(232, 163, 61, 0.65);
+}
+
+.readinessTitle {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  color: var(--slate-fg);
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+
+.readinessText {
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--slate-fg-muted);
+  margin: 0 0 12px;
+}
+
+.readinessList {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--slate-fg-muted);
+  margin: 0 0 12px 18px;
+  padding: 0;
+}
+
+.credentialGrid {
+  display: grid;
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.credentialRow {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  gap: 16px;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  color: var(--slate-fg-muted);
+}
+
+.readinessButton {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 10px 14px;
+  background: var(--slate-accent-soft);
+  border: 1px solid var(--slate-accent);
+  color: var(--slate-fg);
+  border-radius: 3px;
+  cursor: pointer;
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
 // ─── Story textarea ───────────────────────────────────────────────
 
 .storyTextareaWrap {

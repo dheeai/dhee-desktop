@@ -386,6 +386,7 @@ const fakeElectron = {
           openRouterModel: 'z-ai/glm-4.7-flash',
           piOversight: true,
           vlmJudge: true,
+          runnerCredentials: {},
         }),
       );
     },
@@ -503,6 +504,21 @@ const fakeElectron = {
       record('project.listBundles', undefined);
       return Promise.resolve(bridgeReturn('project.listBundles', []));
     },
+    checkBundleReadiness: (payload: unknown) => {
+      record('project.checkBundleReadiness', payload);
+      return Promise.resolve(
+        bridgeReturn('project.checkBundleReadiness', {
+          ok: true,
+          requiredRunners: [],
+          installedRunners: [],
+          missingRunners: [],
+          versionMismatches: [],
+          requiredCredentials: [],
+          missingCredentials: [],
+          errors: [],
+        }),
+      );
+    },
     installBundlePackage: (payload: unknown) => {
       record('project.installBundlePackage', payload);
       return Promise.resolve(
@@ -512,6 +528,18 @@ const fakeElectron = {
           version: '0.1.0',
           bundleId: 'fake_bundle',
           bundleDir: '/tmp/bundles/fake_bundle',
+          runnerDirs: [],
+          runners: [],
+          readiness: {
+            ok: true,
+            requiredRunners: [],
+            installedRunners: [],
+            missingRunners: [],
+            versionMismatches: [],
+            requiredCredentials: [],
+            missingCredentials: [],
+            errors: [],
+          },
         }),
       );
     },

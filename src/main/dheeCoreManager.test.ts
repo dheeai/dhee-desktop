@@ -183,6 +183,7 @@ const baseSettings: AppSettings = {
     googleApiKey: '',
     geminiModel: 'gemini-2.5-flash',
   },
+  runnerCredentials: {},
 };
 
 beforeEach(() => {
@@ -212,6 +213,7 @@ beforeEach(() => {
   delete process.env['POSTHOG_API_KEY'];
   delete process.env['POSTHOG_HOST'];
   delete process.env['ANALYTICS_SALT'];
+  delete process.env['FAL_KEY'];
   for (const tier of ['HEAVY', 'MEDIUM', 'LIGHT']) {
     for (const k of ['PROVIDER', 'API_KEY', 'MODEL', 'BASE_URL']) {
       delete process.env[`LLM_TIER_${tier}_${k}`];
@@ -232,6 +234,16 @@ describe('dheeCoreManager', () => {
 
     expect(process.env['LLM_PROVIDER']).toBe('openai');
     expect(process.env['OPENAI_API_KEY']).toBe('sk-test');
+  });
+
+  it('start() forwards generic runner credentials to process.env', async () => {
+    const mgr = new dheeCoreManager();
+    await mgr.start({
+      ...baseSettings,
+      runnerCredentials: { FAL_KEY: 'fal-secret' },
+    });
+
+    expect(process.env['FAL_KEY']).toBe('fal-secret');
   });
 
   it('start() forwards PostHog runtime settings to embedded core', async () => {

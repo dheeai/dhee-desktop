@@ -19,8 +19,18 @@ export interface FetchLike {
 export interface InstallNpmBundleParams {
   packageSpec: string;
   targetBundlesDir: string;
+  targetRunnersDir?: string;
   registryUrl?: string;
   fetchImpl?: FetchLike;
+}
+
+export interface InstalledRunnerManifest {
+  tool: string;
+  version: string;
+  credentials: string[];
+  displayName?: string;
+  description?: string;
+  runnerDir: string;
 }
 
 export type InstallNpmBundleResult =
@@ -30,6 +40,8 @@ export type InstallNpmBundleResult =
       version: string;
       bundleId: string;
       bundleDir: string;
+      runnerDirs: string[];
+      runners: InstalledRunnerManifest[];
     }
   | { ok: false; error: string };
 
@@ -43,6 +55,7 @@ interface DheePackageMarker {
   type?: unknown;
   bundleId?: unknown;
   bundleDir?: unknown;
+  runnerDirs?: unknown;
 }
 
 interface TarEntry {
@@ -67,6 +80,15 @@ export function defaultUserBundlesDir(
   const configured = env.DHEE_USER_BUNDLES_DIR?.trim();
   if (configured) return configured;
   return path.join(homeDir, 'dhee-studios', 'bundles');
+}
+
+export function defaultUserRunnersDir(
+  homeDir: string,
+  env: EnvLike = process.env,
+): string {
+  const configured = env.DHEE_USER_RUNNERS_DIR?.trim();
+  if (configured) return configured;
+  return path.join(homeDir, 'dhee-studios', 'runners');
 }
 
 export async function installDheeBundleFromNpm(
@@ -135,6 +157,31 @@ export async function installDheeBundleFromNpm(
         error: `bundle.json id '${String(bundleJson.id)}' does not match package marker '${marker.bundleId}'.`,
       };
     }
+    const runnerPackages = marker.runnerDirs.map((runnerDir) => {
+      const runnerFiles = collectPackageFiles(entries, runnerDir);
+      const manifestEntry = runnerFiles.find(
+        (entry) => entry.path === 'runner.json',
+      );
+      if (!manifestEntry) {
+        throw new Error(
+          `Package marker points to runnerDir '${runnerDir}', but runner.json is missing.`,
+        );
+      }
+      return {
+        sourceDir: runnerDir,
+        installName: safeInstallDirName(runnerDir),
+        files: runnerFiles,
+        manifest: readInstalledRunnerManifest(manifestEntry.data, ''),
+      };
+    });
+
+    if (runnerPackages.length > 0 && !params.targetRunnersDir) {
+      return {
+        ok: false,
+        error:
+          'Package contains runnerDirs, but no target runner directory was configured.',
+      };
+    }
 
     const targetDir = path.join(params.targetBundlesDir, marker.bundleId);
     await fs.rm(targetDir, { recursive: true, force: true });
@@ -147,6 +194,31 @@ export async function installDheeBundleFromNpm(
         await fs.writeFile(dest, entry.data);
       }),
     );
+    const installedRunners: InstalledRunnerManifest[] = [];
+    const installedRunnerDirs: string[] = [];
+    if (params.targetRunnersDir) {
+      for (const runnerPackage of runnerPackages) {
+        const runnerTargetDir = path.join(
+          params.targetRunnersDir,
+          runnerPackage.installName,
+        );
+        await fs.rm(runnerTargetDir, { recursive: true, force: true });
+        await fs.mkdir(runnerTargetDir, { recursive: true });
+        await Promise.all(
+          runnerPackage.files.map(async (entry) => {
+            const dest = path.join(runnerTargetDir, entry.path);
+            assertInside(runnerTargetDir, dest);
+            await fs.mkdir(path.dirname(dest), { recursive: true });
+            await fs.writeFile(dest, entry.data);
+          }),
+        );
+        installedRunnerDirs.push(runnerTargetDir);
+        installedRunners.push({
+          ...runnerPackage.manifest,
+          runnerDir: runnerTargetDir,
+        });
+      }
+    }
 
     return {
       ok: true,
@@ -154,6 +226,8 @@ export async function installDheeBundleFromNpm(
       version,
       bundleId: marker.bundleId,
       bundleDir: targetDir,
+      runnerDirs: installedRunnerDirs,
+      runners: installedRunners,
     };
   } catch (error) {
     return {
@@ -271,6 +345,7 @@ function readPackageJson(entries: TarEntry[]): Record<string, unknown> {
 function validateDheeMarker(packageJson: Record<string, unknown>): {
   bundleId: string;
   bundleDir: string;
+  runnerDirs: string[];
 } {
   const marker = (packageJson as { dhee?: DheePackageMarker }).dhee;
   if (!marker || marker.type !== 'bundle') {
@@ -288,23 +363,60 @@ function validateDheeMarker(packageJson: Record<string, unknown>): {
       'Dhee bundle package is missing package.json.dhee.bundleDir.',
     );
   }
-  const bundleDir = marker.bundleDir
+  const bundleDir = normalizePackageSubdir(marker.bundleDir, 'bundleDir');
+  const runnerDirs = normalizeRunnerDirs(marker.runnerDirs);
+  return { bundleId: marker.bundleId, bundleDir, runnerDirs };
+}
+
+function normalizePackageSubdir(value: unknown, fieldName: string): string {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new Error(`Dhee bundle package is missing package.json.dhee.${fieldName}.`);
+  }
+  const normalized = value
     .replace(/\\/g, '/')
     .replace(/^\.\//, '')
     .replace(/\/+$/, '');
-  if (path.isAbsolute(bundleDir) || bundleDir.split('/').includes('..')) {
-    throw new Error(
-      `Invalid package.json.dhee.bundleDir '${marker.bundleDir}'.`,
-    );
+  if (
+    !normalized ||
+    path.isAbsolute(normalized) ||
+    normalized.split('/').includes('..')
+  ) {
+    throw new Error(`Invalid package.json.dhee.${fieldName} '${value}'.`);
   }
-  return { bundleId: marker.bundleId, bundleDir };
+  return normalized;
+}
+
+function normalizeRunnerDirs(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    throw new Error('package.json.dhee.runnerDirs must be an array when present.');
+  }
+  const out = value.map((entry, idx) =>
+    normalizePackageSubdir(entry, `runnerDirs[${idx}]`),
+  );
+  const seen = new Set<string>();
+  for (const dir of out) {
+    const name = safeInstallDirName(dir);
+    if (seen.has(name)) {
+      throw new Error(`Duplicate runner install directory '${name}'.`);
+    }
+    seen.add(name);
+  }
+  return out;
 }
 
 function collectBundleFiles(
   entries: TarEntry[],
   bundleDir: string,
 ): TarEntry[] {
-  const prefix = `${bundleDir}/`;
+  return collectPackageFiles(entries, bundleDir);
+}
+
+function collectPackageFiles(
+  entries: TarEntry[],
+  packageSubdir: string,
+): TarEntry[] {
+  const prefix = `${packageSubdir}/`;
   return entries
     .filter((entry) => entry.path.startsWith(prefix))
     .map((entry) => ({
@@ -314,6 +426,50 @@ function collectBundleFiles(
     .filter(
       (entry) => entry.path.length > 0 && !entry.path.split('/').includes('..'),
     );
+}
+
+function safeInstallDirName(packageSubdir: string): string {
+  const name = packageSubdir.split('/').filter(Boolean).pop() ?? '';
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) {
+    throw new Error(`Invalid runner directory name '${name}'.`);
+  }
+  return name;
+}
+
+function readInstalledRunnerManifest(
+  data: Buffer,
+  runnerDir: string,
+): InstalledRunnerManifest {
+  const parsed = JSON.parse(data.toString('utf8')) as {
+    tool?: unknown;
+    version?: unknown;
+    credentials?: unknown;
+    displayName?: unknown;
+    description?: unknown;
+  };
+  if (typeof parsed.tool !== 'string' || !parsed.tool.trim()) {
+    throw new Error('runner.json is missing tool.');
+  }
+  if (typeof parsed.version !== 'string' || !parsed.version.trim()) {
+    throw new Error(`runner.json for '${parsed.tool}' is missing version.`);
+  }
+  const credentials = Array.isArray(parsed.credentials)
+    ? parsed.credentials.filter(
+        (cred): cred is string => typeof cred === 'string' && cred.trim().length > 0,
+      )
+    : [];
+  return {
+    tool: parsed.tool.trim(),
+    version: parsed.version.trim(),
+    credentials,
+    ...(typeof parsed.displayName === 'string'
+      ? { displayName: parsed.displayName }
+      : {}),
+    ...(typeof parsed.description === 'string'
+      ? { description: parsed.description }
+      : {}),
+    runnerDir,
+  };
 }
 
 function assertInside(root: string, candidate: string): void {

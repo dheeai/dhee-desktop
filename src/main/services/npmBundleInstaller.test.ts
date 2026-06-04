@@ -146,4 +146,94 @@ describe('npm Dhee bundle installer', () => {
       'hook prompt',
     );
   });
+
+  it('extracts declared runner directories and returns their credential requirements', async () => {
+    const targetBundlesDir = mkdtempSync(
+      join(tmpdir(), 'dhee-desktop-bundles-'),
+    );
+    const targetRunnersDir = mkdtempSync(
+      join(tmpdir(), 'dhee-desktop-runners-'),
+    );
+    made.push(targetBundlesDir, targetRunnersDir);
+    const tarball = makeTarGz({
+      'package/package.json': JSON.stringify({
+        name: '@dhee_ai/fal-youtube-short-pack',
+        version: '0.1.0',
+        dhee: {
+          type: 'bundle',
+          bundleId: 'fal_youtube_short',
+          bundleDir: './bundle',
+          runnerDirs: ['./runners/fal-image'],
+        },
+      }),
+      'package/bundle/bundle.json': JSON.stringify({
+        id: 'fal_youtube_short',
+        version: '0.1.0',
+        displayName: 'Fal Short',
+        summary: 'Short-form video with fal.ai.',
+        dependencies: { runners: { 'fal.image': '>=0.1.0' } },
+        goal: 'final_video',
+        nodes: [],
+      }),
+      'package/runners/fal-image/runner.json': JSON.stringify({
+        tool: 'fal.image',
+        version: '0.1.0',
+        engineCompat: '>=0.1.0',
+        credentials: ['FAL_KEY'],
+        displayName: 'fal.ai image',
+        entry: 'dist/index.js',
+      }),
+      'package/runners/fal-image/dist/index.js': 'export const runner = {};',
+    });
+
+    const fetchImpl = jest.fn(async (url: string) => {
+      if (url === 'https://registry.test/@dhee_ai%2ffal-youtube-short-pack') {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            name: '@dhee_ai/fal-youtube-short-pack',
+            'dist-tags': { latest: '0.1.0' },
+            versions: {
+              '0.1.0': {
+                dist: { tarball: 'https://registry.test/fal-pack.tgz' },
+              },
+            },
+          }),
+        };
+      }
+      if (url === 'https://registry.test/fal-pack.tgz') {
+        return {
+          ok: true,
+          status: 200,
+          arrayBuffer: async () => asArrayBuffer(tarball),
+        };
+      }
+      return { ok: false, status: 404 };
+    });
+
+    const result = await installDheeBundleFromNpm({
+      packageSpec: '@dhee_ai/fal-youtube-short-pack',
+      registryUrl: 'https://registry.test',
+      targetBundlesDir,
+      targetRunnersDir,
+      fetchImpl,
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      bundleId: 'fal_youtube_short',
+      runners: [
+        {
+          tool: 'fal.image',
+          version: '0.1.0',
+          credentials: ['FAL_KEY'],
+          displayName: 'fal.ai image',
+        },
+      ],
+    });
+    const runnerDir = join(targetRunnersDir, 'fal-image');
+    expect(statSync(join(runnerDir, 'runner.json')).isFile()).toBe(true);
+    expect(statSync(join(runnerDir, 'dist/index.js')).isFile()).toBe(true);
+  });
 });

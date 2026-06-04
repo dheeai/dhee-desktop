@@ -519,6 +519,8 @@ function clearRoutingAndTierEnv(): void {
   }
 }
 
+const runnerCredentialEnvOwned = new Set<string>();
+
 function clearCloudProxyEnv(): void {
   const wasUsingDesktopCloudProxy = process.env.dhee_CLOUD === 'true';
   delete process.env.dhee_CLOUD;
@@ -555,6 +557,10 @@ export function applyEnvFromSettings(
 
   clearCloudProxyEnv();
   clearRoutingAndTierEnv();
+  for (const key of runnerCredentialEnvOwned) {
+    delete process.env[key];
+  }
+  runnerCredentialEnvOwned.clear();
 
   const cloudToken = cloudAuth?.desktopToken.trim();
   const cloudWebsiteUrl = cloudAuth?.websiteUrl.trim().replace(/\/$/, '');
@@ -684,6 +690,18 @@ export function applyEnvFromSettings(
   setIfPresent('OPENROUTER_API_KEY', settings.openRouterApiKey);
   setIfPresent('GEMINI_API_KEY', settings.googleApiKey);
   setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
+
+  // External runner credentials. Keys are env-var names declared by
+  // runner.json credentials[] (e.g. FAL_KEY). Values are encrypted in
+  // AppSettings and only projected into process.env for runner discovery
+  // / execution.
+  for (const [key, value] of Object.entries(settings.runnerCredentials ?? {})) {
+    if (!/^[A-Z_][A-Z0-9_]*$/.test(key)) continue;
+    const trimmed = typeof value === 'string' ? value.trim() : '';
+    if (!trimmed) continue;
+    process.env[key] = trimmed;
+    runnerCredentialEnvOwned.add(key);
+  }
 
   // VLM (vision judge) env wiring:
   //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
@@ -1155,14 +1173,15 @@ export class dheeCoreManager {
       process.env.dhee_PROJECTS_DIR = devEnv.projectsDir;
     }
 
-    // Externalized bundle resolution. kshana-core's bundleSource.ts
+    // Externalized bundle resolution. dhee-core's bundleSource.ts
     // searches roots in precedence order: USER → APP → ~/.kshana →
     // <dev-source>. Set the two env vars so a packaged build (and
-    // dev launches) find the right bundles without code changes.
+    // dev launches) find the right bundles without code changes. Runner
+    // roots follow the same app/user split for bundle+runner packs.
     //
     //   APP  = first-party defaults shipped inside the .app, lifted
     //          via electron-builder extraResources from
-    //          kshana-core/dist/bundles → <app>/Resources/bundles.
+    //          dhee-core/dist/bundles → <app>/Resources/bundles.
     //          In dev there is no `process.resourcesPath/bundles`
     //          yet, so we point at the source tree's dist/bundles
     //          (still produced by `pnpm tsup`).
@@ -1177,19 +1196,32 @@ export class dheeCoreManager {
         process.env.DHEE_APP_BUNDLES_DIR = appBundles;
       } else {
         // Dev fallback — `pnpm tsup` writes dist/bundles in the
-        // sibling kshana-core source tree. `__dirname` here is
+        // sibling dhee-core source tree. `__dirname` here is
         // dhee-desktop/src/main; walk up to the workspace root.
         const devAppBundles = path.resolve(
           __dirname,
-          '..', '..', '..', 'kshana-core', 'dist', 'bundles',
+          '..', '..', '..', 'dhee-core', 'dist', 'bundles',
         );
         if (fsExistsSync(devAppBundles)) {
           process.env.DHEE_APP_BUNDLES_DIR = devAppBundles;
         }
       }
+      const appRunners = path.join(process.resourcesPath, 'runners');
+      if (fsExistsSync(appRunners)) {
+        process.env.DHEE_APP_RUNNERS_DIR = appRunners;
+      } else {
+        const devAppRunners = path.resolve(
+          __dirname,
+          '..', '..', '..', 'dhee-core', 'dist', 'runners',
+        );
+        if (fsExistsSync(devAppRunners)) {
+          process.env.DHEE_APP_RUNNERS_DIR = devAppRunners;
+        }
+      }
       if (devEnv?.projectsDir) {
         // `<studiosDir>/bundles` — sibling of project directories.
         process.env.DHEE_USER_BUNDLES_DIR = path.join(devEnv.projectsDir, 'bundles');
+        process.env.DHEE_USER_RUNNERS_DIR = path.join(devEnv.projectsDir, 'runners');
       }
     } catch {
       // best-effort; bundleSource still falls through to its source-tree

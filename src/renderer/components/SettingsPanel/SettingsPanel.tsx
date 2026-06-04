@@ -96,6 +96,7 @@ const emptySettings: AppSettings = {
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...emptyTierConfig },
   llmTierLight: { ...emptyTierConfig },
+  runnerCredentials: {},
 };
 
 function withV1Suffix(url: string): string {
