@@ -1,0 +1,66 @@
+@import '../../../styles/tokens';
+@import '../../../styles/mixins';
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.label {
+  font-size: $font-size-sm;
+  color: $color-text-secondary;
+}
+
+.optional {
+  color: $color-text-muted;
+  font-weight: $font-weight-normal;
+}
+
+.hint {
+  font-size: $font-size-xs;
+  color: $color-text-muted;
+}
+
+.error {
+  font-size: $font-size-xs;
+  color: $color-error;
+}
+
+.control {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: $color-text-primary;
+  background: $color-bg-panel-inset;
+  border: 1px solid $color-border-strong;
+  border-radius: $radius-sm;
+  padding: 10px $spacing-md;
+  transition: border-color $transition-fast, box-shadow $transition-fast;
+
+  &:focus {
+    outline: none;
+    border-color: $color-accent-primary;
+    box-shadow: $shadow-focus;
+  }
+
+  &::placeholder {
+    color: $color-text-muted;
+  }
+}
+
+.mono {
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
+}
+
+.textarea {
+  resize: vertical;
+  min-height: 80px;
+  line-height: $line-height-normal;
+}
+
+.select {
+  appearance: none;
+  cursor: pointer;
+}

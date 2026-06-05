@@ -1,0 +1,75 @@
+@import '../../../styles/tokens';
+@import '../../../styles/mixins';
+
+.btn {
+  @include button-base;
+  font-weight: $font-weight-semibold;
+}
+
+.primary {
+  background-color: $color-accent-primary;
+  color: var(--color-accent-primary-contrast, #ffffff);
+
+  &:hover:not(:disabled) {
+    background-color: $color-accent-primary-hover;
+    box-shadow: $shadow-sm;
+  }
+}
+
+.secondary {
+  background-color: rgba(var(--color-text-primary-rgb), 0.02);
+  color: $color-text-secondary;
+  border: 1px solid $color-border-subtle;
+
+  &:hover:not(:disabled) {
+    background-color: rgba(var(--color-text-primary-rgb), 0.06);
+    color: $color-text-primary;
+    border-color: $color-border-strong;
+  }
+}
+
+.ghost {
+  background-color: transparent;
+  color: $color-text-secondary;
+  border: 1px solid transparent;
+
+  &:hover:not(:disabled) {
+    background-color: rgba(var(--color-text-primary-rgb), 0.06);
+    color: $color-text-primary;
+    border-color: rgba(var(--color-border-strong-rgb), 0.8);
+  }
+}
+
+.danger {
+  background-color: $color-error;
+  color: var(--color-accent-primary-contrast, #ffffff);
+
+  &:hover:not(:disabled) {
+    filter: brightness(1.08);
+  }
+}
+
+/* amber live/active semantic */
+.recording {
+  background-color: var(--color-accent-recording-soft);
+  color: $color-accent-recording;
+  border: 1px solid $color-accent-recording;
+
+  &:hover:not(:disabled) {
+    background-color: rgba(var(--color-accent-recording-rgb), 0.22);
+  }
+}
+
+/* modifiers — after variants so they win the cascade */
+.sm {
+  padding: $spacing-xs $spacing-md;
+  font-size: $font-size-sm;
+}
+.iconOnly {
+  padding: 0;
+  width: 32px;
+  height: 32px;
+}
+.pill {
+  border-radius: $radius-full;
+}
