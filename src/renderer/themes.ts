@@ -9,6 +9,12 @@ export interface DesktopThemeOption {
 
 export const DESKTOP_THEMES: DesktopThemeOption[] = [
   {
+    id: 'cinematic',
+    name: 'Cinematic',
+    description: 'Warm near-black film-stock surfaces with a cool slate accent.',
+    swatches: ['#0a0908', '#221d18', '#6f93b8'],
+  },
+  {
     id: 'studio-neutral',
     name: 'Studio Neutral',
     description: 'Neutral charcoal with muted blue accents.',
@@ -40,7 +46,7 @@ export const DESKTOP_THEMES: DesktopThemeOption[] = [
   },
 ];
 
-export const DEFAULT_THEME_ID: ThemeId = 'studio-neutral';
+export const DEFAULT_THEME_ID: ThemeId = 'cinematic';
 
 export function isLightTheme(themeId: ThemeId): boolean {
   return themeId === 'paper-light';

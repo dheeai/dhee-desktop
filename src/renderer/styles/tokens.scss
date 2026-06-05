@@ -34,16 +34,28 @@ $color-accent-green: var(--color-accent-green);
 $color-accent-cyan: var(--color-accent-cyan);
 $color-accent-blue: var(--color-accent-blue);
 
-// Status Colors
+// Status Colors (provider connection)
 $color-status-connected: var(--color-status-connected);
 $color-status-disconnected: var(--color-status-disconnected);
 $color-status-connecting: var(--color-status-connecting);
+
+// Node / run status palette (graph · chat · status strip)
+$color-status-completed: var(--color-status-completed);
+$color-status-running: var(--color-status-running);
+$color-status-failed: var(--color-status-failed);
+$color-status-invalidated: var(--color-status-invalidated);
+$color-status-pending: var(--color-status-pending);
+
+// Recording / live / active semantic (amber, constant across themes)
+$color-accent-recording: var(--color-accent-recording);
 
 // Typography
 $font-family-base: 'SF Pro Display', 'Inter', 'Segoe UI Variable',
   'Segoe UI', system-ui, sans-serif;
 $font-family-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
   monospace;
+// Display face for headings (Instrument Serif) — single source app-wide.
+$font-display: var(--font-display);
 
 $font-size-xs: 11px;
 $font-size-sm: 12px;

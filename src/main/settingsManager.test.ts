@@ -33,9 +33,13 @@ const baseSettings = {
 };
 
 describe('settingsManager theme normalization', () => {
-  it('defaults invalid theme ids to studio-neutral', () => {
+  it('defaults invalid theme ids to the default theme', () => {
     expect(normalizeThemeId('nordic-night')).toBe(DEFAULT_THEME_ID);
     expect(normalizeThemeId(undefined)).toBe(DEFAULT_THEME_ID);
+  });
+
+  it('accepts the cinematic theme', () => {
+    expect(normalizeThemeId('cinematic')).toBe('cinematic');
   });
 
   it('preserves a valid theme and migrates missing theme ids', () => {
