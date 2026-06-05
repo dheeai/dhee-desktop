@@ -1,0 +1,354 @@
+// FirstRunSetup — full-screen first-run flow. Uses the global
+// studio-neutral CSS custom properties for theming.
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: var(--color-bg-app);
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+}
+
+.frame {
+  width: 100%;
+  max-width: 860px;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text-primary);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 32px;
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.wordmark {
+  font-family: var(--font-brand, 'Instrument Serif', Georgia, serif);
+  font-style: italic;
+  font-size: 20px;
+}
+
+.kicker {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.skip {
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+
+  &:hover {
+    color: var(--color-text-secondary);
+    background: rgba(255, 255, 255, 0.04);
+  }
+}
+
+.progress {
+  height: 2px;
+  background: var(--color-border-subtle);
+
+  i {
+    display: block;
+    height: 100%;
+    background: var(--color-accent-primary);
+    transition: width 0.4s ease;
+  }
+}
+
+.body {
+  flex: 1;
+  overflow: auto;
+  padding: 48px 32px;
+}
+
+.title {
+  font-family: var(--font-brand, 'Instrument Serif', Georgia, serif);
+  font-weight: 400;
+  font-size: 40px;
+  line-height: 1.05;
+  margin: 0 0 10px;
+}
+
+.lede {
+  font-size: 15px;
+  color: var(--color-text-secondary);
+  margin: 0 0 30px;
+  max-width: 540px;
+}
+
+.recipes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+}
+
+.recipe {
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 18px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-panel-elevated);
+  transition: 0.18s;
+
+  &:hover {
+    border-color: var(--color-accent-primary);
+    transform: translateY(-2px);
+  }
+}
+
+.recipeSel {
+  border-color: var(--color-accent-primary);
+  box-shadow: var(--shadow-focus);
+}
+
+.recipeIcon {
+  font-size: 22px;
+}
+.recipeTitle {
+  font-size: 16px;
+  font-weight: 600;
+}
+.recipeBlurb {
+  font-size: 12.5px;
+  color: var(--color-text-muted);
+  min-height: 48px;
+}
+.recipeEta {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--color-accent-primary);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 10px;
+}
+
+.panel {
+  background: var(--color-bg-panel-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 14px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 560px;
+}
+
+.seg {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.segBtn {
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-bg-panel-inset);
+  color: var(--color-text-secondary);
+
+  &:hover {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent-primary);
+  }
+}
+
+.segSel {
+  background: rgba(95, 136, 178, 0.16);
+  border-color: var(--color-accent-primary);
+  color: var(--color-text-primary);
+}
+
+.segTag {
+  font-family: var(--font-mono, monospace);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.fieldLabel {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.input {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 10px 12px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent-primary);
+    box-shadow: var(--shadow-focus);
+  }
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+
+  .input {
+    flex: 1;
+  }
+}
+
+.acct {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.avatar {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  color: #0c0e11;
+  background: var(--color-accent-primary);
+}
+
+.muted {
+  font-size: 12px;
+  color: var(--color-text-muted);
+
+  code {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    background: var(--color-bg-panel-inset);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--color-accent-primary);
+  }
+}
+
+.probeOk {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--color-success);
+}
+
+.probeErr {
+  font-size: 12.5px;
+  color: var(--color-error);
+  line-height: 1.55;
+}
+
+.lightRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  padding: 7px 0;
+}
+
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  flex: 0 0 auto;
+}
+.ready {
+  background: var(--color-success);
+  box-shadow: 0 0 10px var(--color-success);
+}
+.warning {
+  background: var(--color-warning);
+}
+.error {
+  background: var(--color-error);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 32px;
+  border-top: 1px solid var(--color-border-subtle);
+
+  .ghost {
+    margin-right: auto;
+  }
+}
+
+.primary {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  color: #0c0e11;
+  background: var(--color-accent-primary);
+  border: 0;
+  border-radius: 6px;
+  padding: 11px 22px;
+
+  &:hover:not(:disabled) {
+    background: var(--color-accent-primary-hover);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
+
+.ghost {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 10px 18px;
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent-primary);
+  }
+  &:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+}
