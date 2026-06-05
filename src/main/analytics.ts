@@ -171,6 +171,46 @@ export function resetDesktopAnalyticsIdentity(manager: dheeCoreManager): void {
   manager.setAnalyticsIdentity({ installId });
 }
 
+let cloudUsageUnsub: (() => void) | null = null;
+let cloudUsageUserId: string | null = null;
+
+/**
+ * Enable/disable per-user CLOUD LLM usage analytics to match the current
+ * account + backend (issue #102). Forwards LLM token usage to PostHog
+ * ONLY for cloud-billed accounts; for local / BYO-key accounts
+ * (`cloudLlmBilled === false`) it tears any prior forwarder down so
+ * nothing leaves the machine. Idempotent — it re-registers only when the
+ * active user changes or activation flips — so it's safe to call on every
+ * sign-in / sign-out / backend change. (dhee-core loads once and keeps
+ * its listener registry across embedded restarts, so dedup-by-user is
+ * correct here.)
+ */
+export function syncCloudUsageAnalytics(
+  manager: dheeCoreManager,
+  input: { cloudLlmBilled: boolean; userId?: string | null },
+): void {
+  const wantUserId = input.cloudLlmBilled && input.userId ? input.userId : null;
+  if (wantUserId === cloudUsageUserId) {
+    return;
+  }
+  if (cloudUsageUnsub) {
+    try {
+      cloudUsageUnsub();
+    } catch {
+      // unsubscribe must never throw upward
+    }
+    cloudUsageUnsub = null;
+  }
+  cloudUsageUserId = wantUserId;
+  if (wantUserId) {
+    const installId = activeInstallId ?? getOrCreateInstallId();
+    cloudUsageUnsub = manager.enableCloudUsageAnalytics({
+      userId: wantUserId,
+      installId,
+    });
+  }
+}
+
 export function stopDesktopAnalytics(
   manager: dheeCoreManager,
   options: { flush?: boolean } = {},

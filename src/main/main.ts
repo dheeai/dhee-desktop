@@ -69,6 +69,7 @@ import {
   resetDesktopAnalyticsIdentity,
   startDesktopAnalytics,
   stopDesktopAnalytics,
+  syncCloudUsageAnalytics,
 } from './analytics';
 import {
   applyRuntimeAnalyticsConfig as applyRuntimeAnalyticsConfigFromFile,
@@ -200,6 +201,29 @@ async function getCloudAuthRuntime(settings: AppSettings) {
     websiteUrl: await resolvedheeWebsiteUrl(),
     desktopToken: account.token,
   };
+}
+
+/**
+ * Identity for per-user cloud LLM usage analytics (issue #102). Present
+ * only when the LLM lane is cloud-billed — `llmBackend === 'cloud'` AND a
+ * valid cloud account is signed in. Local / BYO-key accounts return
+ * `cloudLlmBilled: false`, so their LLM usage is never forwarded. (Gated
+ * on the LLM lane specifically: if a user runs LLM locally but ComfyUI on
+ * cloud, their LLM tokens aren't cloud-billed, so we don't forward them.)
+ */
+function cloudLlmUsageIdentity(settings: AppSettings): {
+  cloudLlmBilled: boolean;
+  userId?: string;
+} {
+  const account = getAccount();
+  const billed =
+    settings.llmBackend === 'cloud' &&
+    !!account?.token &&
+    !!parseDesktopAuthToken(account.token) &&
+    !!account.userId;
+  return billed && account
+    ? { cloudLlmBilled: true, userId: account.userId }
+    : { cloudLlmBilled: false };
 }
 
 function broadcastAccountChanged(): void {
@@ -353,6 +377,9 @@ ipcMain.handle(
         updated,
         await getCloudAuthRuntime(updated),
       );
+      // Backend may have toggled cloud↔local — re-sync cloud usage
+      // analytics so it follows the LLM lane.
+      syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(updated));
       if (mainWindow) {
         registerdheeIpcBridge(dheeCoreManager, mainWindow);
       }
@@ -3428,6 +3455,9 @@ const bootstrapBackend = async () => {
       manager: dheeCoreManager,
       account: getAccount(),
     });
+    // Forward per-user LLM usage to PostHog when this launch is a
+    // cloud-billed account; no-op (and tears down) for local accounts.
+    syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(getSettings()));
     if (mainWindow) {
       registerdheeIpcBridge(dheeCoreManager, mainWindow);
       log.info('[EmbeddedDhee] IPC bridge registered');
@@ -3487,6 +3517,9 @@ async function restartEmbeddedAfterAccountChange(
       settings,
       await getCloudAuthRuntime(settings),
     );
+    // Account changed (sign-in / sign-out) — re-sync cloud usage analytics
+    // to the new account + backend.
+    syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(settings));
     if (mainWindow) {
       registerdheeIpcBridge(dheeCoreManager, mainWindow);
     }

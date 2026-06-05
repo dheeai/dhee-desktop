@@ -35,6 +35,7 @@ type ManagerMock = {
   flushAnalytics: jest.Mock;
   identifyAnalyticsUser: jest.Mock;
   setAnalyticsIdentity: jest.Mock;
+  enableCloudUsageAnalytics: jest.Mock;
 };
 
 function createManager(): ManagerMock {
@@ -44,6 +45,8 @@ function createManager(): ManagerMock {
     flushAnalytics: jest.fn(async () => undefined),
     identifyAnalyticsUser: jest.fn(),
     setAnalyticsIdentity: jest.fn(),
+    // Each call returns a fresh unsubscribe mock (so teardown is assertable).
+    enableCloudUsageAnalytics: jest.fn(() => jest.fn()),
   };
 }
 
@@ -232,6 +235,96 @@ describe('desktop analytics', () => {
     expect(properties).not.toHaveProperty('project_directory');
     expect(properties).not.toHaveProperty('project_dir');
     expect(properties).not.toHaveProperty('workspace_path');
+  });
+
+  it('enables per-user cloud usage forwarding only for a cloud-billed account', async () => {
+    mockStoreData.installId = 'install-x';
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+      userId: 'cloud-user',
+    });
+
+    expect(manager.enableCloudUsageAnalytics).toHaveBeenCalledTimes(1);
+    expect(manager.enableCloudUsageAnalytics).toHaveBeenCalledWith({
+      userId: 'cloud-user',
+      installId: 'install-x',
+    });
+  });
+
+  it('never enables forwarding for a local / BYO-key account', async () => {
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: false,
+    });
+    // cloud lane true but no signed-in user → still nothing forwarded
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+    });
+
+    expect(manager.enableCloudUsageAnalytics).not.toHaveBeenCalled();
+  });
+
+  it('registers once for a stable user (idempotent across restarts)', async () => {
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+      userId: 'u1',
+    });
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+      userId: 'u1',
+    });
+
+    expect(manager.enableCloudUsageAnalytics).toHaveBeenCalledTimes(1);
+  });
+
+  it('tears the forwarder down when the account goes local (sign-out / switch)', async () => {
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+      userId: 'u1',
+    });
+    const unsubscribe = manager.enableCloudUsageAnalytics.mock.results[0]
+      ?.value as jest.Mock;
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: false,
+    });
+
+    expect(unsubscribe).toHaveBeenCalledTimes(1);
+  });
+
+  it('unsubscribes the old user and re-registers on an account switch', async () => {
+    const analytics = await loadAnalytics();
+    const manager = createManager();
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+      userId: 'u1',
+    });
+    const firstUnsub = manager.enableCloudUsageAnalytics.mock.results[0]
+      ?.value as jest.Mock;
+
+    analytics.syncCloudUsageAnalytics(manager as unknown as dheeCoreManager, {
+      cloudLlmBilled: true,
+      userId: 'u2',
+    });
+
+    expect(firstUnsub).toHaveBeenCalledTimes(1);
+    expect(manager.enableCloudUsageAnalytics).toHaveBeenCalledTimes(2);
+    expect(manager.enableCloudUsageAnalytics).toHaveBeenLastCalledWith({
+      userId: 'u2',
+      installId: expect.any(String),
+    });
   });
 
   it('can defer the final flush until core shutdown has queued session-ended events', async () => {

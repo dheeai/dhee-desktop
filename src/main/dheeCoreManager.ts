@@ -116,6 +116,14 @@ type ManagerModule = {
   ) => void;
   isPostHogEnabled?: () => boolean;
   setAnalyticsIdentity?: (identity: AnalyticsIdentity) => void;
+  /**
+   * Per-user LLM usage forwarding for CLOUD-BILLED accounts (issue #102).
+   * Returns an unsubscribe. Optional so an older bundle without the export
+   * doesn't crash the facade.
+   */
+  enableCloudUsageAnalytics?: (
+    identity: { userId: string } & AnalyticsIdentity,
+  ) => () => void;
   shutdownPostHog?: () => Promise<void>;
   /**
    * Optional in tests where the loader injects a stub. In production
@@ -1448,6 +1456,31 @@ export class dheeCoreManager {
 
   isAnalyticsEnabled(): boolean {
     return this.managerModule?.isPostHogEnabled?.() === true;
+  }
+
+  /**
+   * Turn on per-user LLM usage analytics for a CLOUD-BILLED account. The
+   * main process calls this ONLY when the LLM lane is cloud + a valid
+   * account is signed in — never for local / BYO-key accounts. Returns an
+   * unsubscribe (call on sign-out / switch-to-local), or null if the
+   * loaded bundle predates the export.
+   */
+  enableCloudUsageAnalytics(identity: {
+    userId: string;
+    installId?: string;
+  }): (() => void) | null {
+    const fn = this.managerModule?.enableCloudUsageAnalytics;
+    if (!fn) return null;
+    try {
+      return (
+        fn({
+          userId: identity.userId,
+          ...(identity.installId ? { installId: identity.installId } : {}),
+        }) ?? null
+      );
+    } catch {
+      return null;
+    }
   }
 
   async flushAnalytics(): Promise<void> {
