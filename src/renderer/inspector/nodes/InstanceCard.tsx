@@ -31,13 +31,14 @@ function keyOf(nodeId: string, itemId: string | undefined): string {
 }
 
 function statusColor(status: string): string {
+  // One status palette (re-themes via --color-status-*).
   switch (status) {
-    case 'completed':   return '#6d8f7a';
-    case 'in_progress': return '#907b58';
-    case 'failed':      return '#a56d6f';
-    case 'invalidated': return '#a9b0ba';
+    case 'completed':   return 'var(--color-status-completed)';
+    case 'in_progress': return 'var(--color-status-running)';
+    case 'failed':      return 'var(--color-status-failed)';
+    case 'invalidated': return 'var(--color-status-invalidated)';
     case 'pending':
-    default:            return '#7d848e';
+    default:            return 'var(--color-status-pending)';
   }
 }
 
@@ -99,10 +100,10 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
       style={{
         width: CARD_W,
         height: CARD_H,
-        background: '#161821',
+        background: 'var(--color-bg-panel-elevated)',
         border: `${borderWidth}px solid ${borderColor}`,
         borderRadius: 10,
-        color: '#e5e1d8',
+        color: 'var(--color-text-primary)',
         fontFamily: 'system-ui, -apple-system, sans-serif',
         fontSize: 12,
         opacity,
@@ -119,8 +120,8 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
       <div
         style={{
           padding: '8px 12px',
-          background: 'rgba(95, 136, 178, 0.08)',
-          borderBottom: '1px solid rgba(168, 156, 139, 0.12)',
+          background: 'var(--color-accent-primary-soft)',
+          borderBottom: '1px solid var(--color-border-subtle)',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
@@ -132,7 +133,7 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
             style={{
               fontWeight: 600,
               fontSize: 11,
-              color: '#a9b0ba',
+              color: 'var(--color-text-secondary)',
               letterSpacing: 0.4,
               textTransform: 'uppercase',
               overflow: 'hidden',
@@ -147,7 +148,7 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
               style={{
                 fontFamily: 'ui-monospace, Menlo, monospace',
                 fontSize: 10,
-                color: 'rgba(229, 225, 216, 0.65)',
+                color: 'var(--color-text-muted)',
                 marginTop: 2,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -161,7 +162,7 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
         <span
           style={{
             background: statusColor(status),
-            color: '#161821',
+            color: 'var(--color-bg-app)',
             padding: '2px 7px',
             borderRadius: 4,
             fontSize: 9,
@@ -201,10 +202,10 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
           style={{
             padding: '4px 12px',
             fontSize: 9,
-            color: 'rgba(229, 225, 216, 0.45)',
+            color: 'var(--color-text-muted)',
             display: 'flex',
             gap: 8,
-            borderTop: '1px solid rgba(168, 156, 139, 0.08)',
+            borderTop: '1px solid var(--color-border-subtle)',
             flexShrink: 0,
           }}
         >
