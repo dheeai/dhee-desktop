@@ -133,8 +133,11 @@
 .title {
   margin: 0;
   color: $color-text-primary;
-  font-size: $font-size-lg;
-  font-weight: $font-weight-semibold;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 400;
+  font-variation-settings: 'opsz' 36, 'SOFT' 50;
+  letter-spacing: -0.005em;
   @include truncate;
 }
 

@@ -50,15 +50,14 @@
 }
 
 .brandTitle {
-  // Wordmark font — Instrument Serif italic. Distinct from the SF Pro
-  // body stack so the brand reads as a brand, not a UI label.
-  // Fallback chain covers offline launches and CSP blocks.
+  // Wordmark — Fraunces italic (the display face), matching New Project.
   margin: 0;
   color: $color-text-primary;
-  font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  font-family: var(--font-display);
   font-style: italic;
-  font-size: 26px;
+  font-size: 25px;
   font-weight: 400;
+  font-variation-settings: 'opsz' 40, 'SOFT' 40;
   line-height: 1;
   letter-spacing: 0.005em;
   white-space: nowrap;
@@ -80,8 +79,11 @@
   background: rgba(var(--color-bg-panel-soft-rgb), 0.35);
   border: 1px solid rgba(var(--color-border-strong-rgb), 0.25);
   color: $color-text-secondary;
-  font-size: 11px;
+  font-family: var(--font-mono);
+  font-size: 10px;
   font-weight: $font-weight-medium;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   line-height: 1;
   white-space: nowrap;
   -webkit-app-region: no-drag;
@@ -147,11 +149,13 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 11px;
+  padding: 7px 12px;
   border-radius: $radius-sm;
-  font-size: 12px;
-  font-weight: $font-weight-medium;
-  font-family: inherit;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: $font-weight-semibold;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   line-height: 1;
   cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
@@ -219,9 +223,12 @@
   border-radius: $radius-sm;
   border: 1px solid transparent;
   background: $color-accent-primary;
-  color: $color-bg-panel;
-  font-size: 12px;
-  font-weight: $font-weight-bold;
+  color: $color-bg-app;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: $font-weight-semibold;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   line-height: 1;
   cursor: pointer;
   white-space: nowrap;
@@ -344,9 +351,12 @@
 .brandTitle {
   margin: 0;
   color: $color-text-primary;
-  font-size: $font-size-lg;
-  font-weight: $font-weight-bold;
-  line-height: $line-height-tight;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 25px;
+  font-weight: 400;
+  font-variation-settings: 'opsz' 40, 'SOFT' 40;
+  line-height: 1;
   white-space: nowrap;
 }
 
@@ -579,8 +589,11 @@
   display: inline-flex;
   align-items: center;
   color: $color-text-primary;
-  font-size: $font-size-xl;
-  font-weight: $font-weight-semibold;
+  font-family: var(--font-display);
+  font-size: 30px;
+  font-weight: 400;
+  font-variation-settings: 'opsz' 60, 'SOFT' 60;
+  letter-spacing: -0.01em;
 }
 // .projectsGrid lives near the top of the file with the new responsive
 // breakpoints (4 / 3 / 2 / 1). The old auto-fill version was removed.
@@ -688,13 +701,13 @@
 }
 
 .emptyStateTitle {
-  // Matches the brand wordmark font so the empty state has the same
-  // editorial voice as the top bar.
+  // Editorial voice — Fraunces, matching New Project + the wordmark.
   margin: 0;
   color: $color-text-primary;
-  font-family: 'Instrument Serif', Georgia, 'Times New Roman', serif;
+  font-family: var(--font-display);
   font-style: italic;
-  font-size: 32px;
+  font-variation-settings: 'opsz' 144, 'SOFT' 100;
+  font-size: 36px;
   font-weight: 400;
   letter-spacing: 0;
   line-height: 1.1;
