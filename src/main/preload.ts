@@ -18,6 +18,10 @@ import type {
   EnrichedBundleFit,
   ResolvePatch,
   BundleResolution,
+  BundleInstallSource,
+  BundleInstallResult,
+  ApiWorkflowValidation,
+  ParameterMapping,
 } from '../shared/bundleConfigTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
@@ -834,6 +838,15 @@ const bundleConfigBridge = {
   },
   resolution(bundleId: string, endpoint: string): Promise<BundleResolution | null> {
     return ipcRenderer.invoke('bundle:resolution', { bundleId, endpoint });
+  },
+  install(source: BundleInstallSource): Promise<BundleInstallResult> {
+    return ipcRenderer.invoke('bundle:install', { source });
+  },
+  validateWorkflow(json: string): Promise<ApiWorkflowValidation> {
+    return ipcRenderer.invoke('workflow:validate', { json });
+  },
+  suggestMap(json: string): Promise<ParameterMapping[]> {
+    return ipcRenderer.invoke('workflow:suggest-map', { json });
   },
 };
 

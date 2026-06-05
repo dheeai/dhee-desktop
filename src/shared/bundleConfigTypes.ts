@@ -87,6 +87,26 @@ export interface ResolvePatch {
   class_swaps?: Record<string, Record<string, string>>;
 }
 
+/** Where a community bundle is installed from (bundle:install). */
+export type BundleInstallSource =
+  | { kind: 'folder'; path: string }
+  | { kind: 'zip'; path: string }
+  | { kind: 'git'; url: string; ref?: string };
+
+export type BundleInstallResult =
+  | { ok: true; bundleId: string; dir: string }
+  | { ok: false; error: string };
+
+/** BYO-workflow validation (workflow:validate). */
+export type ApiWorkflowValidation = { ok: true } | { ok: false; reason: 'ui_format' | 'invalid' };
+
+/** A suggested pipeline-input → node/field mapping (workflow:suggest-map). */
+export interface ParameterMapping {
+  input: string;
+  nodeId: string;
+  field: string;
+}
+
 /** Result of probing a ComfyUI endpoint (comfy:probe). */
 export type ComfyProbeResult =
   | {
