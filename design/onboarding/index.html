@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dhee Studio · Setup & Bundle Configurator (prototype)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* ============================================================
+   Dhee Studio — First-Run Setup + reusable Bundle Configurator.
+   Aesthetic: cinematic control-room "pre-flight before the shoot".
+   Tokens mirror dhee-desktop studio-neutral so this reads as a
+   real feature. ONE configurator component, THREE mount contexts:
+   first-run · community install · bring-your-own workflow.
+   ============================================================ */
+:root{
+  --bg-app:#121416; --bg-panel:#181b1f; --bg-elev:#1f2329; --bg-soft:#2a2f37; --bg-inset:#0d0f12;
+  --text:#d4d7dc; --text-2:#a9b0ba; --text-muted:#7d848e;
+  --accent:#5f88b2; --accent-hi:#6d95be; --accent-soft:rgba(95,136,178,.16);
+  --border:#262a30; --border-strong:#323840;
+  --ok:#6d8f7a; --ok-hi:#86b39a; --warn:#b08a52; --err:#b07577;
+  --focus:0 0 0 3px rgba(95,136,178,.24);
+  --sh-md:0 14px 30px rgba(0,0,0,.34); --sh-lg:0 26px 60px rgba(0,0,0,.46);
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-xl:18px;
+  --mono:'JetBrains Mono','SF Mono',Consolas,monospace;
+  --serif:'Instrument Serif',Georgia,serif;
+  --sans:'Inter','SF Pro Display','Segoe UI Variable',system-ui,sans-serif;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;font-family:var(--sans);color:var(--text);background:var(--bg-app);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(120% 90% at 18% -10%,rgba(95,136,178,.10),transparent 55%),radial-gradient(120% 120% at 110% 120%,rgba(109,143,122,.06),transparent 50%),radial-gradient(140% 120% at 50% 50%,transparent 60%,rgba(0,0,0,.55) 100%)}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.05;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='120' height='120'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+
+.app{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column}
+.titlebar{height:48px;flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--border);
+  background:linear-gradient(180deg,rgba(31,35,41,.7),rgba(24,27,31,.55));backdrop-filter:blur(8px)}
+.traffic{display:flex;gap:8px}.traffic i{width:11px;height:11px;border-radius:50%;display:block}
+.traffic i:nth-child(1){background:#a56d6f}.traffic i:nth-child(2){background:#907b58}.traffic i:nth-child(3){background:#6d8f7a}
+.wordmark{font-family:var(--serif);font-style:italic;font-size:19px;letter-spacing:.3px}
+.wordmark b{font-style:normal;font-weight:400;opacity:.55;font-size:13px;margin-left:6px;font-family:var(--sans);letter-spacing:.12em;text-transform:uppercase}
+.spacer{flex:1}
+/* prototype surface switcher */
+.switch{display:flex;gap:2px;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--r-sm);padding:3px}
+.switch button{font:inherit;font-size:11.5px;cursor:pointer;border:0;background:transparent;color:var(--text-muted);padding:6px 12px;border-radius:4px;transition:.15s;white-space:nowrap}
+.switch button:hover{color:var(--text-2)}
+.switch button.sel{background:var(--accent-soft);color:var(--text)}
+.switch .tag{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);padding:0 8px 0 4px}
+.ghostlink{color:var(--text-muted);font-size:12.5px;text-decoration:none;padding:6px 10px;border-radius:var(--r-sm)}
+.ghostlink:hover{color:var(--text-2);background:rgba(255,255,255,.04)}
+.hint{font-family:var(--mono);font-size:11px;color:var(--text-muted)}
+
+/* surfaces */
+.surfaces{flex:1;min-height:0;position:relative}
+.surface{position:absolute;inset:0;display:none;flex-direction:column}
+.surface.show{display:flex}
+
+/* shared reuse banner */
+.reuse{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--accent-hi);
+  background:var(--accent-soft);border:1px solid rgba(95,136,178,.28);border-radius:var(--r-sm);padding:8px 12px;margin-bottom:20px}
+.reuse b{color:var(--text);font-weight:600}
+
+/* ---------- first-run: rail + main ---------- */
+.body{flex:1;display:flex;min-height:0}
+.rail{width:286px;flex:0 0 auto;border-right:1px solid var(--border);background:linear-gradient(180deg,var(--bg-panel),var(--bg-inset));padding:26px 20px;display:flex;flex-direction:column;gap:6px;overflow:auto}
+.rail .kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted);margin:0 0 16px 4px;display:flex;align-items:center;gap:8px}
+.rail .kicker .dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 10px var(--accent)}
+.step{display:flex;gap:13px;align-items:flex-start;padding:11px 12px;border-radius:var(--r-md);cursor:pointer;border:1px solid transparent;position:relative;transition:.18s}
+.step:hover{background:rgba(255,255,255,.03)}
+.step.active{background:var(--accent-soft);border-color:rgba(95,136,178,.35)}
+.step.locked{opacity:.42;cursor:not-allowed}
+.step .ic{width:26px;height:26px;border-radius:50%;flex:0 0 auto;display:grid;place-items:center;font-family:var(--mono);font-size:12px;font-weight:600;border:1.5px solid var(--border-strong);color:var(--text-muted);background:var(--bg-inset);transition:.2s}
+.step.active .ic{border-color:var(--accent);color:var(--accent-hi);box-shadow:var(--focus)}
+.step.done .ic{border-color:var(--ok);color:#0d0f12;background:var(--ok)}
+.step.done .ic::after{content:"✓"}.step.done .ic .n{display:none}
+.step .tx b{display:block;font-weight:600;font-size:13.5px}
+.step .tx span{display:block;font-size:11.5px;color:var(--text-muted);margin-top:1px}
+.step .line{position:absolute;left:24px;top:42px;bottom:-6px;width:1.5px;background:var(--border)}
+.step.done .line{background:var(--ok)}.step:last-of-type .line{display:none}
+.rail .foot{margin-top:auto;padding-top:18px;border-top:1px solid var(--border);font-size:11.5px;color:var(--text-muted)}
+.rail .foot .timer{font-family:var(--mono);color:var(--text-2)}
+
+.main{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}
+.progress{height:2px;background:var(--border);flex:0 0 auto}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--ok));width:0;transition:width .5s cubic-bezier(.4,0,.2,1);box-shadow:0 0 12px var(--accent)}
+.scroll{flex:1;overflow:auto;padding:44px 56px 30px}
+.col{max-width:780px;margin:0 auto}
+.screen{display:none;animation:rise .5s cubic-bezier(.16,1,.3,1)}
+.screen.show{display:block}
+@keyframes rise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
+
+.kick{font-family:var(--mono);font-size:11px;letter-spacing:.24em;text-transform:uppercase;color:var(--accent-hi);margin-bottom:14px}
+h1.disp{font-family:var(--serif);font-weight:400;font-size:46px;line-height:1.04;letter-spacing:.2px;margin:0 0 12px}
+h1.disp em{font-style:italic;color:var(--accent-hi)}
+.lede{font-size:16px;color:var(--text-2);margin:0 0 34px;max-width:580px}
+
+/* recipe cards */
+.recipes{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px}
+.recipe{position:relative;text-align:left;cursor:pointer;border:1px solid var(--border-strong);background:linear-gradient(180deg,var(--bg-elev),var(--bg-panel));border-radius:var(--r-lg);padding:20px 18px;transition:.2s;overflow:hidden}
+.recipe:hover{transform:translateY(-3px);border-color:var(--accent);box-shadow:var(--sh-md)}
+.recipe.sel{border-color:var(--accent);box-shadow:var(--sh-md),var(--focus)}
+.recipe .badge{position:absolute;top:0;right:0;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;background:var(--accent);color:#0d0f12;padding:4px 9px;border-bottom-left-radius:var(--r-md);font-weight:600}
+.recipe .gx{font-size:24px;margin-bottom:12px;filter:saturate(.7)}
+.recipe h3{margin:0 0 6px;font-size:16.5px;font-weight:600}
+.recipe p{margin:0 0 14px;font-size:12.5px;color:var(--text-muted);min-height:50px}
+.recipe ul{list-style:none;margin:0 0 14px;padding:0;display:flex;flex-direction:column;gap:6px}
+.recipe li{font-size:12px;color:var(--text-2);display:flex;gap:8px;align-items:center}
+.recipe li::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+.recipe li.req::before{background:var(--warn)}
+.recipe .eta{font-family:var(--mono);font-size:11px;color:var(--text-muted);border-top:1px solid var(--border);padding-top:12px}
+.recipe .eta b{color:var(--accent-hi);font-weight:600}
+
+/* panels / fields */
+.panel{background:linear-gradient(180deg,var(--bg-elev),var(--bg-panel));border:1px solid var(--border);border-radius:var(--r-lg);padding:24px;margin-bottom:18px;box-shadow:var(--sh-md)}
+.panel h2{margin:0 0 4px;font-size:16px;font-weight:600}
+.panel .sub{font-size:12.5px;color:var(--text-muted);margin:0 0 18px}
+.seg{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px}
+.seg button{font:inherit;font-size:13px;cursor:pointer;padding:9px 15px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--bg-inset);color:var(--text-2);transition:.16s;display:flex;align-items:center;gap:8px}
+.seg button .pill{font-family:var(--mono);font-size:9px;padding:2px 6px;border-radius:20px;background:var(--bg-soft);color:var(--text-muted);text-transform:uppercase;letter-spacing:.1em}
+.seg button:hover{border-color:var(--accent);color:var(--text)}
+.seg button.sel{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+.field{margin-bottom:16px}
+.field label{display:block;font-size:12px;font-weight:500;color:var(--text-2);margin-bottom:7px}
+.field label .opt{color:var(--text-muted);font-weight:400;font-size:11px}
+.inp{width:100%;font:inherit;font-size:13.5px;color:var(--text);background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:11px 13px;transition:.16s}
+.inp:focus{outline:none;border-color:var(--accent);box-shadow:var(--focus)}
+.inp.mono{font-family:var(--mono);font-size:12.5px}
+textarea.inp{resize:vertical;min-height:96px;line-height:1.55}
+.row{display:flex;gap:12px;align-items:flex-end}.row .field{flex:1;margin-bottom:0}
+.testbar{display:flex;align-items:center;gap:12px;margin-top:4px}
+
+/* buttons */
+.btn{font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;border-radius:var(--r-sm);padding:11px 20px;border:1px solid transparent;transition:.16s;display:inline-flex;align-items:center;gap:9px}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn-primary{background:var(--accent);color:#0c0e11}.btn-primary:not(:disabled):hover{background:var(--accent-hi);box-shadow:var(--sh-md)}
+.btn-ghost{background:transparent;color:var(--text-2);border-color:var(--border-strong)}.btn-ghost:hover{color:var(--text);border-color:var(--accent);background:rgba(255,255,255,.03)}
+.btn-sm{padding:8px 14px;font-size:12.5px}
+.btn-go{background:linear-gradient(180deg,var(--ok-hi),var(--ok));color:#0b1410;font-size:15px;padding:14px 26px}.btn-go:hover{box-shadow:0 0 30px rgba(109,143,122,.5)}
+
+/* status chips + lights */
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;font-weight:500;padding:7px 12px;border-radius:20px;border:1px solid var(--border-strong);background:var(--bg-inset)}
+.chip .lt{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.chip.ok{color:var(--ok-hi);border-color:rgba(109,143,122,.4)}.chip.ok .lt{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+.chip.warn{color:var(--warn);border-color:rgba(176,138,82,.4)}.chip.warn .lt{background:var(--warn);box-shadow:0 0 10px var(--warn)}
+.chip.err{color:var(--err);border-color:rgba(176,117,119,.4)}.chip.err .lt{background:var(--err)}
+.chip.idle .lt{background:var(--text-muted)}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--border-strong);border-top-color:var(--accent);animation:sp .7s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* console */
+.console{font-family:var(--mono);font-size:12px;line-height:1.7;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--r-md);padding:14px 16px;color:var(--text-2);white-space:pre-wrap}
+.console .g{color:var(--ok-hi)}.console .a{color:var(--warn)}.console .r{color:var(--err)}.console .b{color:var(--accent-hi)}.console .m{color:var(--text-muted)}
+
+.signin{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+.avatar{width:46px;height:46px;border-radius:50%;background:radial-gradient(circle at 30% 30%,var(--accent-hi),var(--accent));display:grid;place-items:center;font-weight:700;color:#0c0e11;font-size:18px}
+.acct{display:flex;align-items:center;gap:14px;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--r-md);padding:12px 16px}
+.acct .meta b{display:block;font-size:13.5px}.acct .meta span{font-size:11.5px;color:var(--text-muted)}
+.acct .credits{margin-left:auto;font-family:var(--mono);font-size:12px;text-align:right}.acct .credits b{color:var(--ok-hi);font-size:15px}
+
+/* workflow match list (first-run) */
+.scanline{display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:12.5px;color:var(--text-2);margin-bottom:18px}
+.wf{border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-panel);margin-bottom:10px;overflow:hidden;transition:.18s}
+.wf:hover{border-color:var(--border-strong)}
+.wf.sel{border-color:var(--accent);box-shadow:var(--focus)}.wf.best{border-color:rgba(109,143,122,.5)}
+.wf .head{display:flex;align-items:center;gap:16px;padding:15px 18px;cursor:pointer}
+.wf .grip{width:34px;height:34px;border-radius:8px;display:grid;place-items:center;flex:0 0 auto;font-size:16px;background:var(--bg-inset);border:1px solid var(--border)}
+.wf .info{flex:1;min-width:0}
+.wf .info b{font-size:14px;display:flex;align-items:center;gap:9px}
+.wf .ribbon{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;background:var(--ok);color:#0b1410;padding:2px 7px;border-radius:20px;font-weight:600}
+.wf .info span{font-size:12px;color:var(--text-muted);display:block;margin-top:2px}
+.meter{width:148px;flex:0 0 auto}
+.meter .bar{height:6px;border-radius:6px;background:var(--bg-inset);overflow:hidden;border:1px solid var(--border)}
+.meter .bar i{display:block;height:100%;border-radius:6px;transition:width .6s cubic-bezier(.16,1,.3,1)}
+.meter .lab{font-family:var(--mono);font-size:10px;color:var(--text-muted);margin-top:5px;text-align:right}
+.wf .pick .radio{width:20px;height:20px;border-radius:50%;border:2px solid var(--border-strong);transition:.16s}
+.wf.sel .pick .radio{border-color:var(--accent);box-shadow:inset 0 0 0 4px var(--accent)}
+.wf .detail{display:none;border-top:1px solid var(--border);padding:0;background:var(--bg-inset)}
+.wf.open .detail{display:block;animation:rise .3s}
+
+/* ===== SHARED BUNDLE CONFIGURATOR (rendered by JS into every context) ===== */
+.cfg{padding:16px 18px}
+.cfg .cfghead{display:flex;align-items:center;gap:14px;margin-bottom:14px;flex-wrap:wrap}
+.cfg .gauge{font-family:var(--mono);font-size:11px;color:var(--text-muted);display:flex;gap:7px;align-items:center}
+.cfg .gauge b{color:var(--text-2);font-weight:600}
+.cfg .gauge.ok b{color:var(--ok-hi)}.cfg .gauge.bad b{color:var(--warn)}
+.cfg .grp{margin-bottom:16px}
+.cfg .grp:last-child{margin-bottom:0}
+.cfg .grp h4{margin:0 0 8px;font-size:10.5px;font-family:var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);display:flex;align-items:center;gap:8px}
+.cfg .grp h4 .tally{color:var(--warn)}
+.gap{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px dashed var(--border)}
+.gap:last-child{border-bottom:0}
+.gap .fn{flex:1;min-width:0;font-family:var(--mono);font-size:12px}
+.gap .fn span{display:block;color:var(--text-muted);font-size:10.5px;margin-top:2px;font-family:var(--sans)}
+.gap.fixed .fn{color:var(--text-muted)}.gap.fixed .fn b.k{text-decoration:line-through}
+.gap .actbtn{font:inherit;font-weight:600;font-size:11.5px;cursor:pointer;border:1px solid var(--border-strong);background:var(--bg-soft);color:var(--text-2);border-radius:var(--r-sm);padding:7px 11px;white-space:nowrap}
+.gap .actbtn:hover{border-color:var(--accent);color:var(--text)}
+.gap .actbtn:disabled{opacity:.5;cursor:default}
+.remap{font:inherit;font-size:11.5px;background:var(--bg-soft);color:var(--text-2);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:7px 9px;max-width:210px}
+.gap .fixmark{font-family:var(--mono);font-size:11px;color:var(--ok-hi);white-space:nowrap}
+.cfg .allgreen{display:flex;align-items:center;gap:10px;color:var(--ok-hi);font-size:13px;font-weight:500;padding:6px 0}
+.cfg .picknote{font-size:11.5px;color:var(--text-muted);margin-top:12px;font-family:var(--mono)}
+.tagpack{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg-soft);color:var(--text-muted);padding:2px 7px;border-radius:20px;margin-left:6px}
+
+/* preflight */
+.lights{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px}
+.light{display:flex;align-items:center;gap:14px;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--r-md);padding:16px 18px}
+.light .orb{width:30px;height:30px;border-radius:50%;flex:0 0 auto;background:var(--text-muted);transition:.4s;position:relative}
+.light.go .orb{background:var(--ok);box-shadow:0 0 18px var(--ok)}.light.go .orb::after{content:"✓";position:absolute;inset:0;display:grid;place-items:center;color:#0b1410;font-weight:700}
+.light.amber .orb{background:var(--warn);box-shadow:0 0 16px var(--warn)}
+.light b{font-size:13.5px;display:block}.light span{font-size:11.5px;color:var(--text-muted)}
+
+/* first project */
+.styles{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:18px}
+.style{cursor:pointer;border:1px solid var(--border-strong);border-radius:var(--r-md);overflow:hidden;background:var(--bg-inset);transition:.18s}
+.style:hover{border-color:var(--accent)}.style.sel{border-color:var(--accent);box-shadow:var(--focus)}
+.style .sw{height:74px}.style.live .sw{background:linear-gradient(135deg,#243340,#3a4a52,#1a2228)}.style.anime .sw{background:linear-gradient(135deg,#3a2d44,#6d5a8a,#2a2233)}
+.style .nm{padding:11px 14px;font-weight:600;font-size:13.5px;display:flex;justify-content:space-between;align-items:center}.style .nm span{font-weight:400;font-size:11.5px;color:var(--text-muted)}
+.chips{display:flex;gap:8px}
+.dchip{cursor:pointer;font:inherit;font-size:13px;padding:9px 18px;border-radius:var(--r-sm);border:1px solid var(--border-strong);background:var(--bg-inset);color:var(--text-2)}.dchip.sel{background:var(--accent-soft);border-color:var(--accent);color:var(--text)}
+.exchip{cursor:pointer;font-family:var(--mono);font-size:11px;color:var(--accent-hi);background:var(--accent-soft);border:1px solid rgba(95,136,178,.3);border-radius:20px;padding:4px 11px;display:inline-flex;gap:6px;align-items:center}
+
+/* launch */
+.launch-wrap{text-align:center;padding-top:18px}
+.bigorb{width:96px;height:96px;border-radius:50%;margin:0 auto 26px;background:radial-gradient(circle at 35% 30%,var(--ok-hi),var(--ok));box-shadow:0 0 50px rgba(109,143,122,.55);display:grid;place-items:center;font-size:42px;color:#0b1410;animation:pulse 2.4s ease-in-out infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 40px rgba(109,143,122,.45)}50%{box-shadow:0 0 64px rgba(109,143,122,.7)}}
+.previewstrip{display:flex;gap:8px;justify-content:center;margin:26px 0}
+.previewstrip i{width:78px;height:48px;border-radius:6px;border:1px solid var(--border);background:linear-gradient(135deg,#243340,#1a2228);position:relative;overflow:hidden}
+.previewstrip i::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(95,136,178,.18),transparent);animation:shimmer 1.6s linear infinite}
+.previewstrip i:nth-child(2)::after{animation-delay:.3s}.previewstrip i:nth-child(3)::after{animation-delay:.6s}.previewstrip i:nth-child(4)::after{animation-delay:.9s}
+@keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+
+/* footer action bar (first-run) */
+.actions{flex:0 0 auto;border-top:1px solid var(--border);padding:16px 56px;display:flex;align-items:center;gap:14px;background:linear-gradient(180deg,rgba(24,27,31,.4),rgba(13,15,18,.7));backdrop-filter:blur(8px)}
+.actions .note{font-size:12px;color:var(--text-muted);margin-right:auto;display:flex;align-items:center;gap:9px}
+
+/* install + byo surfaces share a simple centered scroll */
+.plainscroll{flex:1;overflow:auto;padding:44px 56px}
+.srchead{display:flex;align-items:center;gap:10px;margin-bottom:6px}
+.srctab{display:flex;gap:8px;margin-bottom:18px}
+.dropzone{border:1.5px dashed var(--border-strong);border-radius:var(--r-lg);padding:34px;text-align:center;cursor:pointer;transition:.18s;background:var(--bg-inset)}
+.dropzone:hover{border-color:var(--accent);background:rgba(95,136,178,.05)}
+.dropzone .big{font-size:30px;margin-bottom:10px;opacity:.7}
+.dropzone b{font-size:14px}.dropzone p{margin:6px 0 0;font-size:12px;color:var(--text-muted)}
+.reject{border:1px solid rgba(176,117,119,.4);background:rgba(176,117,119,.08);border-radius:var(--r-md);padding:16px 18px;margin-top:16px}
+.reject h4{margin:0 0 8px;font-size:13px;color:var(--err);display:flex;gap:9px;align-items:center}
+.reject ol{margin:0;padding-left:20px;font-size:12.5px;color:var(--text-2);line-height:1.8}
+.reject code{font-family:var(--mono);font-size:11.5px;background:var(--bg-inset);padding:1px 6px;border-radius:4px;color:var(--accent-hi)}
+/* param mapping table */
+.maptable{width:100%;border-collapse:collapse;margin-top:6px;font-size:12.5px}
+.maptable th{text-align:left;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--text-muted);padding:8px 10px;border-bottom:1px solid var(--border)}
+.maptable td{padding:9px 10px;border-bottom:1px dashed var(--border)}
+.maptable td.k{font-family:var(--mono);color:var(--text)}
+.maptable .arrow{color:var(--text-muted)}
+.maptable select{font:inherit;font-size:12px;background:var(--bg-inset);color:var(--text-2);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:6px 8px}
+.maptable .auto{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ok-hi);margin-left:8px}
+
+.hide{display:none!important}.muted{color:var(--text-muted)}.mt{margin-top:16px}.mb{margin-bottom:16px}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- title bar -->
+  <div class="titlebar">
+    <div class="traffic"><i></i><i></i><i></i></div>
+    <div class="wordmark">Dhee Studio</div>
+    <div class="spacer"></div>
+    <span class="tag">Prototype · view</span>
+    <div class="switch" id="switch">
+      <button class="sel" data-s="firstrun" onclick="showSurface('firstrun')">First-run setup</button>
+      <button data-s="install" onclick="showSurface('install')">Install a bundle</button>
+      <button data-s="byo" onclick="showSurface('byo')">Bring your own workflow</button>
+    </div>
+  </div>
+
+  <div class="surfaces">
+
+    <!-- ================= SURFACE 1: FIRST-RUN ================= -->
+    <div class="surface show" id="surface-firstrun">
+      <div class="body">
+        <aside class="rail">
+          <div class="kicker"><span class="dot"></span>Pre-flight checklist</div>
+          <div class="step active" data-step="welcome" onclick="goTo('welcome')"><div class="ic"><span class="n">1</span></div><div class="tx"><b>Choose your setup</b><span>Cloud, hybrid, or local</span></div><div class="line"></div></div>
+          <div class="step locked" data-step="brain" onclick="goTo('brain')"><div class="ic"><span class="n">2</span></div><div class="tx"><b>Connect the brain</b><span>Language model</span></div><div class="line"></div></div>
+          <div class="step locked" data-step="renderer" onclick="goTo('renderer')"><div class="ic"><span class="n">3</span></div><div class="tx"><b>Connect the renderer</b><span>ComfyUI / GPU</span></div><div class="line"></div></div>
+          <div class="step locked" data-step="workflow" onclick="goTo('workflow')"><div class="ic"><span class="n">4</span></div><div class="tx"><b>Match a workflow</b><span>Models + custom nodes</span></div><div class="line"></div></div>
+          <div class="step locked" data-step="preflight" onclick="goTo('preflight')"><div class="ic"><span class="n">5</span></div><div class="tx"><b>Pre-flight</b><span>All systems go</span></div><div class="line"></div></div>
+          <div class="step locked" data-step="project" onclick="goTo('project')"><div class="ic"><span class="n">6</span></div><div class="tx"><b>First project</b><span>Roll camera</span></div><div class="line"></div></div>
+          <div class="foot">Setup time <span class="timer" id="timer">0:00</span><br><span class="muted">Everything here is changeable later in Settings.</span></div>
+        </aside>
+
+        <main class="main">
+          <div class="progress"><i id="bar"></i></div>
+          <div class="scroll"><div class="col">
+
+            <!-- S0 welcome -->
+            <section class="screen show" id="s-welcome">
+              <div class="kick">First run · 00</div>
+              <h1 class="disp">Let's light <em>the set.</em></h1>
+              <p class="lede">Dhee turns a story into a finished video — writing scenes, generating frames, and rendering motion. Pick how you want to power it. You can change any of this later.</p>
+              <div class="recipes">
+                <div class="recipe" data-recipe="cloud" onclick="pickRecipe('cloud')"><div class="badge">Fastest</div><div class="gx">☁️</div><h3>Run on Dhee Cloud</h3><p>Everything runs on our GPUs. Nothing to install. Sign in and go.</p><ul><li>One sign-in, zero config</li><li>No GPU needed</li><li>Pay-as-you-render credits</li></ul><div class="eta">Ready in <b>~30s</b></div></div>
+                <div class="recipe" data-recipe="hybrid" onclick="pickRecipe('hybrid')"><div class="gx">🔀</div><h3>Hybrid</h3><p>Cloud writes & directs; your own GPU renders the frames in ComfyUI.</p><ul><li>Cloud language model</li><li class="req">Local ComfyUI required</li><li>Best cost / control balance</li></ul><div class="eta">Ready in <b>~90s</b></div></div>
+                <div class="recipe" data-recipe="local" onclick="pickRecipe('local')"><div class="gx">🖥️</div><h3>Fully local / BYO keys</h3><p>Your machine, your API keys, your ComfyUI. Maximum control & privacy.</p><ul><li class="req">Your LLM key or LM Studio</li><li class="req">Local ComfyUI required</li><li>Nothing leaves your machine</li></ul><div class="eta">Ready in <b>~2 min</b></div></div>
+              </div>
+            </section>
+
+            <!-- S1 brain -->
+            <section class="screen" id="s-brain">
+              <div class="kick">Step 02 · The brain</div>
+              <h1 class="disp">Connect the <em>language model.</em></h1>
+              <p class="lede">This is what writes your plot, breaks it into scenes, and drafts every shot prompt.</p>
+              <div class="panel" id="brainCloud">
+                <h2>Sign in to Dhee Cloud</h2><p class="sub">Your account powers the language model — no keys to manage.</p>
+                <div class="signin" id="signinRow"><div class="avatar">D</div><div><b>Not signed in</b><div class="muted" style="font-size:12px">Opens dhee.ai in your browser to authorise this device.</div></div><div style="margin-left:auto"><button class="btn btn-primary" onclick="signIn()">Sign in with Dhee →</button></div></div>
+                <div class="acct hide mt" id="acctRow"><div class="avatar">G</div><div class="meta"><b>ganaraj.permunda@bigpicturesoft.com</b><span>Creator plan · device authorised</span></div><div class="credits"><b>342</b><br><span class="muted">credits</span></div></div>
+              </div>
+              <div class="panel hide" id="brainLocal">
+                <h2>Choose a provider</h2><p class="sub">Pick where the language model runs. We'll verify it live before moving on.</p>
+                <div class="seg" id="llmSeg">
+                  <button data-prov="openrouter" onclick="pickProv('openrouter')">OpenRouter <span class="pill">key</span></button>
+                  <button data-prov="openai" onclick="pickProv('openai')">OpenAI <span class="pill">key</span></button>
+                  <button data-prov="gemini" onclick="pickProv('gemini')">Gemini <span class="pill">key</span></button>
+                  <button data-prov="lmstudio" onclick="pickProv('lmstudio')">LM Studio <span class="pill">local</span></button>
+                </div>
+                <div id="provFields"></div>
+                <div class="testbar"><button class="btn btn-ghost btn-sm" id="llmTestBtn" onclick="testLlm()" disabled>Test connection</button><span class="chip idle" id="llmStatus"><span class="lt"></span>Not tested</span></div>
+              </div>
+            </section>
+
+            <!-- S2 renderer -->
+            <section class="screen" id="s-renderer">
+              <div class="kick">Step 03 · The renderer</div>
+              <h1 class="disp">Connect <em>ComfyUI.</em></h1>
+              <p class="lede">The GPU engine that paints frames and renders motion. We detect your hardware and read the models + custom nodes you've installed.</p>
+              <div class="panel" id="comfyCloud"><h2>Rendering on Dhee Cloud</h2><p class="sub">No ComfyUI install needed — frames render on our GPUs using your credits.</p><span class="chip ok"><span class="lt"></span>Cloud renderer ready · cloud.comfy.org</span></div>
+              <div class="panel hide" id="comfyLocal">
+                <h2>Point Dhee at your ComfyUI</h2><p class="sub">Already running ComfyUI? Drop its address below. The default is the local install.</p>
+                <div class="row"><div class="field"><label>ComfyUI server URL</label><input class="inp mono" id="comfyUrl" value="http://127.0.0.1:8188" /></div><button class="btn btn-ghost" id="comfyTestBtn" onclick="testComfy()">Test connection</button></div>
+                <div class="testbar mt"><span class="chip idle" id="comfyStatus"><span class="lt"></span>Not tested</span><a class="ghostlink" href="#" onclick="toggleComfyHelp();return false" style="font-size:12px">ComfyUI isn't connecting? ▾</a></div>
+                <div class="console hide mt" id="comfyConsole"></div>
+                <!-- programmatic-access hand-holding -->
+                <div class="reject hide mt" id="comfyHelp" style="border-color:var(--border-strong);background:var(--bg-inset)">
+                  <h4 style="color:var(--text-2)">🔌 Exposing ComfyUI for programmatic access</h4>
+                  <ol>
+                    <li>The running ComfyUI app <b>is</b> the API — there's no separate server to start. Same machine? Use <code>http://127.0.0.1:8188</code>.</li>
+                    <li>ComfyUI on another machine / GPU box? Relaunch it with <code>--listen 0.0.0.0</code> and use <code>http://&lt;that-host&gt;:8188</code>. Add <code>--enable-cors-header '*'</code> if the browser blocks it.</li>
+                    <li>Connection refused = ComfyUI isn't running or is bound to localhost only. Reachable but errors on <code>/object_info</code> = update ComfyUI.</li>
+                  </ol>
+                </div>
+              </div>
+            </section>
+
+            <!-- S3 workflow match (mounts the SHARED configurator inside the relay row) -->
+            <section class="screen" id="s-workflow">
+              <div class="kick">Step 04 · The match</div>
+              <h1 class="disp">Match a workflow to <em>your rig.</em></h1>
+              <p class="lede">A workflow needs specific <b>models</b> and <b>custom nodes</b> installed in ComfyUI. We scanned what you have and ranked every Dhee workflow by fit — no more opaque render failures.</p>
+              <div class="reuse">▸ The expandable gap panel below is the <b>Bundle Configurator</b> — the same component reused by “Install a bundle” and “Bring your own workflow”.</div>
+              <div class="scanline" id="scanline"><span class="spin"></span> Scanning installed models + custom nodes…</div>
+              <div id="wfList" class="hide">
+                <div class="wf best" data-wf="text_video">
+                  <div class="head" onclick="pickWf('text_video')"><div class="grip">🎬</div><div class="info"><b>Storyboard preview <span class="ribbon">recommended start</span></b><span>Text + placeholder clips · no GPU models or custom nodes — proves your pipeline end-to-end in seconds</span></div><div class="meter"><div class="bar"><i style="width:100%;background:var(--ok)"></i></div><div class="lab">nothing to install</div></div><div class="pick"><div class="radio"></div></div></div>
+                </div>
+                <div class="wf" data-wf="qwen">
+                  <div class="head" onclick="pickWf('qwen')"><div class="grip">🟢</div><div class="info"><b>Qwen chain · LTX relay</b><span>Continuity-edited shot images + LTX-2 motion. Best look you can run locally today.</span></div><div class="meter"><div class="bar"><i style="width:100%;background:var(--ok)"></i></div><div class="lab">models 9/9 · nodes 4/4</div></div><div class="pick"><div class="radio"></div></div></div>
+                </div>
+                <div class="wf" data-wf="relay">
+                  <div class="head" onclick="toggleWf('relay')"><div class="grip">🟡</div><div class="info"><b>Cinematic prompt relay · LTX Director</b><span>Slow-cinematic LTX-2 relay. Two models + one custom node missing — fix below or pick another.</span></div><div class="meter"><div class="bar"><i id="relayBar" style="width:75%;background:var(--warn)"></i></div><div class="lab" id="relayLab">models 7/9 · nodes 2/3</div></div><div class="pick"><div class="radio"></div></div></div>
+                  <div class="detail"><div id="cfg-relay"></div></div>
+                </div>
+                <div class="wf" data-wf="klein">
+                  <div class="head" onclick="toggleWf('klein')"><div class="grip">🔴</div><div class="info"><b>Klein + LTX with VLM review loop</b><span>Highest quality, heaviest. Most models not installed — best run on Dhee Cloud or a fuller rig.</span></div><div class="meter"><div class="bar"><i style="width:30%;background:var(--err)"></i></div><div class="lab">models 3/9 · nodes 4/5</div></div><div class="pick"><div class="radio"></div></div></div>
+                  <div class="detail"><div id="cfg-klein"></div></div>
+                </div>
+              </div>
+            </section>
+
+            <!-- S4 preflight -->
+            <section class="screen" id="s-preflight">
+              <div class="kick">Step 05 · Pre-flight</div>
+              <h1 class="disp">All systems <em>go.</em></h1>
+              <p class="lede">A live check of every lane before you spend a single credit or GPU-second.</p>
+              <div class="lights">
+                <div class="light go"><div class="orb"></div><div><b>Language model</b><span id="lLlm">OpenRouter · glm-4.7-flash · verified</span></div></div>
+                <div class="light go"><div class="orb"></div><div><b>Renderer</b><span>ComfyUI · RTX 4090 · 24 GB</span></div></div>
+                <div class="light go"><div class="orb"></div><div><b>Workflow</b><span id="lWf">Qwen chain · LTX relay · ready</span></div></div>
+                <div class="light amber"><div class="orb"></div><div><b>Vision review (VLM)</b><span>Optional · off — enable later for auto-retry</span></div></div>
+              </div>
+              <div class="console"><span class="b">dhee</span> <span class="m">pre-flight</span> ok
+<span class="g">✓</span> brain      OpenRouter reachable · model responded in 240ms
+<span class="g">✓</span> renderer   ComfyUI 0.3.41 · 142 models · 38 node packs · 24GB VRAM free
+<span class="g">✓</span> workflow   all model refs + custom-node classes resolved
+<span class="a">○</span> vlm        skipped (optional)
+<span class="m">→ ready to create your first project</span></div>
+            </section>
+
+            <!-- S5 first project -->
+            <section class="screen" id="s-project">
+              <div class="kick">Step 06 · Roll camera</div>
+              <h1 class="disp">Your first <em>project.</em></h1>
+              <p class="lede">Drop an idea — a logline, a paragraph, a full script. Dhee handles the rest.</p>
+              <div class="panel">
+                <div class="field"><label>Project name</label><input class="inp" id="pName" placeholder="Eye of the Storm" /></div>
+                <div class="field"><label>Your story <span class="opt">· or pick an example</span></label>
+                  <div style="margin-bottom:8px;display:flex;gap:8px;flex-wrap:wrap"><span class="exchip" onclick="example(0)">＋ Noir detective</span><span class="exchip" onclick="example(1)">＋ Lost music box</span><span class="exchip" onclick="example(2)">＋ Storm chaser</span></div>
+                  <textarea class="inp" id="pStory" placeholder="A storm chaser drives into the eye of a hurricane to recover a black box…"></textarea></div>
+                <div class="field"><label>Look</label><div class="styles"><div class="style live sel" onclick="pickStyle(this)"><div class="sw"></div><div class="nm">Cinematic realism <span>live-action</span></div></div><div class="style anime" onclick="pickStyle(this)"><div class="sw"></div><div class="nm">Anime <span>2D animation</span></div></div></div></div>
+                <div class="field" style="margin-bottom:0"><label>Length</label><div class="chips"><button class="dchip" onclick="pickDur(this)">15s</button><button class="dchip sel" onclick="pickDur(this)">30s</button><button class="dchip" onclick="pickDur(this)">60s</button></div></div>
+              </div>
+            </section>
+
+            <!-- S6 launch -->
+            <section class="screen" id="s-launch">
+              <div class="launch-wrap">
+                <div class="bigorb">✓</div>
+                <div class="kick" style="text-align:center">Setup complete</div>
+                <h1 class="disp" style="text-align:center">You're <em>rolling.</em></h1>
+                <p class="lede" style="margin:0 auto 8px;text-align:center">Dhee is breaking <b id="lpName">Eye of the Storm</b> into scenes and queuing the first frames.</p>
+                <div class="previewstrip"><i></i><i></i><i></i><i></i></div>
+                <span class="chip ok" style="margin:0 auto"><span class="lt"></span>Ready to render · all systems go</span>
+                <div class="console mt" style="text-align:left;max-width:520px;margin-left:auto;margin-right:auto"><span class="b">dhee</span> new "Eye of the Storm" --style live --duration 30
+<span class="g">✓</span> plot → story → scenes drafted
+<span class="b">▸</span> generating scene 1 of 4 …  <span class="m">(this runs in the workspace)</span></div>
+                <p class="hint" style="text-align:center;margin-top:20px">Setup completed in <b id="finalTime">1:47</b> — the rest happens in the studio.</p>
+              </div>
+            </section>
+
+          </div></div>
+
+          <div class="actions">
+            <div class="note" id="footNote"><span class="muted">Pick how you want to run Dhee to begin.</span></div>
+            <button class="btn btn-ghost" id="backBtn" onclick="back()" disabled>← Back</button>
+            <button class="btn btn-primary" id="nextBtn" onclick="next()" disabled>Continue</button>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <!-- ================= SURFACE 2: INSTALL A COMMUNITY BUNDLE ================= -->
+    <div class="surface" id="surface-install">
+      <div class="plainscroll"><div class="col">
+        <div class="kick">Library · Install</div>
+        <h1 class="disp">Install a <em>community bundle.</em></h1>
+        <p class="lede">Bring in a bundle someone else authored — a folder, a .zip, or a git repo. Dhee validates it, then runs the exact same fit-check it ran at first-run.</p>
+        <div class="reuse">▸ After install, this screen mounts the <b>same Bundle Configurator</b> from first-run setup — identical model + custom-node checks, remap, and install hints.</div>
+
+        <div class="panel" id="installForm">
+          <h2>Source</h2><p class="sub">Where is the bundle?</p>
+          <div class="srctab seg" id="srcTab">
+            <button class="sel" data-src="folder" onclick="pickSrc('folder')">📁 Folder</button>
+            <button data-src="zip" onclick="pickSrc('zip')">🗜️ .zip file</button>
+            <button data-src="git" onclick="pickSrc('git')">🌐 Git URL</button>
+          </div>
+          <div class="field" id="srcField"><label>Bundle folder</label><input class="inp mono" id="srcInput" value="~/Downloads/cyberpunk-anime-pack" /></div>
+          <button class="btn btn-primary" id="installBtn" onclick="doInstall()">Install bundle</button>
+          <div class="console hide mt" id="installConsole"></div>
+        </div>
+
+        <div class="panel hide" id="installResult">
+          <h2>Cyberpunk Anime Pack <span class="tagpack">v0.3.0 · community</span></h2>
+          <p class="sub">Wan 2.1 T2V + anime LoRA chain. Configure it for your ComfyUI before first use.</p>
+          <div style="border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-inset)"><div id="cfg-install"></div></div>
+          <div class="mt"><button class="btn btn-go" id="installDone" disabled onclick="alert('▸ Bundle added to your library and selectable in New Project.')">Add to library →</button></div>
+        </div>
+      </div></div>
+    </div>
+
+    <!-- ================= SURFACE 3: BRING YOUR OWN WORKFLOW ================= -->
+    <div class="surface" id="surface-byo">
+      <div class="plainscroll"><div class="col">
+        <div class="kick">Advanced · Custom workflow</div>
+        <h1 class="disp">Bring your own <em>workflow.</em></h1>
+        <p class="lede">Swap in a ComfyUI graph you built. Dhee checks it against your rig and maps its inputs to the pipeline — so your graph slots into a Dhee bundle.</p>
+        <div class="reuse">▸ Same <b>Bundle Configurator</b> again — plus an input→node mapping step unique to custom graphs.</div>
+
+        <div class="panel" id="byoDrop">
+          <h2>Import a workflow JSON</h2><p class="sub">Export it from ComfyUI, then drop it here.</p>
+          <div class="dropzone" onclick="byoStep1()"><div class="big">⬇︎</div><b>Click to select your workflow .json</b><p>(prototype: simulates picking a file)</p></div>
+          <div class="reject hide" id="byoReject">
+            <h4>⚠ This is a <b style="margin:0 4px">UI-format</b> workflow — Dhee needs API format</h4>
+            <ol>
+              <li>In ComfyUI: open <b>Settings</b> → enable <b>Dev mode</b>.</li>
+              <li>A <b>Save (API Format)</b> button appears in the menu — use it.</li>
+              <li>Re-import <code>that</code> file (it's structurally different from the normal save).</li>
+            </ol>
+            <button class="btn btn-ghost btn-sm mt" onclick="byoStep2()">Import the API-format file instead</button>
+          </div>
+        </div>
+
+        <div class="panel hide" id="byoResult">
+          <h2>my_anime_upscale.json <span class="tagpack">API format ✓ · 14 nodes</span></h2>
+          <p class="sub">Validated. Resolve any gaps, then confirm how its inputs map to the pipeline.</p>
+          <div style="border:1px solid var(--border);border-radius:var(--r-md);background:var(--bg-inset)" class="mb"><div id="cfg-byo"></div></div>
+          <h4 style="font-size:10.5px;font-family:var(--mono);letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);margin:18px 0 4px">Map pipeline inputs → your graph</h4>
+          <table class="maptable">
+            <thead><tr><th>Dhee input</th><th></th><th>Your node · field</th></tr></thead>
+            <tbody>
+              <tr><td class="k">prompt</td><td class="arrow">→</td><td><select><option>CLIPTextEncode (id 6) · text</option><option>CLIPTextEncode (id 8) · text</option></select><span class="auto">auto</span></td></tr>
+              <tr><td class="k">seed</td><td class="arrow">→</td><td><select><option>KSampler (id 3) · seed</option><option>RandomNoise (id 22) · noise_seed</option></select><span class="auto">auto</span></td></tr>
+              <tr><td class="k">width</td><td class="arrow">→</td><td><select><option>EmptyLatentImage (id 5) · width</option></select><span class="auto">auto</span></td></tr>
+              <tr><td class="k">height</td><td class="arrow">→</td><td><select><option>EmptyLatentImage (id 5) · height</option></select><span class="auto">auto</span></td></tr>
+              <tr><td class="k">filename_prefix</td><td class="arrow">→</td><td><select><option>SaveImage (id 9) · filename_prefix</option></select><span class="auto">auto</span></td></tr>
+            </tbody>
+          </table>
+          <div class="mt"><button class="btn btn-go" id="byoDone" disabled onclick="alert('▸ Workflow + generated manifest saved into the bundle. The image stage now uses your graph.')">Save workflow to bundle →</button></div>
+        </div>
+      </div></div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+/* ===================================================================
+   SHARED BUNDLE CONFIGURATOR  — buildConfigurator(mountId, data, onChange)
+   Mounted identically in: first-run (per workflow row), install, byo.
+   data = { models:[{file,dest,size,candidates:[]}],
+            nodes:[{cls,pack,via,git,swaps:[]}],
+            baseModels, totalModels, baseNodes, totalNodes,
+            pickLabel? }                                                */
+const CFG={};
+function buildConfigurator(mountId, data, onChange){
+  CFG[mountId]={data,onChange,mfix:data.models.map(()=>false),nfix:data.nodes.map(()=>false)};
+  render(mountId);
+}
+function statsFor(id){
+  const c=CFG[id],d=c.data;
+  const mOk=d.baseModels+c.mfix.filter(Boolean).length;
+  const nOk=d.baseNodes+c.nfix.filter(Boolean).length;
+  return {mOk,mTot:d.totalModels,nOk,nTot:d.totalNodes,allOk:mOk>=d.totalModels&&nOk>=d.totalNodes};
+}
+function render(id){
+  const c=CFG[id],d=c.data,s=statsFor(id);
+  const el=document.getElementById(id); if(!el) return;
+  let h='<div class="cfg">';
+  h+=`<div class="cfghead">
+        <div class="gauge ${s.mOk>=s.mTot?'ok':'bad'}">models <b>${s.mOk}/${s.mTot}</b></div>
+        <div class="gauge ${s.nOk>=s.nTot?'ok':'bad'}">custom nodes <b>${s.nOk}/${s.nTot}</b></div>
+      </div>`;
+  if(s.allOk){
+    h+='<div class="allgreen">✓ All models and custom nodes resolved on this ComfyUI.</div>';
+  }
+  // MODELS group
+  const mMiss=d.models.map((m,i)=>({m,i})).filter(x=>!c.mfix[x.i]);
+  if(mMiss.length){
+    h+=`<div class="grp"><h4>Missing models <span class="tally">${mMiss.length}</span></h4>`;
+    mMiss.forEach(({m,i})=>{
+      const opts=m.candidates.map(o=>`<option>${o}</option>`).join('');
+      h+=`<div class="gap" data-k="m${i}">
+            <div class="fn"><b class="k">${m.file}</b><span>→ ${m.dest} · ${m.size}</span></div>
+            <button class="actbtn" onclick="cfgGet('${id}','m',${i})">Download ↗</button>
+            ${m.candidates.length?`<select class="remap" onchange="cfgRemap('${id}','m',${i},this)"><option value="">use a model I have ▾</option>${opts}</select>`:''}
+          </div>`;
+    });
+    h+='</div>';
+  }
+  // NODES group
+  const nMiss=d.nodes.map((n,i)=>({n,i})).filter(x=>!c.nfix[x.i]);
+  if(nMiss.length){
+    h+=`<div class="grp"><h4>Missing custom nodes <span class="tally">${nMiss.length}</span></h4>`;
+    nMiss.forEach(({n,i})=>{
+      const sw=n.swaps.map(o=>`<option>${o}</option>`).join('');
+      const viaLabel=n.via==='manager'?'ComfyUI-Manager':'git clone';
+      h+=`<div class="gap" data-k="n${i}">
+            <div class="fn"><b class="k">${n.cls}</b><span>node pack: ${n.pack} · install via ${viaLabel}${n.swaps.length?'':' · no installed equivalent'}</span></div>
+            <button class="actbtn" onclick="cfgGet('${id}','n',${i})">Install ↗</button>
+            ${n.swaps.length?`<select class="remap" onchange="cfgRemap('${id}','n',${i},this)"><option value="">swap to a node I have ▾</option>${sw}</select>`:''}
+          </div>`;
+    });
+    h+='</div>';
+  }
+  if(data_for(id).pickLabel && s.allOk) h+=`<div class="picknote">${data_for(id).pickLabel}</div>`;
+  h+='</div>';
+  el.innerHTML=h;
+  if(c.onChange) c.onChange(s);
+}
+function data_for(id){return CFG[id].data;}
+/* remap (instant — like name_aliases / class_swaps) */
+function cfgRemap(id,kind,i,sel){
+  if(!sel.value) return;
+  const c=CFG[id]; (kind==='m'?c.mfix:c.nfix)[i]=true; render(id);
+}
+/* download/install (simulated completion → re-detected as present) */
+function cfgGet(id,kind,i,){
+  const c=CFG[id];
+  const row=document.querySelector(`#${id} .gap[data-k="${kind}${i}"]`);
+  const btn=row.querySelector('.actbtn'); const word=kind==='m'?'Downloading':'Installing';
+  btn.textContent=word+'…'; btn.disabled=true;
+  setTimeout(()=>{ (kind==='m'?c.mfix:c.nfix)[i]=true; render(id); },1000);
+}
+
+/* ===================== SURFACE SWITCHER ===================== */
+let mountedInstall=false, mountedByo=false;
+function showSurface(s){
+  document.querySelectorAll('.surface').forEach(x=>x.classList.toggle('show',x.id==='surface-'+s));
+  document.querySelectorAll('#switch button').forEach(b=>b.classList.toggle('sel',b.dataset.s===s));
+}
+
+/* ===================== FIRST-RUN WIZARD ===================== */
+const ORDER=['welcome','brain','renderer','workflow','preflight','project','launch'];
+const state={recipe:null,cur:'welcome',done:new Set(),llmProv:null,llmTested:false,comfyTested:false,signedIn:false,wf:null};
+let t0=Date.now(),timerInt=null;
+const EXAMPLES=[
+ "A noir detective steps into a rain-soaked alley, neon bleeding across the puddles. A single envelope waits, taped to the door.",
+ "A girl finds an ancient music box in her grandmother's attic. The melody opens a door to another world.",
+ "A storm chaser drives into the eye of a hurricane to recover a black box that should not exist."];
+const RECIPES={cloud:{brainMode:'cloud',comfyMode:'cloud',skip:['renderer','workflow']},hybrid:{brainMode:'cloud',comfyMode:'local',skip:[]},local:{brainMode:'local',comfyMode:'local',skip:[]}};
+
+function visibleOrder(){const skip=state.recipe?RECIPES[state.recipe].skip:[];return ORDER.filter(s=>!skip.includes(s));}
+function goTo(screen){
+  const step=document.querySelector(`.step[data-step="${screen}"]`);
+  if(step && step.classList.contains('locked')) return;
+  state.cur=screen;
+  document.querySelectorAll('#surface-firstrun .screen').forEach(s=>s.classList.remove('show'));
+  document.getElementById('s-'+screen).classList.add('show');
+  document.querySelector('#surface-firstrun .scroll').scrollTop=0;
+  syncRail();syncFooter();syncBar();
+  if(screen==='workflow') runScan();
+}
+function syncRail(){
+  const ord=visibleOrder(),curIdx=ord.indexOf(state.cur);
+  document.querySelectorAll('.step').forEach(st=>{
+    const k=st.dataset.step,idx=ord.indexOf(k);
+    st.classList.toggle('active',k===state.cur);
+    st.classList.toggle('done',state.done.has(k));
+    const reachable=state.done.has(k)||idx<=curIdx||idx===curIdx+1;
+    st.classList.toggle('locked',!reachable&&!state.done.has(k));
+    const skip=state.recipe?RECIPES[state.recipe].skip:[];
+    st.style.display=skip.includes(k)?'none':'';
+  });
+}
+function syncBar(){const ord=visibleOrder();document.getElementById('bar').style.width=Math.round(ord.indexOf(state.cur)/(ord.length-1)*100)+'%';}
+function next(){state.done.add(state.cur);const ord=visibleOrder(),i=ord.indexOf(state.cur);if(i<ord.length-1){prepare(ord[i+1]);goTo(ord[i+1]);}if(state.cur==='launch')stopTimer();}
+function back(){const ord=visibleOrder(),i=ord.indexOf(state.cur);if(i>0)goTo(ord[i-1]);}
+function prepare(screen){
+  const r=RECIPES[state.recipe];
+  if(screen==='brain'){document.getElementById('brainCloud').classList.toggle('hide',r.brainMode!=='cloud');document.getElementById('brainLocal').classList.toggle('hide',r.brainMode==='cloud');}
+  if(screen==='renderer'){document.getElementById('comfyCloud').classList.toggle('hide',r.comfyMode!=='cloud');document.getElementById('comfyLocal').classList.toggle('hide',r.comfyMode==='cloud');}
+  if(screen==='launch'){document.getElementById('lpName').textContent=document.getElementById('pName').value||'Untitled Project';document.getElementById('finalTime').textContent=document.getElementById('timer').textContent;}
+}
+function syncFooter(){
+  const nb=document.getElementById('nextBtn'),bb=document.getElementById('backBtn'),note=document.getElementById('footNote'),ord=visibleOrder();
+  bb.disabled=ord.indexOf(state.cur)===0;
+  let ok=true,msg='';
+  switch(state.cur){
+    case 'welcome':ok=!!state.recipe;msg=state.recipe?labelFor(state.recipe)+' selected':'Pick how you want to run Dhee to begin.';break;
+    case 'brain':if(RECIPES[state.recipe].brainMode==='cloud'){ok=state.signedIn;msg=ok?'Signed in · cloud brain ready':'Sign in to continue.';}else{ok=state.llmTested;msg=ok?'Language model verified':'Test your provider connection to continue.';}break;
+    case 'renderer':ok=state.comfyTested;msg=ok?'ComfyUI connected':'Test the ComfyUI connection to continue.';break;
+    case 'workflow':ok=!!state.wf;msg=state.wf?'Workflow: '+state.wf+' selected':'Select a workflow that fits your rig.';break;
+    case 'preflight':ok=true;msg='All required lanes are green.';break;
+    case 'project':ok=!!(document.getElementById('pName').value.trim()&&document.getElementById('pStory').value.trim());msg=ok?'Ready to roll':'Add a name and a story to start.';break;
+    case 'launch':ok=true;break;
+  }
+  nb.disabled=!ok;
+  nb.textContent=state.cur==='preflight'?'Create first project →':state.cur==='project'?'Start production ▸':state.cur==='launch'?'Open the studio →':'Continue';
+  nb.classList.toggle('btn-go',state.cur==='launch');nb.classList.toggle('btn-primary',state.cur!=='launch');
+  note.innerHTML='<span class="muted">'+msg+'</span>';
+}
+function labelFor(r){return {cloud:'Dhee Cloud',hybrid:'Hybrid',local:'Local / BYO'}[r];}
+function pickRecipe(r){state.recipe=r;document.querySelectorAll('.recipe').forEach(c=>c.classList.toggle('sel',c.dataset.recipe===r));syncFooter();syncRail();}
+function signIn(){const row=document.getElementById('signinRow');row.querySelector('.btn').innerHTML='<span class="spin"></span> Waiting for browser…';setTimeout(()=>{document.getElementById('signinRow').classList.add('hide');document.getElementById('acctRow').classList.remove('hide');state.signedIn=true;syncFooter();},1400);}
+const PROV_FIELDS={openrouter:[{l:'API key',v:'sk-or-v1-••••••••••••',m:1},{l:'Model',v:'z-ai/glm-4.7-flash'}],openai:[{l:'API key',v:'sk-••••••••••••',m:1},{l:'Base URL',v:'https://api.openai.com/v1',m:1},{l:'Model',v:'gpt-4o'}],gemini:[{l:'API key',v:'AIza••••••••••',m:1},{l:'Model',v:'gemini-2.5-flash'}],lmstudio:[{l:'Base URL',v:'http://127.0.0.1:1234',m:1},{l:'Model',v:'qwen3'}]};
+function pickProv(p){state.llmProv=p;state.llmTested=false;document.querySelectorAll('#llmSeg button').forEach(b=>b.classList.toggle('sel',b.dataset.prov===p));const wrap=document.getElementById('provFields');wrap.innerHTML='';PROV_FIELDS[p].forEach(f=>{const d=document.createElement('div');d.className='field';d.innerHTML=`<label>${f.l}${p==='lmstudio'&&f.l==='Base URL'?' <span class="opt">· no key needed for local</span>':''}</label><input class="inp ${f.m?'mono':''}" value="${f.v}">`;wrap.appendChild(d);});document.getElementById('llmTestBtn').disabled=false;setStatus('llmStatus','idle','Not tested');syncFooter();}
+function testLlm(){const btn=document.getElementById('llmTestBtn');btn.disabled=true;setStatus('llmStatus','idle','<span class="spin"></span> Testing…');setTimeout(()=>{state.llmTested=true;btn.disabled=false;const n={openrouter:'glm-4.7-flash · 240ms',openai:'gpt-4o · reachable',gemini:'gemini-2.5-flash · key valid',lmstudio:'qwen3 · local · 80ms'};setStatus('llmStatus','ok','Connected · '+n[state.llmProv]);document.getElementById('lLlm').textContent={openrouter:'OpenRouter · glm-4.7-flash · verified',openai:'OpenAI · gpt-4o · verified',gemini:'Gemini · 2.5-flash · verified',lmstudio:'LM Studio · qwen3 · local'}[state.llmProv];syncFooter();},1500);}
+function toggleComfyHelp(){document.getElementById('comfyHelp').classList.toggle('hide');}
+function testComfy(){const btn=document.getElementById('comfyTestBtn');btn.disabled=true;setStatus('comfyStatus','idle','<span class="spin"></span> Probing /system_stats…');const con=document.getElementById('comfyConsole');con.classList.remove('hide');con.innerHTML='<span class="m">GET '+document.getElementById('comfyUrl').value+'/system_stats …</span>';setTimeout(()=>{state.comfyTested=true;btn.disabled=false;setStatus('comfyStatus','ok','Connected · ComfyUI 0.3.41');con.innerHTML='<span class="g">✓ connected</span>  ComfyUI <span class="b">0.3.41</span>\n  GPU      <span class="b">NVIDIA RTX 4090</span>  ·  24 GB VRAM (22.6 free)\n  models   <span class="b">142 indexed</span>  ·  node packs <span class="b">38</span>  ·  /object_info read in 310ms\n<span class="m">→ ready to match a workflow</span>';syncFooter();},1600);}
+
+/* workflow match step */
+let scanned=false;
+function runScan(){if(scanned)return;const line=document.getElementById('scanline'),list=document.getElementById('wfList');setTimeout(()=>{line.innerHTML='<span style="color:var(--ok-hi)">✓</span> Scanned <b style="color:var(--text)">142 models</b> + <b style="color:var(--text)">38 node packs</b> against 4 workflows · ranked by fit';list.classList.remove('hide');mountFirstRunConfigurators();scanned=true;},1100);}
+function mountFirstRunConfigurators(){
+  // relay: 2 missing models + 1 missing custom node (swappable)
+  buildConfigurator('cfg-relay',{
+    baseModels:7,totalModels:9,baseNodes:2,totalNodes:3,
+    pickLabel:'All gaps resolved — this workflow is now selectable as your default.',
+    models:[
+      {file:'ltx-2.3-22b-distilled-1.1_transformer_only_fp8_scaled.safetensors',dest:'models/unet',size:'~11 GB',candidates:['ltx-2-19b-distilled_fp8.safetensors','ltx-video-2b-v0.9.safetensors']},
+      {file:'gemma_3_12B_it_heretic_fp8_e4m3fn.safetensors',dest:'models/clip',size:'~7 GB (text encoder)',candidates:['gemma_3_12b_it_fp8.safetensors','t5xxl_fp16.safetensors']},
+    ],
+    nodes:[{cls:'LTXVDirector',pack:'ComfyUI-LTXVideo',via:'manager',git:'',swaps:['LTXVDirectorGGUF']}],
+  },(s)=>{
+    const bar=document.getElementById('relayBar'),lab=document.getElementById('relayLab');
+    bar.style.width=Math.round(s.mOk/s.mTot*100)+'%';
+    lab.textContent=`models ${s.mOk}/${s.mTot} · nodes ${s.nOk}/${s.nTot}`;
+    if(s.allOk){bar.style.background='var(--ok)';document.querySelector('.wf[data-wf="relay"] .grip').textContent='🟢';}
+  });
+  // klein: heavy gaps, no swap candidates → must install (best on cloud)
+  buildConfigurator('cfg-klein',{
+    baseModels:3,totalModels:9,baseNodes:4,totalNodes:5,
+    models:[
+      {file:'flux-2-klein-9b.safetensors',dest:'models/unet',size:'~9 GB',candidates:[]},
+      {file:'qwen_3_8b_fp8mixed.safetensors',dest:'models/clip',size:'~8 GB',candidates:[]},
+      {file:'flux2-vae.safetensors',dest:'models/vae',size:'~0.3 GB',candidates:[]},
+    ],
+    nodes:[{cls:'FluxKleinSampler',pack:'ComfyUI-Flux2',via:'git',git:'github.com/…',swaps:[]}],
+  });
+}
+function pickWf(id){const el=document.querySelector(`.wf[data-wf="${id}"]`);if(id==='relay'||id==='klein'){if(!statsFor('cfg-'+id).allOk){el.classList.add('open');return;}}state.wf=id;document.querySelectorAll('.wf').forEach(w=>w.classList.toggle('sel',w.dataset.wf===id));document.getElementById('lWf').textContent={text_video:'Storyboard preview · no models',qwen:'Qwen chain · LTX relay · ready',relay:'Cinematic prompt relay · LTX Director · ready',klein:'Klein + LTX review · ready'}[id]||'';syncFooter();}
+function toggleWf(id){document.querySelector(`.wf[data-wf="${id}"]`).classList.toggle('open');}
+
+function example(i){document.getElementById('pStory').value=EXAMPLES[i];if(!document.getElementById('pName').value)document.getElementById('pName').value=['Neon Envelope','The Music Box','Eye of the Storm'][i];syncFooter();}
+function pickStyle(el){document.querySelectorAll('.style').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');}
+function pickDur(el){document.querySelectorAll('.dchip').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');}
+document.addEventListener('input',e=>{if(e.target.id==='pName'||e.target.id==='pStory')syncFooter();});
+
+/* ===================== INSTALL SURFACE ===================== */
+function pickSrc(s){document.querySelectorAll('#srcTab button').forEach(b=>b.classList.toggle('sel',b.dataset.src===s));const f=document.getElementById('srcField');const map={folder:['Bundle folder','~/Downloads/cyberpunk-anime-pack'],zip:['Path to .zip','~/Downloads/cyberpunk-anime-pack.zip'],git:['Git URL','https://github.com/someone/cyberpunk-anime-pack']};f.querySelector('label').textContent=map[s][0];document.getElementById('srcInput').value=map[s][1];}
+function doInstall(){
+  const btn=document.getElementById('installBtn'),con=document.getElementById('installConsole');
+  btn.disabled=true;btn.innerHTML='<span class="spin"></span> Installing…';con.classList.remove('hide');
+  con.innerHTML='<span class="m">unpacking…</span>';
+  setTimeout(()=>{con.innerHTML='<span class="g">✓</span> validated <span class="b">bundle.json</span> (id: cyberpunk_anime_pack, engineCompat ok)\n<span class="g">✓</span> 3 workflows · 6 prompt templates · copied to user bundles dir\n<span class="m">→ checking against your ComfyUI…</span>';},900);
+  setTimeout(()=>{
+    btn.innerHTML='Installed ✓';
+    document.getElementById('installResult').classList.remove('hide');
+    if(!mountedInstall){
+      buildConfigurator('cfg-install',{
+        baseModels:3,totalModels:4,baseNodes:4,totalNodes:5,
+        pickLabel:'Bundle is fully resolved for this ComfyUI — ready to add.',
+        models:[{file:'wan2.1_t2v_14b_bf16.safetensors',dest:'models/diffusion_models',size:'~28 GB',candidates:['wan2.1_t2v_14b_fp8_e4m3fn.safetensors']}],
+        nodes:[{cls:'WanVideoSampler',pack:'ComfyUI-WanVideoWrapper',via:'git',git:'github.com/kijai/…',swaps:[]}],
+      },(s)=>{document.getElementById('installDone').disabled=!s.allOk;});
+      mountedInstall=true;
+    }
+    document.getElementById('installResult').scrollIntoView({behavior:'smooth'});
+  },1900);
+}
+
+/* ===================== BYO SURFACE ===================== */
+function byoStep1(){document.getElementById('byoReject').classList.remove('hide');}
+function byoStep2(){
+  document.getElementById('byoResult').classList.remove('hide');
+  if(!mountedByo){
+    buildConfigurator('cfg-byo',{
+      baseModels:3,totalModels:3,baseNodes:3,totalNodes:4,
+      models:[],
+      nodes:[{cls:'UltimateSDUpscale',pack:'ComfyUI_UltimateSDUpscale',via:'manager',git:'',swaps:['UltimateSDUpscaleNoUpscale']}],
+    },(s)=>{document.getElementById('byoDone').disabled=!s.allOk;});
+    mountedByo=true;
+  }
+  document.getElementById('byoResult').scrollIntoView({behavior:'smooth'});
+}
+
+/* helpers */
+function setStatus(id,cls,txt){const c=document.getElementById(id);c.className='chip '+cls;c.innerHTML='<span class="lt"></span>'+txt;}
+function startTimer(){timerInt=setInterval(()=>{const s=Math.floor((Date.now()-t0)/1000);document.getElementById('timer').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');},1000);}
+function stopTimer(){clearInterval(timerInt);}
+startTimer();syncFooter();syncRail();syncBar();
+</script>
+</body>
+</html>
