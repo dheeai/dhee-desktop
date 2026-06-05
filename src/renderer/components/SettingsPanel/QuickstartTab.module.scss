@@ -116,3 +116,45 @@
   opacity: 0.45;
   cursor: not-allowed;
 }
+
+/* Guided-setup re-entry — the richer alternative to the quick key paste. */
+.guidedCallout {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 4px;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  background: var(--color-bg-panel-elevated);
+}
+.guidedText {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1;
+}
+.guidedText strong {
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+.guidedText span {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+.guidedButton {
+  flex: 0 0 auto;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 9px 16px;
+  white-space: nowrap;
+  background: transparent;
+  color: var(--color-accent-primary);
+  border: 1px solid var(--color-accent-primary);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.guidedButton:hover {
+  background: rgba(95, 136, 178, 0.12);
+}

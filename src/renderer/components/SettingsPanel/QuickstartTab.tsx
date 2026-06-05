@@ -15,9 +15,11 @@ import type { AppSettings } from '../../../shared/settingsTypes';
 export interface QuickstartTabProps {
   onSave: (patch: Partial<AppSettings>) => Promise<boolean> | void;
   isSaving: boolean;
+  /** Open the full-screen guided setup (recipe → brain → renderer → pre-flight). */
+  onRunGuidedSetup?: () => void;
 }
 
-export function QuickstartTab({ onSave, isSaving }: QuickstartTabProps) {
+export function QuickstartTab({ onSave, isSaving, onRunGuidedSetup }: QuickstartTabProps) {
   const [key, setKey] = useState('');
   const [revealed, setRevealed] = useState(false);
   const trimmed = key.trim();
@@ -42,6 +44,21 @@ export function QuickstartTab({ onSave, isSaving }: QuickstartTabProps) {
           providers per tier in <strong>Connection</strong> later.
         </p>
       </div>
+
+      {onRunGuidedSetup && (
+        <div className={styles.guidedCallout}>
+          <div className={styles.guidedText}>
+            <strong>Reconfiguring, or set up a new machine?</strong>
+            <span>
+              Run the guided setup — pick a recipe (cloud / hybrid / local), connect your
+              LLM and ComfyUI, and verify everything before you render.
+            </span>
+          </div>
+          <button type="button" className={styles.guidedButton} onClick={onRunGuidedSetup}>
+            Run the guided setup →
+          </button>
+        </div>
+      )}
 
       <div className={styles.field}>
         <label htmlFor="quickstart-openrouter-key" className={styles.label}>

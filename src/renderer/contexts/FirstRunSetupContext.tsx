@@ -18,7 +18,15 @@ interface FirstRunSetupValue {
   complete: (reason?: 'manual_finish' | 'skipped') => Promise<void>;
 }
 
-const FirstRunSetupContext = createContext<FirstRunSetupValue | null>(null);
+// Default is a safe no-op so components rendered outside the provider
+// (e.g. isolated tests of SettingsPanel) don't throw — open() just does
+// nothing there.
+const FirstRunSetupContext = createContext<FirstRunSetupValue>({
+  isActive: false,
+  ready: false,
+  open: () => undefined,
+  complete: async () => undefined,
+});
 
 export function FirstRunSetupProvider({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false);
@@ -65,7 +73,5 @@ export function FirstRunSetupProvider({ children }: { children: ReactNode }) {
 }
 
 export function useFirstRunSetup(): FirstRunSetupValue {
-  const ctx = useContext(FirstRunSetupContext);
-  if (!ctx) throw new Error('useFirstRunSetup must be used within FirstRunSetupProvider');
-  return ctx;
+  return useContext(FirstRunSetupContext);
 }

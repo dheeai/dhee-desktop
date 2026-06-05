@@ -12,6 +12,7 @@ import type {
   ProviderDiagnosticStatus,
 } from '../../../shared/providerDiagnosticsTypes';
 import { DESKTOP_THEMES } from '../../themes';
+import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
 import { QuickstartTab } from './QuickstartTab';
@@ -212,6 +213,7 @@ export default function SettingsPanel({
     normalizeConnectionSettings(settings),
   );
   const [activeTab, setActiveTab] = useState<SettingsTab>('quickstart');
+  const { open: openGuidedSetup } = useFirstRunSetup();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
@@ -735,6 +737,7 @@ export default function SettingsPanel({
               <QuickstartTab
                 onSave={onSaveConnection}
                 isSaving={!!isSavingConnection}
+                onRunGuidedSetup={openGuidedSetup}
               />
             ) : activeTab === 'account' ? (
               <AccountTab />

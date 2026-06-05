@@ -74,4 +74,21 @@ describe('QuickstartTab', () => {
     expect(link).toHaveAttribute('href');
     expect(link.getAttribute('href')).toMatch(/openrouter\.ai/);
   });
+
+  it('offers a "Run the guided setup" entry when one is provided, and fires it', () => {
+    const onRunGuidedSetup = jest.fn();
+    render(
+      <QuickstartTab onSave={() => Promise.resolve(true)} isSaving={false} onRunGuidedSetup={onRunGuidedSetup} />,
+    );
+    const btn = screen.getByRole('button', { name: /run the guided setup/i });
+    act(() => {
+      btn.click();
+    });
+    expect(onRunGuidedSetup).toHaveBeenCalledTimes(1);
+  });
+
+  it('omits the guided-setup entry when no handler is provided', () => {
+    render(<QuickstartTab onSave={() => Promise.resolve(true)} isSaving={false} />);
+    expect(screen.queryByRole('button', { name: /run the guided setup/i })).toBeNull();
+  });
 });
