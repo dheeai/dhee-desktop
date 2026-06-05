@@ -88,14 +88,18 @@ html, body, #root {
    below). Stronger ambient grain/vignette + tight radii (see tokens). */
 :root[data-theme='cinematic'] {
   color-scheme: dark;
+  /* Surface ramp compressed toward near-black so large modal fills read
+     black, not brown. Only small steps + borders separate surfaces (the
+     New Project way). New Project itself uses its own --slate-* vars, so
+     it's unaffected. */
   --color-bg-app: #0a0908;
   --color-bg-app-rgb: 10, 9, 8;
-  --color-bg-panel: #13110f;
-  --color-bg-panel-rgb: 19, 17, 15;
-  --color-bg-panel-elevated: #15120f;
-  --color-bg-panel-elevated-rgb: 21, 18, 15;
-  --color-bg-panel-soft: #1b1712;
-  --color-bg-panel-soft-rgb: 27, 23, 18;
+  --color-bg-panel: #0d0c0a;
+  --color-bg-panel-rgb: 13, 12, 10;
+  --color-bg-panel-elevated: #13110f;
+  --color-bg-panel-elevated-rgb: 19, 17, 15;
+  --color-bg-panel-soft: #181410;
+  --color-bg-panel-soft-rgb: 24, 20, 16;
   --color-bg-panel-inset: #060504;
   --color-bg-panel-inset-rgb: 6, 5, 4;
   --color-border-subtle: #1f1b17;
