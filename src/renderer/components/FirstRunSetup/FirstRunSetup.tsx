@@ -6,6 +6,7 @@
  * the normal New Project flow (where the Bundle Configurator runs).
  */
 import { useCallback, useEffect, useState } from 'react';
+import { Cloud, Shuffle, Cpu, type LucideIcon } from 'lucide-react';
 import type { AccountInfo, AppSettings, LLMProvider } from '../../../shared/settingsTypes';
 import type { ComfyProbeResult } from '../../../shared/bundleConfigTypes';
 import type { ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
@@ -16,10 +17,10 @@ import styles from './FirstRunSetup.module.scss';
 
 type Step = 'recipe' | 'brain' | 'renderer' | 'preflight';
 
-const RECIPES: Array<{ id: Recipe; icon: string; title: string; blurb: string; eta: string }> = [
-  { id: 'cloud', icon: '☁️', title: 'Run on Dhee Cloud', blurb: 'Everything runs on our GPUs. Nothing to install.', eta: '~30s' },
-  { id: 'hybrid', icon: '🔀', title: 'Hybrid', blurb: 'Cloud writes & directs; your GPU renders in ComfyUI.', eta: '~90s' },
-  { id: 'local', icon: '🖥️', title: 'Fully local / BYO keys', blurb: 'Your machine, your keys, your ComfyUI.', eta: '~2 min' },
+const RECIPES: Array<{ id: Recipe; icon: LucideIcon; title: string; blurb: string; eta: string }> = [
+  { id: 'cloud', icon: Cloud, title: 'Run on Dhee Cloud', blurb: 'Everything runs on our GPUs. Nothing to install.', eta: '~30s' },
+  { id: 'hybrid', icon: Shuffle, title: 'Hybrid', blurb: 'Cloud writes & directs; your GPU renders in ComfyUI.', eta: '~90s' },
+  { id: 'local', icon: Cpu, title: 'Fully local / BYO keys', blurb: 'Your machine, your keys, your ComfyUI.', eta: '~2 min' },
 ];
 
 const PROVIDERS: Array<{ id: LLMProvider; label: string; local?: boolean }> = [
@@ -222,19 +223,22 @@ export default function FirstRunSetup() {
               <h1 className={styles.title}>Let&apos;s light the set.</h1>
               <p className={styles.lede}>Pick how you want to power Dhee. You can change any of this later in Settings.</p>
               <div className={styles.recipes}>
-                {RECIPES.map((r) => (
-                  <button
-                    key={r.id}
-                    type="button"
-                    className={`${styles.recipe} ${recipe === r.id ? styles.recipeSel : ''}`}
-                    onClick={() => setRecipe(r.id)}
-                  >
-                    <span className={styles.recipeIcon}>{r.icon}</span>
-                    <span className={styles.recipeTitle}>{r.title}</span>
-                    <span className={styles.recipeBlurb}>{r.blurb}</span>
-                    <span className={styles.recipeEta}>Ready in {r.eta}</span>
-                  </button>
-                ))}
+                {RECIPES.map((r) => {
+                  const Icon = r.icon;
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      className={`${styles.recipe} ${recipe === r.id ? styles.recipeSel : ''}`}
+                      onClick={() => setRecipe(r.id)}
+                    >
+                      <Icon className={styles.recipeIcon} size={22} strokeWidth={1.6} aria-hidden="true" />
+                      <span className={styles.recipeTitle}>{r.title}</span>
+                      <span className={styles.recipeBlurb}>{r.blurb}</span>
+                      <span className={styles.recipeEta}>Ready in {r.eta}</span>
+                    </button>
+                  );
+                })}
               </div>
             </section>
           )}

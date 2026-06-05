@@ -110,6 +110,8 @@ html, body, #root {
   --color-text-muted-rgb: 122, 117, 112;
   --color-accent-primary: #e8a33d;
   --color-accent-primary-rgb: 232, 163, 61;
+  /* amber is light — primary buttons/badges need DARK text on it */
+  --color-accent-primary-contrast: #1a1206;
   --color-accent-primary-hover: #f0b35e;
   --color-accent-primary-dim: rgba(232, 163, 61, 0.24);
   --color-accent-primary-soft: rgba(232, 163, 61, 0.12);
