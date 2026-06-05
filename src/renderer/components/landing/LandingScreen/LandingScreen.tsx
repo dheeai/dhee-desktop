@@ -115,9 +115,7 @@ function getAmbientStatus(
 }
 
 interface LaneBadge {
-  /** Short label rendered in the pill — keep ≤6 chars to fit the sidebar. */
-  label: string;
-  /** Class name for the pill. */
+  /** Class name for this lane's status dot (local / cloud colorway). */
   className: string;
 }
 
@@ -135,16 +133,13 @@ function getLaneBadges(
   const vlmIsCloud = vlmBackend === 'cloud' && !!account;
   return {
     llm: {
-      label: llmIsCloud ? 'LLM ☁' : 'LLM 🖥',
-      className: llmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
+      className: llmIsCloud ? classes.statusDotCloud : classes.statusDotLocal,
     },
     comfy: {
-      label: comfyIsCloud ? 'Comfy ☁' : 'Comfy 🖥',
-      className: comfyIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
+      className: comfyIsCloud ? classes.statusDotCloud : classes.statusDotLocal,
     },
     vlm: {
-      label: vlmIsCloud ? 'VLM ☁' : 'VLM 🖥',
-      className: vlmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
+      className: vlmIsCloud ? classes.statusDotCloud : classes.statusDotLocal,
     },
   };
 }

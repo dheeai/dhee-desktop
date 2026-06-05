@@ -98,10 +98,19 @@
   display: inline-block;
 }
 
-// Red dot — applied to any lane that fails the configuration check
-// (no API key, no URL, sign-in required, etc.). The whole pill also
-// picks up a warn outline via .statusPillWarn so the issue is visible
-// without hovering.
+// Per-lane dot colorways. Declared after .statusDot so they win the
+// `background` cascade. A configured local lane reads as a calm muted
+// dot; a cloud lane glows in the success hue; a misconfigured lane is
+// red (and the whole pill picks up a warn outline via .statusPillWarn).
+.statusDotLocal {
+  background: var(--color-text-muted);
+}
+
+.statusDotCloud {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(var(--color-success-rgb), 0.16);
+}
+
 .statusDotError {
   background: #ef4444;
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
@@ -390,18 +399,6 @@
   height: 6px;
   border-radius: 50%;
   background: currentColor;
-}
-
-.modeBadgeLocal {
-  border-color: rgba(var(--color-border-strong-rgb), 0.38);
-  background: rgba(var(--color-bg-panel-soft-rgb), 0.22);
-  color: $color-text-secondary;
-}
-
-.modeBadgeCloud {
-  border-color: rgba(var(--color-success-rgb), 0.34);
-  background: rgba(var(--color-success-rgb), 0.14);
-  color: $color-success;
 }
 
 .modeBadgeConnecting {
