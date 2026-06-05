@@ -49,14 +49,19 @@ $color-status-pending: var(--color-status-pending);
 // Recording / live / active semantic (amber, constant across themes)
 $color-accent-recording: var(--color-accent-recording);
 
-// Typography — Instrument Sans (body/UI) pairs with Instrument Serif
-// (display). System fonts remain as graceful fallbacks.
-$font-family-base: 'Instrument Sans', 'SF Pro Display', 'Segoe UI Variable',
-  'Segoe UI', system-ui, sans-serif;
+// Typography — the Production-Slate combo: Fraunces for display + prose
+// (body default), JetBrains Mono for UI chrome (labels / inputs /
+// buttons). $font-family-ui-sans is a clean sans reserved for dense
+// running text (chat transcript, graph node bodies) where a serif tires.
+$font-family-base: 'Fraunces', Georgia, 'Times New Roman', serif;
 $font-family-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
   monospace;
-// Display face for headings (Instrument Serif) — single source app-wide.
+$font-family-ui-sans: 'Instrument Sans', 'SF Pro Display', 'Segoe UI Variable',
+  'Segoe UI', system-ui, sans-serif;
+// Display face for headings (Fraunces) — single source app-wide.
 $font-display: var(--font-display);
+// Clean sans for dense UI (chat/graph) — see --font-ui-sans.
+$font-ui-sans: var(--font-ui-sans);
 
 $font-size-xs: 11px;
 $font-size-sm: 12px;

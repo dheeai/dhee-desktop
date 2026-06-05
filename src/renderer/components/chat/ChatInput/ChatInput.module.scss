@@ -84,7 +84,8 @@
   background: transparent;
   border: none;
   resize: none;
-  font-family: $font-family-base;
+  /* chat composer prose stays on the clean sans (not Fraunces body). */
+  font-family: var(--font-ui-sans);
   font-size: $font-size-base;
   line-height: $line-height-normal;
   color: $color-text-primary;

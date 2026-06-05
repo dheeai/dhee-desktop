@@ -29,8 +29,9 @@
 
 .control {
   width: 100%;
-  font: inherit;
-  font-size: 13.5px;
+  /* UI chrome is mono (New Project language). Prose inputs opt out. */
+  font-family: $font-family-mono;
+  font-size: $font-size-sm;
   color: $color-text-primary;
   background: $color-bg-panel-inset;
   border: 1px solid $color-border-strong;

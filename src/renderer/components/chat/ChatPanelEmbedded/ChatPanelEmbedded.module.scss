@@ -18,7 +18,9 @@
   height: 100%;
   background: $color-bg-app;
   color: $color-text-primary;
-  font-family: $font-family-base;
+  /* Dense transcript stays on a clean sans (not the Fraunces body
+     default) for readability; labels/tool-calls keep their mono. */
+  font-family: var(--font-ui-sans);
   font-size: $font-size-base;
 }
 

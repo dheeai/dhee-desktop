@@ -449,8 +449,11 @@ html, body, #root {
   --color-status-connecting: var(--color-warning);
   --color-status-connecting-rgb: var(--color-warning-rgb);
   --font-mono: #{$font-family-mono};
-  --font-sans: #{$font-family-base};
-  /* Display face — single source for headings app-wide (Instrument Serif). */
+  /* Body default is Fraunces; --font-sans / --font-ui-sans is the clean
+     sans reserved for dense running text (chat transcript, graph nodes). */
+  --font-ui-sans: #{$font-family-ui-sans};
+  --font-sans: #{$font-family-ui-sans};
+  /* Display face — single source for headings app-wide (Fraunces). */
   --font-display: 'Fraunces', 'Instrument Serif', Georgia, serif;
   /* Recording / live / active semantic — the amber, CONSTANT across themes
      (distinct from the per-theme primary accent). */
