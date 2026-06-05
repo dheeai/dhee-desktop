@@ -8,6 +8,7 @@ export type BackendMode = 'local' | 'cloud';
 export type BackendLane = 'local' | 'cloud';
 export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
 export type ThemeId =
+  | 'cinematic'
   | 'studio-neutral'
   | 'deep-forest-gold'
   | 'petroleum-clay'

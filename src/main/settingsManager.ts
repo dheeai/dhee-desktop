@@ -17,7 +17,7 @@ import {
 
 const FIXED_COMFYUI_TIMEOUT_SECONDS = 1800;
 const LEGACY_LOCAL_COMFYUI_URL = 'http://localhost:8000';
-const DEFAULT_THEME_ID: ThemeId = 'studio-neutral';
+const DEFAULT_THEME_ID: ThemeId = 'cinematic';
 const DEFAULT_LM_STUDIO_URL = 'http://127.0.0.1:1234';
 const DEFAULT_LM_STUDIO_MODEL = 'qwen3';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
@@ -102,6 +102,7 @@ function normalizeComfyUIUrl(value: unknown): string {
 
 function normalizeThemeId(value: unknown): ThemeId {
   if (
+    value === 'cinematic' ||
     value === 'studio-neutral' ||
     value === 'deep-forest-gold' ||
     value === 'petroleum-clay' ||

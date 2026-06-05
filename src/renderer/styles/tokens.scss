@@ -34,16 +34,34 @@ $color-accent-green: var(--color-accent-green);
 $color-accent-cyan: var(--color-accent-cyan);
 $color-accent-blue: var(--color-accent-blue);
 
-// Status Colors
+// Status Colors (provider connection)
 $color-status-connected: var(--color-status-connected);
 $color-status-disconnected: var(--color-status-disconnected);
 $color-status-connecting: var(--color-status-connecting);
 
-// Typography
-$font-family-base: 'SF Pro Display', 'Inter', 'Segoe UI Variable',
-  'Segoe UI', system-ui, sans-serif;
+// Node / run status palette (graph · chat · status strip)
+$color-status-completed: var(--color-status-completed);
+$color-status-running: var(--color-status-running);
+$color-status-failed: var(--color-status-failed);
+$color-status-invalidated: var(--color-status-invalidated);
+$color-status-pending: var(--color-status-pending);
+
+// Recording / live / active semantic (amber, constant across themes)
+$color-accent-recording: var(--color-accent-recording);
+
+// Typography — the Production-Slate combo: Fraunces for display + prose
+// (body default), JetBrains Mono for UI chrome (labels / inputs /
+// buttons). $font-family-ui-sans is a clean sans reserved for dense
+// running text (chat transcript, graph node bodies) where a serif tires.
+$font-family-base: 'Fraunces', Georgia, 'Times New Roman', serif;
 $font-family-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
   monospace;
+$font-family-ui-sans: 'Instrument Sans', 'SF Pro Display', 'Segoe UI Variable',
+  'Segoe UI', system-ui, sans-serif;
+// Display face for headings (Fraunces) — single source app-wide.
+$font-display: var(--font-display);
+// Clean sans for dense UI (chat/graph) — see --font-ui-sans.
+$font-ui-sans: var(--font-ui-sans);
 
 $font-size-xs: 11px;
 $font-size-sm: 12px;
@@ -70,13 +88,13 @@ $spacing-xl: 24px;
 $spacing-2xl: 32px;
 $spacing-3xl: 48px;
 
-// Border Radius
-$radius-sm: 6px;
-$radius-md: 10px;
-$radius-lg: 14px;
-$radius-xl: 18px;
+// Border Radius — tight / architectural (Production-Slate language).
+$radius-sm: 4px;
+$radius-md: 6px;
+$radius-lg: 8px;
+$radius-xl: 12px;
 $radius-full: 9999px;
-$radius-clip: 4px;
+$radius-clip: 3px;
 
 // Shadows
 $shadow-sm: var(--shadow-sm);

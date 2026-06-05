@@ -79,6 +79,18 @@ import {
 import fileSystemManager from './fileSystemManager';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
+import type {
+  EnrichedBundleFit,
+  ComfyProbeResult,
+  BundleResolution,
+  ResolvePatch,
+  BundleInstallSource,
+  BundleInstallResult,
+  ApiWorkflowValidation,
+  ParameterMapping,
+} from '../shared/bundleConfigTypes';
+import { buildProbeResult } from './comfyProbe';
+import { readFileSync as readFileSyncNode } from 'node:fs';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
 import { exportChatJsonWithDialog } from './services/chatExportService';
@@ -1592,6 +1604,206 @@ ipcMain.handle(
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, error: message };
+    }
+  },
+);
+
+/**
+ * Bundle Configurator IPC (issue: first-run setup + bundle config).
+ *
+ * comfy:probe   — is this ComfyUI reachable, and what's on it (GPU/VRAM,
+ *                 model count, node-class count)? Read-only; never
+ *                 restarts the embedded engine.
+ * bundle:check  — for a bundle + endpoint, what models / custom nodes
+ *                 are missing? Wraps dhee-core checkBundle + enriches
+ *                 with the bundle's requirements manifest. Read-only.
+ *
+ * Both mirror the bundle:list dynamic-import pattern (dhee-core ships
+ * dist without .d.ts, so the module is imported through a path variable
+ * and cast to a hand-declared shape).
+ */
+type BundleCheckModule = {
+  parseBundleSource: (uri: string) => unknown;
+  resolveBundleDir: (source: unknown) => string;
+  checkBundle: (opts: {
+    bundleDir: string;
+    endpoint: string;
+    aliasesDir?: string;
+    fetchObjectInfo: (url: string) => Promise<Record<string, unknown>>;
+  }) => Promise<EnrichedBundleFit>;
+  loadBundleRequirements: (bundleDir: string) => unknown;
+  enrichBundleFit: (fit: unknown, req: unknown) => EnrichedBundleFit;
+  writeAliases: (aliasesDir: string, endpoint: string, patch: ResolvePatch) => void;
+  readBundleResolution: (aliasesDir: string, endpoint: string, bundleId: string) => BundleResolution | null;
+  writeBundleResolution: (aliasesDir: string, resolution: BundleResolution) => void;
+  installBundle: (source: BundleInstallSource, opts?: { force?: boolean }) => Promise<BundleInstallResult>;
+  validateApiWorkflow: (json: unknown) => ApiWorkflowValidation;
+  suggestParameterMappings: (workflow: unknown) => ParameterMapping[];
+};
+
+/** The alias/resolution store the agent's dhee_apply_workflow_aliases tool also uses. */
+function workflowAliasesDir(): string {
+  const env = process.env['DHEE_WORKFLOW_ALIASES_DIR']?.trim();
+  return env && env.length > 0 ? env : path.join(app.getPath('home'), '.dhee', 'workflow-aliases');
+}
+
+function readBundleVersion(bundleDir: string): string {
+  try {
+    const raw = readFileSyncNode(path.join(bundleDir, 'bundle.json'), 'utf8');
+    const v = (JSON.parse(raw) as { version?: string }).version;
+    return typeof v === 'string' ? v : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    if (!resp.ok) throw new Error(`${url} returned ${resp.status}`);
+    return (await resp.json()) as Record<string, unknown>;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+ipcMain.handle(
+  'comfy:probe',
+  async (_event, payload: { url: string }): Promise<ComfyProbeResult> => {
+    const base = (payload?.url ?? '').trim().replace(/\/$/, '');
+    if (!base) return { ok: false, error: 'No ComfyUI URL provided' };
+    try {
+      const stats = await fetchJsonWithTimeout(`${base}/system_stats`, 3500);
+      const info = await fetchJsonWithTimeout(`${base}/object_info`, 8000);
+      return buildProbeResult(stats, info);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:check',
+  async (
+    _event,
+    payload: { bundleId: string; endpoint: string },
+  ): Promise<EnrichedBundleFit | { error: string }> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      // built-in: and user: both resolve through the same search chain,
+      // so built-in:<id> finds community-installed bundles too.
+      const source = mod.parseBundleSource(`built-in:${payload.bundleId}`);
+      const resolved = mod.resolveBundleDir(source);
+      // resolveBundleDir may return a single-file (legacy) bundle; the
+      // dir is its parent in that case.
+      const bundleDir = resolved.endsWith('.json') ? path.dirname(resolved) : resolved;
+      const aliasesDir = workflowAliasesDir();
+      const fit = await mod.checkBundle({
+        bundleDir,
+        endpoint: payload.endpoint,
+        aliasesDir,
+        fetchObjectInfo: (url: string) => fetchJsonWithTimeout(`${url.replace(/\/$/, '')}/object_info`, 8000),
+      });
+      const requirements = mod.loadBundleRequirements(bundleDir);
+      const enriched = mod.enrichBundleFit(fit, requirements);
+      // Cache the verdict so the picker can badge "configured" without
+      // re-probing. Reachable results only (don't cache transient down).
+      if (enriched.status !== 'unreachable') {
+        mod.writeBundleResolution(aliasesDir, {
+          bundleId: payload.bundleId,
+          bundleVersion: readBundleVersion(bundleDir),
+          endpoint: payload.endpoint,
+          status: enriched.status,
+          modelsMissing: enriched.modelsMissing,
+          nodesMissing: enriched.nodesMissing,
+          resolvedAt: Date.now(),
+        });
+      }
+      return enriched;
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:resolve',
+  async (
+    _event,
+    payload: { endpoint: string; patch: ResolvePatch },
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      mod.writeAliases(workflowAliasesDir(), payload.endpoint, payload.patch);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:resolution',
+  async (
+    _event,
+    payload: { bundleId: string; endpoint: string },
+  ): Promise<BundleResolution | null> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      return mod.readBundleResolution(workflowAliasesDir(), payload.endpoint, payload.bundleId);
+    } catch {
+      return null;
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:install',
+  async (_event, payload: { source: BundleInstallSource }): Promise<BundleInstallResult> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      return await mod.installBundle(payload.source);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'workflow:validate',
+  async (_event, payload: { json: string }): Promise<ApiWorkflowValidation> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payload.json);
+      } catch {
+        return { ok: false, reason: 'invalid' };
+      }
+      return mod.validateApiWorkflow(parsed);
+    } catch {
+      return { ok: false, reason: 'invalid' };
+    }
+  },
+);
+
+ipcMain.handle(
+  'workflow:suggest-map',
+  async (_event, payload: { json: string }): Promise<ParameterMapping[]> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      const parsed = JSON.parse(payload.json);
+      return mod.suggestParameterMappings(parsed);
+    } catch {
+      return [];
     }
   },
 );

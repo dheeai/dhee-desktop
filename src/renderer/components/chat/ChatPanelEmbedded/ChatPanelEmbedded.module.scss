@@ -18,7 +18,9 @@
   height: 100%;
   background: $color-bg-app;
   color: $color-text-primary;
-  font-family: $font-family-base;
+  /* Dense transcript stays on a clean sans (not the Fraunces body
+     default) for readability; labels/tool-calls keep their mono. */
+  font-family: var(--font-ui-sans);
   font-size: $font-size-base;
 }
 
@@ -728,9 +730,12 @@
   }
 
   .bubbleBody {
-    background: rgba(var(--color-accent-primary-rgb), 0.16);
-    border: 1px solid rgba(var(--color-accent-primary-rgb), 0.32);
-    border-radius: 10px 10px 2px 10px;
+    // Neutral dark surface + amber edge — NOT an amber fill (which read
+    // muddy/brown on the warm-black canvas). The amber border + eyebrow
+    // carry the "you" identity.
+    background: rgba(var(--color-text-primary-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-primary-rgb), 0.4);
+    border-radius: 8px 8px 2px 8px;
     padding: 8px 12px;
     font-size: $font-size-sm;
     line-height: 1.55;

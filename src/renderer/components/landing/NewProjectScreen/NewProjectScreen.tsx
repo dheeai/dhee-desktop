@@ -23,6 +23,9 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import BundleConfigurator from '../../BundleConfigurator/BundleConfigurator';
+import BundleInstall from '../../BundleConfigurator/BundleInstall';
+import WorkflowImport from '../../BundleConfigurator/WorkflowImport';
 import styles from './NewProjectScreen.module.scss';
 
 interface BundleInputOption {
@@ -141,6 +144,25 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
 
   const [bundles, setBundles] = useState<BundleSummary[]>([]);
   const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
+  // Bundle ids previously verified "ready" on the user's ComfyUI (cached
+  // by bundle:check). Drives the picker's "✓ Ready on this ComfyUI" badge.
+  const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
+  const [showInstall, setShowInstall] = useState(false);
+  const [showByo, setShowByo] = useState(false);
+
+  // Re-read the bundle list (after a community install) and select the
+  // new one so the existing Compatibility section configures it.
+  const refreshAndSelect = useCallback(async (newBundleId: string) => {
+    try {
+      const list = (await window.electron.project.listBundles()) as BundleSummary[];
+      const eligible = list.filter((b) => b.pickerEligible);
+      setBundles(eligible.length > 0 ? eligible : list);
+    } catch {
+      /* keep current list */
+    }
+    setSelectedBundleId(newBundleId);
+    setShowInstall(false);
+  }, []);
   const [inputValues, setInputValues] = useState<Record<string, unknown>>({});
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [workspacePath, setWorkspacePath] = useState<string>('');
@@ -225,6 +247,36 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
       window.removeEventListener('keydown', handler);
     };
   }, [isOpen, isSubmitting, onClose]);
+
+  // Badge bundles already verified ready on this ComfyUI (cheap cache read).
+  useEffect(() => {
+    if (!isOpen || bundles.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      let endpoint = 'http://127.0.0.1:8188';
+      try {
+        const s = await window.electron.settings.get();
+        if (s.comfyuiMode === 'custom' && s.comfyuiUrl) endpoint = s.comfyuiUrl;
+      } catch {
+        /* default endpoint */
+      }
+      const ready = new Set<string>();
+      await Promise.all(
+        bundles.map(async (b) => {
+          try {
+            const r = await window.electron.bundleConfig.resolution(b.id, endpoint);
+            if (r && r.status === 'ready' && r.bundleVersion === b.version) ready.add(b.id);
+          } catch {
+            /* no stamp */
+          }
+        }),
+      );
+      if (!cancelled) setResolvedIds(ready);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, bundles]);
 
   const selectedBundle = useMemo(
     () => bundles.find((b) => b.id === selectedBundleId) ?? null,
@@ -381,9 +433,44 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
                 {bundle.techLine ? (
                   <div className={styles.bundleSpec}>{bundle.techLine}</div>
                 ) : null}
+                {resolvedIds.has(bundle.id) ? (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--color-success)',
+                    }}
+                  >
+                    ✓ Ready on this ComfyUI
+                  </div>
+                ) : null}
               </button>
             );
           })}
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => setShowInstall((v) => !v)}
+            style={{
+              font: 'inherit',
+              fontSize: 12.5,
+              cursor: 'pointer',
+              color: 'var(--color-accent-primary)',
+              background: 'transparent',
+              border: 0,
+              padding: 0,
+            }}
+          >
+            {showInstall ? '× Cancel install' : '+ Install a community bundle'}
+          </button>
+          {showInstall && (
+            <div style={{ marginTop: 10 }}>
+              <BundleInstall onInstalled={(id) => void refreshAndSelect(id)} />
+            </div>
+          )}
         </div>
 
         <div
@@ -447,6 +534,31 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
                     />
                   </div>
                 ))}
+
+              <hr className={styles.divider} style={{ marginTop: '40px' }} />
+              <h3 className={styles.sectionLabel}>Compatibility</h3>
+              <BundleConfigurator bundleId={selectedBundle.id} />
+              <button
+                type="button"
+                onClick={() => setShowByo((v) => !v)}
+                style={{
+                  marginTop: 12,
+                  font: 'inherit',
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                  color: 'var(--color-accent-primary)',
+                  background: 'transparent',
+                  border: 0,
+                  padding: 0,
+                }}
+              >
+                {showByo ? '× Hide custom workflow' : '+ Bring your own workflow'}
+              </button>
+              {showByo && (
+                <div style={{ marginTop: 10 }}>
+                  <WorkflowImport />
+                </div>
+              )}
 
               <hr className={styles.divider} style={{ marginTop: '40px' }} />
 

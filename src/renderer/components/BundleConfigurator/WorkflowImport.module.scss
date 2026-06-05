@@ -1,0 +1,66 @@
+@import '../../styles/tokens';
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.textarea {
+  min-height: 90px;
+  font-size: $font-size-sm;
+}
+
+.reject {
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: $color-error;
+  background: color-mix(in srgb, $color-error 8%, transparent);
+  border: 1px solid color-mix(in srgb, $color-error 40%, transparent);
+  border-radius: $radius-md;
+  padding: $spacing-md $spacing-lg;
+}
+
+.steps {
+  margin: $spacing-sm 0 0;
+  padding-left: 20px;
+  color: $color-text-secondary;
+}
+
+.ok {
+  font-size: 12.5px;
+  color: $color-success;
+  margin-bottom: $spacing-sm;
+}
+
+.none {
+  font-size: $font-size-sm;
+  color: $color-text-muted;
+}
+
+.maptable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+
+  tr {
+    border-bottom: 1px dashed $color-border-subtle;
+  }
+}
+
+.k {
+  padding: 7px $spacing-sm;
+  font-family: $font-family-mono;
+  color: $color-text-primary;
+}
+
+.arrow {
+  padding: 7px $spacing-sm;
+  color: $color-text-muted;
+}
+
+.target {
+  padding: 7px $spacing-sm;
+  font-family: $font-family-mono;
+  color: $color-text-secondary;
+}

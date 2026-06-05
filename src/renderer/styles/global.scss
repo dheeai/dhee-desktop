@@ -82,6 +82,86 @@ html, body, #root {
   --color-code-border: rgba(50, 56, 64, 0.9);
 }
 
+/* Cinematic — the Production-Slate look as the unified default: warm
+   near-black film-stock surfaces, warm AMBER primary accent (#e8a33d),
+   and a RED recording/live semantic (--color-accent-recording, shared
+   below). Stronger ambient grain/vignette + tight radii (see tokens). */
+:root[data-theme='cinematic'] {
+  color-scheme: dark;
+  /* Surface ramp compressed toward near-black so large modal fills read
+     black, not brown. Only small steps + borders separate surfaces (the
+     New Project way). New Project itself uses its own --slate-* vars, so
+     it's unaffected. */
+  --color-bg-app: #0a0908;
+  --color-bg-app-rgb: 10, 9, 8;
+  --color-bg-panel: #0d0c0a;
+  --color-bg-panel-rgb: 13, 12, 10;
+  --color-bg-panel-elevated: #13110f;
+  --color-bg-panel-elevated-rgb: 19, 17, 15;
+  --color-bg-panel-soft: #181410;
+  --color-bg-panel-soft-rgb: 24, 20, 16;
+  --color-bg-panel-inset: #060504;
+  --color-bg-panel-inset-rgb: 6, 5, 4;
+  --color-border-subtle: #1f1b17;
+  --color-border-subtle-rgb: 31, 27, 23;
+  --color-border-strong: #2a2520;
+  --color-border-strong-rgb: 42, 37, 32;
+  --color-text-primary: #f4f1ea;
+  --color-text-primary-rgb: 244, 241, 234;
+  --color-text-secondary: #b8b1a6;
+  --color-text-secondary-rgb: 184, 177, 166;
+  --color-text-muted: #7a7570;
+  --color-text-muted-rgb: 122, 117, 112;
+  --color-accent-primary: #e8a33d;
+  --color-accent-primary-rgb: 232, 163, 61;
+  /* amber is light — primary buttons/badges need DARK text on it */
+  --color-accent-primary-contrast: #1a1206;
+  --color-accent-primary-hover: #f0b35e;
+  --color-accent-primary-dim: rgba(232, 163, 61, 0.24);
+  --color-accent-primary-soft: rgba(232, 163, 61, 0.12);
+  --color-success: #7a9b82;
+  --color-success-rgb: 122, 155, 130;
+  --color-warning: #c79a5a;
+  --color-warning-rgb: 199, 154, 90;
+  --color-error: #b5736f;
+  --color-error-rgb: 181, 115, 111;
+  --color-info: #e8a33d;
+  --color-info-rgb: 232, 163, 61;
+  --color-bg-subtle: rgba(255, 255, 255, 0.03);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.42);
+  --shadow-lg: 0 22px 48px rgba(0, 0, 0, 0.5);
+  --shadow-focus: 0 0 0 3px rgba(232, 163, 61, 0.26);
+  --color-timeline-background: #0b0a08;
+  --color-timeline-ruler: #15120f;
+  --color-timeline-grid: rgba(255, 255, 255, 0.035);
+  --color-timeline-marker-pending: rgba(122, 117, 112, 0.72);
+  --color-timeline-marker-processing: rgba(199, 154, 90, 0.88);
+  --color-timeline-marker-complete: rgba(122, 155, 130, 0.84);
+  --color-timeline-marker-error: rgba(181, 115, 111, 0.86);
+  --color-track-main-bg: rgba(255, 255, 255, 0.02);
+  --color-track-overlay-bg: rgba(199, 154, 90, 0.08);
+  --color-track-text-bg: rgba(120, 110, 98, 0.14);
+  --color-track-audio-bg: rgba(122, 155, 130, 0.12);
+  --color-clip-visual-bg: linear-gradient(180deg, rgba(120, 110, 98, 0.18) 0%, rgba(120, 110, 98, 0.15) 100%);
+  --color-clip-visual-border: rgba(140, 128, 112, 0.54);
+  --color-clip-overlay-border: rgba(150, 118, 80, 0.5);
+  --color-clip-overlay-bg: linear-gradient(180deg, rgba(150, 118, 80, 0.16) 0%, rgba(150, 118, 80, 0.12) 100%);
+  --color-clip-text-border: rgba(120, 110, 96, 0.54);
+  --color-clip-text-bg: linear-gradient(180deg, rgba(120, 110, 96, 0.16) 0%, rgba(120, 110, 96, 0.12) 100%);
+  --color-clip-audio-border: rgba(122, 155, 130, 0.54);
+  --color-clip-audio-bg: linear-gradient(180deg, rgba(122, 155, 130, 0.16) 0%, rgba(122, 155, 130, 0.12) 100%);
+  --color-clip-selected-border: rgba(232, 163, 61, 0.72);
+  --color-clip-selected-bg: rgba(232, 163, 61, 0.12);
+  --color-code-bg: #0f0d0b;
+  --color-code-gutter-bg: #15120f;
+  --color-code-active-line: rgba(232, 163, 61, 0.08);
+  --color-code-selection: rgba(232, 163, 61, 0.18);
+  --color-code-border: rgba(42, 37, 32, 0.9);
+  --grain-opacity: 0.05;
+  --vignette-strength: 0.5;
+}
+
 :root[data-theme='deep-forest-gold'] {
   color-scheme: dark;
   --color-bg-app: #101411;
@@ -375,6 +455,32 @@ html, body, #root {
   --color-status-connecting: var(--color-warning);
   --color-status-connecting-rgb: var(--color-warning-rgb);
   --font-mono: #{$font-family-mono};
+  /* Body default is Fraunces; --font-sans / --font-ui-sans is the clean
+     sans reserved for dense running text (chat transcript, graph nodes). */
+  --font-ui-sans: #{$font-family-ui-sans};
+  --font-sans: #{$font-family-ui-sans};
+  /* Display face — single source for headings app-wide (Fraunces). */
+  --font-display: 'Fraunces', 'Instrument Serif', Georgia, serif;
+  /* Recording / live / active semantic — the amber, CONSTANT across themes
+     (distinct from the per-theme primary accent). */
+  --color-accent-recording: #e84538;
+  --color-accent-recording-rgb: 232, 69, 56;
+  --color-accent-recording-soft: rgba(232, 69, 56, 0.14);
+  /* Node / run status palette — one set for graph + chat + status strip.
+     Aliased to the per-theme semantics so it re-themes for free. */
+  --color-status-completed: var(--color-success);
+  --color-status-completed-rgb: var(--color-success-rgb);
+  --color-status-running: var(--color-warning);
+  --color-status-running-rgb: var(--color-warning-rgb);
+  --color-status-failed: var(--color-error);
+  --color-status-failed-rgb: var(--color-error-rgb);
+  --color-status-invalidated: var(--color-text-secondary);
+  --color-status-invalidated-rgb: var(--color-text-secondary-rgb);
+  --color-status-pending: var(--color-text-muted);
+  --color-status-pending-rgb: var(--color-text-muted-rgb);
+  /* Ambient cinematic texture (default; cinematic theme turns these up). */
+  --grain-opacity: 0.025;
+  --vignette-strength: 0.4;
 }
 
 body {
@@ -385,6 +491,32 @@ body {
   background: $color-bg-app;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ambient cinematic atmosphere — app-wide film grain + vignette,
+   gated by per-theme tokens (cinematic turns them up; others are
+   subtle). pointer-events:none so they never block interaction. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483646;
+  opacity: var(--grain-opacity, 0);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483645;
+  background: radial-gradient(
+    130% 120% at 50% 35%,
+    transparent 55%,
+    rgba(0, 0, 0, var(--vignette-strength, 0)) 100%
+  );
 }
 
 a {
