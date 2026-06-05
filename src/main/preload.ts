@@ -13,6 +13,7 @@ import type {
   OnboardingState,
 } from '../shared/onboardingTypes';
 import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
+import type { ComfyProbeResult, EnrichedBundleFit } from '../shared/bundleConfigTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -805,6 +806,23 @@ const logsBridge = {
   },
 };
 
+/**
+ * Bundle Configurator bridge — probe a ComfyUI endpoint and check a
+ * bundle's model/custom-node fit against it (read-only). Mutating
+ * resolve actions are added in a later milestone.
+ */
+const bundleConfigBridge = {
+  probeComfy(url: string): Promise<ComfyProbeResult> {
+    return ipcRenderer.invoke('comfy:probe', { url });
+  },
+  check(
+    bundleId: string,
+    endpoint: string,
+  ): Promise<EnrichedBundleFit | { error: string }> {
+    return ipcRenderer.invoke('bundle:check', { bundleId, endpoint });
+  },
+};
+
 const electronHandler = {
   ipcRenderer: {
     sendMessage(channel: Channels, ...args: unknown[]) {
@@ -827,6 +845,7 @@ const electronHandler = {
   onboarding: onboardingBridge,
   providerDiagnostics: providerDiagnosticsBridge,
   project: projectBridge,
+  bundleConfig: bundleConfigBridge,
   logger: loggerBridge,
   logs: logsBridge,
   updates: updateBridge,

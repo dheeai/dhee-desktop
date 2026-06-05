@@ -1,0 +1,198 @@
+// BundleConfigurator — gap-resolution surface. Uses the global
+// studio-neutral CSS custom properties (defined in styles/global.scss)
+// so it themes with the rest of the app; spacing/radius as literals to
+// stay self-contained.
+
+.configurator {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-text-primary);
+}
+
+.endpointRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.endpointLabel {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.endpointInput {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  font-size: 12px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 8px 10px;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent-primary);
+    box-shadow: var(--shadow-focus);
+  }
+}
+
+.recheck {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 8px 14px;
+
+  &:hover:not(:disabled) {
+    color: var(--color-text-primary);
+    border-color: var(--color-accent-primary);
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.unreachable {
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-error) 40%, transparent);
+  border-radius: 8px;
+  padding: 12px 14px;
+
+  .help {
+    margin-top: 8px;
+    color: var(--color-text-secondary);
+
+    code {
+      font-family: var(--font-mono, monospace);
+      font-size: 11.5px;
+      background: var(--color-bg-panel-inset);
+      padding: 1px 5px;
+      border-radius: 4px;
+      color: var(--color-accent-primary);
+    }
+  }
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.statusChip {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 7px 12px;
+  border-radius: 20px;
+  border: 1px solid var(--color-border-strong);
+
+  &.ok {
+    color: var(--color-success);
+    border-color: color-mix(in srgb, var(--color-success) 40%, transparent);
+  }
+  &.warn {
+    color: var(--color-warning);
+    border-color: color-mix(in srgb, var(--color-warning) 40%, transparent);
+  }
+}
+
+.workflow {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 10px;
+  background: var(--color-bg-panel);
+  padding: 12px 14px;
+}
+
+.workflowName {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  margin-bottom: 8px;
+}
+
+.wfError {
+  font-size: 12px;
+  color: var(--color-error);
+  margin-bottom: 8px;
+}
+
+.group {
+  margin-top: 8px;
+}
+
+.groupHead {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+  margin-bottom: 6px;
+}
+
+.gap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 0;
+  border-bottom: 1px dashed var(--color-border-subtle);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+
+.gapName {
+  flex: 1;
+  min-width: 0;
+}
+
+.fn {
+  display: block;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
+.sub {
+  display: block;
+  font-size: 10.5px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.action {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--color-accent-primary);
+  white-space: nowrap;
+}
+
+.actionMuted {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}

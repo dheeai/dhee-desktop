@@ -23,6 +23,7 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import BundleConfigurator from '../../BundleConfigurator/BundleConfigurator';
 import styles from './NewProjectScreen.module.scss';
 
 interface BundleInputOption {
@@ -447,6 +448,10 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
                     />
                   </div>
                 ))}
+
+              <hr className={styles.divider} style={{ marginTop: '40px' }} />
+              <h3 className={styles.sectionLabel}>Compatibility</h3>
+              <BundleConfigurator bundleId={selectedBundle.id} />
 
               <hr className={styles.divider} style={{ marginTop: '40px' }} />
 
