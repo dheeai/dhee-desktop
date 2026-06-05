@@ -49,8 +49,9 @@ $color-status-pending: var(--color-status-pending);
 // Recording / live / active semantic (amber, constant across themes)
 $color-accent-recording: var(--color-accent-recording);
 
-// Typography
-$font-family-base: 'SF Pro Display', 'Inter', 'Segoe UI Variable',
+// Typography — Instrument Sans (body/UI) pairs with Instrument Serif
+// (display). System fonts remain as graceful fallbacks.
+$font-family-base: 'Instrument Sans', 'SF Pro Display', 'Segoe UI Variable',
   'Segoe UI', system-ui, sans-serif;
 $font-family-mono: 'JetBrains Mono', 'SF Mono', 'Fira Code', Consolas,
   monospace;
