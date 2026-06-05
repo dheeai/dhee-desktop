@@ -82,10 +82,10 @@ html, body, #root {
   --color-code-border: rgba(50, 56, 64, 0.9);
 }
 
-/* Cinematic — warm near-black film-stock surfaces (the unified default
-   character). Primary accent is a cool slate-blue for warm/cool tension;
-   the amber recording semantic (--color-accent-recording, shared below)
-   stays distinct. Stronger ambient grain/vignette. */
+/* Cinematic — the Production-Slate look as the unified default: warm
+   near-black film-stock surfaces, warm AMBER primary accent (#e8a33d),
+   and a RED recording/live semantic (--color-accent-recording, shared
+   below). Stronger ambient grain/vignette + tight radii (see tokens). */
 :root[data-theme='cinematic'] {
   color-scheme: dark;
   --color-bg-app: #0a0908;
@@ -108,24 +108,24 @@ html, body, #root {
   --color-text-secondary-rgb: 184, 177, 166;
   --color-text-muted: #7a7570;
   --color-text-muted-rgb: 122, 117, 112;
-  --color-accent-primary: #6f93b8;
-  --color-accent-primary-rgb: 111, 147, 184;
-  --color-accent-primary-hover: #83a5c6;
-  --color-accent-primary-dim: rgba(111, 147, 184, 0.24);
-  --color-accent-primary-soft: rgba(111, 147, 184, 0.12);
+  --color-accent-primary: #e8a33d;
+  --color-accent-primary-rgb: 232, 163, 61;
+  --color-accent-primary-hover: #f0b35e;
+  --color-accent-primary-dim: rgba(232, 163, 61, 0.24);
+  --color-accent-primary-soft: rgba(232, 163, 61, 0.12);
   --color-success: #7a9b82;
   --color-success-rgb: 122, 155, 130;
   --color-warning: #c79a5a;
   --color-warning-rgb: 199, 154, 90;
   --color-error: #b5736f;
   --color-error-rgb: 181, 115, 111;
-  --color-info: #6f93b8;
-  --color-info-rgb: 111, 147, 184;
+  --color-info: #e8a33d;
+  --color-info-rgb: 232, 163, 61;
   --color-bg-subtle: rgba(255, 255, 255, 0.03);
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
   --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.42);
   --shadow-lg: 0 22px 48px rgba(0, 0, 0, 0.5);
-  --shadow-focus: 0 0 0 3px rgba(111, 147, 184, 0.26);
+  --shadow-focus: 0 0 0 3px rgba(232, 163, 61, 0.26);
   --color-timeline-background: #0b0a08;
   --color-timeline-ruler: #15120f;
   --color-timeline-grid: rgba(255, 255, 255, 0.035);
@@ -145,12 +145,12 @@ html, body, #root {
   --color-clip-text-bg: linear-gradient(180deg, rgba(120, 110, 96, 0.16) 0%, rgba(120, 110, 96, 0.12) 100%);
   --color-clip-audio-border: rgba(122, 155, 130, 0.54);
   --color-clip-audio-bg: linear-gradient(180deg, rgba(122, 155, 130, 0.16) 0%, rgba(122, 155, 130, 0.12) 100%);
-  --color-clip-selected-border: rgba(111, 147, 184, 0.72);
-  --color-clip-selected-bg: rgba(111, 147, 184, 0.12);
+  --color-clip-selected-border: rgba(232, 163, 61, 0.72);
+  --color-clip-selected-bg: rgba(232, 163, 61, 0.12);
   --color-code-bg: #0f0d0b;
   --color-code-gutter-bg: #15120f;
-  --color-code-active-line: rgba(111, 147, 184, 0.08);
-  --color-code-selection: rgba(111, 147, 184, 0.18);
+  --color-code-active-line: rgba(232, 163, 61, 0.08);
+  --color-code-selection: rgba(232, 163, 61, 0.18);
   --color-code-border: rgba(42, 37, 32, 0.9);
   --grain-opacity: 0.05;
   --vignette-strength: 0.5;
@@ -451,12 +451,12 @@ html, body, #root {
   --font-mono: #{$font-family-mono};
   --font-sans: #{$font-family-base};
   /* Display face — single source for headings app-wide (Instrument Serif). */
-  --font-display: 'Instrument Serif', Georgia, serif;
+  --font-display: 'Fraunces', 'Instrument Serif', Georgia, serif;
   /* Recording / live / active semantic — the amber, CONSTANT across themes
      (distinct from the per-theme primary accent). */
-  --color-accent-recording: #e8a33d;
-  --color-accent-recording-rgb: 232, 163, 61;
-  --color-accent-recording-soft: rgba(232, 163, 61, 0.14);
+  --color-accent-recording: #e84538;
+  --color-accent-recording-rgb: 232, 69, 56;
+  --color-accent-recording-soft: rgba(232, 69, 56, 0.14);
   /* Node / run status palette — one set for graph + chat + status strip.
      Aliased to the per-theme semantics so it re-themes for free. */
   --color-status-completed: var(--color-success);
@@ -482,6 +482,32 @@ body {
   background: $color-bg-app;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+/* Ambient cinematic atmosphere — app-wide film grain + vignette,
+   gated by per-theme tokens (cinematic turns them up; others are
+   subtle). pointer-events:none so they never block interaction. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483646;
+  opacity: var(--grain-opacity, 0);
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+}
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 2147483645;
+  background: radial-gradient(
+    130% 120% at 50% 35%,
+    transparent 55%,
+    rgba(0, 0, 0, var(--vignette-strength, 0)) 100%
+  );
 }
 
 a {

@@ -83,13 +83,13 @@ $spacing-xl: 24px;
 $spacing-2xl: 32px;
 $spacing-3xl: 48px;
 
-// Border Radius
-$radius-sm: 6px;
-$radius-md: 10px;
-$radius-lg: 14px;
-$radius-xl: 18px;
+// Border Radius — tight / architectural (Production-Slate language).
+$radius-sm: 4px;
+$radius-md: 6px;
+$radius-lg: 8px;
+$radius-xl: 12px;
 $radius-full: 9999px;
-$radius-clip: 4px;
+$radius-clip: 3px;
 
 // Shadows
 $shadow-sm: var(--shadow-sm);

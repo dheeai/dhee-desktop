@@ -78,17 +78,19 @@ Each primitive is built on tokens + the existing mixins, replaces N bespoke copi
 
 ---
 
-## 4. Brand character — LOCKED
+## 4. Brand character — LOCKED (re-based on the Production Slate)
 
-The system is **cinematic studio**, refined by three disciplined choices:
+> Revised after review: the New Project "Production Slate" screen read as
+> more polished than the first (restrained) synthesis, so the language is
+> re-based directly on its recipe — full cinematic commitment.
 
-1. **Direction: Cinematic studio.** Warm near-black surfaces (the Production-Slate palette folded into the token system as the default theme), film grain + vignette as *ambient* atmosphere. Themeable — the other themes remain.
-2. **Display face: Instrument Serif** → `--font-display`. New Project migrates **off Fraunces** onto Instrument Serif; the brand wordmark and my flows already use it. Fraunces is dropped.
-3. **Accent: theme accent stays primary** (per-theme token), and **amber becomes a single semantic** `--color-accent-recording` for *live / recording / active* only (rec-dot, running run-state) — NOT the dominant UI color. Warmth comes from the surfaces, not from flooding amber.
-4. **Radius: standard 6/10/14** (`$radius-sm/md/lg`). Slate's 3–4px is dropped — softer reads better in dense panels (chat/graph).
-5. **Signature-device reach:** grain/vignette are part of the language and may appear app-wide as *subtle* ambient texture, but stay low-opacity and OFF inside dense, text-heavy panels (chat transcript, graph node bodies) where they hurt legibility. Rec-dot is reserved for live/recording states. The rotating-headline + display heading are `ui/` components on `--font-display`.
+1. **Direction: Cinematic studio = the Production Slate, app-wide.** Warm near-black film-stock surfaces (the `cinematic` default theme), full atmosphere.
+2. **Display face: Fraunces** → `--font-display` (variable, optical sizing — New Project's headline face). Loaded app-wide in `index.ejs`; Instrument Serif kept as fallback + for the wordmark.
+3. **Accent: warm amber `#e8a33d`** is the cinematic theme's primary accent (selection/focus/primary actions). **Recording/live is RED `#e84538`** (`--color-accent-recording`) — the rec-dot pulse — distinct from the amber accent (matches the Slate's amber-accent + red-rec split).
+4. **Radius: tight / architectural** — `$radius-sm/md/lg` = 4 / 6 / 8 (clip 3, xl 12). Applies as the language across themes.
+5. **Atmosphere: app-wide.** Film grain + vignette on the app root, gated by `--grain-opacity` / `--vignette-strength` (cinematic turns them up; pointer-events:none). Signature devices (rec-dot, double-divider, rotating headline) are `ui/` components.
 
-Net character: **warm cinematic atmosphere + calm Instrument-Serif editorial headings + a token-driven accent with amber as a meaningful highlight.** All of §2–3, §5–6 are now unblocked.
+Net character: **the Production Slate, everywhere** — warm film-stock surfaces, Fraunces display, amber accent + red rec, tight radii, ambient grain/vignette.
 
 ---
 
