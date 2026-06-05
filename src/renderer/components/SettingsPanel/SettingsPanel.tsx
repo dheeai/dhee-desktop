@@ -15,11 +15,9 @@ import { DESKTOP_THEMES } from '../../themes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
-import { QuickstartTab } from './QuickstartTab';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsTab =
-  | 'quickstart'
   | 'account'
   | 'appearance'
   | 'connection'
@@ -212,7 +210,7 @@ export default function SettingsPanel({
   const [form, setForm] = useState<AppSettings>(
     normalizeConnectionSettings(settings),
   );
-  const [activeTab, setActiveTab] = useState<SettingsTab>('quickstart');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('connection');
   const { open: openGuidedSetup } = useFirstRunSetup();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [signingIn, setSigningIn] = useState(false);
@@ -675,11 +673,11 @@ export default function SettingsPanel({
         <aside className={styles.sidebar}>
           <button
             type="button"
-            className={`${styles.tabButton} ${activeTab === 'quickstart' ? styles.tabButtonActive : ''}`}
-            onClick={() => setActiveTab('quickstart')}
+            className={`${styles.tabButton} ${styles.tabLauncher}`}
+            onClick={openGuidedSetup}
           >
-            <span className={styles.tabLabel}>Quickstart</span>
-            <span className={styles.tabDescription}>Set one API key, done</span>
+            <span className={styles.tabLabel}>Guided setup →</span>
+            <span className={styles.tabDescription}>Pick a recipe, connect, verify</span>
           </button>
           <button
             type="button"
@@ -733,13 +731,7 @@ export default function SettingsPanel({
 
         <form className={styles.form} onSubmit={handleSubmit}>
           <section className={styles.section}>
-            {activeTab === 'quickstart' ? (
-              <QuickstartTab
-                onSave={onSaveConnection}
-                isSaving={!!isSavingConnection}
-                onRunGuidedSetup={openGuidedSetup}
-              />
-            ) : activeTab === 'account' ? (
+            {activeTab === 'account' ? (
               <AccountTab />
             ) : activeTab === 'appearance' ? (
               <>
