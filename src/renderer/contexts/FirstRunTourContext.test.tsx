@@ -149,6 +149,9 @@ async function clickNextToHeading(heading: string) {
 }
 
 async function advanceThroughSetupWalkthrough() {
+  // The walkthrough no longer auto-starts on launch; launch it via the
+  // Help entry point (the manual trigger), then drive the steps.
+  fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
   fireEvent.click(
     await screen.findByRole('button', { name: 'Start walkthrough' }),
   );
@@ -218,8 +221,17 @@ describe('FirstRunTourProvider', () => {
     });
   });
 
-  it('auto-starts for a new user with no recent projects', async () => {
+  it('does not auto-start on launch, but Help can launch it', async () => {
     renderTour();
+
+    // Walkthrough disconnected: nothing appears automatically for a brand
+    // new user with no recent projects.
+    await waitFor(() => {
+      expect(screen.queryByText('Choose how Dhee runs')).toBeNull();
+    });
+
+    // The tour itself is intact and still launchable on demand.
+    fireEvent.click(screen.getByRole('button', { name: 'Help' }));
 
     expect(await screen.findByText('Choose how Dhee runs')).not.toBeNull();
     expect(screen.getByText(/Dhee can use Dhee Cloud credits/i)).not.toBeNull();
@@ -228,7 +240,7 @@ describe('FirstRunTourProvider', () => {
     ).not.toBeNull();
   });
 
-  it('auto-starts even when an account is signed in', async () => {
+  it('does not auto-start even when an account is signed in', async () => {
     Object.defineProperty(window, 'electron', {
       configurable: true,
       value: {
@@ -245,7 +257,9 @@ describe('FirstRunTourProvider', () => {
 
     renderTour();
 
-    expect(await screen.findByText('Choose how Dhee runs')).not.toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText('Choose how Dhee runs')).toBeNull();
+    });
   });
 
   it('does not auto-start for users with recent projects', async () => {
@@ -270,6 +284,7 @@ describe('FirstRunTourProvider', () => {
     try {
       renderTour();
 
+      fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
       fireEvent.click(
         await screen.findByRole('button', { name: 'Start walkthrough' }),
       );
@@ -317,6 +332,7 @@ describe('FirstRunTourProvider', () => {
   it('does not launch Cloud sign-in until the optional Cloud step action is clicked', async () => {
     renderTour();
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
     fireEvent.click(
       await screen.findByRole('button', { name: 'Start walkthrough' }),
     );
@@ -380,6 +396,7 @@ describe('FirstRunTourProvider', () => {
   it('persists skip', async () => {
     renderTour();
 
+    fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
     fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
 
     await waitFor(() => {
@@ -392,6 +409,7 @@ describe('FirstRunTourProvider', () => {
 
   it('does not persist completion when a project opens', async () => {
     const view = renderTour();
+    fireEvent.click(await screen.findByRole('button', { name: 'Help' }));
     await screen.findByText('Choose how Dhee runs');
 
     mockProjectDirectory = '/projects/first';
@@ -448,7 +466,7 @@ describe('FirstRunTourProvider', () => {
     ).not.toBeNull();
   });
 
-  it('dev mode forces the tour even after completion and recent projects', async () => {
+  it('does not auto-start even in tour dev mode (walkthrough disconnected)', async () => {
     process.env.NODE_ENV = 'development';
     process.env.dhee_FIRST_RUN_TOUR_DEV_MODE = '1';
     mockRecentProjects = [
@@ -464,6 +482,8 @@ describe('FirstRunTourProvider', () => {
 
     renderTour();
 
-    expect(await screen.findByText('Choose how Dhee runs')).not.toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByText('Choose how Dhee runs')).toBeNull();
+    });
   });
 });
