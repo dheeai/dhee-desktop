@@ -28,7 +28,7 @@
 }
 
 .wordmark {
-  font-family: var(--font-brand, 'Instrument Serif', Georgia, serif);
+  font-family: var(--font-display);
   font-style: italic;
   font-size: 20px;
 }
@@ -80,7 +80,7 @@
 }
 
 .title {
-  font-family: var(--font-brand, 'Instrument Serif', Georgia, serif);
+  font-family: var(--font-display);
   font-weight: 400;
   font-size: 40px;
   line-height: 1.05;

@@ -9,6 +9,7 @@
  */
 import { useState } from 'react';
 import { Eye, EyeOff, ExternalLink } from 'lucide-react';
+import { Button, Field, Input } from '../ui';
 import styles from './QuickstartTab.module.scss';
 import type { AppSettings } from '../../../shared/settingsTypes';
 
@@ -54,36 +55,34 @@ export function QuickstartTab({ onSave, isSaving, onRunGuidedSetup }: Quickstart
               LLM and ComfyUI, and verify everything before you render.
             </span>
           </div>
-          <button type="button" className={styles.guidedButton} onClick={onRunGuidedSetup}>
+          <Button variant="secondary" onClick={onRunGuidedSetup}>
             Run the guided setup →
-          </button>
+          </Button>
         </div>
       )}
 
-      <div className={styles.field}>
-        <label htmlFor="quickstart-openrouter-key" className={styles.label}>
-          OpenRouter API key
-        </label>
+      <Field label="OpenRouter API key" htmlFor="quickstart-openrouter-key">
         <div className={styles.inputRow}>
-          <input
+          <Input
             id="quickstart-openrouter-key"
+            mono
+            style={{ flex: 1 }}
             type={revealed ? 'text' : 'password'}
             value={key}
             onChange={(e) => setKey(e.target.value)}
             placeholder="sk-or-…"
             autoComplete="off"
             spellCheck={false}
-            className={styles.input}
           />
-          <button
-            type="button"
-            className={styles.revealButton}
+          <Button
+            variant="ghost"
+            iconOnly
             onClick={() => setRevealed((v) => !v)}
             aria-label={revealed ? 'Hide key' : 'Show key'}
             title={revealed ? 'Hide key' : 'Reveal key'}
           >
             {revealed ? <EyeOff size={14} /> : <Eye size={14} />}
-          </button>
+          </Button>
         </div>
         <a
           href="https://openrouter.ai/keys"
@@ -94,18 +93,12 @@ export function QuickstartTab({ onSave, isSaving, onRunGuidedSetup }: Quickstart
           Get an OpenRouter key
           <ExternalLink size={11} />
         </a>
-      </div>
+      </Field>
 
       <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.saveButton}
-          onClick={handleSave}
-          disabled={!canSave}
-          aria-label={isSaving ? 'Saving…' : 'Save'}
-        >
+        <Button variant="primary" onClick={handleSave} disabled={!canSave}>
           {isSaving ? 'Saving…' : 'Save'}
-        </button>
+        </Button>
       </div>
     </div>
   );

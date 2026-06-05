@@ -1,0 +1,24 @@
+@import '../../../styles/tokens';
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: $spacing-md;
+}
+
+.row {
+  display: flex;
+  gap: $spacing-sm;
+  align-items: center;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+}
+
+.error {
+  font-size: $font-size-sm;
+  color: $color-error;
+}

@@ -18,6 +18,7 @@ import type {
   BundleFitStatus,
   ResolvePatch,
 } from '../../../shared/bundleConfigTypes';
+import { Button, Input, Select } from '../ui';
 import styles from './BundleConfigurator.module.scss';
 
 const DEFAULT_ENDPOINT = 'http://127.0.0.1:8188';
@@ -93,15 +94,16 @@ export default function BundleConfigurator({ bundleId, endpoint, onStatus }: Pro
     <div className={styles.configurator}>
       <div className={styles.endpointRow}>
         <label className={styles.endpointLabel}>ComfyUI endpoint</label>
-        <input
-          className={styles.endpointInput}
+        <Input
+          mono
+          style={{ flex: 1 }}
           value={resolvedEndpoint}
           onChange={(e) => setResolvedEndpoint(e.target.value)}
           spellCheck={false}
         />
-        <button type="button" className={styles.recheck} onClick={() => void runCheck()} disabled={loading}>
+        <Button variant="secondary" onClick={() => void runCheck()} disabled={loading}>
           {loading ? 'Checking…' : 'Check fit'}
-        </button>
+        </Button>
       </div>
 
       {loading && !fit && <div className={styles.hint}>Scanning models + custom nodes…</div>}
@@ -236,8 +238,8 @@ function ModelGapRow({
         </span>
       </div>
       {candidates.length > 0 && (
-        <select
-          className={styles.remap}
+        <Select
+          style={{ maxWidth: 220 }}
           defaultValue=""
           onChange={(e) => onPick(e.target.value)}
           aria-label={`remap ${gap.current_value}`}
@@ -248,7 +250,7 @@ function ModelGapRow({
               {c.sameClass ? c.name : `${c.name}  (${c.cls})`}
             </option>
           ))}
-        </select>
+        </Select>
       )}
       {req?.downloadUrl ? <span className={styles.action}>Download ↗</span> : null}
     </div>
@@ -280,8 +282,9 @@ function NodeGapRow({
           {req?.installVia ? ` · via ${req.installVia === 'manager' ? 'ComfyUI-Manager' : 'git'}` : ''}
         </span>
       </div>
-      <input
-        className={styles.swapInput}
+      <Input
+        mono
+        style={{ width: 190 }}
         placeholder="swap to installed class…"
         value={swap}
         onChange={(e) => setSwap(e.target.value)}
@@ -291,9 +294,9 @@ function NodeGapRow({
         spellCheck={false}
         aria-label={`swap ${gap.class_type}`}
       />
-      <button type="button" className={styles.swapBtn} onClick={submit} disabled={!swap.trim()}>
+      <Button variant="secondary" size="sm" onClick={submit} disabled={!swap.trim()}>
         Use
-      </button>
+      </Button>
     </div>
   );
 }

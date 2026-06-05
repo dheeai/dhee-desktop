@@ -10,6 +10,7 @@ import type { AccountInfo, AppSettings, LLMProvider } from '../../../shared/sett
 import type { ComfyProbeResult } from '../../../shared/bundleConfigTypes';
 import type { ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
+import { Button, SegmentedControl, Field, Input } from '../ui';
 import { buildSetupPatch, type Recipe, type LocalLlmConfig } from './recipePresets';
 import styles from './FirstRunSetup.module.scss';
 
@@ -253,43 +254,30 @@ export default function FirstRunSetup() {
                       </div>
                     </div>
                   ) : (
-                    <button type="button" className={styles.primary} onClick={() => void signIn()} disabled={waitingAuth}>
+                    <Button variant="primary" onClick={() => void signIn()} disabled={waitingAuth}>
                       {waitingAuth ? 'Waiting for browser…' : 'Sign in with Dhee →'}
-                    </button>
+                    </Button>
                   )}
                 </div>
               ) : (
                 <div className={styles.panel}>
-                  <div className={styles.seg}>
-                    {PROVIDERS.map((p) => (
-                      <button
-                        key={p.id}
-                        type="button"
-                        className={`${styles.segBtn} ${provider === p.id ? styles.segSel : ''}`}
-                        onClick={() => chooseProvider(p.id)}
-                      >
-                        {p.label}
-                        <span className={styles.segTag}>{p.local ? 'local' : 'key'}</span>
-                      </button>
-                    ))}
-                  </div>
+                  <SegmentedControl<LLMProvider>
+                    aria-label="Language model provider"
+                    value={provider}
+                    onChange={chooseProvider}
+                    options={PROVIDERS.map((p) => ({ value: p.id, label: p.label, tag: p.local ? 'local' : 'key' }))}
+                  />
                   {provider === 'lmstudio' ? (
                     <Field label="LM Studio URL">
-                      <input className={styles.input} value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
+                      <Input mono value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
                     </Field>
                   ) : (
                     <Field label="API key">
-                      <input
-                        className={styles.input}
-                        type="password"
-                        placeholder="sk-…"
-                        value={apiKey}
-                        onChange={(e) => setApiKey(e.target.value)}
-                      />
+                      <Input mono type="password" placeholder="sk-…" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
                     </Field>
                   )}
                   <Field label="Model (optional — sensible default used)">
-                    <input className={styles.input} placeholder="default" value={model} onChange={(e) => setModel(e.target.value)} />
+                    <Input placeholder="default" value={model} onChange={(e) => setModel(e.target.value)} />
                   </Field>
                   <p className={styles.muted}>Verified at pre-flight.</p>
                 </div>
@@ -304,10 +292,10 @@ export default function FirstRunSetup() {
               <div className={styles.panel}>
                 <Field label="ComfyUI server URL">
                   <div className={styles.row}>
-                    <input className={styles.input} value={comfyUrl} onChange={(e) => setComfyUrl(e.target.value)} />
-                    <button type="button" className={styles.ghost} onClick={() => void runProbe()} disabled={probing}>
+                    <Input mono style={{ flex: 1 }} value={comfyUrl} onChange={(e) => setComfyUrl(e.target.value)} />
+                    <Button variant="ghost" onClick={() => void runProbe()} disabled={probing}>
                       {probing ? 'Probing…' : 'Test connection'}
-                    </button>
+                    </Button>
                   </div>
                 </Field>
                 {probe?.ok && (
@@ -360,29 +348,20 @@ export default function FirstRunSetup() {
         </main>
 
         <footer className={styles.footer}>
-          <button type="button" className={styles.ghost} onClick={goBack} disabled={stepIdx === 0}>
+          <Button variant="ghost" style={{ marginRight: 'auto' }} onClick={goBack} disabled={stepIdx === 0}>
             ← Back
-          </button>
+          </Button>
           {step === 'preflight' ? (
-            <button type="button" className={styles.primary} onClick={() => void complete('manual_finish')} disabled={applying}>
+            <Button variant="primary" onClick={() => void complete('manual_finish')} disabled={applying}>
               Create your first project →
-            </button>
+            </Button>
           ) : (
-            <button type="button" className={styles.primary} onClick={goNext} disabled={!canAdvance()}>
+            <Button variant="primary" onClick={goNext} disabled={!canAdvance()}>
               Continue
-            </button>
+            </Button>
           )}
         </footer>
       </div>
     </div>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className={styles.field}>
-      <span className={styles.fieldLabel}>{label}</span>
-      {children}
-    </label>
   );
 }

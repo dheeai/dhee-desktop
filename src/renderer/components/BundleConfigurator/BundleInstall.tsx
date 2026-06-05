@@ -2,54 +2,11 @@
  * BundleInstall — import a community bundle (folder or git URL) via
  * dhee-core installBundle, then hand the new bundle id back so the host
  * can select it and run the SAME Bundle Configurator first-run uses.
- * That convergence is the point: install and first-run share the
- * configure step.
  */
 import { useState } from 'react';
 import type { BundleInstallSource } from '../../../shared/bundleConfigTypes';
-
-const wrap: React.CSSProperties = {
-  border: '1px solid var(--color-border-subtle)',
-  borderRadius: 10,
-  background: 'var(--color-bg-panel)',
-  padding: 16,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 12,
-};
-const seg: React.CSSProperties = { display: 'flex', gap: 8 };
-const tabBtn = (sel: boolean): React.CSSProperties => ({
-  font: 'inherit',
-  fontSize: 12.5,
-  cursor: 'pointer',
-  padding: '7px 13px',
-  borderRadius: 6,
-  border: `1px solid ${sel ? 'var(--color-accent-primary)' : 'var(--color-border-strong)'}`,
-  background: sel ? 'rgba(95,136,178,0.16)' : 'var(--color-bg-panel-inset)',
-  color: sel ? 'var(--color-text-primary)' : 'var(--color-text-secondary)',
-});
-const input: React.CSSProperties = {
-  flex: 1,
-  font: 'inherit',
-  fontSize: 13,
-  fontFamily: 'var(--font-mono, monospace)',
-  color: 'var(--color-text-primary)',
-  background: 'var(--color-bg-panel-inset)',
-  border: '1px solid var(--color-border-strong)',
-  borderRadius: 6,
-  padding: '9px 11px',
-};
-const primary: React.CSSProperties = {
-  font: 'inherit',
-  fontSize: 13,
-  fontWeight: 600,
-  cursor: 'pointer',
-  color: '#0c0e11',
-  background: 'var(--color-accent-primary)',
-  border: 0,
-  borderRadius: 6,
-  padding: '9px 16px',
-};
+import { Button, Input, SegmentedControl, Card } from '../ui';
+import styles from './BundleInstall.module.scss';
 
 export default function BundleInstall({ onInstalled }: { onInstalled: (bundleId: string) => void }) {
   const [kind, setKind] = useState<'folder' | 'git'>('folder');
@@ -88,36 +45,37 @@ export default function BundleInstall({ onInstalled }: { onInstalled: (bundleId:
   };
 
   return (
-    <div style={wrap}>
-      <div style={seg}>
-        <button type="button" style={tabBtn(kind === 'folder')} onClick={() => setKind('folder')}>
-          📁 Folder
-        </button>
-        <button type="button" style={tabBtn(kind === 'git')} onClick={() => setKind('git')}>
-          🌐 Git URL
-        </button>
-      </div>
+    <Card className={styles.wrap}>
+      <SegmentedControl
+        aria-label="Bundle source"
+        value={kind}
+        onChange={(v) => setKind(v as 'folder' | 'git')}
+        options={[
+          { value: 'folder', label: '📁 Folder' },
+          { value: 'git', label: '🌐 Git URL' },
+        ]}
+      />
       {kind === 'folder' ? (
-        <div style={seg}>
-          <input style={input} value={folder} placeholder="/path/to/bundle" onChange={(e) => setFolder(e.target.value)} />
-          <button type="button" style={tabBtn(false)} onClick={() => void pickFolder()}>
+        <div className={styles.row}>
+          <Input mono style={{ flex: 1 }} value={folder} placeholder="/path/to/bundle" onChange={(e) => setFolder(e.target.value)} />
+          <Button variant="secondary" size="sm" onClick={() => void pickFolder()}>
             Browse…
-          </button>
+          </Button>
         </div>
       ) : (
-        <input
-          style={input}
+        <Input
+          mono
           value={gitUrl}
           placeholder="https://github.com/author/bundle"
           onChange={(e) => setGitUrl(e.target.value)}
         />
       )}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-        <button type="button" style={{ ...primary, opacity: busy ? 0.5 : 1 }} onClick={() => void install()} disabled={busy}>
+      <div className={styles.actions}>
+        <Button variant="primary" onClick={() => void install()} disabled={busy}>
           {busy ? 'Installing…' : 'Install bundle'}
-        </button>
-        {error && <span style={{ color: 'var(--color-error)', fontSize: 12 }}>{error}</span>}
+        </Button>
+        {error && <span className={styles.error}>{error}</span>}
       </div>
-    </div>
+    </Card>
   );
 }
