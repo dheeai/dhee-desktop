@@ -13,7 +13,12 @@ import type {
   OnboardingState,
 } from '../shared/onboardingTypes';
 import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
-import type { ComfyProbeResult, EnrichedBundleFit } from '../shared/bundleConfigTypes';
+import type {
+  ComfyProbeResult,
+  EnrichedBundleFit,
+  ResolvePatch,
+  BundleResolution,
+} from '../shared/bundleConfigTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -820,6 +825,15 @@ const bundleConfigBridge = {
     endpoint: string,
   ): Promise<EnrichedBundleFit | { error: string }> {
     return ipcRenderer.invoke('bundle:check', { bundleId, endpoint });
+  },
+  resolve(
+    endpoint: string,
+    patch: ResolvePatch,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    return ipcRenderer.invoke('bundle:resolve', { endpoint, patch });
+  },
+  resolution(bundleId: string, endpoint: string): Promise<BundleResolution | null> {
+    return ipcRenderer.invoke('bundle:resolution', { bundleId, endpoint });
   },
 };
 

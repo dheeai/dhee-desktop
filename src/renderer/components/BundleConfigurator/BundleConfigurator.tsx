@@ -1,19 +1,22 @@
 /**
  * BundleConfigurator — the reusable surface that reconciles what a
  * bundle's ComfyUI workflows NEED (models + custom nodes) against what
- * a given endpoint HAS. Mounted in three contexts (first-run setup,
- * community install, bring-your-own workflow); this is the read-only
- * core (gap display). Resolve actions (remap / swap / install) are
- * layered on in a later milestone.
- *
- * Drives off dhee-core's checkBundle via window.electron.bundleConfig.
+ * a given endpoint HAS, and lets the user CLOSE the gaps:
+ *   - models: remap to an installed file (name_aliases, + class_swaps
+ *     when the chosen candidate lives on a different loader class)
+ *   - custom nodes: swap to an installed equivalent class (class_swaps)
+ * Each resolution persists per-endpoint (dhee-core workflowAliases) and
+ * triggers a live re-check. Mounted in first-run setup, community
+ * install, and bring-your-own workflow.
  */
 import { useCallback, useEffect, useState } from 'react';
 import type {
   EnrichedBundleFit,
   EnrichedModelGap,
   EnrichedNodeGap,
+  EnrichedWorkflowFit,
   BundleFitStatus,
+  ResolvePatch,
 } from '../../../shared/bundleConfigTypes';
 import styles from './BundleConfigurator.module.scss';
 
@@ -21,9 +24,7 @@ const DEFAULT_ENDPOINT = 'http://127.0.0.1:8188';
 
 interface Props {
   bundleId: string;
-  /** Endpoint to check against; when omitted, resolved from settings. */
   endpoint?: string;
-  /** Notified with the rolled-up status (or null on error) after each check. */
   onStatus?: (status: BundleFitStatus | null) => void;
 }
 
@@ -33,8 +34,6 @@ export default function BundleConfigurator({ bundleId, endpoint, onStatus }: Pro
   const [fit, setFit] = useState<EnrichedBundleFit | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Resolve the configured local ComfyUI URL from settings (unless the
-  // caller pinned an endpoint).
   useEffect(() => {
     if (endpoint) return;
     let cancelled = false;
@@ -77,6 +76,19 @@ export default function BundleConfigurator({ bundleId, endpoint, onStatus }: Pro
     void runCheck();
   }, [runCheck]);
 
+  // Persist a remap/swap, then re-check so the gap clears live.
+  const applyPatch = useCallback(
+    async (patch: ResolvePatch) => {
+      const res = await window.electron.bundleConfig.resolve(resolvedEndpoint, patch);
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      await runCheck();
+    },
+    [resolvedEndpoint, runCheck],
+  );
+
   return (
     <div className={styles.configurator}>
       <div className={styles.endpointRow}>
@@ -115,28 +127,7 @@ export default function BundleConfigurator({ bundleId, endpoint, onStatus }: Pro
           {fit.workflows.map((w) => {
             const clean = w.missing_refs.length === 0 && w.missing_node_classes.length === 0 && !w.error;
             if (clean) return null;
-            return (
-              <div key={w.workflowKey} className={styles.workflow}>
-                <div className={styles.workflowName}>{w.workflowKey.replace(/^workflows\//, '')}</div>
-                {w.error && <div className={styles.wfError}>{w.error}</div>}
-                {w.missing_refs.length > 0 && (
-                  <div className={styles.group}>
-                    <div className={styles.groupHead}>Missing models · {w.missing_refs.length}</div>
-                    {w.missing_refs.map((m) => (
-                      <ModelGapRow key={`${w.workflowKey}:${m.nodeId}:${m.inputField}`} gap={m} />
-                    ))}
-                  </div>
-                )}
-                {w.missing_node_classes.length > 0 && (
-                  <div className={styles.group}>
-                    <div className={styles.groupHead}>Missing custom nodes · {w.missing_node_classes.length}</div>
-                    {w.missing_node_classes.map((n) => (
-                      <NodeGapRow key={`${w.workflowKey}:${n.nodeId}`} gap={n} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
+            return <WorkflowGaps key={w.workflowKey} w={w} applyPatch={applyPatch} />;
           })}
         </div>
       )}
@@ -156,8 +147,85 @@ function StatusHeader({ fit }: { fit: EnrichedBundleFit }) {
   );
 }
 
-function ModelGapRow({ gap }: { gap: EnrichedModelGap }) {
+function WorkflowGaps({
+  w,
+  applyPatch,
+}: {
+  w: EnrichedWorkflowFit;
+  applyPatch: (patch: ResolvePatch) => void | Promise<void>;
+}) {
+  return (
+    <div className={styles.workflow}>
+      <div className={styles.workflowName}>{w.workflowKey.replace(/^workflows\//, '')}</div>
+      {w.error && <div className={styles.wfError}>{w.error}</div>}
+      {w.missing_refs.length > 0 && (
+        <div className={styles.group}>
+          <div className={styles.groupHead}>Missing models · {w.missing_refs.length}</div>
+          {w.missing_refs.map((m) => (
+            <ModelGapRow
+              key={`${m.nodeId}:${m.inputField}`}
+              gap={m}
+              workflowKey={w.workflowKey}
+              availableByClass={w.available_by_class}
+              applyPatch={applyPatch}
+            />
+          ))}
+        </div>
+      )}
+      {w.missing_node_classes.length > 0 && (
+        <div className={styles.group}>
+          <div className={styles.groupHead}>Missing custom nodes · {w.missing_node_classes.length}</div>
+          {w.missing_node_classes.map((n) => (
+            <NodeGapRow key={n.nodeId} gap={n} workflowKey={w.workflowKey} applyPatch={applyPatch} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Candidate installed files for a missing model ref: same loader field, any class. */
+function modelCandidates(
+  gap: EnrichedModelGap,
+  availableByClass: Record<string, string[]>,
+): Array<{ cls: string; name: string; sameClass: boolean }> {
+  const sameKey = `${gap.nodeType}.${gap.inputField}`;
+  const out: Array<{ cls: string; name: string; sameClass: boolean }> = [];
+  for (const [key, names] of Object.entries(availableByClass)) {
+    if (key !== sameKey && !key.endsWith(`.${gap.inputField}`)) continue;
+    const cls = key.slice(0, key.lastIndexOf('.'));
+    for (const name of names) out.push({ cls, name, sameClass: key === sameKey });
+  }
+  // same-class first
+  return out.sort((a, b) => Number(b.sameClass) - Number(a.sameClass));
+}
+
+function ModelGapRow({
+  gap,
+  workflowKey,
+  availableByClass,
+  applyPatch,
+}: {
+  gap: EnrichedModelGap;
+  workflowKey: string;
+  availableByClass: Record<string, string[]>;
+  applyPatch: (patch: ResolvePatch) => void | Promise<void>;
+}) {
   const req = gap.requirement;
+  const candidates = modelCandidates(gap, availableByClass);
+
+  const onPick = (value: string) => {
+    if (!value) return;
+    const sep = value.indexOf('|');
+    const cls = value.slice(0, sep);
+    const name = value.slice(sep + 1);
+    const patch: ResolvePatch = { name_aliases: { [gap.current_value]: name } };
+    if (cls !== gap.nodeType) {
+      patch.class_swaps = { [workflowKey]: { [gap.nodeId]: cls } };
+    }
+    void applyPatch(patch);
+  };
+
   return (
     <div className={styles.gap}>
       <div className={styles.gapName}>
@@ -167,17 +235,42 @@ function ModelGapRow({ gap }: { gap: EnrichedModelGap }) {
           {req?.sizeGb ? `~${req.sizeGb} GB` : 'not installed'}
         </span>
       </div>
-      {req?.downloadUrl ? (
-        <span className={styles.action}>Download ↗</span>
-      ) : (
-        <span className={styles.actionMuted}>install or remap</span>
+      {candidates.length > 0 && (
+        <select
+          className={styles.remap}
+          defaultValue=""
+          onChange={(e) => onPick(e.target.value)}
+          aria-label={`remap ${gap.current_value}`}
+        >
+          <option value="">use a model I have ▾</option>
+          {candidates.map((c) => (
+            <option key={`${c.cls}|${c.name}`} value={`${c.cls}|${c.name}`}>
+              {c.sameClass ? c.name : `${c.name}  (${c.cls})`}
+            </option>
+          ))}
+        </select>
       )}
+      {req?.downloadUrl ? <span className={styles.action}>Download ↗</span> : null}
     </div>
   );
 }
 
-function NodeGapRow({ gap }: { gap: EnrichedNodeGap }) {
+function NodeGapRow({
+  gap,
+  workflowKey,
+  applyPatch,
+}: {
+  gap: EnrichedNodeGap;
+  workflowKey: string;
+  applyPatch: (patch: ResolvePatch) => void | Promise<void>;
+}) {
   const req = gap.requirement;
+  const [swap, setSwap] = useState('');
+  const submit = () => {
+    const cls = swap.trim();
+    if (!cls) return;
+    void applyPatch({ class_swaps: { [workflowKey]: { [gap.nodeId]: cls } } });
+  };
   return (
     <div className={styles.gap}>
       <div className={styles.gapName}>
@@ -187,7 +280,20 @@ function NodeGapRow({ gap }: { gap: EnrichedNodeGap }) {
           {req?.installVia ? ` · via ${req.installVia === 'manager' ? 'ComfyUI-Manager' : 'git'}` : ''}
         </span>
       </div>
-      <span className={styles.actionMuted}>install or swap</span>
+      <input
+        className={styles.swapInput}
+        placeholder="swap to installed class…"
+        value={swap}
+        onChange={(e) => setSwap(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') submit();
+        }}
+        spellCheck={false}
+        aria-label={`swap ${gap.class_type}`}
+      />
+      <button type="button" className={styles.swapBtn} onClick={submit} disabled={!swap.trim()}>
+        Use
+      </button>
     </div>
   );
 }

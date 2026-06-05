@@ -79,8 +79,14 @@ import {
 import fileSystemManager from './fileSystemManager';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
-import type { EnrichedBundleFit, ComfyProbeResult } from '../shared/bundleConfigTypes';
+import type {
+  EnrichedBundleFit,
+  ComfyProbeResult,
+  BundleResolution,
+  ResolvePatch,
+} from '../shared/bundleConfigTypes';
 import { buildProbeResult } from './comfyProbe';
+import { readFileSync as readFileSyncNode } from 'node:fs';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
 import { exportChatJsonWithDialog } from './services/chatExportService';
@@ -1618,11 +1624,31 @@ type BundleCheckModule = {
   checkBundle: (opts: {
     bundleDir: string;
     endpoint: string;
+    aliasesDir?: string;
     fetchObjectInfo: (url: string) => Promise<Record<string, unknown>>;
   }) => Promise<EnrichedBundleFit>;
   loadBundleRequirements: (bundleDir: string) => unknown;
   enrichBundleFit: (fit: unknown, req: unknown) => EnrichedBundleFit;
+  writeAliases: (aliasesDir: string, endpoint: string, patch: ResolvePatch) => void;
+  readBundleResolution: (aliasesDir: string, endpoint: string, bundleId: string) => BundleResolution | null;
+  writeBundleResolution: (aliasesDir: string, resolution: BundleResolution) => void;
 };
+
+/** The alias/resolution store the agent's dhee_apply_workflow_aliases tool also uses. */
+function workflowAliasesDir(): string {
+  const env = process.env['DHEE_WORKFLOW_ALIASES_DIR']?.trim();
+  return env && env.length > 0 ? env : path.join(app.getPath('home'), '.dhee', 'workflow-aliases');
+}
+
+function readBundleVersion(bundleDir: string): string {
+  try {
+    const raw = readFileSyncNode(path.join(bundleDir, 'bundle.json'), 'utf8');
+    const v = (JSON.parse(raw) as { version?: string }).version;
+    return typeof v === 'string' ? v : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
 
 async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Record<string, unknown>> {
   const controller = new AbortController();
@@ -1667,15 +1693,64 @@ ipcMain.handle(
       // resolveBundleDir may return a single-file (legacy) bundle; the
       // dir is its parent in that case.
       const bundleDir = resolved.endsWith('.json') ? path.dirname(resolved) : resolved;
+      const aliasesDir = workflowAliasesDir();
       const fit = await mod.checkBundle({
         bundleDir,
         endpoint: payload.endpoint,
+        aliasesDir,
         fetchObjectInfo: (url: string) => fetchJsonWithTimeout(`${url.replace(/\/$/, '')}/object_info`, 8000),
       });
       const requirements = mod.loadBundleRequirements(bundleDir);
-      return mod.enrichBundleFit(fit, requirements);
+      const enriched = mod.enrichBundleFit(fit, requirements);
+      // Cache the verdict so the picker can badge "configured" without
+      // re-probing. Reachable results only (don't cache transient down).
+      if (enriched.status !== 'unreachable') {
+        mod.writeBundleResolution(aliasesDir, {
+          bundleId: payload.bundleId,
+          bundleVersion: readBundleVersion(bundleDir),
+          endpoint: payload.endpoint,
+          status: enriched.status,
+          modelsMissing: enriched.modelsMissing,
+          nodesMissing: enriched.nodesMissing,
+          resolvedAt: Date.now(),
+        });
+      }
+      return enriched;
     } catch (err) {
       return { error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:resolve',
+  async (
+    _event,
+    payload: { endpoint: string; patch: ResolvePatch },
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      mod.writeAliases(workflowAliasesDir(), payload.endpoint, payload.patch);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:resolution',
+  async (
+    _event,
+    payload: { bundleId: string; endpoint: string },
+  ): Promise<BundleResolution | null> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      return mod.readBundleResolution(workflowAliasesDir(), payload.endpoint, payload.bundleId);
+    } catch {
+      return null;
     }
   },
 );

@@ -68,6 +68,25 @@ export interface EnrichedBundleFit {
   workflows: EnrichedWorkflowFit[];
 }
 
+/** A persisted "configured for this ComfyUI" stamp (bundle:resolution). */
+export interface BundleResolution {
+  bundleId: string;
+  bundleVersion: string;
+  endpoint: string;
+  status: BundleFitStatus;
+  modelsMissing: number;
+  nodesMissing: number;
+  resolvedAt: number;
+}
+
+/** Aliases to persist for an endpoint (bundle:resolve). */
+export interface ResolvePatch {
+  /** model canonical filename → installed filename. */
+  name_aliases?: Record<string, string>;
+  /** workflowKey → { nodeId → swapped class_type }. */
+  class_swaps?: Record<string, Record<string, string>>;
+}
+
 /** Result of probing a ComfyUI endpoint (comfy:probe). */
 export type ComfyProbeResult =
   | {

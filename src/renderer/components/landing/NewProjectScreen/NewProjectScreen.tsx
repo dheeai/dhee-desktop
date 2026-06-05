@@ -142,6 +142,9 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
 
   const [bundles, setBundles] = useState<BundleSummary[]>([]);
   const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
+  // Bundle ids previously verified "ready" on the user's ComfyUI (cached
+  // by bundle:check). Drives the picker's "✓ Ready on this ComfyUI" badge.
+  const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
   const [inputValues, setInputValues] = useState<Record<string, unknown>>({});
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [workspacePath, setWorkspacePath] = useState<string>('');
@@ -226,6 +229,36 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
       window.removeEventListener('keydown', handler);
     };
   }, [isOpen, isSubmitting, onClose]);
+
+  // Badge bundles already verified ready on this ComfyUI (cheap cache read).
+  useEffect(() => {
+    if (!isOpen || bundles.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      let endpoint = 'http://127.0.0.1:8188';
+      try {
+        const s = await window.electron.settings.get();
+        if (s.comfyuiMode === 'custom' && s.comfyuiUrl) endpoint = s.comfyuiUrl;
+      } catch {
+        /* default endpoint */
+      }
+      const ready = new Set<string>();
+      await Promise.all(
+        bundles.map(async (b) => {
+          try {
+            const r = await window.electron.bundleConfig.resolution(b.id, endpoint);
+            if (r && r.status === 'ready' && r.bundleVersion === b.version) ready.add(b.id);
+          } catch {
+            /* no stamp */
+          }
+        }),
+      );
+      if (!cancelled) setResolvedIds(ready);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, bundles]);
 
   const selectedBundle = useMemo(
     () => bundles.find((b) => b.id === selectedBundleId) ?? null,
@@ -381,6 +414,18 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
                 <p className={styles.bundleSummary}>{bundle.summary}</p>
                 {bundle.techLine ? (
                   <div className={styles.bundleSpec}>{bundle.techLine}</div>
+                ) : null}
+                {resolvedIds.has(bundle.id) ? (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--color-success)',
+                    }}
+                  >
+                    ✓ Ready on this ComfyUI
+                  </div>
                 ) : null}
               </button>
             );
