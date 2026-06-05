@@ -6,7 +6,7 @@
  * the normal New Project flow (where the Bundle Configurator runs).
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { AccountInfo, LLMProvider } from '../../../shared/settingsTypes';
+import type { AccountInfo, AppSettings, LLMProvider } from '../../../shared/settingsTypes';
 import type { ComfyProbeResult } from '../../../shared/bundleConfigTypes';
 import type { ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
@@ -28,6 +28,23 @@ const PROVIDERS: Array<{ id: LLMProvider; label: string; local?: boolean }> = [
   { id: 'lmstudio', label: 'LM Studio', local: true },
 ];
 
+/** The stored key/model/url for a provider, so the flow prefills what's already configured. */
+export function providerFieldsFromSettings(
+  provider: LLMProvider,
+  s: Partial<AppSettings>,
+): { apiKey: string; model: string; lmUrl?: string } {
+  switch (provider) {
+    case 'openrouter':
+      return { apiKey: s.openRouterApiKey ?? '', model: s.openRouterModel ?? '' };
+    case 'openai':
+      return { apiKey: s.openaiApiKey ?? '', model: s.openaiModel ?? '' };
+    case 'gemini':
+      return { apiKey: s.googleApiKey ?? '', model: s.geminiModel ?? '' };
+    case 'lmstudio':
+      return { apiKey: '', model: s.lmStudioModel ?? '', lmUrl: s.lmStudioUrl ?? 'http://127.0.0.1:1234' };
+  }
+}
+
 export default function FirstRunSetup() {
   const { complete } = useFirstRunSetup();
   const [step, setStep] = useState<Step>('recipe');
@@ -41,6 +58,8 @@ export default function FirstRunSetup() {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [lmUrl, setLmUrl] = useState('http://127.0.0.1:1234');
+  // Snapshot of current settings so the flow prefills what's already stored.
+  const [snapshot, setSnapshot] = useState<Partial<AppSettings> | null>(null);
 
   // renderer (local)
   const [comfyUrl, setComfyUrl] = useState('http://127.0.0.1:8188');
@@ -53,6 +72,45 @@ export default function FirstRunSetup() {
 
   const isCloudLlm = recipe === 'cloud' || recipe === 'hybrid';
   const isLocalComfy = recipe === 'hybrid' || recipe === 'local';
+
+  // Prefill from existing settings so re-runs show what's already
+  // configured (provider + key + model + comfy URL), and from the
+  // current account so an already-signed-in user sees their chip.
+  useEffect(() => {
+    let cancelled = false;
+    void window.electron.settings
+      .get()
+      .then((s) => {
+        if (cancelled) return;
+        setSnapshot(s);
+        const p = (s.llmProvider as LLMProvider) ?? 'openrouter';
+        setProvider(p);
+        const f = providerFieldsFromSettings(p, s);
+        setApiKey(f.apiKey);
+        setModel(f.model);
+        if (f.lmUrl) setLmUrl(f.lmUrl);
+        if (s.comfyuiMode === 'custom' && s.comfyuiUrl) setComfyUrl(s.comfyuiUrl);
+      })
+      .catch(() => undefined);
+    void window.electron.account
+      .get()
+      .then((acct) => {
+        if (!cancelled && acct) setAccount(acct);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Switching provider shows THAT provider's stored key/model.
+  const chooseProvider = (p: LLMProvider) => {
+    setProvider(p);
+    const f = providerFieldsFromSettings(p, snapshot ?? {});
+    setApiKey(f.apiKey);
+    setModel(f.model);
+    if (f.lmUrl) setLmUrl(f.lmUrl);
+  };
 
   // Poll for the account after sign-in (arrives via browser deep-link).
   useEffect(() => {
@@ -208,7 +266,7 @@ export default function FirstRunSetup() {
                         key={p.id}
                         type="button"
                         className={`${styles.segBtn} ${provider === p.id ? styles.segSel : ''}`}
-                        onClick={() => setProvider(p.id)}
+                        onClick={() => chooseProvider(p.id)}
                       >
                         {p.label}
                         <span className={styles.segTag}>{p.local ? 'local' : 'key'}</span>

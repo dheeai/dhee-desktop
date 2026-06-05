@@ -1,7 +1,7 @@
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { FirstRunSetupProvider } from '../../contexts/FirstRunSetupContext';
-import FirstRunSetup from './FirstRunSetup';
+import FirstRunSetup, { providerFieldsFromSettings } from './FirstRunSetup';
 
 function installElectron() {
   const complete = jest.fn(async () => ({ completed: true }));
@@ -26,6 +26,21 @@ function renderFlow() {
 
 beforeEach(() => {
   jest.clearAllMocks();
+});
+
+describe('providerFieldsFromSettings', () => {
+  it('reads the stored key + model for each provider', () => {
+    expect(providerFieldsFromSettings('openrouter', { openRouterApiKey: 'k', openRouterModel: 'm' })).toEqual({
+      apiKey: 'k',
+      model: 'm',
+    });
+    expect(providerFieldsFromSettings('gemini', { googleApiKey: 'g' })).toEqual({ apiKey: 'g', model: '' });
+    expect(providerFieldsFromSettings('lmstudio', { lmStudioUrl: 'http://x:1234', lmStudioModel: 'q' })).toEqual({
+      apiKey: '',
+      model: 'q',
+      lmUrl: 'http://x:1234',
+    });
+  });
 });
 
 describe('FirstRunSetup', () => {
@@ -56,6 +71,34 @@ describe('FirstRunSetup', () => {
     fireEvent.click(screen.getByText(/Sign in with Dhee/i));
     // signIn was attempted (account arrives async via poll; not asserted here)
     expect(update).not.toHaveBeenCalled(); // settings only applied at preflight
+  });
+
+  it('prefills the brain step from existing settings (re-run shows what is stored)', async () => {
+    (window as unknown as { electron: unknown }).electron = {
+      onboarding: { getState: jest.fn(async () => ({ completed: false })), complete: jest.fn() },
+      settings: {
+        get: jest.fn(async () => ({
+          llmProvider: 'openrouter',
+          openRouterApiKey: 'sk-or-stored',
+          openRouterModel: 'my/custom-model',
+          comfyuiMode: 'custom',
+          comfyuiUrl: 'http://gpu-box:8188',
+        })),
+        update: jest.fn(),
+      },
+      providerDiagnostics: { run: jest.fn(async () => ({ checkedAt: 1, items: [] })) },
+      account: { get: jest.fn(async () => null), signIn: jest.fn() },
+      bundleConfig: { probeComfy: jest.fn(async () => ({ ok: true, modelCount: 0, nodeClasses: 0 })) },
+    };
+    renderFlow();
+    await screen.findByText(/Let's light the set/i);
+    fireEvent.click(screen.getByText('Fully local / BYO keys'));
+    fireEvent.click(screen.getByText('Continue')); // → brain
+
+    const keyInput = (await screen.findByPlaceholderText('sk-…')) as HTMLInputElement;
+    await waitFor(() => expect(keyInput.value).toBe('sk-or-stored'));
+    const modelInput = screen.getByPlaceholderText('default') as HTMLInputElement;
+    expect(modelInput.value).toBe('my/custom-model');
   });
 
   it('local recipe collects a provider key and reaches the renderer step', async () => {
