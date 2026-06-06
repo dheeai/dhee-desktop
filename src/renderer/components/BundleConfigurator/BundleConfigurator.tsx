@@ -186,6 +186,31 @@ function WorkflowGaps({
   );
 }
 
+const MODEL_FILE_EXTS = [
+  '.safetensors',
+  '.ckpt',
+  '.pt',
+  '.pth',
+  '.bin',
+  '.gguf',
+  '.onnx',
+  '.sft',
+];
+
+/**
+ * A substitute for a missing model FILE must itself be a file. Many
+ * `*_name` dropdowns on API nodes (e.g. Kling's `model_name` →
+ * "kling-v1", "kolors-virtual-try-on-v1") are version identifiers, not
+ * files; they share the field name but can never stand in for a missing
+ * `.safetensors`. Filtering to filename-looking options keeps the picker
+ * relevant (and was the noise behind the upscaler picker showing dozens
+ * of irrelevant API model versions).
+ */
+function looksLikeModelFile(s: string): boolean {
+  const lower = s.toLowerCase();
+  return MODEL_FILE_EXTS.some((ext) => lower.endsWith(ext));
+}
+
 /** Candidate installed files for a missing model ref: same loader field, any class. */
 function modelCandidates(
   gap: EnrichedModelGap,
@@ -196,7 +221,10 @@ function modelCandidates(
   for (const [key, names] of Object.entries(availableByClass)) {
     if (key !== sameKey && !key.endsWith(`.${gap.inputField}`)) continue;
     const cls = key.slice(0, key.lastIndexOf('.'));
-    for (const name of names) out.push({ cls, name, sameClass: key === sameKey });
+    for (const name of names) {
+      if (!looksLikeModelFile(name)) continue;
+      out.push({ cls, name, sameClass: key === sameKey });
+    }
   }
   // same-class first
   return out.sort((a, b) => Number(b.sameClass) - Number(a.sameClass));

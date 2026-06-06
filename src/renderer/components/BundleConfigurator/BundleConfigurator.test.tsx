@@ -1,5 +1,5 @@
 import { describe, expect, it, jest, beforeEach } from '@jest/globals';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import BundleConfigurator from './BundleConfigurator';
 import type { EnrichedBundleFit } from '../../../shared/bundleConfigTypes';
 
@@ -114,6 +114,48 @@ describe('BundleConfigurator', () => {
         class_swaps: { 'workflows/relay.json': { D: 'LTXVDirectorGGUF' } },
       }),
     );
+  });
+
+  it('offers only file candidates in the substitute picker (drops API model-version strings)', async () => {
+    // Same missing model as incompleteFit, but the endpoint also exposes
+    // a non-file `*_name` option (an API node's version id) under the
+    // same field. The picker must show the real file and hide the
+    // version string — the upscaler-picker-noise regression.
+    const fit: EnrichedBundleFit = {
+      bundleDir: '/x',
+      endpoint: 'http://127.0.0.1:8188',
+      status: 'incomplete',
+      modelsMissing: 1,
+      nodesMissing: 0,
+      workflows: [
+        {
+          workflowKey: 'workflows/relay.json',
+          ok: false,
+          available_by_class: {
+            'UNETLoader.unet_name': ['installed-ltx.safetensors'],
+            'KlingImageToVideoNode.unet_name': ['kling-v1', 'kling-v2-master'],
+          },
+          missing_refs: [
+            {
+              nodeType: 'UNETLoader',
+              nodeId: 'U',
+              inputField: 'unet_name',
+              current_value: 'ltx-transformer.safetensors',
+            },
+          ],
+          missing_node_classes: [],
+        },
+      ],
+    };
+    installElectron(jest.fn(async () => fit) as unknown as jest.Mock);
+    render(<BundleConfigurator bundleId="x" />);
+
+    const select = await screen.findByLabelText('remap ltx-transformer.safetensors');
+    // the real file IS offered…
+    expect(within(select).getByText('installed-ltx.safetensors')).toBeTruthy();
+    // …the API version strings are NOT.
+    expect(within(select).queryByText(/kling-v1/)).toBeNull();
+    expect(within(select).queryByText(/kling-v2-master/)).toBeNull();
   });
 
   it('surfaces an endpoint error with the programmatic-access hint', async () => {
