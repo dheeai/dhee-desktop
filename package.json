@@ -240,6 +240,7 @@
     "asarUnpack": [
       "**/*.{node,dll,so,dylib}",
       "**/node_modules/@ffmpeg-installer/**",
+      "**/node_modules/@ffprobe-installer/**",
       "**/node_modules/@esbuild/**",
       "**/node_modules/react/**",
       "**/node_modules/react-dom/**",
