@@ -2,9 +2,9 @@ name: Tests
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
   push:
-    branches: [main]
+    branches: [master]
 
 # Cancel in-progress runs for the same branch when a new commit lands —
 # we only need the latest result.

@@ -324,7 +324,7 @@ export default function MessageList({
           <h3 className={styles.emptyTitle}>Start your storyboard</h3>
           <p className={styles.emptyDescription}>
             Describe your idea, mention characters, or paste a brief. I&apos;ll
-            plan scenes, generate prompts, and coordinate with LM Studio +
+            plan scenes, generate prompts, and coordinate your LLM +
             ComfyUI.
           </p>
         </div>

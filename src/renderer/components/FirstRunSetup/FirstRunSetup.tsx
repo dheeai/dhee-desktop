@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Cloud, Shuffle, Cpu, type LucideIcon } from 'lucide-react';
 import type { AccountInfo, AppSettings, LLMProvider } from '../../../shared/settingsTypes';
 import type { ComfyProbeResult } from '../../../shared/bundleConfigTypes';
-import type { ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
+import type { LlmProbeResult, ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
 import { Button, SegmentedControl, Field, Input } from '../ui';
 import { buildSetupPatch, type Recipe, type LocalLlmConfig } from './recipePresets';
@@ -27,7 +27,7 @@ const PROVIDERS: Array<{ id: LLMProvider; label: string; local?: boolean }> = [
   { id: 'openrouter', label: 'OpenRouter' },
   { id: 'openai', label: 'OpenAI' },
   { id: 'gemini', label: 'Gemini' },
-  { id: 'lmstudio', label: 'LM Studio', local: true },
+  { id: 'lmstudio', label: 'OpenAI-compatible', local: true },
 ];
 
 /** The stored key/model/url for a provider, so the flow prefills what's already configured. */
@@ -60,6 +60,9 @@ export default function FirstRunSetup() {
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
   const [lmUrl, setLmUrl] = useState('http://127.0.0.1:1234');
+  // brain (local) — Test connection probe of the in-form LLM config.
+  const [llmProbe, setLlmProbe] = useState<LlmProbeResult | null>(null);
+  const [llmProbing, setLlmProbing] = useState(false);
   // Snapshot of current settings so the flow prefills what's already stored.
   const [snapshot, setSnapshot] = useState<Partial<AppSettings> | null>(null);
 
@@ -172,6 +175,25 @@ export default function FirstRunSetup() {
     setProbing(false);
   };
 
+  // A stale "Connected ✓" must not linger after the config changes.
+  useEffect(() => {
+    setLlmProbe(null);
+  }, [provider, apiKey, model, lmUrl]);
+
+  const runLlmProbe = async () => {
+    setLlmProbing(true);
+    const res = await window.electron.providerDiagnostics
+      .probeLlm({ provider, apiKey, model, lmStudioUrl: lmUrl })
+      .catch(
+        (e): LlmProbeResult => ({
+          ok: false,
+          message: e instanceof Error ? e.message : String(e),
+        }),
+      );
+    setLlmProbe(res);
+    setLlmProbing(false);
+  };
+
   const applyAndDiagnose = useCallback(async () => {
     if (!recipe) return;
     setApplying(true);
@@ -272,7 +294,7 @@ export default function FirstRunSetup() {
                     options={PROVIDERS.map((p) => ({ value: p.id, label: p.label, tag: p.local ? 'local' : 'key' }))}
                   />
                   {provider === 'lmstudio' ? (
-                    <Field label="LM Studio URL">
+                    <Field label="OpenAI-compatible base URL">
                       <Input mono value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
                     </Field>
                   ) : (
@@ -283,7 +305,19 @@ export default function FirstRunSetup() {
                   <Field label="Model (optional — sensible default used)">
                     <Input placeholder="default" value={model} onChange={(e) => setModel(e.target.value)} />
                   </Field>
-                  <p className={styles.muted}>Verified at pre-flight.</p>
+                  <div className={styles.row}>
+                    <Button variant="ghost" onClick={() => void runLlmProbe()} disabled={llmProbing}>
+                      {llmProbing ? 'Testing…' : 'Test connection'}
+                    </Button>
+                    <span className={styles.muted}>Optional — also verified at pre-flight.</span>
+                  </div>
+                  {llmProbe?.ok && <div className={styles.probeOk}>✓ {llmProbe.message}</div>}
+                  {llmProbe && !llmProbe.ok && (
+                    <div className={styles.probeErr}>
+                      {llmProbe.message}
+                      {llmProbe.detail && <div className={styles.muted}>{llmProbe.detail}</div>}
+                    </div>
+                  )}
                 </div>
               )}
             </section>

@@ -60,7 +60,8 @@ import {
   completeOnboarding,
   getOnboardingState,
 } from './onboardingManager';
-import { runProviderDiagnostics } from './providerDiagnostics';
+import { runProviderDiagnostics, probeLlm } from './providerDiagnostics';
+import type { LlmProbeInput } from '../shared/providerDiagnosticsTypes';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import {
   captureDesktopAuthStarted,
@@ -432,6 +433,19 @@ ipcMain.handle(
 ipcMain.handle('provider-diagnostics:run', async () => {
   return runProviderDiagnostics(getSettings(), getAccount());
 });
+
+ipcMain.handle(
+  'provider-diagnostics:probe-llm',
+  async (_event, input: LlmProbeInput) => {
+    // openaiBaseUrl isn't collected in the first-run form; fall back to
+    // the saved setting so a custom OpenAI-compatible endpoint is honored.
+    const settings = getSettings();
+    return probeLlm({
+      ...input,
+      openaiBaseUrl: input.openaiBaseUrl ?? settings.openaiBaseUrl,
+    });
+  },
+);
 
 // Project / File System IPC handlers
 // New-Project default-workspace handler.

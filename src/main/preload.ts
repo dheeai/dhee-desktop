@@ -12,7 +12,11 @@ import type {
   CompleteOnboardingRequest,
   OnboardingState,
 } from '../shared/onboardingTypes';
-import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
+import type {
+  LlmProbeInput,
+  LlmProbeResult,
+  ProviderDiagnosticsSnapshot,
+} from '../shared/providerDiagnosticsTypes';
 import type {
   ComfyProbeResult,
   EnrichedBundleFit,
@@ -142,6 +146,9 @@ const onboardingBridge = {
 const providerDiagnosticsBridge = {
   run(): Promise<ProviderDiagnosticsSnapshot> {
     return ipcRenderer.invoke('provider-diagnostics:run');
+  },
+  probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
+    return ipcRenderer.invoke('provider-diagnostics:probe-llm', input);
   },
 };
 

@@ -36,12 +36,12 @@
     "postinstall": "ts-node .erb/scripts/check-native-dep.js && node .erb/scripts/ensure-dhee-core-dist.js && node .erb/scripts/conditional-install-app-deps.js && npm run build:dll",
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
-    "package": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
-    "package:mac": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --arm64 --publish never && npm run build:dll",
-    "package:win": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --win --publish never && npm run build:dll",
-    "package:linux": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --linux --publish never && npm run build:dll",
-    "package:all": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --mac --win --publish never && npm run build:dll",
-    "release": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && electron-builder build --publish always",
+    "package": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --mac --win --publish never && npm run build:dll",
+    "package:mac": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --mac --arm64 --publish never && npm run build:dll",
+    "package:win": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --win --publish never && npm run build:dll",
+    "package:linux": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --linux --publish never && npm run build:dll",
+    "package:all": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --mac --win --publish never && npm run build:dll",
+    "release": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --publish always",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
     "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "dev": "npm start",
@@ -238,7 +238,7 @@
     "afterPack": ".erb/scripts/prune-native.js",
     "afterSign": ".erb/scripts/notarize.js",
     "asarUnpack": [
-      "**\\*.{node,dll}",
+      "**/*.{node,dll,so,dylib}",
       "**/node_modules/@ffmpeg-installer/**",
       "**/node_modules/@esbuild/**",
       "**/node_modules/react/**",
@@ -297,8 +297,7 @@
       "**/node_modules/dotenv/**",
       "**/node_modules/eventemitter3/**",
       "**/node_modules/uuid/**",
-      "**/node_modules/nanoid/**",
-      "**/node_modules/**/*"
+      "**/node_modules/nanoid/**"
     ],
     "files": [
       "dist",
@@ -375,7 +374,7 @@
         ]
       },
       {
-        "from": "../dhee-core/dist/bundles",
+        "from": "dhee-core-bundles",
         "to": "bundles",
         "filter": [
           "**/*"

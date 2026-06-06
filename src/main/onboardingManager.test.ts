@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
+import { FIRST_RUN_GUIDE_VERSION } from '../shared/onboardingTypes';
 
 const mockStoreData: Record<string, unknown> = {};
 const mockStoreGet = jest.fn((key: string, fallback?: unknown) =>
@@ -31,13 +32,13 @@ describe('onboardingManager', () => {
     const onboarding = await loadOnboardingManager();
 
     expect(onboarding.getOnboardingState()).toEqual({
-      guideVersion: 3,
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
       completed: false,
       completedAt: null,
       skipped: false,
     });
     expect(mockStoreSet).toHaveBeenCalledWith('firstRunGuide', {
-      guideVersion: 3,
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
       completed: false,
       completedAt: null,
       skipped: false,
@@ -49,14 +50,14 @@ describe('onboardingManager', () => {
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(12345);
 
     expect(onboarding.completeOnboarding()).toEqual({
-      guideVersion: 3,
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
       completed: true,
       completedAt: 12345,
       skipped: false,
       completedReason: 'manual_finish',
     });
     expect(mockStoreData.firstRunGuide).toEqual({
-      guideVersion: 3,
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
       completed: true,
       completedAt: 12345,
       skipped: false,
@@ -71,7 +72,7 @@ describe('onboardingManager', () => {
     const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(67890);
 
     expect(onboarding.completeOnboarding({ skipped: true })).toEqual({
-      guideVersion: 3,
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
       completed: true,
       completedAt: 67890,
       skipped: true,
@@ -90,7 +91,7 @@ describe('onboardingManager', () => {
         completedReason: 'first_prompt_submitted',
       }),
     ).toEqual({
-      guideVersion: 3,
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
       completed: true,
       completedAt: 24680,
       skipped: false,
@@ -98,5 +99,27 @@ describe('onboardingManager', () => {
     });
 
     nowSpy.mockRestore();
+  });
+
+  it('re-shows the guide when a stored older guideVersion is bumped', async () => {
+    // Simulate an existing user who completed the previous guide version.
+    mockStoreData.firstRunGuide = {
+      guideVersion: FIRST_RUN_GUIDE_VERSION - 1,
+      completed: true,
+      completedAt: 111,
+      skipped: true,
+      completedReason: 'skipped',
+    };
+    const onboarding = await loadOnboardingManager();
+
+    const state = onboarding.getOnboardingState();
+    // Version mismatch resets to defaults → quickstart shows again, once.
+    expect(state.completed).toBe(false);
+    expect(state.guideVersion).toBe(FIRST_RUN_GUIDE_VERSION);
+    // …and the reset is persisted, so it won't re-show after this run.
+    expect(mockStoreData.firstRunGuide).toMatchObject({
+      guideVersion: FIRST_RUN_GUIDE_VERSION,
+      completed: false,
+    });
   });
 });

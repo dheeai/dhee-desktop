@@ -301,4 +301,31 @@ describe('LandingScreen', () => {
     ).toBeNull();
     expect(screen.queryByText(/1-9 of 11/)).toBeNull();
   });
+
+  it('reflects live provider reachability in the header dots', async () => {
+    // Probe result: ComfyUI unreachable, LLM + VLM reachable.
+    (
+      window.electron as unknown as { providerDiagnostics: unknown }
+    ).providerDiagnostics = {
+      run: jest.fn(async () => ({
+        checkedAt: 1,
+        items: [
+          { id: 'cloud-account', label: 'Dhee Cloud account', status: 'warning', message: '' },
+          { id: 'comfyui', label: 'ComfyUI', status: 'error', message: 'Could not reach ComfyUI.' },
+          { id: 'llm', label: 'LLM', status: 'ready', message: 'Model endpoint reachable.' },
+          { id: 'vlm', label: 'VLM judge', status: 'ready', message: 'VLM endpoint reachable.' },
+        ],
+      })),
+    };
+
+    const { container } = render(<LandingScreen />);
+
+    // Once the probe resolves: one blinking-red (unreachable) Comfy dot,
+    // two steady-green (reachable) dots for LLM + VLM.
+    await waitFor(() =>
+      expect(container.querySelector('.statusDotUnreachable')).not.toBeNull(),
+    );
+    expect(container.querySelectorAll('.statusDotUnreachable')).toHaveLength(1);
+    expect(container.querySelectorAll('.statusDotReachable')).toHaveLength(2);
+  });
 });

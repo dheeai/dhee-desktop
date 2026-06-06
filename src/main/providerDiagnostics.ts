@@ -1,6 +1,8 @@
 /* eslint-disable compat/compat, import/prefer-default-export */
 import type { AccountInfo, AppSettings } from '../shared/settingsTypes';
 import type {
+  LlmProbeInput,
+  LlmProbeResult,
   ProviderDiagnosticItem,
   ProviderDiagnosticsSnapshot,
 } from '../shared/providerDiagnosticsTypes';
@@ -202,10 +204,70 @@ async function llmDiagnostic(
   };
 }
 
-function vlmDiagnostic(
+/**
+ * Probe an LLM connection against AD-HOC config (the first-run setup
+ * form's in-progress values) WITHOUT persisting settings. Shares the
+ * exact endpoint convention as {@link llmDiagnostic}: GET /models on the
+ * OpenAI-compatible base (or Gemini's models endpoint) — the cheapest
+ * authenticated round-trip that proves key + reachability.
+ *
+ * The 'lmstudio' provider is just "an OpenAI-compatible local server":
+ * point lmStudioUrl at LM Studio, Ollama (:11434), llama.cpp server
+ * (:8080), vLLM, LocalAI, etc. — they all serve GET /v1/models.
+ */
+export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
+  if (input.provider === 'gemini') {
+    const key = (input.apiKey ?? '').trim();
+    if (!key) {
+      return { ok: false, message: 'Gemini needs a Google API key.' };
+    }
+    const result = await fetchOk(
+      `${GEMINI_MODELS_URL}?key=${encodeURIComponent(key)}`,
+    );
+    return result.ok
+      ? {
+          ok: true,
+          message: `Gemini key verified${input.model ? ` for ${input.model}` : ''}.`,
+        }
+      : {
+          ok: false,
+          message: 'Gemini key was not verified.',
+          detail: result.status ? `HTTP ${result.status}` : result.error,
+        };
+  }
+
+  let baseUrl = input.openaiBaseUrl || 'https://api.openai.com/v1';
+  let apiKey = (input.apiKey ?? '').trim();
+  let model = input.model || 'gpt-4o';
+  if (input.provider === 'openrouter') {
+    baseUrl = 'https://openrouter.ai/api/v1';
+    model = input.model || model;
+  } else if (input.provider === 'lmstudio') {
+    baseUrl = withV1Suffix(input.lmStudioUrl || 'http://127.0.0.1:1234');
+    apiKey = '';
+    model = input.model || 'your local model';
+  }
+
+  const localUrl = isLocalBaseUrl(baseUrl);
+  if (!apiKey && !localUrl) {
+    return { ok: false, message: 'This provider needs an API key.' };
+  }
+
+  const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
+  const result = await fetchOk(joinUrl(baseUrl, '/models'), headers);
+  return result.ok
+    ? { ok: true, message: `Model endpoint reachable for ${model}.` }
+    : {
+        ok: false,
+        message: `Could not reach ${baseUrl}.`,
+        detail: result.status ? `HTTP ${result.status}` : result.error,
+      };
+}
+
+async function vlmDiagnostic(
   settings: AppSettings,
   account: AccountInfo | null,
-): ProviderDiagnosticItem {
+): Promise<ProviderDiagnosticItem> {
   if (!settings.vlmJudge) {
     return {
       id: 'vlm',
@@ -232,35 +294,61 @@ function vlmDiagnostic(
   }
 
   if (settings.vlmProvider === 'gemini') {
-    return settings.vlmApiKey.trim() && settings.vlmModel.trim()
+    const key = settings.vlmApiKey.trim();
+    if (!key || !settings.vlmModel.trim()) {
+      return {
+        id: 'vlm',
+        label: 'VLM judge',
+        status: 'warning',
+        message: 'Local VLM needs an API key and model.',
+      };
+    }
+    const result = await fetchOk(
+      `${GEMINI_MODELS_URL}?key=${encodeURIComponent(key)}`,
+    );
+    return result.ok
       ? {
           id: 'vlm',
           label: 'VLM judge',
           status: 'ready',
-          message: 'Gemini VLM configuration is present.',
+          message: `Gemini VLM verified for ${settings.vlmModel}.`,
         }
       : {
           id: 'vlm',
           label: 'VLM judge',
           status: 'warning',
-          message: 'Local VLM needs an API key and model.',
+          message: 'Gemini VLM key was not verified.',
+          detail: result.status ? `HTTP ${result.status}` : result.error,
         };
   }
 
-  return settings.vlmBaseUrl.trim() &&
-    settings.vlmApiKey.trim() &&
-    settings.vlmModel.trim()
+  const baseUrl = settings.vlmBaseUrl.trim();
+  const apiKey = settings.vlmApiKey.trim();
+  if (!baseUrl || !apiKey || !settings.vlmModel.trim()) {
+    return {
+      id: 'vlm',
+      label: 'VLM judge',
+      status: 'warning',
+      message: 'Local VLM needs a base URL, API key, and model.',
+    };
+  }
+  const probeUrl = withV1Suffix(baseUrl);
+  const result = await fetchOk(joinUrl(probeUrl, '/models'), {
+    Authorization: `Bearer ${apiKey}`,
+  });
+  return result.ok
     ? {
         id: 'vlm',
         label: 'VLM judge',
         status: 'ready',
-        message: 'OpenAI-compatible VLM configuration is present.',
+        message: `VLM endpoint reachable for ${settings.vlmModel}.`,
       }
     : {
         id: 'vlm',
         label: 'VLM judge',
-        status: 'warning',
-        message: 'Local VLM needs a base URL, API key, and model.',
+        status: isLocalBaseUrl(probeUrl) ? 'warning' : 'error',
+        message: `Could not reach ${baseUrl}.`,
+        detail: result.status ? `HTTP ${result.status}` : result.error,
       };
 }
 
@@ -268,18 +356,14 @@ export async function runProviderDiagnostics(
   settings: AppSettings,
   account: AccountInfo | null,
 ): Promise<ProviderDiagnosticsSnapshot> {
-  const [comfy, llm] = await Promise.all([
+  const [comfy, llm, vlm] = await Promise.all([
     comfyDiagnostic(settings, account),
     llmDiagnostic(settings, account),
+    vlmDiagnostic(settings, account),
   ]);
 
   return {
     checkedAt: Date.now(),
-    items: [
-      cloudAccountDiagnostic(account),
-      comfy,
-      llm,
-      vlmDiagnostic(settings, account),
-    ],
+    items: [cloudAccountDiagnostic(account), comfy, llm, vlm],
   };
 }

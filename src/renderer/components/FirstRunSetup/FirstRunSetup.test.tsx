@@ -9,7 +9,10 @@ function installElectron() {
   (window as unknown as { electron: unknown }).electron = {
     onboarding: { getState: jest.fn(async () => ({ completed: false })), complete },
     settings: { get: jest.fn(async () => ({})), update },
-    providerDiagnostics: { run: jest.fn(async () => ({ checkedAt: 1, items: [{ id: 'llm', label: 'Language model', status: 'ready', message: 'ok' }] })) },
+    providerDiagnostics: {
+      run: jest.fn(async () => ({ checkedAt: 1, items: [{ id: 'llm', label: 'Language model', status: 'ready', message: 'ok' }] })),
+      probeLlm: jest.fn(async () => ({ ok: true, message: 'Model endpoint reachable for your local model.' })),
+    },
     account: { get: jest.fn(async () => null), signIn: jest.fn(async () => ({ opened: true, state: 's' })) },
     bundleConfig: { probeComfy: jest.fn(async () => ({ ok: true, modelCount: 10, nodeClasses: 20 })) },
   };
@@ -141,6 +144,32 @@ describe('FirstRunSetup', () => {
     fireEvent.click(screen.getByText(/Create your first project/i));
     await waitFor(() =>
       expect(complete).toHaveBeenCalledWith({ skipped: false, completedReason: 'manual_finish' }),
+    );
+  });
+
+  it('brain step can test the LLM connection against the in-form config', async () => {
+    installElectron();
+    const { providerDiagnostics } = (
+      window as unknown as {
+        electron: { providerDiagnostics: { probeLlm: jest.Mock } };
+      }
+    ).electron;
+    renderFlow();
+    await screen.findByText(/Let's light the set/i);
+
+    fireEvent.click(screen.getByText('Fully local / BYO keys'));
+    fireEvent.click(screen.getByText('Continue')); // → brain (local)
+
+    // The local provider is relabeled "OpenAI-compatible" (was "LM Studio").
+    expect(await screen.findByText('OpenAI-compatible')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('sk-…'), { target: { value: 'sk-or-xyz' } });
+    fireEvent.click(screen.getByText('Test connection')); // brain-step probe
+
+    // The probe result renders inline, before pre-flight.
+    await screen.findByText(/Model endpoint reachable/i);
+    expect(providerDiagnostics.probeLlm).toHaveBeenCalledWith(
+      expect.objectContaining({ provider: 'openrouter', apiKey: 'sk-or-xyz' }),
     );
   });
 });
