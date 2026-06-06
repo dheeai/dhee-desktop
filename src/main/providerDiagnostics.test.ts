@@ -11,11 +11,11 @@ describe('probeLlm — API-key requirement', () => {
     global.fetch = jest.fn(impl) as unknown as typeof fetch;
   }
 
-  it('does NOT require a key for the local OpenAI-compatible (lmstudio) provider, even on 0.0.0.0', async () => {
+  it('does NOT require a key for a local OpenAI-compatible base URL, even on 0.0.0.0', async () => {
     mockFetch(async () => ({ ok: true, status: 200 }));
     const res = await probeLlm({
-      provider: 'lmstudio',
-      lmStudioUrl: 'http://0.0.0.0:8080',
+      provider: 'openai',
+      baseUrl: 'http://0.0.0.0:8080',
     });
     // Reachable, not the "needs an API key" rejection.
     expect(res.ok).toBe(true);
@@ -29,21 +29,11 @@ describe('probeLlm — API-key requirement', () => {
       throw new Error('ECONNREFUSED');
     });
     const res = await probeLlm({
-      provider: 'lmstudio',
-      lmStudioUrl: 'http://0.0.0.0:8080',
+      provider: 'openai',
+      baseUrl: 'http://0.0.0.0:8080',
     });
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toMatch(/could not reach/i);
-  });
-
-  it('treats a cloud provider pointed at a local 0.0.0.0 base URL as key-optional', async () => {
-    mockFetch(async () => ({ ok: true, status: 200 }));
-    const res = await probeLlm({
-      provider: 'openai',
-      apiKey: '',
-      openaiBaseUrl: 'http://0.0.0.0:1234/v1',
-    });
-    expect(res.ok).toBe(true);
   });
 
   it('still requires a key for a remote cloud provider with no key', async () => {

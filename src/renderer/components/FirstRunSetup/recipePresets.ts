@@ -11,15 +11,12 @@ export type Recipe = 'cloud' | 'hybrid' | 'local';
 
 export interface LocalLlmConfig {
   provider: LLMProvider;
-  openRouterApiKey?: string;
-  openRouterModel?: string;
+  /** OpenAI-compatible endpoint (provider='openai'). Optional key for local. */
   openaiApiKey?: string;
   openaiBaseUrl?: string;
   openaiModel?: string;
   googleApiKey?: string;
   geminiModel?: string;
-  lmStudioUrl?: string;
-  lmStudioModel?: string;
 }
 
 export interface SetupInput {
@@ -44,33 +41,20 @@ export function recipeLanePatch(recipe: Recipe): Partial<AppSettings> {
 
 /** Provider-specific key/model fields for a local LLM. */
 export function llmProviderPatch(c: LocalLlmConfig): Partial<AppSettings> {
-  switch (c.provider) {
-    case 'openrouter':
-      return {
-        llmProvider: 'openrouter',
-        openRouterApiKey: c.openRouterApiKey ?? '',
-        openRouterModel: c.openRouterModel ?? 'z-ai/glm-4.7-flash',
-      };
-    case 'openai':
-      return {
-        llmProvider: 'openai',
-        openaiApiKey: c.openaiApiKey ?? '',
-        openaiBaseUrl: c.openaiBaseUrl ?? 'https://api.openai.com/v1',
-        openaiModel: c.openaiModel ?? 'gpt-4o',
-      };
-    case 'gemini':
-      return {
-        llmProvider: 'gemini',
-        googleApiKey: c.googleApiKey ?? '',
-        geminiModel: c.geminiModel ?? 'gemini-2.5-flash',
-      };
-    case 'lmstudio':
-      return {
-        llmProvider: 'lmstudio',
-        lmStudioUrl: c.lmStudioUrl ?? 'http://127.0.0.1:1234',
-        lmStudioModel: c.lmStudioModel ?? 'qwen3',
-      };
+  if (c.provider === 'gemini') {
+    return {
+      llmProvider: 'gemini',
+      googleApiKey: c.googleApiKey ?? '',
+      geminiModel: c.geminiModel ?? 'gemini-2.5-flash',
+    };
   }
+  // OpenAI-compatible (OpenAI / OpenRouter / local). Key optional for local.
+  return {
+    llmProvider: 'openai',
+    openaiApiKey: c.openaiApiKey ?? '',
+    openaiBaseUrl: c.openaiBaseUrl ?? 'https://api.openai.com/v1',
+    openaiModel: c.openaiModel ?? 'gpt-4o',
+  };
 }
 
 /** Assemble the full settings patch for a completed setup. */

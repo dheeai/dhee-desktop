@@ -58,24 +58,27 @@ describe('checkLaneConfigured — LLM lane', () => {
       null,
     );
     expect(out.configured).toBe(false);
-    expect(out.reason).toMatch(/OpenAI API key/);
+    expect(out.reason).toMatch(/API key/);
   });
 
   it('local + each provider checks its specific credential', () => {
+    // OpenAI-compatible with a LOCAL base URL → no key required.
     expect(
       checkLaneConfigured(
         'llm',
-        baseSettings({ llmProvider: 'lmstudio', lmStudioUrl: 'http://x' }),
+        baseSettings({ llmProvider: 'openai', openaiBaseUrl: 'http://127.0.0.1:1234/v1', openaiApiKey: '' }),
         null,
       ).configured,
     ).toBe(true);
+    // OpenAI-compatible REMOTE with no key → not configured.
     expect(
       checkLaneConfigured(
         'llm',
-        baseSettings({ llmProvider: 'lmstudio' }),
+        baseSettings({ llmProvider: 'openai', openaiBaseUrl: 'https://api.openai.com/v1', openaiApiKey: '' }),
         null,
       ).configured,
     ).toBe(false);
+    // Gemini needs the Google key.
     expect(
       checkLaneConfigured(
         'llm',
@@ -83,10 +86,11 @@ describe('checkLaneConfigured — LLM lane', () => {
         null,
       ).configured,
     ).toBe(true);
+    // OpenAI-compatible remote WITH a key → configured.
     expect(
       checkLaneConfigured(
         'llm',
-        baseSettings({ llmProvider: 'openrouter', openRouterApiKey: 'or' }),
+        baseSettings({ llmProvider: 'openai', openaiBaseUrl: 'https://api.openai.com/v1', openaiApiKey: 'sk' }),
         null,
       ).configured,
     ).toBe(true);

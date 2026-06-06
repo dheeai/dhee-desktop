@@ -44,7 +44,6 @@ export const TOP_LEVEL_CREDENTIAL_FIELDS = [
   'comfyCloudApiKey',
   'googleApiKey',
   'openaiApiKey',
-  'openRouterApiKey',
   'vlmApiKey',
 ] as const;
 

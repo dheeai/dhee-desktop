@@ -63,18 +63,19 @@ describe('resolvePiModelFromSettings', () => {
     });
   });
 
-  it('returns the explicit openrouter triple when llmProvider is openrouter', () => {
+  it('returns a config for a LOCAL OpenAI-compatible base url with no key', () => {
     const result = resolvePiModelFromSettings({
       ...base,
-      llmProvider: 'openrouter',
-      openRouterApiKey: 'or-explicit-secret',
-      openRouterModel: 'z-ai/glm-4.7-flash',
+      llmProvider: 'openai',
+      openaiApiKey: '',
+      openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+      openaiModel: 'qwen3',
     } as never);
     expect(result).toEqual({
-      provider: 'openrouter',
-      modelId: 'z-ai/glm-4.7-flash',
-      apiKey: 'or-explicit-secret',
-      baseUrl: 'https://openrouter.ai/api/v1',
+      provider: 'openai',
+      modelId: 'qwen3',
+      apiKey: '',
+      baseUrl: 'http://127.0.0.1:1234/v1',
     });
   });
 

@@ -68,30 +68,22 @@ export function checkLaneConfigured(
   }
 
   // local — depends on provider
-  switch (settings.llmProvider) {
-    case 'lmstudio':
-      if (!settings.lmStudioUrl || !settings.lmStudioUrl.trim()) {
-        return { lane, configured: false, reason: 'OpenAI-compatible URL not set' };
-      }
-      return { lane, configured: true, reason: '' };
-    case 'gemini':
-      if (!settings.googleApiKey || !settings.googleApiKey.trim()) {
-        return { lane, configured: false, reason: 'Gemini API key missing' };
-      }
-      return { lane, configured: true, reason: '' };
-    case 'openai':
-      if (!settings.openaiApiKey || !settings.openaiApiKey.trim()) {
-        return { lane, configured: false, reason: 'OpenAI API key missing' };
-      }
-      return { lane, configured: true, reason: '' };
-    case 'openrouter':
-      if (!settings.openRouterApiKey || !settings.openRouterApiKey.trim()) {
-        return { lane, configured: false, reason: 'OpenRouter API key missing' };
-      }
-      return { lane, configured: true, reason: '' };
-    default:
-      return { lane, configured: false, reason: 'LLM provider not chosen' };
+  if (settings.llmProvider === 'gemini') {
+    if (!settings.googleApiKey || !settings.googleApiKey.trim()) {
+      return { lane, configured: false, reason: 'Gemini API key missing' };
+    }
+    return { lane, configured: true, reason: '' };
   }
+
+  // OpenAI-compatible: a key is required only for non-local endpoints
+  // (local LM Studio / Ollama / llama.cpp / vLLM servers accept none).
+  const isLocal = /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[?::1?\]?)(:|\/|$)/i.test(
+    settings.openaiBaseUrl || '',
+  );
+  if (!isLocal && (!settings.openaiApiKey || !settings.openaiApiKey.trim())) {
+    return { lane, configured: false, reason: 'API key missing' };
+  }
+  return { lane, configured: true, reason: '' };
 }
 
 export interface BackendConfigStatus {

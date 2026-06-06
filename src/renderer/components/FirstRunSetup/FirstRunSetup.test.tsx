@@ -32,16 +32,24 @@ beforeEach(() => {
 });
 
 describe('providerFieldsFromSettings', () => {
-  it('reads the stored key + model for each provider', () => {
-    expect(providerFieldsFromSettings('openrouter', { openRouterApiKey: 'k', openRouterModel: 'm' })).toEqual({
-      apiKey: 'k',
-      model: 'm',
+  it('reads the stored key + model + base url for each provider', () => {
+    expect(
+      providerFieldsFromSettings('openai', {
+        openaiApiKey: 'k',
+        openaiModel: 'm',
+        openaiBaseUrl: 'https://openrouter.ai/api/v1',
+      }),
+    ).toEqual({ apiKey: 'k', model: 'm', baseUrl: 'https://openrouter.ai/api/v1' });
+    expect(providerFieldsFromSettings('gemini', { googleApiKey: 'g' })).toEqual({
+      apiKey: 'g',
+      model: '',
+      baseUrl: '',
     });
-    expect(providerFieldsFromSettings('gemini', { googleApiKey: 'g' })).toEqual({ apiKey: 'g', model: '' });
-    expect(providerFieldsFromSettings('lmstudio', { lmStudioUrl: 'http://x:1234', lmStudioModel: 'q' })).toEqual({
+    // OpenAI-compatible with no stored base url falls back to OpenAI's.
+    expect(providerFieldsFromSettings('openai', {})).toEqual({
       apiKey: '',
-      model: 'q',
-      lmUrl: 'http://x:1234',
+      model: '',
+      baseUrl: 'https://api.openai.com/v1',
     });
   });
 });
@@ -81,9 +89,10 @@ describe('FirstRunSetup', () => {
       onboarding: { getState: jest.fn(async () => ({ completed: false })), complete: jest.fn() },
       settings: {
         get: jest.fn(async () => ({
-          llmProvider: 'openrouter',
-          openRouterApiKey: 'sk-or-stored',
-          openRouterModel: 'my/custom-model',
+          llmProvider: 'openai',
+          openaiApiKey: 'sk-or-stored',
+          openaiModel: 'my/custom-model',
+          openaiBaseUrl: 'https://openrouter.ai/api/v1',
           comfyuiMode: 'custom',
           comfyuiUrl: 'http://gpu-box:8188',
         })),
@@ -169,7 +178,7 @@ describe('FirstRunSetup', () => {
     // The probe result renders inline, before pre-flight.
     await screen.findByText(/Model endpoint reachable/i);
     expect(providerDiagnostics.probeLlm).toHaveBeenCalledWith(
-      expect.objectContaining({ provider: 'openrouter', apiKey: 'sk-or-xyz' }),
+      expect.objectContaining({ provider: 'openai', apiKey: 'sk-or-xyz' }),
     );
   });
 });

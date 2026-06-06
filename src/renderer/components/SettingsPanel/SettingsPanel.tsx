@@ -76,15 +76,11 @@ const emptySettings: AppSettings = {
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai',
-  lmStudioUrl: 'http://127.0.0.1:1234',
-  lmStudioModel: 'qwen3',
   googleApiKey: '',
   geminiModel: 'gemini-2.5-flash',
   openaiApiKey: '',
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  openRouterApiKey: '',
-  openRouterModel: 'z-ai/glm-4.7-flash',
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
@@ -97,53 +93,24 @@ const emptySettings: AppSettings = {
   llmTierLight: { ...emptyTierConfig },
 };
 
-function withV1Suffix(url: string): string {
-  return /\/v1\/?$/.test(url) ? url : `${url.replace(/\/$/, '')}/v1`;
-}
-
 function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   const next = input ?? emptySettings;
   const comfyuiUrl = (next.comfyuiUrl || '').trim();
   const backendMode = next.backendMode === 'cloud' ? 'cloud' : 'local';
-  const llmProvider =
-    next.llmProvider === 'openrouter' || next.llmProvider === 'lmstudio'
-      ? 'openai'
-      : next.llmProvider;
-  const openaiApiKey =
-    llmProvider === 'openai' && next.llmProvider === 'openrouter'
-      ? next.openRouterApiKey || next.openaiApiKey
-      : next.openaiApiKey;
-  const openaiBaseUrl =
-    llmProvider === 'openai' && next.llmProvider === 'openrouter'
-      ? 'https://openrouter.ai/api/v1'
-      : llmProvider === 'openai' && next.llmProvider === 'lmstudio'
-        ? withV1Suffix(next.lmStudioUrl || emptySettings.lmStudioUrl)
-        : next.openaiBaseUrl;
-  const openaiModel =
-    llmProvider === 'openai' && next.llmProvider === 'openrouter'
-      ? next.openRouterModel || next.openaiModel
-      : llmProvider === 'openai' && next.llmProvider === 'lmstudio'
-        ? next.lmStudioModel || next.openaiModel
-        : next.openaiModel;
 
   return {
     ...emptySettings,
     ...next,
     backendMode,
-    llmProvider,
+    llmProvider: next.llmProvider === 'gemini' ? 'gemini' : 'openai',
     comfyuiMode: comfyuiUrl ? 'custom' : 'inherit',
     comfyuiUrl,
     comfyCloudApiKey: next.comfyCloudApiKey ?? '',
-    lmStudioUrl: next.lmStudioUrl?.trim() || emptySettings.lmStudioUrl,
-    lmStudioModel: next.lmStudioModel?.trim() || emptySettings.lmStudioModel,
     googleApiKey: next.googleApiKey ?? '',
     geminiModel: next.geminiModel?.trim() || emptySettings.geminiModel,
-    openaiApiKey: openaiApiKey ?? '',
-    openaiBaseUrl: openaiBaseUrl?.trim() || emptySettings.openaiBaseUrl,
-    openaiModel: openaiModel?.trim() || emptySettings.openaiModel,
-    openRouterApiKey: next.openRouterApiKey ?? '',
-    openRouterModel:
-      next.openRouterModel?.trim() || emptySettings.openRouterModel,
+    openaiApiKey: next.openaiApiKey ?? '',
+    openaiBaseUrl: next.openaiBaseUrl?.trim() || emptySettings.openaiBaseUrl,
+    openaiModel: next.openaiModel?.trim() || emptySettings.openaiModel,
   };
 }
 
@@ -405,15 +372,11 @@ export default function SettingsPanel({
       comfyuiUrl: normalized.comfyuiUrl,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
       llmProvider: normalized.llmProvider,
-      lmStudioUrl: normalized.lmStudioUrl,
-      lmStudioModel: normalized.lmStudioModel,
       googleApiKey: normalized.googleApiKey,
       geminiModel: normalized.geminiModel,
       openaiApiKey: normalized.openaiApiKey,
       openaiBaseUrl: normalized.openaiBaseUrl,
       openaiModel: normalized.openaiModel,
-      openRouterApiKey: normalized.openRouterApiKey,
-      openRouterModel: normalized.openRouterModel,
       llmUseSameForAllTiers: normalized.llmUseSameForAllTiers,
       llmTierMedium: normalized.llmTierMedium,
       llmTierLight: normalized.llmTierLight,

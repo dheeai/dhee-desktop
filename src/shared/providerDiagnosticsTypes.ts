@@ -20,18 +20,16 @@ export interface ProviderDiagnosticsSnapshot {
 }
 
 /**
- * Ad-hoc LLM config to probe WITHOUT persisting settings — the
- * first-run setup form's in-progress values. `provider` mirrors
- * AppSettings['llmProvider'].
+ * Ad-hoc LLM config to probe WITHOUT persisting settings — the first-run
+ * setup form's in-progress values. `provider` mirrors
+ * AppSettings['llmProvider']: 'openai' (OpenAI-compatible) or 'gemini'.
  */
 export interface LlmProbeInput {
-  provider: 'openrouter' | 'openai' | 'gemini' | 'lmstudio';
+  provider: 'openai' | 'gemini';
   apiKey?: string;
   model?: string;
-  /** Base URL for an OpenAI-compatible local server (provider 'lmstudio'). */
-  lmStudioUrl?: string;
-  /** Override base URL for the 'openai' provider; falls back to saved settings. */
-  openaiBaseUrl?: string;
+  /** OpenAI-compatible endpoint (provider 'openai'); falls back to OpenAI. */
+  baseUrl?: string;
 }
 
 export type LlmProbeResult =

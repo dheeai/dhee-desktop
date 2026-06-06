@@ -437,12 +437,11 @@ ipcMain.handle('provider-diagnostics:run', async () => {
 ipcMain.handle(
   'provider-diagnostics:probe-llm',
   async (_event, input: LlmProbeInput) => {
-    // openaiBaseUrl isn't collected in the first-run form; fall back to
-    // the saved setting so a custom OpenAI-compatible endpoint is honored.
+    // Fall back to the saved base URL when the form didn't supply one.
     const settings = getSettings();
     return probeLlm({
       ...input,
-      openaiBaseUrl: input.openaiBaseUrl ?? settings.openaiBaseUrl,
+      baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
     });
   },
 );
