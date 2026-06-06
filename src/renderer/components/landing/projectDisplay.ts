@@ -40,5 +40,13 @@ export function sortRecentProjects(projects: RecentProject[]): RecentProject[] {
 }
 
 export function toFileUrl(filePath: string): string {
-  return encodeURI(`file://${filePath}`);
+  // Normalize Windows separators and give a drive-letter path (C:/…) a
+  // leading slash so the drive lands in the URL path, not the host:
+  // `file://C:/…` parses `C:` as the host and the <img> silently fails
+  // (the landing tile then falls back to the folder placeholder). With
+  // the slash it becomes a valid `file:///C:/…`. Unix paths are
+  // unchanged. encodeURI escapes spaces etc. without touching `:`/`/`.
+  let p = filePath.replace(/\\/g, '/');
+  if (/^[A-Za-z]:/.test(p)) p = `/${p}`;
+  return encodeURI(`file://${p}`);
 }
