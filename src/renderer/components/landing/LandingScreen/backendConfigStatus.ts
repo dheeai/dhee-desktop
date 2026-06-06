@@ -71,7 +71,7 @@ export function checkLaneConfigured(
   switch (settings.llmProvider) {
     case 'lmstudio':
       if (!settings.lmStudioUrl || !settings.lmStudioUrl.trim()) {
-        return { lane, configured: false, reason: 'LM Studio URL not set' };
+        return { lane, configured: false, reason: 'OpenAI-compatible URL not set' };
       }
       return { lane, configured: true, reason: '' };
     case 'gemini':
