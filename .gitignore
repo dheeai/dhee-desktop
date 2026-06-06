@@ -294,3 +294,6 @@ release/app/.dhee-core-version.json
 # Playwright e2e output
 playwright-report/
 test-results/
+
+# Build-time staging for dhee-core first-party bundles (see .erb/scripts/stage-bundles.js)
+dhee-core-bundles/
