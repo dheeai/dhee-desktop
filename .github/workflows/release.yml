@@ -60,6 +60,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           dhee_INK_PATH: ${{ github.workspace }}/dhee-core
+          # macOS code-signing + notarization. Until these repo secrets are
+          # populated they inject as empty strings and the build stays
+          # unsigned (electron-builder skips signing on empty CSC_LINK; the
+          # notarize hook skips on empty Apple creds).
+          # CSC_LINK = base64 of your "Developer ID Application" .p12.
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASS: ${{ secrets.APPLE_ID_PASS }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: npm run release
 
       - name: Verify packaged app (native unpack + bundles)
