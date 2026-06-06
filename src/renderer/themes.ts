@@ -11,14 +11,9 @@ export const DESKTOP_THEMES: DesktopThemeOption[] = [
   {
     id: 'cinematic',
     name: 'Cinematic',
-    description: 'Warm near-black film-stock surfaces with a cool slate accent.',
-    swatches: ['#0a0908', '#221d18', '#6f93b8'],
-  },
-  {
-    id: 'studio-neutral',
-    name: 'Studio Neutral',
-    description: 'Neutral charcoal with muted blue accents.',
-    swatches: ['#121416', '#262b31', '#5b88b2'],
+    description:
+      'The official look — warm near-black film stock, Fraunces editorial type, a single amber accent.',
+    swatches: ['#0a0908', '#1a1714', '#e8a33d'],
   },
   {
     id: 'deep-forest-gold',

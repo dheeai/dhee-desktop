@@ -33,7 +33,14 @@
 .media {
   position: relative;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(140deg, #343434 0%, #242424 48%, #1e1e1e 100%);
+  // Token-driven so it follows the active theme (warm film-stock on the
+  // official Cinematic theme) instead of a hardcoded cool grey.
+  background: linear-gradient(
+    140deg,
+    $color-bg-panel-soft 0%,
+    $color-bg-panel-elevated 52%,
+    $color-bg-panel-inset 100%
+  );
 }
 
 .openButton {
@@ -69,7 +76,7 @@
   height: 30px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  background: rgba(8, 12, 19, 0.76);
+  background: rgba(var(--color-bg-app-rgb), 0.78);
   color: rgba(255, 255, 255, 0.9);
   display: inline-flex;
   align-items: center;
@@ -81,7 +88,7 @@
     transform $transition-fast;
 
   &:hover {
-    background: rgba(8, 12, 19, 0.92);
+    background: rgba(var(--color-bg-app-rgb), 0.94);
     border-color: rgba(255, 255, 255, 0.3);
     transform: translateY(-1px);
   }
@@ -107,10 +114,15 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: $spacing-sm;
-  color: rgba(255, 255, 255, 0.88);
-  font-size: $font-size-sm;
-  letter-spacing: 0.2px;
+  gap: 10px;
+  // Editorial mono label (matches the New Production spec lines) on the
+  // warm film-stock surface instead of a bright generic caption.
+  color: $color-text-muted;
+  font-family: $font-family-mono;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
 .overlay {
@@ -124,9 +136,9 @@
   padding: $spacing-md;
   background: linear-gradient(
     to top,
-    rgba(8, 12, 19, 0.93) 0%,
-    rgba(8, 12, 19, 0.82) 42%,
-    rgba(8, 12, 19, 0) 100%
+    rgba(var(--color-bg-app-rgb), 0.94) 0%,
+    rgba(var(--color-bg-app-rgb), 0.82) 42%,
+    rgba(var(--color-bg-app-rgb), 0) 100%
   );
 }
 
@@ -152,7 +164,12 @@
 
 .stats {
   margin: 0;
-  font-size: $font-size-sm;
+  // Editorial spec line — mono, uppercase, letterspaced ("5 SCENES · 15 SHOTS").
+  font-family: $font-family-mono;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: $color-text-secondary;
 }
 

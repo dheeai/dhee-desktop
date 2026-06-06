@@ -81,7 +81,7 @@ const emptySettings: AppSettings = {
   openaiApiKey: '',
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  themeId: 'studio-neutral',
+  themeId: 'cinematic',
   piOversight: true,
   vlmJudge: true,
   vlmProvider: 'openai',

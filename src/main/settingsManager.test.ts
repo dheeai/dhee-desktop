@@ -38,6 +38,11 @@ describe('settingsManager theme normalization', () => {
     expect(normalizeThemeId('cinematic')).toBe('cinematic');
   });
 
+  it('migrates the retired studio-neutral theme to the default (cinematic)', () => {
+    expect(DEFAULT_THEME_ID).toBe('cinematic');
+    expect(normalizeThemeId('studio-neutral')).toBe('cinematic');
+  });
+
   it('preserves a valid theme and migrates missing theme ids', () => {
     expect(
       normalizeSettings({

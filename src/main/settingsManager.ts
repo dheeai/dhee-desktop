@@ -94,9 +94,11 @@ function normalizeComfyUIUrl(value: unknown): string {
 }
 
 function normalizeThemeId(value: unknown): ThemeId {
+  // 'studio-neutral' was the legacy cool default; it's retired in favor
+  // of the official editorial 'cinematic' look, so a persisted
+  // 'studio-neutral' falls through to DEFAULT_THEME_ID (cinematic).
   if (
     value === 'cinematic' ||
-    value === 'studio-neutral' ||
     value === 'deep-forest-gold' ||
     value === 'petroleum-clay' ||
     value === 'paper-light' ||

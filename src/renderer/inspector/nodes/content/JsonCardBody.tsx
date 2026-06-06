@@ -124,7 +124,7 @@ export function JsonCardBody({ projectDir, outputPath }: Props) {
         <div style={{ fontSize: 9, color: 'rgba(229,225,216,0.55)', fontFamily: 'ui-monospace, Menlo, monospace' }}>
           {supportingEntries.map(([k, v]) => (
             <div key={k} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={`${k}: ${summarize(v)}`}>
-              <span style={{ color: 'rgba(95, 136, 178, 0.85)' }}>{k}</span>: {summarize(v)}
+              <span style={{ color: 'rgba(var(--color-accent-primary-rgb), 0.85)' }}>{k}</span>: {summarize(v)}
             </div>
           ))}
         </div>
