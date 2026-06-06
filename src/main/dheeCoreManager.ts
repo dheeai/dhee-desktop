@@ -19,6 +19,7 @@
  * `webContents.send`.
  */
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
+import { isLocalLlmUrl } from '../shared/localUrl';
 import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
@@ -375,10 +376,7 @@ export function resolvePiModelFromSettings(
   const modelId = (s.openaiModel || 'gpt-4o').trim();
   const baseUrl = (s.openaiBaseUrl || 'https://api.openai.com/v1').trim();
   if (!modelId) return null;
-  const isLocal = /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[?::1?\]?)(:|\/|$)/i.test(
-    baseUrl,
-  );
-  if (!apiKey && !isLocal) return null;
+  if (!apiKey && !isLocalLlmUrl(baseUrl)) return null;
   // OpenRouter is just an OpenAI-compatible base URL; label it so for clarity.
   const provider = baseUrl.toLowerCase().includes('openrouter.ai')
     ? 'openrouter'

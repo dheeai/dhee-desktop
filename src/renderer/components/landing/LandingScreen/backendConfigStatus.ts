@@ -15,6 +15,7 @@
  */
 
 import type { AccountInfo, AppSettings } from '../../../../shared/settingsTypes';
+import { isLocalLlmUrl } from '../../../../shared/localUrl';
 
 export type LaneId = 'llm' | 'comfy' | 'vlm';
 
@@ -77,9 +78,7 @@ export function checkLaneConfigured(
 
   // OpenAI-compatible: a key is required only for non-local endpoints
   // (local LM Studio / Ollama / llama.cpp / vLLM servers accept none).
-  const isLocal = /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[?::1?\]?)(:|\/|$)/i.test(
-    settings.openaiBaseUrl || '',
-  );
+  const isLocal = isLocalLlmUrl(settings.openaiBaseUrl || '');
   if (!isLocal && (!settings.openaiApiKey || !settings.openaiApiKey.trim())) {
     return { lane, configured: false, reason: 'API key missing' };
   }

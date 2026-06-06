@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Cloud, Shuffle, Cpu, type LucideIcon } from 'lucide-react';
 import type { AccountInfo, AppSettings, LLMProvider } from '../../../shared/settingsTypes';
+import { isLocalLlmUrl } from '../../../shared/localUrl';
 import type { ComfyProbeResult } from '../../../shared/bundleConfigTypes';
 import type { LlmProbeResult, ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
@@ -41,10 +42,6 @@ const BASE_URL_PRESETS: Array<{ label: string; url: string }> = [
   { label: 'Local', url: 'http://127.0.0.1:1234/v1' },
 ];
 
-/** A base URL whose host is loopback/bind-all — key is optional there. */
-export function isLocalLlmUrl(url: string): boolean {
-  return /\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|\[?::1?\]?)(:|\/|$)/i.test(url);
-}
 
 /** The stored key/model/base-url for a provider, so the flow prefills what's already configured. */
 export function providerFieldsFromSettings(

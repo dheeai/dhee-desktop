@@ -7,6 +7,7 @@ import type {
   ProviderDiagnosticsSnapshot,
 } from '../shared/providerDiagnosticsTypes';
 import { getComfyUiUrl, withV1Suffix } from './utils/comfyUrl';
+import { isLocalLlmUrl } from '../shared/localUrl';
 
 const DEFAULT_TIMEOUT_MS = 3500;
 const GEMINI_MODELS_URL =
@@ -16,23 +17,7 @@ function joinUrl(base: string, pathname: string): string {
   return `${base.replace(/\/$/, '')}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
-function isLocalBaseUrl(value: string): boolean {
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    return (
-      host === 'localhost' ||
-      host === '127.0.0.1' ||
-      host === '::1' ||
-      // Bind-all addresses people commonly point a local server at; on
-      // macOS/Linux connecting to these reaches a local listener.
-      host === '0.0.0.0' ||
-      host === '[::]' ||
-      host === '::'
-    );
-  } catch {
-    return false;
-  }
-}
+const isLocalBaseUrl = isLocalLlmUrl;
 
 async function fetchOk(
   url: string,
