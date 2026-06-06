@@ -29,6 +29,7 @@ import {
   type CardAction,
 } from './cardDetailModel';
 import { prepareEdit, applyEdit, prepareReadableView, type PreparedEdit, type ReadableField } from './nodeTextEdit';
+import { toFileUrl } from '../utils/pathResolver';
 
 interface Props {
   instance: InstanceGraphNode | null;
@@ -311,7 +312,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
 
   const fmt = inferFormat(instance.outputPath);
   const actions = availableActions(instance);
-  const fileUrl = projectDir && instance.outputPath ? `file://${projectDir}/${instance.outputPath}` : null;
+  const fileUrl = projectDir && instance.outputPath ? toFileUrl(`${projectDir}/${instance.outputPath}`) : null;
 
   async function loadVersions(): Promise<void> {
     if (!instance || !projectDir) return;
@@ -574,7 +575,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
               {versions !== null && versions.length > 0 && (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
                   {versions.map((v) => {
-                    const vUrl = projectDir ? `file://${projectDir}/${v.outputPath}` : null;
+                    const vUrl = projectDir ? toFileUrl(`${projectDir}/${v.outputPath}`) : null;
                     const vFmt = inferFormat(v.outputPath);
                     return (
                       <div
