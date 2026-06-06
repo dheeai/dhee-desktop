@@ -19,7 +19,16 @@ function joinUrl(base: string, pathname: string): string {
 function isLocalBaseUrl(value: string): boolean {
   try {
     const host = new URL(value).hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
+    return (
+      host === 'localhost' ||
+      host === '127.0.0.1' ||
+      host === '::1' ||
+      // Bind-all addresses people commonly point a local server at; on
+      // macOS/Linux connecting to these reaches a local listener.
+      host === '0.0.0.0' ||
+      host === '[::]' ||
+      host === '::'
+    );
   } catch {
     return false;
   }
@@ -173,12 +182,17 @@ async function llmDiagnostic(
   }
 
   const localUrl = isLocalBaseUrl(baseUrl);
-  if (!apiKey.trim() && !localUrl) {
+  // The 'lmstudio' choice IS "a local/self-hosted OpenAI-compatible server"
+  // (LM Studio, Ollama, llama.cpp, vLLM…) — those accept no key, so never
+  // demand one. Only the cloud key providers (openai/openrouter) require a
+  // key, and even then a local base URL (a self-hosted proxy) is exempt.
+  const keyOptional = settings.llmProvider === 'lmstudio' || localUrl;
+  if (!apiKey.trim() && !keyOptional) {
     return {
       id: 'llm',
       label: 'LLM',
       status: 'warning',
-      message: 'OpenAI-compatible LLM needs an API key.',
+      message: 'This LLM provider needs an API key.',
     };
   }
 
@@ -249,7 +263,10 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
   }
 
   const localUrl = isLocalBaseUrl(baseUrl);
-  if (!apiKey && !localUrl) {
+  // 'lmstudio' is the local/self-hosted OpenAI-compatible option — no key
+  // required. Cloud key providers still need one (unless pointed local).
+  const keyOptional = input.provider === 'lmstudio' || localUrl;
+  if (!apiKey && !keyOptional) {
     return { ok: false, message: 'This provider needs an API key.' };
   }
 
