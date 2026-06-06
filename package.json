@@ -238,7 +238,7 @@
     "afterPack": ".erb/scripts/prune-native.js",
     "afterSign": ".erb/scripts/notarize.js",
     "asarUnpack": [
-      "**\\*.{node,dll}",
+      "**/*.{node,dll,so,dylib}",
       "**/node_modules/@ffmpeg-installer/**",
       "**/node_modules/@esbuild/**",
       "**/node_modules/react/**",
@@ -297,8 +297,7 @@
       "**/node_modules/dotenv/**",
       "**/node_modules/eventemitter3/**",
       "**/node_modules/uuid/**",
-      "**/node_modules/nanoid/**",
-      "**/node_modules/**/*"
+      "**/node_modules/nanoid/**"
     ],
     "files": [
       "dist",
