@@ -90,7 +90,7 @@ export function VideoCardBody({ projectDir, outputPath, completedAt }: Props) {
               width: 36,
               height: 36,
               borderRadius: '50%',
-              background: 'rgba(22, 24, 33, 0.7)',
+              background: 'rgba(var(--color-bg-panel-rgb), 0.7)',
               border: '1.5px solid rgba(229, 225, 216, 0.8)',
               display: 'flex',
               alignItems: 'center',

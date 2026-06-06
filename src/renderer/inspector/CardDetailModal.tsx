@@ -60,8 +60,8 @@ function statusColor(s: string): string {
     case 'completed':   return '#6d8f7a';
     case 'in_progress': return '#907b58';
     case 'failed':      return '#a56d6f';
-    case 'invalidated': return '#a9b0ba';
-    default:            return '#7d848e';
+    case 'invalidated': return 'var(--color-text-secondary)';
+    default:            return 'var(--color-text-muted)';
   }
 }
 
@@ -218,7 +218,7 @@ function JsonReadableBody({
       {!showingRaw && view.kind === 'json' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20, paddingRight: 90 }}>
           <div>
-            <div style={{ fontSize: 11, color: '#a9b0ba', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600, marginBottom: 8 }}>
               {view.headlineLabel}
             </div>
             <div style={{ fontSize: 15, lineHeight: 1.6, color: '#e5e1d8' }}>{view.headline}</div>
@@ -466,7 +466,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
           }}
         >
           <div>
-            <div style={{ fontSize: 11, color: '#a9b0ba', letterSpacing: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>
+            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', letterSpacing: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>
               {instance.nodeId}
               {panel !== 'view' && (
                 <span style={{ color: 'var(--color-accent-primary)', marginLeft: 8 }}>· {panel === 'versions' ? 'Versions' : 'Edit'}</span>
@@ -506,7 +506,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
             >
               {instance.status}
             </span>
-            <button onClick={onClose} style={{ ...BTN_GHOST, color: '#a9b0ba', padding: '6px 14px' }}>
+            <button onClick={onClose} style={{ ...BTN_GHOST, color: 'var(--color-text-secondary)', padding: '6px 14px' }}>
               Close ⏎
             </button>
           </div>
@@ -635,7 +635,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
           {/* ── EDIT ─────────────────────────────────────────────── */}
           {panel === 'edit' && prepared && (
             <div style={{ padding: 24, height: '100%', display: 'flex', flexDirection: 'column', gap: 12, boxSizing: 'border-box' }}>
-              <div style={{ fontSize: 11, color: '#a9b0ba', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
+              <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: 0.6, fontWeight: 600 }}>
                 {prepared.label}
                 {prepared.kind === 'json-field' && (
                   <span style={{ textTransform: 'none', letterSpacing: 0, color: 'rgba(229,225,216,0.45)', marginLeft: 8, fontWeight: 400 }}>

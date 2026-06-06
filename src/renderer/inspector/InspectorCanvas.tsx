@@ -65,14 +65,16 @@ function minimapNodeColor(node: Node): string {
   const css = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) =>
     css.getPropertyValue(name).trim() || fallback;
-  if (data?.isGoal) return v('--color-accent-primary', '#5f88b2');
+  // Fallbacks are literal colors (this returns a string to react-flow's
+  // MiniMap), tuned to the Cinematic palette; the CSS var wins when set.
+  if (data?.isGoal) return v('--color-accent-primary', '#e8a33d');
   switch (data?.status) {
-    case 'completed':   return v('--color-success', '#6d8f7a');
-    case 'running':     return v('--color-warning', '#907b58');
-    case 'failed':      return v('--color-error', '#a56d6f');
-    case 'invalidated': return v('--color-text-secondary', '#a9b0ba');
+    case 'completed':   return v('--color-success', '#7a9b82');
+    case 'running':     return v('--color-warning', '#c79a5a');
+    case 'failed':      return v('--color-error', '#b5736f');
+    case 'invalidated': return v('--color-text-secondary', '#b8b1a6');
     case 'pending':
-    default:            return v('--color-text-muted', '#7d848e');
+    default:            return v('--color-text-muted', '#7a7570');
   }
 }
 

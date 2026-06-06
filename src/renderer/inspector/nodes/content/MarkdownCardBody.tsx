@@ -65,7 +65,7 @@ export function MarkdownCardBody({ projectDir, outputPath }: Props) {
             style={{
               fontWeight: isHeading ? 600 : 400,
               fontSize: isHeading ? 12 : 11,
-              color: isHeading ? '#e5e1d8' : '#a9b0ba',
+              color: isHeading ? '#e5e1d8' : 'var(--color-text-secondary)',
               marginBottom: 2,
               overflow: 'hidden',
               textOverflow: 'ellipsis',
