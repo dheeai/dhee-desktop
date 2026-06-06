@@ -150,15 +150,11 @@ const baseSettings: AppSettings = {
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai',
-  lmStudioUrl: 'http://127.0.0.1:1234',
-  lmStudioModel: 'qwen3',
   googleApiKey: '',
   geminiModel: 'gemini-2.5-flash',
   openaiApiKey: 'sk-test',
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  openRouterApiKey: '',
-  openRouterModel: 'z-ai/glm-4.7-flash',
   themeId: 'studio-neutral',
   piOversight: true,
   vlmJudge: true,
@@ -1023,7 +1019,6 @@ describe('dheeCoreManager', () => {
       ...baseSettings,
       llmProvider: 'openai',
       openaiApiKey: '',
-      openRouterApiKey: '',
     };
 
     const mgr = new dheeCoreManager();

@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Cloud, Shuffle, Cpu, type LucideIcon } from 'lucide-react';
 import type { AccountInfo, AppSettings, LLMProvider } from '../../../shared/settingsTypes';
+import { isLocalLlmUrl } from '../../../shared/localUrl';
 import type { ComfyProbeResult } from '../../../shared/bundleConfigTypes';
 import type { LlmProbeResult, ProviderDiagnosticsSnapshot } from '../../../shared/providerDiagnosticsTypes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
@@ -23,28 +24,38 @@ const RECIPES: Array<{ id: Recipe; icon: LucideIcon; title: string; blurb: strin
   { id: 'local', icon: Cpu, title: 'Fully local / BYO keys', blurb: 'Your machine, your keys, your ComfyUI.', eta: '~2 min' },
 ];
 
-const PROVIDERS: Array<{ id: LLMProvider; label: string; local?: boolean }> = [
-  { id: 'openrouter', label: 'OpenRouter' },
-  { id: 'openai', label: 'OpenAI' },
-  { id: 'gemini', label: 'Gemini' },
-  { id: 'lmstudio', label: 'OpenAI-compatible', local: true },
+const PROVIDERS: Array<{ id: LLMProvider; label: string; tag: string }> = [
+  { id: 'openai', label: 'OpenAI-compatible', tag: 'url' },
+  { id: 'gemini', label: 'Gemini', tag: 'key' },
 ];
 
-/** The stored key/model/url for a provider, so the flow prefills what's already configured. */
+const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+
+/**
+ * Base-URL presets for the OpenAI-compatible provider. They just seed the
+ * editable base URL — OpenAI/OpenRouter are remote (key required), the
+ * local one needs none.
+ */
+const BASE_URL_PRESETS: Array<{ label: string; url: string }> = [
+  { label: 'OpenAI', url: 'https://api.openai.com/v1' },
+  { label: 'OpenRouter', url: 'https://openrouter.ai/api/v1' },
+  { label: 'Local', url: 'http://127.0.0.1:1234/v1' },
+];
+
+
+/** The stored key/model/base-url for a provider, so the flow prefills what's already configured. */
 export function providerFieldsFromSettings(
   provider: LLMProvider,
   s: Partial<AppSettings>,
-): { apiKey: string; model: string; lmUrl?: string } {
-  switch (provider) {
-    case 'openrouter':
-      return { apiKey: s.openRouterApiKey ?? '', model: s.openRouterModel ?? '' };
-    case 'openai':
-      return { apiKey: s.openaiApiKey ?? '', model: s.openaiModel ?? '' };
-    case 'gemini':
-      return { apiKey: s.googleApiKey ?? '', model: s.geminiModel ?? '' };
-    case 'lmstudio':
-      return { apiKey: '', model: s.lmStudioModel ?? '', lmUrl: s.lmStudioUrl ?? 'http://127.0.0.1:1234' };
+): { apiKey: string; model: string; baseUrl: string } {
+  if (provider === 'gemini') {
+    return { apiKey: s.googleApiKey ?? '', model: s.geminiModel ?? '', baseUrl: '' };
   }
+  return {
+    apiKey: s.openaiApiKey ?? '',
+    model: s.openaiModel ?? '',
+    baseUrl: s.openaiBaseUrl || DEFAULT_OPENAI_BASE_URL,
+  };
 }
 
 export default function FirstRunSetup() {
@@ -56,10 +67,10 @@ export default function FirstRunSetup() {
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [waitingAuth, setWaitingAuth] = useState(false);
   // brain (local)
-  const [provider, setProvider] = useState<LLMProvider>('openrouter');
+  const [provider, setProvider] = useState<LLMProvider>('openai');
   const [apiKey, setApiKey] = useState('');
   const [model, setModel] = useState('');
-  const [lmUrl, setLmUrl] = useState('http://127.0.0.1:1234');
+  const [baseUrl, setBaseUrl] = useState(DEFAULT_OPENAI_BASE_URL);
   // brain (local) — Test connection probe of the in-form LLM config.
   const [llmProbe, setLlmProbe] = useState<LlmProbeResult | null>(null);
   const [llmProbing, setLlmProbing] = useState(false);
@@ -88,12 +99,12 @@ export default function FirstRunSetup() {
       .then((s) => {
         if (cancelled) return;
         setSnapshot(s);
-        const p = (s.llmProvider as LLMProvider) ?? 'openrouter';
+        const p: LLMProvider = s.llmProvider === 'gemini' ? 'gemini' : 'openai';
         setProvider(p);
         const f = providerFieldsFromSettings(p, s);
         setApiKey(f.apiKey);
         setModel(f.model);
-        if (f.lmUrl) setLmUrl(f.lmUrl);
+        if (f.baseUrl) setBaseUrl(f.baseUrl);
         if (s.comfyuiMode === 'custom' && s.comfyuiUrl) setComfyUrl(s.comfyuiUrl);
       })
       .catch(() => undefined);
@@ -108,13 +119,13 @@ export default function FirstRunSetup() {
     };
   }, []);
 
-  // Switching provider shows THAT provider's stored key/model.
+  // Switching provider shows THAT provider's stored key/model/base-url.
   const chooseProvider = (p: LLMProvider) => {
     setProvider(p);
     const f = providerFieldsFromSettings(p, snapshot ?? {});
     setApiKey(f.apiKey);
     setModel(f.model);
-    if (f.lmUrl) setLmUrl(f.lmUrl);
+    if (f.baseUrl) setBaseUrl(f.baseUrl);
   };
 
   // Poll for the account after sign-in (arrives via browser deep-link).
@@ -131,17 +142,20 @@ export default function FirstRunSetup() {
   }, [waitingAuth]);
 
   const localLlm = useCallback((): LocalLlmConfig => {
-    switch (provider) {
-      case 'openrouter':
-        return { provider, openRouterApiKey: apiKey, ...(model ? { openRouterModel: model } : {}) };
-      case 'openai':
-        return { provider, openaiApiKey: apiKey, ...(model ? { openaiModel: model } : {}) };
-      case 'gemini':
-        return { provider, googleApiKey: apiKey, ...(model ? { geminiModel: model } : {}) };
-      case 'lmstudio':
-        return { provider, lmStudioUrl: lmUrl, ...(model ? { lmStudioModel: model } : {}) };
+    if (provider === 'gemini') {
+      return { provider, googleApiKey: apiKey, ...(model ? { geminiModel: model } : {}) };
     }
-  }, [provider, apiKey, model, lmUrl]);
+    return {
+      provider: 'openai',
+      openaiApiKey: apiKey,
+      ...(baseUrl ? { openaiBaseUrl: baseUrl } : {}),
+      ...(model ? { openaiModel: model } : {}),
+    };
+  }, [provider, apiKey, model, baseUrl]);
+
+  // OpenAI-compatible with a local base URL accepts no key; everything
+  // else (remote OpenAI/OpenRouter, Gemini) requires one.
+  const keyRequired = provider === 'gemini' || !isLocalLlmUrl(baseUrl);
 
   const steps: Step[] = recipe === 'cloud' ? ['recipe', 'brain', 'preflight'] : ['recipe', 'brain', 'renderer', 'preflight'];
   const stepIdx = steps.indexOf(step);
@@ -151,7 +165,7 @@ export default function FirstRunSetup() {
       case 'recipe':
         return !!recipe;
       case 'brain':
-        return isCloudLlm ? !!account : provider === 'lmstudio' ? true : apiKey.trim().length > 0;
+        return isCloudLlm ? !!account : !keyRequired || apiKey.trim().length > 0;
       case 'renderer':
         return !isLocalComfy || (probe?.ok ?? false);
       case 'preflight':
@@ -178,12 +192,12 @@ export default function FirstRunSetup() {
   // A stale "Connected ✓" must not linger after the config changes.
   useEffect(() => {
     setLlmProbe(null);
-  }, [provider, apiKey, model, lmUrl]);
+  }, [provider, apiKey, model, baseUrl]);
 
   const runLlmProbe = async () => {
     setLlmProbing(true);
     const res = await window.electron.providerDiagnostics
-      .probeLlm({ provider, apiKey, model, lmStudioUrl: lmUrl })
+      .probeLlm({ provider, apiKey, model, baseUrl })
       .catch(
         (e): LlmProbeResult => ({
           ok: false,
@@ -291,17 +305,33 @@ export default function FirstRunSetup() {
                     aria-label="Language model provider"
                     value={provider}
                     onChange={chooseProvider}
-                    options={PROVIDERS.map((p) => ({ value: p.id, label: p.label, tag: p.local ? 'local' : 'key' }))}
+                    options={PROVIDERS.map((p) => ({ value: p.id, label: p.label, tag: p.tag }))}
                   />
-                  {provider === 'lmstudio' ? (
+                  {provider === 'openai' && (
                     <Field label="OpenAI-compatible base URL">
-                      <Input mono value={lmUrl} onChange={(e) => setLmUrl(e.target.value)} />
-                    </Field>
-                  ) : (
-                    <Field label="API key">
-                      <Input mono type="password" placeholder="sk-…" value={apiKey} onChange={(e) => setApiKey(e.target.value)} />
+                      <Input mono value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+                      <div className={styles.row}>
+                        {BASE_URL_PRESETS.map((preset) => (
+                          <Button
+                            key={preset.label}
+                            variant="ghost"
+                            onClick={() => setBaseUrl(preset.url)}
+                          >
+                            {preset.label}
+                          </Button>
+                        ))}
+                      </div>
                     </Field>
                   )}
+                  <Field label={keyRequired ? 'API key' : 'API key (optional for local servers)'}>
+                    <Input
+                      mono
+                      type="password"
+                      placeholder={keyRequired ? 'sk-…' : 'leave blank if your server needs none'}
+                      value={apiKey}
+                      onChange={(e) => setApiKey(e.target.value)}
+                    />
+                  </Field>
                   <Field label="Model (optional — sensible default used)">
                     <Input placeholder="default" value={model} onChange={(e) => setModel(e.target.value)} />
                   </Field>

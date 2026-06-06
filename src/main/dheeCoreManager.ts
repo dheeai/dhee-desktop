@@ -19,6 +19,7 @@
  * `webContents.send`.
  */
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
+import { isLocalLlmUrl } from '../shared/localUrl';
 import type { OkResponse } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
@@ -368,27 +369,19 @@ export function resolvePiModelFromSettings(
     return { provider: 'google', modelId, apiKey };
   }
 
-  if (s.llmProvider === 'openrouter') {
-    const apiKey = s.openRouterApiKey?.trim();
-    const modelId = (s.openRouterModel || 'z-ai/glm-4.7-flash').trim();
-    if (!apiKey || !modelId) return null;
-    return {
-      provider: 'openrouter',
-      modelId,
-      apiKey,
-      baseUrl: 'https://openrouter.ai/api/v1',
-    };
-  }
-
-  // openai (default)
-  const apiKey = s.openaiApiKey?.trim();
+  // OpenAI-compatible (default): the base URL targets OpenAI, OpenRouter,
+  // or a local server. The key is OPTIONAL for local endpoints (LM Studio /
+  // Ollama / llama.cpp / vLLM accept none) and required for remote ones.
+  const apiKey = s.openaiApiKey?.trim() ?? '';
   const modelId = (s.openaiModel || 'gpt-4o').trim();
   const baseUrl = (s.openaiBaseUrl || 'https://api.openai.com/v1').trim();
-  if (!apiKey || !modelId) return null;
-  if (baseUrl.toLowerCase().includes('openrouter.ai')) {
-    return { provider: 'openrouter', modelId, apiKey, baseUrl };
-  }
-  return { provider: 'openai', modelId, apiKey, baseUrl };
+  if (!modelId) return null;
+  if (!apiKey && !isLocalLlmUrl(baseUrl)) return null;
+  // OpenRouter is just an OpenAI-compatible base URL; label it so for clarity.
+  const provider = baseUrl.toLowerCase().includes('openrouter.ai')
+    ? 'openrouter'
+    : 'openai';
+  return { provider, modelId, apiKey, baseUrl };
 }
 
 /**
@@ -695,7 +688,6 @@ export function applyEnvFromSettings(
   ) {
     setIfPresent('OPENROUTER_API_KEY', settings.openaiApiKey);
   }
-  setIfPresent('OPENROUTER_API_KEY', settings.openRouterApiKey);
   setIfPresent('GEMINI_API_KEY', settings.googleApiKey);
   setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
 

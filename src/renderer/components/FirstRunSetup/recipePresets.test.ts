@@ -24,14 +24,7 @@ describe('recipeLanePatch', () => {
 });
 
 describe('llmProviderPatch', () => {
-  it('openrouter uses the key + a default model', () => {
-    expect(llmProviderPatch({ provider: 'openrouter', openRouterApiKey: 'sk-or' })).toEqual({
-      llmProvider: 'openrouter',
-      openRouterApiKey: 'sk-or',
-      openRouterModel: 'z-ai/glm-4.7-flash',
-    });
-  });
-  it('openai includes base url + model defaults', () => {
+  it('openai (OpenAI-compatible) includes base url + model defaults', () => {
     expect(llmProviderPatch({ provider: 'openai', openaiApiKey: 'sk' })).toEqual({
       llmProvider: 'openai',
       openaiApiKey: 'sk',
@@ -39,11 +32,25 @@ describe('llmProviderPatch', () => {
       openaiModel: 'gpt-4o',
     });
   });
-  it('lmstudio needs no key', () => {
-    expect(llmProviderPatch({ provider: 'lmstudio' })).toEqual({
-      llmProvider: 'lmstudio',
-      lmStudioUrl: 'http://127.0.0.1:1234',
-      lmStudioModel: 'qwen3',
+  it('openai with a custom (local) base url and no key', () => {
+    expect(
+      llmProviderPatch({
+        provider: 'openai',
+        openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+        openaiModel: 'qwen3',
+      }),
+    ).toEqual({
+      llmProvider: 'openai',
+      openaiApiKey: '',
+      openaiBaseUrl: 'http://127.0.0.1:1234/v1',
+      openaiModel: 'qwen3',
+    });
+  });
+  it('gemini uses the google key + model defaults', () => {
+    expect(llmProviderPatch({ provider: 'gemini', googleApiKey: 'g' })).toEqual({
+      llmProvider: 'gemini',
+      googleApiKey: 'g',
+      geminiModel: 'gemini-2.5-flash',
     });
   });
 });

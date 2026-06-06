@@ -7,6 +7,7 @@ import type {
   ProviderDiagnosticsSnapshot,
 } from '../shared/providerDiagnosticsTypes';
 import { getComfyUiUrl, withV1Suffix } from './utils/comfyUrl';
+import { isLocalLlmUrl } from '../shared/localUrl';
 
 const DEFAULT_TIMEOUT_MS = 3500;
 const GEMINI_MODELS_URL =
@@ -16,14 +17,7 @@ function joinUrl(base: string, pathname: string): string {
   return `${base.replace(/\/$/, '')}${pathname.startsWith('/') ? pathname : `/${pathname}`}`;
 }
 
-function isLocalBaseUrl(value: string): boolean {
-  try {
-    const host = new URL(value).hostname.toLowerCase();
-    return host === 'localhost' || host === '127.0.0.1' || host === '::1';
-  } catch {
-    return false;
-  }
-}
+const isLocalBaseUrl = isLocalLlmUrl;
 
 async function fetchOk(
   url: string,
@@ -158,27 +152,22 @@ async function llmDiagnostic(
         };
   }
 
-  let baseUrl = settings.openaiBaseUrl || 'https://api.openai.com/v1';
-  let apiKey = settings.openaiApiKey;
-  let model = settings.openaiModel || 'gpt-4o';
-
-  if (settings.llmProvider === 'openrouter') {
-    baseUrl = 'https://openrouter.ai/api/v1';
-    apiKey = settings.openRouterApiKey;
-    model = settings.openRouterModel || model;
-  } else if (settings.llmProvider === 'lmstudio') {
-    baseUrl = withV1Suffix(settings.lmStudioUrl || 'http://127.0.0.1:1234');
-    apiKey = '';
-    model = settings.lmStudioModel || 'LM Studio';
-  }
+  // OpenAI-compatible endpoint (OpenAI / OpenRouter / local server). The
+  // base URL fully determines the target; the key is OPTIONAL for local
+  // endpoints (LM Studio / Ollama / llama.cpp / vLLM accept none) and
+  // required only for remote ones.
+  const baseUrl = withV1Suffix(settings.openaiBaseUrl || 'https://api.openai.com/v1');
+  const apiKey = settings.openaiApiKey;
+  const model = settings.openaiModel || 'gpt-4o';
 
   const localUrl = isLocalBaseUrl(baseUrl);
-  if (!apiKey.trim() && !localUrl) {
+  const keyOptional = localUrl;
+  if (!apiKey.trim() && !keyOptional) {
     return {
       id: 'llm',
       label: 'LLM',
       status: 'warning',
-      message: 'OpenAI-compatible LLM needs an API key.',
+      message: 'This LLM provider needs an API key.',
     };
   }
 
@@ -211,9 +200,9 @@ async function llmDiagnostic(
  * OpenAI-compatible base (or Gemini's models endpoint) — the cheapest
  * authenticated round-trip that proves key + reachability.
  *
- * The 'lmstudio' provider is just "an OpenAI-compatible local server":
- * point lmStudioUrl at LM Studio, Ollama (:11434), llama.cpp server
- * (:8080), vLLM, LocalAI, etc. — they all serve GET /v1/models.
+ * The 'openai' provider is any OpenAI-compatible endpoint: point baseUrl
+ * at OpenAI, OpenRouter, or a local LM Studio / Ollama (:11434) /
+ * llama.cpp (:8080) / vLLM / LocalAI server — they all serve /v1/models.
  */
 export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
   if (input.provider === 'gemini') {
@@ -236,20 +225,15 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
         };
   }
 
-  let baseUrl = input.openaiBaseUrl || 'https://api.openai.com/v1';
-  let apiKey = (input.apiKey ?? '').trim();
-  let model = input.model || 'gpt-4o';
-  if (input.provider === 'openrouter') {
-    baseUrl = 'https://openrouter.ai/api/v1';
-    model = input.model || model;
-  } else if (input.provider === 'lmstudio') {
-    baseUrl = withV1Suffix(input.lmStudioUrl || 'http://127.0.0.1:1234');
-    apiKey = '';
-    model = input.model || 'your local model';
-  }
+  // OpenAI-compatible endpoint. The base URL determines the target; the
+  // key is optional for local endpoints, required for remote ones.
+  const baseUrl = withV1Suffix(input.baseUrl || 'https://api.openai.com/v1');
+  const apiKey = (input.apiKey ?? '').trim();
+  const model = input.model || 'your model';
 
   const localUrl = isLocalBaseUrl(baseUrl);
-  if (!apiKey && !localUrl) {
+  const keyOptional = localUrl;
+  if (!apiKey && !keyOptional) {
     return { ok: false, message: 'This provider needs an API key.' };
   }
 
