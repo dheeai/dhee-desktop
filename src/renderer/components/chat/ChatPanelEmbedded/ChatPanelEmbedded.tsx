@@ -25,11 +25,8 @@ import {
   ArrowUp,
   ChevronDown,
   Download,
-  Eye,
-  EyeOff,
   Loader2,
   Paperclip,
-  ScanEye,
   X,
 } from 'lucide-react';
 import type { Attachment } from '../../../../shared/attachmentTypes';
@@ -39,7 +36,6 @@ import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
 import { extractToolResultFilePath, cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
-import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
@@ -545,19 +541,15 @@ export default function ChatPanelEmbedded() {
   // to start the run.
   const [runnerActive, setRunnerActive] = useState(false);
 
-  /**
-   * Pi-agent oversight + VLM judge runtime toggles read from
-   * AppSettings. They are GLOBAL — same value applies across all
-   * projects. The chat-header buttons and the Settings panel both
-   * write to AppSettings; main-process pushes the new values into
-   * core's `oversightState` global on every change.
-   *
-   * Default to true when settings haven't loaded yet — matches
-   * the "default ON" rule and avoids a flash-of-OFF on mount.
-   */
-  const appSettings = useAppSettings();
-  const piOversight = appSettings.settings?.piOversight ?? true;
-  const vlmJudge = appSettings.settings?.vlmJudge ?? true;
+  // Stop-after-each-collection gate. Per-project: mirrors
+  // `features.gateAfterCollections` in the active project's
+  // project.json. Read by the probe effect below; toggled by the
+  // header button (which read-modify-writes project.json). When on,
+  // dhee-core's walker halts after each collection node so the user
+  // can inspect that batch before resuming. See
+  // dhee-core docs/feature-flags.md.
+  const [gateAfterCollections, setGateAfterCollections] = useState(false);
+
   // Tracks the id of the currently-streaming assistant message so
   // multiple `stream_chunk` events accumulate into one bubble instead
   // of creating a new bubble per chunk.
@@ -888,11 +880,18 @@ export default function ChatPanelEmbedded() {
       // need to know from project.json. If yes → don't dispatch the
       // onboarding greeting; the agent picks up where the user left off.
       let hasBundle = false;
+      // Strict boolean — only the literal `true` enables, matching the
+      // dhee-core reader (src/dag/projectFeatures.ts).
+      let gateOn = false;
       try {
         const raw = await reader.readFile(`${projectDirectory}/project.json`);
         if (typeof raw === 'string' && raw.length > 0) {
-          const pj = JSON.parse(raw) as { bundleSource?: unknown };
+          const pj = JSON.parse(raw) as {
+            bundleSource?: unknown;
+            features?: { gateAfterCollections?: unknown };
+          };
           hasBundle = typeof pj.bundleSource === 'string' && pj.bundleSource.length > 0;
+          gateOn = pj.features?.gateAfterCollections === true;
         }
       } catch {
         hasBundle = false;
@@ -901,6 +900,7 @@ export default function ChatPanelEmbedded() {
       if (cancelled) return;
       setIsSetupConfigured(hasBundle);
       setProjectState(lifecycle);
+      setGateAfterCollections(gateOn);
       setSetupProbeCompleted(true);
     })();
     return () => {
@@ -1178,28 +1178,41 @@ export default function ChatPanelEmbedded() {
     streamingMsgIdRef.current = null;
   };
 
-  /**
-   * Toggle pi-agent oversight via AppSettings. The change is global —
-   * applies to all projects. Main-process pushes the new value into
-   * core's `oversightState` global on settings:update so the runtime
-   * picks it up on the next task dispatch (and via `setVLMEnabled`
-   * mid-run for VLM).
-   *
-   * VLM follows: when supervisor flips off the VLM toggle becomes a
-   * no-op (UI disabled, runtime gate also off) but its stored value
-   * is preserved so flipping supervisor back on restores the prior
-   * choice.
-   */
-  const handleTogglePiOversight = useCallback(async () => {
-    const next = !piOversight;
-    await appSettings.saveConnectionSettings({ piOversight: next });
-  }, [piOversight, appSettings]);
-
-  const handleToggleVlmJudge = useCallback(async () => {
-    if (!piOversight) return; // VLM is gated by supervisor; UI is disabled, but defend.
-    const next = !vlmJudge;
-    await appSettings.saveConnectionSettings({ vlmJudge: next });
-  }, [piOversight, vlmJudge, appSettings]);
+  // Stop-after-each-collection: per-project flag persisted in the
+  // active project's project.json (`features.gateAfterCollections`).
+  // We read-modify-write the whole file so walkState and every other
+  // field is preserved — only the one feature flag changes. Guarded by
+  // `isRunning` at the call site (button disabled), so this write never
+  // races the walker's own walkState writes. The walker reads the flag
+  // once at the start of a run, so changing it only affects the NEXT
+  // run regardless.
+  const handleToggleGate = useCallback(async () => {
+    if (!projectDirectory) return;
+    const next = !gateAfterCollections;
+    const jsonPath = `${projectDirectory}/project.json`;
+    try {
+      const raw = await window.electron.project.readFile(jsonPath);
+      const pj =
+        typeof raw === 'string' && raw.length > 0
+          ? (JSON.parse(raw) as Record<string, unknown>)
+          : {};
+      const features = {
+        ...(typeof pj.features === 'object' && pj.features
+          ? (pj.features as Record<string, unknown>)
+          : {}),
+        gateAfterCollections: next,
+      };
+      const updated = { ...pj, features };
+      await window.electron.project.writeFile(
+        jsonPath,
+        JSON.stringify(updated, null, 2),
+      );
+      setGateAfterCollections(next);
+    } catch {
+      // Leave the toggle as-is on failure; the next probe re-syncs it
+      // from disk so the UI never drifts from project.json.
+    }
+  }, [projectDirectory, gateAfterCollections]);
 
   const handleCancel = useCallback(async () => {
     // Stop kills BOTH execution lanes:
@@ -1414,95 +1427,80 @@ export default function ChatPanelEmbedded() {
             onCancel={() => void handleCancel()}
           />
           {/*
-            Pi-agent oversight toggle. Eye when on (watching),
-            EyeOff when off. Click flips the local state + persists
-            via IPC. Independent of the VLM toggle in storage; the
-            VLM toggle's enabled-state mirrors this one.
+            Stop-after-each-collection toggle — the primary run-control
+            surface in the header. A prominent labeled switch (not a
+            bare icon). Click read-modify-writes
+            features.gateAfterCollections in the active project's
+            project.json. Disabled while a run is in flight — the flag
+            is read once at run start, so it only affects the NEXT run.
+            Defaults ON. (Replaced the old agent-oversight / VLM-judge
+            eye icons, which moved out of the header.)
           */}
           <button
             type="button"
-            aria-label={
-              piOversight
-                ? 'Agent oversight: ON (click to turn off)'
-                : 'Agent oversight: OFF (click to turn on)'
-            }
+            role="switch"
+            aria-checked={gateAfterCollections}
+            disabled={isRunning}
+            aria-label="Stop after each collection"
             title={
-              piOversight
-                ? 'Agent oversight: ON — auto-engages on runner events'
-                : 'Agent oversight: OFF — chat-only, no auto-engagement'
+              isRunning
+                ? 'Stop after each collection — pause the run to change this (takes effect next run)'
+                : gateAfterCollections
+                  ? 'Stop after each collection: ON — the run halts after every collection node (e.g. shot images, clips) so you can review; press Resume to continue'
+                  : 'Stop after each collection: OFF — the run goes straight through to the final output'
             }
-            onClick={() => void handleTogglePiOversight()}
+            onClick={() => void handleToggleGate()}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              width: 26,
-              height: 26,
-              padding: 0,
-              borderRadius: 6,
+              gap: 8,
+              height: 28,
+              padding: '0 12px',
+              borderRadius: 14,
               border: '1px solid var(--color-border-subtle)',
-              background: piOversight
+              background: gateAfterCollections
                 ? 'rgba(var(--color-accent-primary-rgb), 0.18)'
                 : 'transparent',
-              color: piOversight
+              color: gateAfterCollections
                 ? 'var(--color-accent-primary)'
-                : 'var(--color-text-muted)',
-              cursor: 'pointer',
-              transition: 'background 120ms ease, color 120ms ease',
+                : 'var(--color-text-secondary)',
+              cursor: isRunning ? 'not-allowed' : 'pointer',
+              opacity: isRunning ? 0.5 : 1,
+              fontSize: 12,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              transition: 'background 120ms ease, color 120ms ease, opacity 120ms ease',
             }}
           >
-            {piOversight ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
-          {/*
-            VLM judge toggle. Disabled when supervisor is off (VLM
-            standalone has no consumer). Tooltip explains the
-            dependency. Always renders — disabled state is an
-            obvious affordance, not a hidden control.
-          */}
-          <button
-            type="button"
-            disabled={!piOversight}
-            aria-label={
-              !piOversight
-                ? 'VLM judge — turn supervisor on first'
-                : vlmJudge
-                  ? 'VLM judge: ON (click to turn off)'
-                  : 'VLM judge: OFF (click to turn on)'
-            }
-            title={
-              !piOversight
-                ? 'VLM judge — turn supervisor on first'
-                : vlmJudge
-                  ? 'VLM judge: ON — vision-LLM describes generated images for the agent'
-                  : 'VLM judge: OFF — agent has no vision feedback on assets'
-            }
-            onClick={() => void handleToggleVlmJudge()}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 26,
-              height: 26,
-              padding: 0,
-              borderRadius: 6,
-              border: '1px solid var(--color-border-subtle)',
-              background: !piOversight
-                ? 'transparent'
-                : vlmJudge
-                  ? 'rgba(var(--color-accent-primary-rgb), 0.18)'
-                  : 'transparent',
-              color: !piOversight
-                ? 'var(--color-text-muted)'
-                : vlmJudge
+            {/* switch track + sliding knob */}
+            <span
+              aria-hidden
+              style={{
+                position: 'relative',
+                width: 30,
+                height: 16,
+                flexShrink: 0,
+                borderRadius: 8,
+                background: gateAfterCollections
                   ? 'var(--color-accent-primary)'
                   : 'var(--color-text-muted)',
-              cursor: piOversight ? 'pointer' : 'not-allowed',
-              opacity: piOversight ? 1 : 0.45,
-              transition:
-                'background 120ms ease, color 120ms ease, opacity 120ms ease',
-            }}
-          >
-            <ScanEye size={14} />
+                transition: 'background 120ms ease',
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 2,
+                  left: gateAfterCollections ? 16 : 2,
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: '#fff',
+                  transition: 'left 120ms ease',
+                }}
+              />
+            </span>
+            <span>Stop after each collection</span>
           </button>
           <div
             aria-label={`Status: ${session.status}`}
