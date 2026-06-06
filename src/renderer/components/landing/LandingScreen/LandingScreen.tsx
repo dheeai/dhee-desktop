@@ -43,6 +43,7 @@ import { getBackendConfigStatus } from './backendConfigStatus';
 import { BackendNotReadyBanner } from './BackendNotReadyBanner';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
 import type { AccountInfo } from '../../../../shared/settingsTypes';
+import type { ProviderDiagnosticsSnapshot } from '../../../../shared/providerDiagnosticsTypes';
 
 type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
 
@@ -114,34 +115,40 @@ function getAmbientStatus(
   return null;
 }
 
-interface LaneBadge {
-  /** Class name for this lane's status dot (local / cloud colorway). */
-  className: string;
+// Live reachability of a lane, derived from the provider-diagnostics
+// poll. `checking` = no result yet; `off` = lane intentionally disabled
+// (e.g. VLM judge turned off) → calm grey, not an alarming red.
+type LaneHealth = 'reachable' | 'unreachable' | 'off' | 'checking';
+
+function laneHealth(
+  diag: ProviderDiagnosticsSnapshot | null,
+  id: 'llm' | 'comfyui' | 'vlm',
+): LaneHealth {
+  if (!diag) return 'checking';
+  const item = diag.items.find((i) => i.id === id);
+  if (!item) return 'checking';
+  if (item.status === 'ready') return 'reachable';
+  if (item.status === 'unknown') return 'off';
+  // 'warning' (configured but unverified / needs sign-in) and 'error'
+  // both mean "not currently reachable" → blinking red.
+  return 'unreachable';
 }
 
-function getLaneBadges(
-  llmBackend: string | undefined,
-  comfyBackend: string | undefined,
-  vlmBackend: string | undefined,
-  account: AccountInfo | null,
+function laneHealthDotClass(
+  health: LaneHealth,
   classes: Record<string, string>,
-): { llm: LaneBadge; comfy: LaneBadge; vlm: LaneBadge } {
-  // Cloud only counts as cloud when the user is signed in. A persisted
-  // 'cloud' value with no account is effectively local at runtime.
-  const llmIsCloud = llmBackend === 'cloud' && !!account;
-  const comfyIsCloud = comfyBackend === 'cloud' && !!account;
-  const vlmIsCloud = vlmBackend === 'cloud' && !!account;
-  return {
-    llm: {
-      className: llmIsCloud ? classes.statusDotCloud : classes.statusDotLocal,
-    },
-    comfy: {
-      className: comfyIsCloud ? classes.statusDotCloud : classes.statusDotLocal,
-    },
-    vlm: {
-      className: vlmIsCloud ? classes.statusDotCloud : classes.statusDotLocal,
-    },
-  };
+): string {
+  switch (health) {
+    case 'reachable':
+      return classes.statusDotReachable;
+    case 'unreachable':
+      return classes.statusDotUnreachable;
+    case 'off':
+      return classes.statusDotLocal;
+    case 'checking':
+    default:
+      return classes.statusDotChecking;
+  }
 }
 
 function joinPath(basePath: string, segment: string): string {
@@ -363,6 +370,32 @@ export default function LandingScreen() {
     null,
   );
   const [isProjectActionPending, setIsProjectActionPending] = useState(false);
+  const [diag, setDiag] = useState<ProviderDiagnosticsSnapshot | null>(null);
+
+  // Live reachability: probe LLM / ComfyUI / VLM on load and every 60s so
+  // the header dots reflect actual connectivity — steady green when
+  // reachable, blinking red when not. Re-probes immediately on sign-in
+  // (account change); config edits surface on the next minute tick.
+  useEffect(() => {
+    let active = true;
+    const probe = () => {
+      const pending = window.electron.providerDiagnostics?.run?.();
+      if (!pending) return;
+      void pending
+        .then((snap) => {
+          if (active) setDiag(snap);
+        })
+        .catch(() => {
+          if (active) setDiag(null);
+        });
+    };
+    probe();
+    const timer = setInterval(probe, 60_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [account]);
 
   useEffect(() => {
     let isActive = true;
@@ -626,13 +659,6 @@ export default function LandingScreen() {
   }, [deleteTarget, refreshRecentProjects]);
 
   const ambientStatus = getAmbientStatus(authStatus, styles);
-  const laneBadges = getLaneBadges(
-    settings?.llmBackend,
-    settings?.comfyBackend,
-    settings?.vlmBackend,
-    account,
-    styles,
-  );
   const backendStatus = getBackendConfigStatus(settings, account);
 
   return (
@@ -671,29 +697,17 @@ export default function LandingScreen() {
               }
             >
               <span
-                className={`${styles.statusDot} ${
-                  backendStatus.llm.configured
-                    ? laneBadges.llm.className
-                    : styles.statusDotError
-                }`}
+                className={`${styles.statusDot} ${laneHealthDotClass(laneHealth(diag, 'llm'), styles)}`}
               />
               <span className={styles.statusLaneLabel}>LLM</span>
               <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.statusDot} ${
-                  backendStatus.comfy.configured
-                    ? laneBadges.comfy.className
-                    : styles.statusDotError
-                }`}
+                className={`${styles.statusDot} ${laneHealthDotClass(laneHealth(diag, 'comfyui'), styles)}`}
               />
               <span className={styles.statusLaneLabel}>Comfy</span>
               <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.statusDot} ${
-                  backendStatus.vlm.configured
-                    ? laneBadges.vlm.className
-                    : styles.statusDotError
-                }`}
+                className={`${styles.statusDot} ${laneHealthDotClass(laneHealth(diag, 'vlm'), styles)}`}
               />
               <span className={styles.statusLaneLabel}>VLM</span>
             </span>

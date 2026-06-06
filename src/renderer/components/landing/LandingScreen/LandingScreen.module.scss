@@ -116,6 +116,41 @@
   box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
 }
 
+// Live reachability colorways (driven by the 60s provider-diagnostics
+// poll). Reachable = steady green; unreachable = blinking red; a lane
+// still being probed (or an intentionally-off VLM) reads as a calm grey.
+.statusDotReachable {
+  background: var(--color-success);
+  box-shadow: 0 0 0 2px rgba(var(--color-success-rgb), 0.16);
+}
+
+.statusDotUnreachable {
+  background: #ef4444;
+  box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.18);
+  animation: statusDotBlink 1s steps(1, end) infinite;
+}
+
+.statusDotChecking {
+  background: var(--color-text-muted);
+  animation: statusDotPulse 1.2s ease-in-out infinite;
+}
+
+@keyframes statusDotBlink {
+  50% {
+    opacity: 0.15;
+  }
+}
+
+@keyframes statusDotPulse {
+  0%,
+  100% {
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
 .statusPillWarn {
   border-color: rgba(239, 68, 68, 0.45);
   background: rgba(239, 68, 68, 0.08);

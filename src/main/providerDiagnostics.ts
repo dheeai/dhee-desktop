@@ -264,10 +264,10 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
       };
 }
 
-function vlmDiagnostic(
+async function vlmDiagnostic(
   settings: AppSettings,
   account: AccountInfo | null,
-): ProviderDiagnosticItem {
+): Promise<ProviderDiagnosticItem> {
   if (!settings.vlmJudge) {
     return {
       id: 'vlm',
@@ -294,35 +294,61 @@ function vlmDiagnostic(
   }
 
   if (settings.vlmProvider === 'gemini') {
-    return settings.vlmApiKey.trim() && settings.vlmModel.trim()
+    const key = settings.vlmApiKey.trim();
+    if (!key || !settings.vlmModel.trim()) {
+      return {
+        id: 'vlm',
+        label: 'VLM judge',
+        status: 'warning',
+        message: 'Local VLM needs an API key and model.',
+      };
+    }
+    const result = await fetchOk(
+      `${GEMINI_MODELS_URL}?key=${encodeURIComponent(key)}`,
+    );
+    return result.ok
       ? {
           id: 'vlm',
           label: 'VLM judge',
           status: 'ready',
-          message: 'Gemini VLM configuration is present.',
+          message: `Gemini VLM verified for ${settings.vlmModel}.`,
         }
       : {
           id: 'vlm',
           label: 'VLM judge',
           status: 'warning',
-          message: 'Local VLM needs an API key and model.',
+          message: 'Gemini VLM key was not verified.',
+          detail: result.status ? `HTTP ${result.status}` : result.error,
         };
   }
 
-  return settings.vlmBaseUrl.trim() &&
-    settings.vlmApiKey.trim() &&
-    settings.vlmModel.trim()
+  const baseUrl = settings.vlmBaseUrl.trim();
+  const apiKey = settings.vlmApiKey.trim();
+  if (!baseUrl || !apiKey || !settings.vlmModel.trim()) {
+    return {
+      id: 'vlm',
+      label: 'VLM judge',
+      status: 'warning',
+      message: 'Local VLM needs a base URL, API key, and model.',
+    };
+  }
+  const probeUrl = withV1Suffix(baseUrl);
+  const result = await fetchOk(joinUrl(probeUrl, '/models'), {
+    Authorization: `Bearer ${apiKey}`,
+  });
+  return result.ok
     ? {
         id: 'vlm',
         label: 'VLM judge',
         status: 'ready',
-        message: 'OpenAI-compatible VLM configuration is present.',
+        message: `VLM endpoint reachable for ${settings.vlmModel}.`,
       }
     : {
         id: 'vlm',
         label: 'VLM judge',
-        status: 'warning',
-        message: 'Local VLM needs a base URL, API key, and model.',
+        status: isLocalBaseUrl(probeUrl) ? 'warning' : 'error',
+        message: `Could not reach ${baseUrl}.`,
+        detail: result.status ? `HTTP ${result.status}` : result.error,
       };
 }
 
@@ -330,18 +356,14 @@ export async function runProviderDiagnostics(
   settings: AppSettings,
   account: AccountInfo | null,
 ): Promise<ProviderDiagnosticsSnapshot> {
-  const [comfy, llm] = await Promise.all([
+  const [comfy, llm, vlm] = await Promise.all([
     comfyDiagnostic(settings, account),
     llmDiagnostic(settings, account),
+    vlmDiagnostic(settings, account),
   ]);
 
   return {
     checkedAt: Date.now(),
-    items: [
-      cloudAccountDiagnostic(account),
-      comfy,
-      llm,
-      vlmDiagnostic(settings, account),
-    ],
+    items: [cloudAccountDiagnostic(account), comfy, llm, vlm],
   };
 }
