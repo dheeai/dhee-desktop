@@ -42,6 +42,7 @@ import { computeStageRows, computeInstanceLayout, forwardDependents } from './in
 import { CardDetailModal } from './CardDetailModal';
 import { type CardAction } from './cardDetailModel';
 import { useProject } from '../contexts/ProjectContext';
+import { toFileUrl } from '../utils/pathResolver';
 import styles from './InspectorCanvas.module.scss';
 
 /**
@@ -298,7 +299,8 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
       if (action === 'open-file') {
         if (inst.outputPath) {
           // webSecurity is disabled in dev → file:// opens directly.
-          window.open(`file://${projectDir}/${inst.outputPath}`, '_blank');
+          // toFileUrl keeps Windows drive-letter paths valid (file:///C:/…).
+          window.open(toFileUrl(`${projectDir}/${inst.outputPath}`), '_blank');
         }
         return;
       }

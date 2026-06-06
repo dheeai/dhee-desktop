@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import { useWorkspace } from '../contexts/WorkspaceContext';
+import { toFileUrl } from '../utils/pathResolver';
 
 export type ArtifactStatus = 'idle' | 'loading' | 'ok' | 'missing';
 
@@ -64,6 +65,9 @@ export function useArtifactText(outputPath: string | undefined): ArtifactText {
 export function useArtifactUrl(outputPath: string | undefined): string | null {
   const { projectDirectory } = useWorkspace();
   if (!outputPath || !projectDirectory) return null;
-  // The walker's outputPath is always projectDir-relative.
-  return `file://${projectDirectory}/${outputPath}`;
+  // The walker's outputPath is always projectDir-relative. Build the URL
+  // via toFileUrl so Windows drive-letter paths get the third slash
+  // (C:/… → file:///C:/…); a bare `file://${dir}` makes `C:` the URL host
+  // and every image silently fails to load on Windows.
+  return toFileUrl(`${projectDirectory}/${outputPath}`);
 }
