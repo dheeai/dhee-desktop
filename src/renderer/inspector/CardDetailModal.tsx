@@ -97,7 +97,7 @@ const MD_COMPONENTS: Components = {
   li: (p) => <li style={{ marginBottom: 4 }} {...p} />,
   strong: (p) => <strong style={{ color: '#f0ece2', fontWeight: 700 }} {...p} />,
   em: (p) => <em style={{ fontStyle: 'italic' }} {...p} />,
-  a: (p) => <a style={{ color: '#5f88b2', textDecoration: 'underline' }} {...p} />,
+  a: (p) => <a style={{ color: 'var(--color-accent-primary)', textDecoration: 'underline' }} {...p} />,
   hr: () => <hr style={{ border: 'none', borderTop: '1px solid rgba(168, 156, 139, 0.16)', margin: '20px 0' }} />,
   blockquote: (p) => (
     <blockquote style={{ margin: '0 0 12px', paddingLeft: 14, borderLeft: '3px solid rgba(168, 156, 139, 0.3)', color: 'rgba(229,225,216,0.75)' }} {...p} />
@@ -133,8 +133,8 @@ function FieldValue({ value }: { value: unknown }) {
               fontSize: 11,
               fontFamily: 'ui-monospace, Menlo, monospace',
               color: '#e5e1d8',
-              background: 'rgba(95, 136, 178, 0.12)',
-              border: '1px solid rgba(95, 136, 178, 0.3)',
+              background: 'rgba(var(--color-accent-primary-rgb), 0.12)',
+              border: '1px solid rgba(var(--color-accent-primary-rgb), 0.3)',
               borderRadius: 5,
               padding: '3px 8px',
             }}
@@ -441,7 +441,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: '#161821',
+          background: 'var(--color-accent-primary-contrast, #161821)',
           border: '1px solid rgba(168, 156, 139, 0.18)',
           borderRadius: 14,
           width: 'min(1200px, 96vw)',
@@ -469,7 +469,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
             <div style={{ fontSize: 11, color: '#a9b0ba', letterSpacing: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>
               {instance.nodeId}
               {panel !== 'view' && (
-                <span style={{ color: '#5f88b2', marginLeft: 8 }}>· {panel === 'versions' ? 'Versions' : 'Edit'}</span>
+                <span style={{ color: 'var(--color-accent-primary)', marginLeft: 8 }}>· {panel === 'versions' ? 'Versions' : 'Edit'}</span>
               )}
             </div>
             {instance.itemId && (
@@ -495,7 +495,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
             <span
               style={{
                 background: statusColor(instance.status),
-                color: '#161821',
+                color: 'var(--color-accent-primary-contrast, #161821)',
                 padding: '4px 10px',
                 borderRadius: 5,
                 fontSize: 10,
@@ -586,8 +586,8 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                           gap: 16,
                           padding: '10px 14px',
                           borderRadius: 8,
-                          border: `1px solid ${v.selected ? '#5f88b2' : 'rgba(168, 156, 139, 0.18)'}`,
-                          background: v.selected ? 'rgba(95, 136, 178, 0.10)' : 'transparent',
+                          border: `1px solid ${v.selected ? 'var(--color-accent-primary)' : 'rgba(168, 156, 139, 0.18)'}`,
+                          background: v.selected ? 'rgba(var(--color-accent-primary-rgb), 0.10)' : 'transparent',
                         }}
                       >
                         {/* Thumbnail for image versions */}
@@ -600,12 +600,12 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                               {v.versionId}
                             </span>
                             {v.selected && (
-                              <span style={{ background: '#5f88b2', color: '#161821', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                              <span style={{ background: 'var(--color-accent-primary)', color: 'var(--color-accent-primary-contrast, #161821)', fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, textTransform: 'uppercase', letterSpacing: 0.5 }}>
                                 Selected
                               </span>
                             )}
                             {v.tool && (
-                              <span style={{ fontSize: 10, color: 'rgba(95, 136, 178, 0.85)' }}>{v.tool}</span>
+                              <span style={{ fontSize: 10, color: 'rgba(var(--color-accent-primary-rgb), 0.85)' }}>{v.tool}</span>
                             )}
                           </div>
                           <div style={{ fontSize: 10, color: 'rgba(229,225,216,0.45)', marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.outputPath}>
@@ -690,9 +690,9 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
               onClick={() => handleAction(a)}
               style={{
                 ...BTN_GHOST,
-                background: a === 'regenerate' ? '#5f88b2' : 'transparent',
-                border: `1px solid ${a === 'regenerate' ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
-                color: a === 'regenerate' ? '#161821' : '#e5e1d8',
+                background: a === 'regenerate' ? 'var(--color-accent-primary)' : 'transparent',
+                border: `1px solid ${a === 'regenerate' ? 'var(--color-accent-primary)' : 'rgba(168, 156, 139, 0.24)'}`,
+                color: a === 'regenerate' ? 'var(--color-accent-primary-contrast, #161821)' : '#e5e1d8',
                 fontWeight: a === 'regenerate' ? 600 : 400,
               }}
             >
@@ -717,7 +717,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                   <button
                     onClick={() => void saveEdit(true)}
                     disabled={saving}
-                    style={{ ...BTN_GHOST, background: '#caa46a', border: '1px solid #caa46a', color: '#161821', fontWeight: 600 }}
+                    style={{ ...BTN_GHOST, background: '#caa46a', border: '1px solid #caa46a', color: 'var(--color-accent-primary-contrast, #161821)', fontWeight: 600 }}
                   >
                     {saving ? 'Saving…' : 'Save anyway'}
                   </button>
@@ -725,7 +725,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
                   <button
                     onClick={() => void saveEdit(false)}
                     disabled={saving}
-                    style={{ ...BTN_GHOST, background: '#5f88b2', border: '1px solid #5f88b2', color: '#161821', fontWeight: 600 }}
+                    style={{ ...BTN_GHOST, background: 'var(--color-accent-primary)', border: '1px solid var(--color-accent-primary)', color: 'var(--color-accent-primary-contrast, #161821)', fontWeight: 600 }}
                   >
                     {saving ? 'Saving…' : 'Save'}
                   </button>

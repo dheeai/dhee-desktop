@@ -1841,8 +1841,8 @@ function MessageRow({
                   textAlign: 'left',
                   padding: '12px 14px',
                   borderRadius: 8,
-                  border: `1px solid ${isMade ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
-                  background: isMade ? '#1c2533' : '#161821',
+                  border: `1px solid ${isMade ? 'var(--color-accent-primary)' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isMade ? '#1c2533' : 'var(--color-accent-primary-contrast, #161821)',
                   color: otherMade ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
                   cursor: made !== null ? 'default' : 'pointer',
                   fontSize: 13,
@@ -1864,7 +1864,7 @@ function MessageRow({
                   </div>
                 )}
                 {isMade && (
-                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-accent-primary)', marginTop: 6 }}>✓ selected</div>
                 )}
               </button>
             );
@@ -1901,8 +1901,8 @@ function MessageRow({
                   textAlign: 'left',
                   padding: '12px 14px',
                   borderRadius: 8,
-                  border: `1px solid ${isPicked ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
-                  background: isPicked ? '#1c2533' : '#161821',
+                  border: `1px solid ${isPicked ? 'var(--color-accent-primary)' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isPicked ? '#1c2533' : 'var(--color-accent-primary-contrast, #161821)',
                   color: otherSubmitted ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
                   cursor: submitted ? 'default' : 'pointer',
                   fontSize: 13,
@@ -1924,7 +1924,7 @@ function MessageRow({
                   </div>
                 )}
                 {isPicked && (
-                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-accent-primary)', marginTop: 6 }}>✓ selected</div>
                 )}
               </button>
             );

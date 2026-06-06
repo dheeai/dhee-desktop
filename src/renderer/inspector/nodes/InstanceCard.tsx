@@ -114,7 +114,7 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
         overflow: 'hidden',
       }}
     >
-      <Handle id="top" type="target" position={Position.Top} style={{ background: '#5f88b2', width: 7, height: 7 }} />
+      <Handle id="top" type="target" position={Position.Top} style={{ background: 'var(--color-accent-primary)', width: 7, height: 7 }} />
 
       {/* Header */}
       <div
@@ -214,7 +214,7 @@ function InstanceCardImpl({ data }: { data: InstanceCardData }) {
         </div>
       )}
 
-      <Handle id="bottom" type="source" position={Position.Bottom} style={{ background: '#5f88b2', width: 7, height: 7 }} />
+      <Handle id="bottom" type="source" position={Position.Bottom} style={{ background: 'var(--color-accent-primary)', width: 7, height: 7 }} />
     </div>
   );
 }

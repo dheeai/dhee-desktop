@@ -180,7 +180,7 @@
 }
 
 .segSel {
-  background: rgba(95, 136, 178, 0.16);
+  background: rgba(var(--color-accent-primary-rgb), 0.16);
   border-color: var(--color-accent-primary);
   color: var(--color-text-primary);
 }

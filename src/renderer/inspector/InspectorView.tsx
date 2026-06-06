@@ -87,8 +87,8 @@ export function InspectorView({ onGoalClick }: InspectorViewProps = {}) {
           top: 12,
           right: 12,
           zIndex: 10,
-          background: 'rgba(22, 24, 33, 0.85)',
-          border: '1px solid rgba(168, 156, 139, 0.18)',
+          background: 'rgba(var(--color-bg-panel-rgb), 0.85)',
+          border: '1px solid var(--color-border-subtle)',
           borderRadius: 6,
           padding: 3,
           display: 'flex',
@@ -101,8 +101,8 @@ export function InspectorView({ onGoalClick }: InspectorViewProps = {}) {
           onClick={() => setModePersistent('cards')}
           style={{
             padding: '4px 10px',
-            background: mode === 'cards' ? '#5f88b2' : 'transparent',
-            color: mode === 'cards' ? '#161821' : '#a9b0ba',
+            background: mode === 'cards' ? 'var(--color-accent-primary)' : 'transparent',
+            color: mode === 'cards' ? 'var(--color-accent-primary-contrast, #161821)' : 'var(--color-text-secondary)',
             border: 'none',
             borderRadius: 4,
             fontWeight: mode === 'cards' ? 600 : 400,
@@ -116,8 +116,8 @@ export function InspectorView({ onGoalClick }: InspectorViewProps = {}) {
           onClick={() => setModePersistent('stages')}
           style={{
             padding: '4px 10px',
-            background: mode === 'stages' ? '#5f88b2' : 'transparent',
-            color: mode === 'stages' ? '#161821' : '#a9b0ba',
+            background: mode === 'stages' ? 'var(--color-accent-primary)' : 'transparent',
+            color: mode === 'stages' ? 'var(--color-accent-primary-contrast, #161821)' : 'var(--color-text-secondary)',
             border: 'none',
             borderRadius: 4,
             fontWeight: mode === 'stages' ? 600 : 400,
