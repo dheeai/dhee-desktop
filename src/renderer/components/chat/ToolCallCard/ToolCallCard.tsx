@@ -2,6 +2,7 @@ import { createElement, useEffect, useState } from 'react';
 import { CheckCircle2, XCircle, AlertCircle, ChevronRight } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import styles from './ToolCallCard.module.scss';
+import { resolveMediaSrc } from '../ChatPanelEmbedded/mediaResolution';
 import SceneCard, {
   isDuplicateSceneSummary,
   parseSceneContent,
@@ -793,7 +794,7 @@ export default function ToolCallCard({
                   ToolCallCard extracts at lines 559-561 above. */}
               {filePath && /\.(png|jpg|jpeg|gif|webp|bmp)$/i.test(filePath) && (
                 <img
-                  src={`file://${encodeURI(filePath)}`}
+                  src={resolveMediaSrc(filePath, null)}
                   alt={filePath}
                   style={{
                     maxWidth: '100%',
@@ -806,7 +807,7 @@ export default function ToolCallCard({
               )}
               {filePath && /\.(mp4|mov|webm|mkv|m4v)$/i.test(filePath) && (
                 <video
-                  src={`file://${encodeURI(filePath)}`}
+                  src={resolveMediaSrc(filePath, null)}
                   controls
                   style={{
                     maxWidth: '100%',
@@ -819,7 +820,7 @@ export default function ToolCallCard({
               )}
               {filePath && /\.(mp3|wav|m4a|aac|ogg|flac)$/i.test(filePath) && (
                 <audio
-                  src={`file://${encodeURI(filePath)}`}
+                  src={resolveMediaSrc(filePath, null)}
                   controls
                   style={{ marginTop: 8, display: 'block' }}
                 />
