@@ -343,7 +343,8 @@
           ]
         }
       ],
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "sign": ".erb/scripts/sign-windows.js"
     },
     "nsis": {
       "oneClick": false,

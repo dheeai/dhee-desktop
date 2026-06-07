@@ -1,0 +1,98 @@
+name: Test Windows Signing
+
+# Isolated harness to iterate on Certum SimplySign code signing WITHOUT
+# touching a real release. Builds the Windows installer only, signs it via
+# SimplySign Desktop + signtool, verifies the signature, and uploads the .exe
+# (plus a debug screenshot of the SimplySign GUI) as workflow artifacts.
+# Trigger manually from the Actions tab. Never publishes.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-sign:
+    runs-on: windows-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=4096
+      WIN_SIGN_SHA1: '362970A533A8C04A3FB4F77AF9EFDF7B80A14D54'
+      CERTUM_OTP_URI: ${{ secrets.CERTUM_OTP_URI }}
+      CERTUM_USERID: ${{ secrets.CERTUM_USERID }}
+
+    steps:
+      - name: Checkout dhee-desktop
+        uses: actions/checkout@v4
+
+      - name: Checkout dhee-core
+        uses: actions/checkout@v4
+        with:
+          repository: dheeai/dhee-core
+          path: dhee-core
+          token: ${{ secrets.BACKEND_REPO_TOKEN || secrets.GITHUB_TOKEN }}
+          fetch-depth: 1
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.24.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Build dhee-core
+        working-directory: dhee-core
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - name: Install desktop dependencies
+        run: |
+          npm ci --ignore-scripts
+          npx ts-node .erb/scripts/check-native-dep.js
+          npm run build:dll
+
+      - name: Install SimplySign Desktop
+        run: |
+          winget install --id Certum.SmartSignSimplySignDesktop --silent --accept-package-agreements --accept-source-agreements --disable-interactivity
+        shell: pwsh
+
+      - name: Authenticate SimplySign (TOTP login)
+        run: powershell -ExecutionPolicy Bypass -File .erb/scripts/simplysign-login.ps1
+        shell: pwsh
+
+      - name: Build Windows installer (signed, no publish)
+        env:
+          dhee_INK_PATH: ${{ github.workspace }}\dhee-core
+        run: |
+          npx ts-node ./.erb/scripts/clean.js dist
+          npm run prepare:app-deps
+          npm run build
+          node .erb/scripts/stage-bundles.js
+          npx electron-builder build --win --publish never
+
+      - name: Verify signature
+        shell: pwsh
+        run: |
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe |
+            Where-Object { $_.FullName -like '*x64*' } | Select-Object -Last 1
+          $exe = Get-ChildItem release\build\*.exe | Select-Object -First 1
+          Write-Host "Verifying $($exe.FullName)"
+          & $signtool.FullName verify /pa /v $exe.FullName
+
+      - name: Upload signed installer
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-signed-exe
+          path: release/build/*.exe
+          if-no-files-found: warn
+
+      - name: Upload SimplySign debug screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simplysign-debug
+          path: simplysign-debug.png
+          if-no-files-found: ignore
