@@ -139,15 +139,27 @@ jobs:
           ANALYTICS_SALT: ${{ vars.ANALYTICS_SALT || secrets.ANALYTICS_SALT }}
         run: node .erb/scripts/write-runtime-config.js
 
-      # Point the sign hook at the no-admin signtool (NuGet SDK BuildTools) that
-      # lives on this box; the runner user isn't admin so the SDK isn't in
-      # Program Files. SIGNTOOL_PATH is honored by .erb/scripts/sign-windows.js.
+      # Point the sign hook at signtool (SIGNTOOL_PATH is honored by
+      # .erb/scripts/sign-windows.js). Search the no-admin NuGet SDK BuildTools
+      # dir first, then the standard Windows Kits installs, then PATH — so a
+      # path change on the box doesn't break the release. Prefer an x64 build.
       - name: Resolve signtool
         shell: powershell
         run: |
-          $st = Get-ChildItem 'C:\Users\user\tools\winsdk-buildtools' -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
-                Where-Object FullName -like '*x64*' | Select-Object -Last 1 -ExpandProperty FullName
-          if (-not $st) { throw 'signtool.exe not found under C:\Users\user\tools\winsdk-buildtools' }
+          $roots = @(
+            'C:\Users\user\tools\winsdk-buildtools',
+            'C:\Program Files (x86)\Windows Kits\10\bin',
+            'C:\Program Files\Windows Kits\10\bin'
+          )
+          $cands = foreach ($r in $roots) {
+            Get-ChildItem $r -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue
+          }
+          $onPath = Get-Command signtool.exe -ErrorAction SilentlyContinue
+          if ($onPath) { $cands = @($cands) + (Get-Item $onPath.Source) }
+          $x64 = $cands | Where-Object { $_.FullName -like '*x64*' } | Select-Object -Last 1 -ExpandProperty FullName
+          $st = if ($x64) { $x64 } else { $cands | Select-Object -Last 1 -ExpandProperty FullName }
+          if (-not $st) { throw 'signtool.exe not found. Install the Windows SDK BuildTools on the runner (extract the Microsoft.Windows.SDK.BuildTools NuGet to C:\Users\user\tools\winsdk-buildtools).' }
+          Write-Host "Using signtool: $st"
           "SIGNTOOL_PATH=$st" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
 
       # Load the SHA256 TOTP seed from the box's DPAPI store (never in GitHub),
