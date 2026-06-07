@@ -11,6 +11,19 @@ jobs:
     runs-on: macos-14
     permissions:
       contents: write
+    env:
+      # macOS code signing + notarization (mac job only — CSC_LINK on the
+      # Windows job would try to sign the .exe with the mac cert).
+      # electron-builder reads CSC_LINK / CSC_KEY_PASSWORD; the afterSign
+      # hook (.erb/scripts/notarize.js) reads APPLE_ID / APPLE_ID_PASS /
+      # APPLE_TEAM_ID. Missing secrets => electron-builder skips signing and
+      # notarize.js skips notarizing (no failure), so this stays safe until
+      # all five are configured.
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_ID_PASS: ${{ secrets.APPLE_ID_PASS }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       - name: Checkout dhee-desktop
