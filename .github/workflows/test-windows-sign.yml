@@ -89,10 +89,10 @@ jobs:
           path: release/build/*.exe
           if-no-files-found: warn
 
-      - name: Upload SimplySign debug screenshot
+      - name: Upload SimplySign debug screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: simplysign-debug
-          path: simplysign-debug.png
+          path: simplysign-*.png
           if-no-files-found: ignore
