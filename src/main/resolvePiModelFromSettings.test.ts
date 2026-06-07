@@ -79,6 +79,55 @@ describe('resolvePiModelFromSettings', () => {
     });
   });
 
+  it('routes an OpenRouter key (sk-or-…) to OpenRouter when the base url is left blank', () => {
+    // Regression: an sk-or-v1 key is unambiguously an OpenRouter credential.
+    // When the user pastes one but leaves openaiBaseUrl empty, the old code
+    // defaulted to https://api.openai.com/v1 → provider 'openai' → every
+    // request 401s ("Incorrect API key provided") and the agent silently
+    // dies, so the desktop "Resume" button appears to do nothing.
+    const result = resolvePiModelFromSettings({
+      ...base,
+      llmProvider: 'openai',
+      openaiApiKey: 'sk-or-v1-abc123',
+      openaiBaseUrl: '', // blank — must NOT default to OpenAI for an OpenRouter key
+      openaiModel: 'inclusionai/ring-2.6-1t',
+    } as never);
+    expect(result).toEqual({
+      provider: 'openrouter',
+      modelId: 'inclusionai/ring-2.6-1t',
+      apiKey: 'sk-or-v1-abc123',
+      baseUrl: 'https://openrouter.ai/api/v1',
+    });
+  });
+
+  it('respects an explicit non-OpenRouter base url even with an sk-or key (explicit wins over the key-based default)', () => {
+    const result = resolvePiModelFromSettings({
+      ...base,
+      llmProvider: 'openai',
+      openaiApiKey: 'sk-or-v1-abc123',
+      openaiBaseUrl: 'http://127.0.0.1:1234/v1', // explicit local proxy
+      openaiModel: 'qwen3',
+    } as never);
+    expect(result).toMatchObject({
+      provider: 'openai',
+      baseUrl: 'http://127.0.0.1:1234/v1',
+    });
+  });
+
+  it('still defaults a non-OpenRouter (sk-…) key to OpenAI when the base url is blank', () => {
+    const result = resolvePiModelFromSettings({
+      ...base,
+      llmProvider: 'openai',
+      openaiApiKey: 'sk-real-openai-key',
+      openaiBaseUrl: '',
+      openaiModel: 'gpt-4o',
+    } as never);
+    expect(result).toMatchObject({
+      provider: 'openai',
+      baseUrl: 'https://api.openai.com/v1',
+    });
+  });
+
   it('returns the openai triple for standard openai.com base url', () => {
     const result = resolvePiModelFromSettings({
       ...base,

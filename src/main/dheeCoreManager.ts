@@ -374,7 +374,16 @@ export function resolvePiModelFromSettings(
   // Ollama / llama.cpp / vLLM accept none) and required for remote ones.
   const apiKey = s.openaiApiKey?.trim() ?? '';
   const modelId = (s.openaiModel || 'gpt-4o').trim();
-  const baseUrl = (s.openaiBaseUrl || 'https://api.openai.com/v1').trim();
+  // An OpenRouter key (`sk-or-…`) is unambiguously an OpenRouter credential.
+  // When the user pastes one but leaves the base url blank, default to
+  // OpenRouter's endpoint instead of api.openai.com — otherwise the key
+  // 401s against OpenAI ("Incorrect API key provided") and the agent
+  // silently dies (the "Resume does nothing" failure mode). An explicitly
+  // configured base url always wins (e.g. a local proxy).
+  const defaultBaseUrl = apiKey.startsWith('sk-or-')
+    ? 'https://openrouter.ai/api/v1'
+    : 'https://api.openai.com/v1';
+  const baseUrl = (s.openaiBaseUrl || defaultBaseUrl).trim();
   if (!modelId) return null;
   if (!apiKey && !isLocalLlmUrl(baseUrl)) return null;
   // OpenRouter is just an OpenAI-compatible base URL; label it so for clarity.
@@ -586,15 +595,20 @@ export function applyEnvFromSettings(
     process.env.dhee_CLOUD_URL = cloudWebsiteUrl!;
   }
 
+  // Resolved ComfyUI base URL for this run — the Dhee Cloud proxy in
+  // cloud mode, the Settings "ComfyUI URL" field in local mode. Captured
+  // so it can also seed the canonical `self.local` endpoint below.
+  let comfyBaseUrl = '';
   if (useCloudComfy) {
+    comfyBaseUrl = joinUrl(cloudWebsiteUrl!, '/comfy/api');
     process.env.COMFY_MODE = 'cloud';
-    process.env.COMFYUI_BASE_URL = joinUrl(cloudWebsiteUrl!, '/comfy/api');
+    process.env.COMFYUI_BASE_URL = comfyBaseUrl;
     process.env.COMFY_CLOUD_API_KEY = cloudToken!;
     process.env.COMFYUI_TIMEOUT = '1800';
   } else {
-    const comfyUiUrl = getComfyUiUrl(settings);
+    comfyBaseUrl = getComfyUiUrl(settings);
     process.env.COMFYUI_TIMEOUT = String(settings.comfyuiTimeout || 1800);
-    setIfPresent('COMFYUI_BASE_URL', comfyUiUrl);
+    setIfPresent('COMFYUI_BASE_URL', comfyBaseUrl);
 
     // Auto-derive COMFY_MODE from the URL. Without this, the ComfyUI
     // client in dhee-core falls back to its 'local' default and
@@ -602,7 +616,7 @@ export function applyEnvFromSettings(
     // cloud.comfy.org — meaning the cloud-specific code path
     // (api-key auth, /api prefix, cloud workflow selection) is
     // skipped. See ComfyUIClient.getComfyConfig.
-    if (isComfyCloudUrl(comfyUiUrl)) {
+    if (isComfyCloudUrl(comfyBaseUrl)) {
       process.env.COMFY_MODE = 'cloud';
     } else {
       process.env.COMFY_MODE = 'local';
@@ -621,10 +635,24 @@ export function applyEnvFromSettings(
 
   // ── Named ComfyUI endpoints (DAG bundle architecture) ──
   // Bundles declare endpoint NAMES (e.g. "self.local"); the URL lives
-  // here per-user. Forward each as ENDPOINT_<name_with_dots_as_underscores>
-  // env var that the kshana-core process reads via resolveEndpointUrl().
-  // Bundle stays portable across users; user keeps full control of
-  // routing. P2P discovery will register additional names here later.
+  // here per-user. dhee-core reads them via resolveEndpointUrl(), which
+  // in local mode consults ENDPOINT_self_local *before* COMFYUI_BASE_URL.
+  //
+  // When embedded in the desktop, SETTINGS IS THE SINGLE SOURCE OF TRUTH
+  // for endpoint routing. dhee-core's own dev `.env` — surfaced into
+  // process.env by loadDevEnv() for key/tier convenience — must NOT
+  // decide where ComfyUI lives. A stale `ENDPOINT_self_local=<zrok tunnel>`
+  // from .env (or a process that loaded it) would otherwise shadow the
+  // Settings "ComfyUI URL" field, because resolveEndpointUrl() reads
+  // ENDPOINT_self_local first. So: purge every pre-existing ENDPOINT_*
+  // and rebuild the registry from Settings alone. (The `.env` is only
+  // honored when dhee-core runs directly, not here.)
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('ENDPOINT_')) delete process.env[key];
+  }
+  // Named endpoints from the advanced "ComfyUI Endpoints" list (peers,
+  // public.cloud, etc.). Applied first so the canonical self.local below
+  // can override a drifted entry.
   for (const [endpointName, endpointUrl] of Object.entries(
     settings.comfyEndpoints ?? {},
   )) {
@@ -632,6 +660,17 @@ export function applyEnvFromSettings(
     if (!trimmed) continue;
     const envKey = `ENDPOINT_${endpointName.replace(/\./g, '_')}`;
     process.env[envKey] = trimmed;
+  }
+  // The prominent "ComfyUI URL" field IS the canonical local box, i.e.
+  // `self.local`. Apply it LAST so it always wins: a stale/drifted
+  // `comfyEndpoints['self.local']` in the advanced endpoints list (e.g. a
+  // dead zrok tunnel left there while the user updated the ComfyUI URL
+  // field to a new box) must NOT shadow the URL the user actually sees
+  // and edits. This was the real "why is it still saying zrok?" bug — the
+  // named self.local entry and the ComfyUI URL field had drifted apart,
+  // and resolveEndpointUrl() reads ENDPOINT_self_local first in local mode.
+  if (comfyBaseUrl.trim()) {
+    process.env.ENDPOINT_self_local = comfyBaseUrl.trim();
   }
 
   // LLM routing — gated by the dedicated `llmBackend` lane (set above
@@ -779,7 +818,8 @@ export function applyEnvFromSettings(
       `OPENAI_MODEL=${process.env.OPENAI_MODEL ?? '(unset)'} ` +
       `GEMINI_MODEL=${process.env.GEMINI_MODEL ?? '(unset)'} ` +
       `COMFY_MODE=${process.env.COMFY_MODE ?? '(unset)'} ` +
-      `COMFYUI_BASE_URL=${process.env.COMFYUI_BASE_URL ?? '(unset)'}`,
+      `COMFYUI_BASE_URL=${process.env.COMFYUI_BASE_URL ?? '(unset)'} ` +
+      `ENDPOINT_self_local=${process.env.ENDPOINT_self_local ?? '(unset)'}`,
   );
 }
 
