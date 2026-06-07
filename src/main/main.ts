@@ -1657,7 +1657,14 @@ type BundleCheckModule = {
 /** The alias/resolution store the agent's dhee_apply_workflow_aliases tool also uses. */
 function workflowAliasesDir(): string {
   const env = process.env['DHEE_WORKFLOW_ALIASES_DIR']?.trim();
-  return env && env.length > 0 ? env : path.join(app.getPath('home'), '.dhee', 'workflow-aliases');
+  const dir = env && env.length > 0 ? env : path.join(app.getPath('home'), '.dhee', 'workflow-aliases');
+  // Pin the resolved dir into the env so the in-process dhee-core runners read
+  // exactly where the UI/agent write. Without this, the runners fell back to
+  // their own home resolution — and on Windows `process.env.HOME` is unset, so
+  // the runner looked in a cwd-relative folder while the UI saved under
+  // C:\Users\<user>\.dhee\workflow-aliases, silently dropping model aliases.
+  if (!env) process.env['DHEE_WORKFLOW_ALIASES_DIR'] = dir;
+  return dir;
 }
 
 function readBundleVersion(bundleDir: string): string {
