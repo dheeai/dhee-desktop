@@ -79,22 +79,21 @@ jobs:
         run: node .erb/scripts/verify-packaged-app.js
 
   release-windows:
-    # Runs on the SELF-HOSTED Windows box ("5090") in an interactive desktop
-    # session — Certum SimplySign signing needs a real GUI/tray, which
-    # GitHub-hosted runners do not have. The runner is scoped to the
-    # `simplysign` label and this release workflow only triggers on `v*` tag
-    # pushes (never pull_request), so untrusted fork code cannot run here.
-    # If the box is offline the job queues until the runner reconnects.
-    runs-on: [self-hosted, Windows, simplysign]
+    # TEMPORARILY UNSIGNED on a GitHub-hosted runner. The self-hosted "5090"
+    # box + Certum SimplySign signing keeps failing (dead SimplySign session /
+    # signtool selection), which left the Windows installer stale across
+    # several releases. Shipping unsigned here gets users an up-to-date build
+    # (SmartScreen will warn on first run). The signing infra is preserved for
+    # when the box is fixed: .erb/scripts/sign-windows.js (graceful-skips when
+    # WIN_SIGN_SHA1 is unset, so the build is just unsigned here, no failure)
+    # and .erb/scripts/simplysign-login.ps1 — to re-enable, restore the whole
+    # self-hosted job (runs-on: [self-hosted, Windows, simplysign] + the
+    # signtool/SimplySign steps) from git history (commit 536c5e6).
+    runs-on: windows-latest
     permissions:
       contents: write
     env:
       NODE_OPTIONS: --max-old-space-size=4096
-      # Certum cert thumbprint (the sign hook selects this cert from the store).
-      WIN_SIGN_SHA1: '362970A533A8C04A3FB4F77AF9EFDF7B80A14D54'
-      # SimplySign account id. The OTP seed is NOT here — it is read at runtime
-      # from a DPAPI-protected file on the box (see "Authenticate SimplySign").
-      CERTUM_USERID: 'indhicdev@gmail.com'
 
     steps:
       - name: Checkout dhee-desktop
@@ -139,53 +138,13 @@ jobs:
           ANALYTICS_SALT: ${{ vars.ANALYTICS_SALT || secrets.ANALYTICS_SALT }}
         run: node .erb/scripts/write-runtime-config.js
 
-      # Point the sign hook at signtool (SIGNTOOL_PATH is honored by
-      # .erb/scripts/sign-windows.js). Search the no-admin NuGet SDK BuildTools
-      # dir first, then the standard Windows Kits installs, then PATH — so a
-      # path change on the box doesn't break the release. Prefer an x64 build.
-      - name: Resolve signtool
-        shell: powershell
-        run: |
-          $roots = @(
-            'C:\Users\user\tools\winsdk-buildtools',
-            'C:\Program Files (x86)\Windows Kits\10\bin',
-            'C:\Program Files\Windows Kits\10\bin'
-          )
-          $cands = foreach ($r in $roots) {
-            Get-ChildItem $r -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue
-          }
-          $onPath = Get-Command signtool.exe -ErrorAction SilentlyContinue
-          if ($onPath) { $cands = @($cands) + (Get-Item $onPath.Source) }
-          $x64 = $cands | Where-Object { $_.FullName -like '*x64*' } | Select-Object -Last 1 -ExpandProperty FullName
-          $st = if ($x64) { $x64 } else { $cands | Select-Object -Last 1 -ExpandProperty FullName }
-          if (-not $st) { throw 'signtool.exe not found. Install the Windows SDK BuildTools on the runner (extract the Microsoft.Windows.SDK.BuildTools NuGet to C:\Users\user\tools\winsdk-buildtools).' }
-          Write-Host "Using signtool: $st"
-          "SIGNTOOL_PATH=$st" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
-
-      # Load the SHA256 TOTP seed from the box's DPAPI store (never in GitHub),
-      # set it for THIS step only, and drive the SimplySign login. The login
-      # script reveals the tray window and foreground-verifies before typing,
-      # and short-circuits if a ~2h session is already live.
-      - name: Authenticate SimplySign (creds from local DPAPI store)
-        shell: powershell
-        run: |
-          $sec = Get-Content 'C:\Users\user\.certum\otp_uri.dpapi' | ConvertTo-SecureString
-          $env:CERTUM_OTP_URI = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
-          powershell -ExecutionPolicy Bypass -File .erb/scripts/simplysign-login.ps1
-          if ($LASTEXITCODE -ne 0) { throw 'SimplySign login failed' }
-
-      - name: Build and publish Electron app (signed inline)
+      # WIN_SIGN_SHA1 is intentionally unset → sign-windows.js skips signing
+      # (unsigned build, no failure).
+      - name: Build and publish Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           dhee_INK_PATH: ${{ github.workspace }}\dhee-core
         run: npm run release
-
-      - name: Verify Windows signature
-        shell: powershell
-        run: |
-          $exe = Get-ChildItem release\build\*.exe | Where-Object Name -like 'Dhee Setup*' | Select-Object -First 1
-          & "$env:SIGNTOOL_PATH" verify /pa /v $exe.FullName
-          if ($LASTEXITCODE -ne 0) { throw 'signtool verify failed' }
 
       - name: Verify packaged app (native unpack + bundles)
         run: node .erb/scripts/verify-packaged-app.js
