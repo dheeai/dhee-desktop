@@ -143,19 +143,19 @@ jobs:
       # lives on this box; the runner user isn't admin so the SDK isn't in
       # Program Files. SIGNTOOL_PATH is honored by .erb/scripts/sign-windows.js.
       - name: Resolve signtool
-        shell: pwsh
+        shell: powershell
         run: |
           $st = Get-ChildItem 'C:\Users\user\tools\winsdk-buildtools' -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
                 Where-Object FullName -like '*x64*' | Select-Object -Last 1 -ExpandProperty FullName
           if (-not $st) { throw 'signtool.exe not found under C:\Users\user\tools\winsdk-buildtools' }
-          "SIGNTOOL_PATH=$st" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SIGNTOOL_PATH=$st" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding ascii
 
       # Load the SHA256 TOTP seed from the box's DPAPI store (never in GitHub),
       # set it for THIS step only, and drive the SimplySign login. The login
       # script reveals the tray window and foreground-verifies before typing,
       # and short-circuits if a ~2h session is already live.
       - name: Authenticate SimplySign (creds from local DPAPI store)
-        shell: pwsh
+        shell: powershell
         run: |
           $sec = Get-Content 'C:\Users\user\.certum\otp_uri.dpapi' | ConvertTo-SecureString
           $env:CERTUM_OTP_URI = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
@@ -169,7 +169,7 @@ jobs:
         run: npm run release
 
       - name: Verify Windows signature
-        shell: pwsh
+        shell: powershell
         run: |
           $exe = Get-ChildItem release\build\*.exe | Where-Object Name -like 'Dhee Setup*' | Select-Object -First 1
           & "$env:SIGNTOOL_PATH" verify /pa /v $exe.FullName
