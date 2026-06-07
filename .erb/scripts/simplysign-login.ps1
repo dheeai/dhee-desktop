@@ -27,6 +27,16 @@ if ([string]::IsNullOrWhiteSpace($OtpUri) -or [string]::IsNullOrWhiteSpace($User
   exit 0
 }
 
+# ---- short-circuit: if the cert is already in the store, a session is live; don't
+#      kill it / re-drive the GUI (a SimplySign session lasts ~2h). ----
+if (-not [string]::IsNullOrWhiteSpace($Thumb)) {
+  $already = Get-ChildItem Cert:\CurrentUser\My,Cert:\LocalMachine\My -ErrorAction SilentlyContinue | Where-Object { $_.Thumbprint -eq $Thumb }
+  if ($already) {
+    Write-Host "[simplysign] SUCCESS - cert $Thumb already present in store (existing session)."
+    exit 0
+  }
+}
+
 # ---- algorithm-aware TOTP (Base32 secret + HMAC-SHA1/256/512) ----
 Add-Type -TypeDefinition @"
 using System;
@@ -79,6 +89,7 @@ public class Win32 {
   [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
   [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
   [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int cmd);
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
   public static List<string> List(){
     var outp = new List<string>();
     EnumWindows((h,l)=>{
@@ -148,24 +159,47 @@ Write-Host "[simplysign] exe: $ExePath"
 Get-Process -Name 'SimplySignDesktop' -ErrorAction SilentlyContinue | ForEach-Object { Write-Host "[simplysign] stopping existing pid $($_.Id)"; Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue }
 Start-Sleep -Seconds 3
 
-# ---- launch fresh + show what windows appear ----
+# ---- launch + REVEAL the login window ----
+# SimplySign Desktop (v7.x) launches straight to the system tray with its main
+# window HIDDEN, so EnumWindows (IsWindowVisible filter) never sees it. Launching
+# a SECOND time signals the running singleton to surface its window. We then drive
+# it by its real MainWindowHandle (FindByTitle alone misses a hidden window).
 Start-Process -FilePath $ExePath | Out-Null
-Start-Sleep -Seconds 15
+Start-Sleep -Seconds 10
+Start-Process -FilePath $ExePath | Out-Null   # 2nd launch -> reveal main window
+Start-Sleep -Seconds 6
 Dump-Windows 'after-launch'
 Save-Screenshot (Join-Path (Get-Location) 'simplysign-prelogin.png')
 
-# ---- find + foreground the login window, then type ----
-$hwnd = [Win32]::FindByTitle(@('SimplySign','Logowanie','Login','Certum','Sign in'))
-if($hwnd -ne [IntPtr]::Zero){
-  Write-Host "[simplysign] found login window hwnd=$($hwnd.ToInt64())"
-  [Win32]::ShowWindow($hwnd, 9) | Out-Null   # SW_RESTORE
-  [Win32]::SetForegroundWindow($hwnd) | Out-Null
-  Start-Sleep -Seconds 1
-} else {
-  Write-Host '[simplysign] WARNING: no login window found by title; sending keys to whatever is focused'
+# ---- resolve the login window handle (prefer the process MainWindowHandle) ----
+$proc = Get-Process -Name 'SimplySignDesktop' -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 } | Select-Object -First 1
+$hwnd = if ($proc) { $proc.MainWindowHandle } else { [Win32]::FindByTitle(@('SimplySign','Logowanie','Login','Certum','Sign in')) }
+if ($hwnd -eq [IntPtr]::Zero) {
+  Write-Host '[simplysign] FAILED - no SimplySign login window found to focus.'
+  Dump-Windows 'no-window'
+  Save-Screenshot (Join-Path (Get-Location) 'simplysign-debug.png')
+  exit 1
 }
+Write-Host "[simplysign] login window hwnd=$($hwnd.ToInt64())"
+
+# ---- foreground + VERIFY before typing (never SendKeys to the wrong window) ----
+$fg = $false
+for ($i = 0; $i -lt 8; $i++) {
+  [Win32]::ShowWindow($hwnd, 9) | Out-Null    # SW_RESTORE
+  [Win32]::SetForegroundWindow($hwnd) | Out-Null
+  Start-Sleep -Milliseconds 500
+  if ([Win32]::GetForegroundWindow() -eq $hwnd) { $fg = $true; break }
+}
+if (-not $fg) {
+  Write-Host '[simplysign] FAILED - could not bring login window to foreground; NOT sending keys (avoids leaking the OTP into another window).'
+  Save-Screenshot (Join-Path (Get-Location) 'simplysign-debug.png')
+  exit 1
+}
+Write-Host '[simplysign] login window foregrounded; sending credentials (ID {TAB} token {ENTER}).'
 
 $wshell = New-Object -ComObject WScript.Shell
+$wshell.SendKeys('^a');     Start-Sleep -Milliseconds 150   # clear ID field if pre-filled
+$wshell.SendKeys('{DEL}');  Start-Sleep -Milliseconds 150
 $wshell.SendKeys($UserId);  Start-Sleep -Milliseconds 700
 $wshell.SendKeys('{TAB}');  Start-Sleep -Milliseconds 400
 $wshell.SendKeys($otp);     Start-Sleep -Milliseconds 400

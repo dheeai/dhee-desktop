@@ -79,11 +79,22 @@ jobs:
         run: node .erb/scripts/verify-packaged-app.js
 
   release-windows:
-    runs-on: windows-latest
+    # Runs on the SELF-HOSTED Windows box ("5090") in an interactive desktop
+    # session — Certum SimplySign signing needs a real GUI/tray, which
+    # GitHub-hosted runners do not have. The runner is scoped to the
+    # `simplysign` label and this release workflow only triggers on `v*` tag
+    # pushes (never pull_request), so untrusted fork code cannot run here.
+    # If the box is offline the job queues until the runner reconnects.
+    runs-on: [self-hosted, Windows, simplysign]
     permissions:
       contents: write
     env:
       NODE_OPTIONS: --max-old-space-size=4096
+      # Certum cert thumbprint (the sign hook selects this cert from the store).
+      WIN_SIGN_SHA1: '362970A533A8C04A3FB4F77AF9EFDF7B80A14D54'
+      # SimplySign account id. The OTP seed is NOT here — it is read at runtime
+      # from a DPAPI-protected file on the box (see "Authenticate SimplySign").
+      CERTUM_USERID: 'indhicdev@gmail.com'
 
     steps:
       - name: Checkout dhee-desktop
@@ -128,11 +139,41 @@ jobs:
           ANALYTICS_SALT: ${{ vars.ANALYTICS_SALT || secrets.ANALYTICS_SALT }}
         run: node .erb/scripts/write-runtime-config.js
 
-      - name: Build and publish Electron app
+      # Point the sign hook at the no-admin signtool (NuGet SDK BuildTools) that
+      # lives on this box; the runner user isn't admin so the SDK isn't in
+      # Program Files. SIGNTOOL_PATH is honored by .erb/scripts/sign-windows.js.
+      - name: Resolve signtool
+        shell: pwsh
+        run: |
+          $st = Get-ChildItem 'C:\Users\user\tools\winsdk-buildtools' -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+                Where-Object FullName -like '*x64*' | Select-Object -Last 1 -ExpandProperty FullName
+          if (-not $st) { throw 'signtool.exe not found under C:\Users\user\tools\winsdk-buildtools' }
+          "SIGNTOOL_PATH=$st" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      # Load the SHA256 TOTP seed from the box's DPAPI store (never in GitHub),
+      # set it for THIS step only, and drive the SimplySign login. The login
+      # script reveals the tray window and foreground-verifies before typing,
+      # and short-circuits if a ~2h session is already live.
+      - name: Authenticate SimplySign (creds from local DPAPI store)
+        shell: pwsh
+        run: |
+          $sec = Get-Content 'C:\Users\user\.certum\otp_uri.dpapi' | ConvertTo-SecureString
+          $env:CERTUM_OTP_URI = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($sec))
+          powershell -ExecutionPolicy Bypass -File .erb/scripts/simplysign-login.ps1
+          if ($LASTEXITCODE -ne 0) { throw 'SimplySign login failed' }
+
+      - name: Build and publish Electron app (signed inline)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           dhee_INK_PATH: ${{ github.workspace }}\dhee-core
         run: npm run release
+
+      - name: Verify Windows signature
+        shell: pwsh
+        run: |
+          $exe = Get-ChildItem release\build\*.exe | Where-Object Name -like 'Dhee Setup*' | Select-Object -First 1
+          & "$env:SIGNTOOL_PATH" verify /pa /v $exe.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'signtool verify failed' }
 
       - name: Verify packaged app (native unpack + bundles)
         run: node .erb/scripts/verify-packaged-app.js
