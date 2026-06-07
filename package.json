@@ -236,7 +236,6 @@
     ],
     "asar": true,
     "afterPack": ".erb/scripts/prune-native.js",
-    "afterSign": ".erb/scripts/notarize.js",
     "asarUnpack": [
       "**/*.{node,dll,so,dylib}",
       "**/node_modules/@ffmpeg-installer/**",
@@ -308,7 +307,7 @@
     ],
     "mac": {
       "icon": "assets/icon.icns",
-      "notarize": false,
+      "notarize": true,
       "target": {
         "target": "default",
         "arch": [
