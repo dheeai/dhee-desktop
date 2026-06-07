@@ -374,7 +374,16 @@ export function resolvePiModelFromSettings(
   // Ollama / llama.cpp / vLLM accept none) and required for remote ones.
   const apiKey = s.openaiApiKey?.trim() ?? '';
   const modelId = (s.openaiModel || 'gpt-4o').trim();
-  const baseUrl = (s.openaiBaseUrl || 'https://api.openai.com/v1').trim();
+  // An OpenRouter key (`sk-or-…`) is unambiguously an OpenRouter credential.
+  // When the user pastes one but leaves the base url blank, default to
+  // OpenRouter's endpoint instead of api.openai.com — otherwise the key
+  // 401s against OpenAI ("Incorrect API key provided") and the agent
+  // silently dies (the "Resume does nothing" failure mode). An explicitly
+  // configured base url always wins (e.g. a local proxy).
+  const defaultBaseUrl = apiKey.startsWith('sk-or-')
+    ? 'https://openrouter.ai/api/v1'
+    : 'https://api.openai.com/v1';
+  const baseUrl = (s.openaiBaseUrl || defaultBaseUrl).trim();
   if (!modelId) return null;
   if (!apiKey && !isLocalLlmUrl(baseUrl)) return null;
   // OpenRouter is just an OpenAI-compatible base URL; label it so for clarity.
