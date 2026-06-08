@@ -243,6 +243,8 @@ export default function FirstRunSetup() {
 
   return (
     <div className={styles.overlay}>
+      <div className={styles.grain} aria-hidden="true" />
+      <div className={styles.vignette} aria-hidden="true" />
       <div className={styles.frame}>
         <header className={styles.header}>
           <span className={styles.wordmark}>Dhee Studio</span>
@@ -254,7 +256,13 @@ export default function FirstRunSetup() {
         </header>
 
         <div className={styles.progress}>
-          <i style={{ width: `${(stepIdx / (steps.length - 1)) * 100}%` }} />
+          <span className={styles.progressCount}>
+            {String(stepIdx + 1).padStart(2, '0')}
+            <span className={styles.progressTotal}> / {String(steps.length).padStart(2, '0')}</span>
+          </span>
+          <div className={styles.progressTrack}>
+            <i style={{ width: `${(stepIdx / (steps.length - 1)) * 100}%` }} />
+          </div>
         </div>
 
         <main className={styles.body}>
