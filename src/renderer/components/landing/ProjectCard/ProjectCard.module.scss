@@ -122,7 +122,34 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 10px;
+  gap: 12px;
+  // Exposed-film-stock surface: a faint warm vignette so an unrendered
+  // production reads as an intentional, designed tile rather than a flat
+  // empty box. (Replaces the old folder icon + "Agentic Workspace" label.)
+  background:
+    radial-gradient(
+      120% 90% at 50% 38%,
+      rgba(var(--color-accent-primary-rgb), 0.06) 0%,
+      transparent 60%
+    ),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.12));
+}
+
+// Framed aperture mark — echoes the empty-state film-leader ring so a
+// preview-less card still feels part of the Cinematic studio language.
+.placeholderMark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: rgba(var(--color-accent-primary-rgb), 0.85);
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.32);
+  background: rgba(var(--color-accent-primary-rgb), 0.05);
+  box-shadow: inset 0 0 0 4px rgba(var(--color-bg-app-rgb), 0.4);
+}
+
+.placeholderLabel {
   // Editorial mono label (matches the New Production spec lines) on the
   // warm film-stock surface instead of a bright generic caption.
   color: $color-text-muted;

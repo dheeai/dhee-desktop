@@ -1104,6 +1104,9 @@
   height: 100%;
   padding: 0 36px;
   max-width: 62%;
+  // Visual only — the full-cover .featuredResume button beneath captures
+  // the resume click, so the meta must never intercept pointer events.
+  pointer-events: none;
 }
 .featuredKick {
   display: block;
@@ -1144,6 +1147,66 @@
   border-left: 9px solid currentColor;
   border-top: 6px solid transparent;
   border-bottom: 6px solid transparent;
+}
+
+// Full-cover transparent button — the whole hero resumes the production.
+.featuredResume {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+// Rename/delete cluster, mirroring the ProjectCard actions: hidden until
+// the hero is hovered, sitting above the resume button so they remain
+// independently clickable.
+.featuredActions {
+  position: absolute;
+  top: $spacing-sm;
+  right: $spacing-sm;
+  z-index: 2;
+  display: flex;
+  gap: 6px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity $transition-fast,
+    transform $transition-fast;
+}
+.featured:hover .featuredActions {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.featuredActionBtn {
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  background: rgba(var(--color-bg-app-rgb), 0.78);
+  color: rgba(255, 255, 255, 0.9);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition:
+    background-color $transition-fast,
+    border-color $transition-fast,
+    transform $transition-fast;
+
+  &:hover {
+    background: rgba(var(--color-bg-app-rgb), 0.94);
+    border-color: rgba(255, 255, 255, 0.3);
+    transform: translateY(-1px);
+  }
+}
+.featuredActionDanger:hover {
+  border-color: rgba(255, 107, 107, 0.42);
+  color: #ffd4ce;
 }
 
 /* ── Editorial "Productions" header ───────────────────────────────── */

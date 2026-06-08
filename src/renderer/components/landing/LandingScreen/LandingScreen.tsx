@@ -10,6 +10,8 @@ import {
   FolderOpen as _FolderOpen,
   Plus as _Plus,
   Settings as _Settings,
+  Pencil as _Pencil,
+  Trash2 as _Trash2,
 } from 'lucide-react';
 import dheeLogoUrl from '../../../../../assets/icon.svg';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
@@ -51,6 +53,8 @@ type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
 const FolderOpen = _FolderOpen as unknown as LucideFC;
 const Plus = _Plus as unknown as LucideFC;
 const Settings = _Settings as unknown as LucideFC;
+const Pencil = _Pencil as unknown as LucideFC;
+const Trash2 = _Trash2 as unknown as LucideFC;
 
 const THUMBNAIL_CANDIDATES = [
   '.dhee/ui/thumbnail.jpg',
@@ -359,7 +363,7 @@ export default function LandingScreen() {
   // view targeting a specific tab. Our SettingsPanel (branch-of-truth)
   // doesn't accept an initialTab prop, so the tab hint is recorded
   // here and consumed when SettingsPanel adds that surface back.
-  const [, setSettingsInitialTab] = useState<SettingsTabTarget>('appearance');
+  const [, setSettingsInitialTab] = useState<SettingsTabTarget>('connection');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
@@ -516,6 +520,12 @@ export default function LandingScreen() {
   // not. When it has no still we drop the scrim and show the warm on-theme
   // base so it still reads as a designed banner.
   const featuredProject = useMemo(() => projectCards[0] ?? null, [projectCards]);
+  // The featured/hero production is lifted out of the grid so it never
+  // shows twice — once in the banner and again in the list below.
+  const gridProjects = useMemo(
+    () => (featuredProject ? projectCards.slice(1) : projectCards),
+    [featuredProject, projectCards],
+  );
   // Pagination removed (UX-10): the responsive .projectsGrid + scroll
   // already handles any number of project cards. 9-per-page was a
   // hostile cap for users with many projects.
@@ -767,7 +777,7 @@ export default function LandingScreen() {
                 setActiveView('projects');
                 return;
               }
-              openSettingsTab('appearance');
+              openSettingsTab('connection');
             }}
             aria-pressed={activeView === 'settings'}
             aria-label="Settings"
@@ -809,12 +819,13 @@ export default function LandingScreen() {
 
             <section className={styles.projectsSection}>
               {featuredProject ? (
-                <button
-                  type="button"
-                  className={styles.featured}
-                  onClick={() => handleSelectRecent(featuredProject.path)}
-                  aria-label={`Resume ${featuredProject.name}`}
-                >
+                // Hero is a div (not a button) so the rename/delete actions
+                // can live inside it without nesting buttons. A full-cover
+                // transparent button captures the "resume" click; the action
+                // cluster sits above it and reveals on hover, exactly like a
+                // ProjectCard — so the lifted-out hero production keeps its
+                // management affordances.
+                <div className={styles.featured}>
                   <span
                     className={styles.featuredBg}
                     style={
@@ -834,7 +845,37 @@ export default function LandingScreen() {
                       Resume
                     </span>
                   </span>
-                </button>
+                  <button
+                    type="button"
+                    className={styles.featuredResume}
+                    onClick={() => handleSelectRecent(featuredProject.path)}
+                    aria-label={`Resume ${featuredProject.name}`}
+                  />
+                  <div className={styles.featuredActions}>
+                    <button
+                      type="button"
+                      className={styles.featuredActionBtn}
+                      aria-label={`Rename ${featuredProject.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleRenameRequest(featuredProject);
+                      }}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.featuredActionBtn} ${styles.featuredActionDanger}`}
+                      aria-label={`Delete ${featuredProject.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteRequest(featuredProject);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
               ) : null}
               <div className={styles.projectsHeader}>
                 <span className={styles.projectsKicker}>Productions</span>
@@ -891,7 +932,7 @@ export default function LandingScreen() {
                 // space the user explicitly noticed (1-9 of 15 with
                 // empty rows below).
                 <div className={styles.projectsGrid}>
-                  {projectCards.map((project) => (
+                  {gridProjects.map((project) => (
                     <ProjectCard
                       key={project.path}
                       project={project}

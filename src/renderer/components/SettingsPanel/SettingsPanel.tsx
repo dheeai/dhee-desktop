@@ -11,7 +11,6 @@ import type {
   ProviderDiagnosticsSnapshot,
   ProviderDiagnosticStatus,
 } from '../../../shared/providerDiagnosticsTypes';
-import { DESKTOP_THEMES } from '../../themes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
@@ -19,7 +18,6 @@ import styles from './SettingsPanel.module.scss';
 
 type SettingsTab =
   | 'account'
-  | 'appearance'
   | 'connection'
   | 'workflows'
   | 'diagnostics';
@@ -164,10 +162,9 @@ function diagnosticBadgeClass(status: ProviderDiagnosticStatus): string {
 export default function SettingsPanel({
   isOpen,
   variant = 'modal',
-  initialTab = 'appearance',
+  initialTab = 'connection',
   settings,
   onClose,
-  onThemeChange,
   onSaveConnection,
   isSavingConnection,
   error,
@@ -421,6 +418,10 @@ export default function SettingsPanel({
     form.comfyBackend === 'cloud' && !isComfyBlockedByPlan;
   const isLlmCloudMode = form.llmBackend === 'cloud';
   const isVlmCloudMode = form.vlmBackend === 'cloud';
+  // VLM judge master switch (moved here from the retired Appearance tab).
+  // Reads persisted settings and saves immediately on toggle — its own
+  // value, independent of the connection form's Save & Restart.
+  const isVlmJudgeOn = settings?.vlmJudge ?? emptySettings.vlmJudge;
   let comfyCloudToggleTitle: string | undefined;
   if (!account) {
     comfyCloudToggleTitle = 'Sign in to Dhee Cloud to enable Cloud mode';
@@ -444,12 +445,6 @@ export default function SettingsPanel({
       ? 'Connected to Cloud'
       : 'Cloud sign-in required'
     : 'Connected to Local';
-  const statusSupportText = isCloudMode
-    ? isCloudReady
-      ? 'The bundled core is running locally while paid calls use Dhee Cloud credits through the proxy.'
-      : 'Sign in to Dhee Cloud to route paid calls through the authenticated proxy.'
-    : 'The bundled core is running locally with the provider settings shown below.';
-
   const renderTierSection = (
     tier: 'llmTierMedium' | 'llmTierLight',
     label: string,
@@ -652,16 +647,6 @@ export default function SettingsPanel({
           </button>
           <button
             type="button"
-            className={`${styles.tabButton} ${activeTab === 'appearance' ? styles.tabButtonActive : ''}`}
-            onClick={() => setActiveTab('appearance')}
-          >
-            <span className={styles.tabLabel}>Appearance</span>
-            <span className={styles.tabDescription}>
-              Themes and visual preferences
-            </span>
-          </button>
-          <button
-            type="button"
             className={`${styles.tabButton} ${activeTab === 'connection' ? styles.tabButtonActive : ''}`}
             onClick={() => setActiveTab('connection')}
           >
@@ -696,122 +681,6 @@ export default function SettingsPanel({
           <section className={styles.section}>
             {activeTab === 'account' ? (
               <AccountTab />
-            ) : activeTab === 'appearance' ? (
-              <>
-                <div className={styles.sectionHeader}>
-                  <h3>Appearance</h3>
-                  <p>
-                    Choose a workspace palette tuned for long editing sessions.
-                  </p>
-                </div>
-                <div className={styles.themeGrid}>
-                  {DESKTOP_THEMES.map((theme) => {
-                    const isActive =
-                      (settings?.themeId ?? emptySettings.themeId) === theme.id;
-                    return (
-                      <button
-                        key={theme.id}
-                        type="button"
-                        className={`${styles.themeCard} ${isActive ? styles.themeCardActive : ''}`}
-                        onClick={() => onThemeChange(theme.id)}
-                      >
-                        <span className={styles.themePreview}>
-                          {theme.swatches.map((swatch) => (
-                            <span
-                              key={swatch}
-                              className={styles.themeSwatch}
-                              style={{ backgroundColor: swatch }}
-                            />
-                          ))}
-                        </span>
-                        <span className={styles.themeMeta}>
-                          <span className={styles.themeName}>{theme.name}</span>
-                          <span className={styles.themeDescription}>
-                            {theme.description}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/*
-                  AI Oversight toggles. Global preferences (apply to
-                  all projects). Both default ON. VLM is gated by the
-                  supervisor toggle — disabled here when supervisor
-                  is off, mirroring the chat-header quick-toggle.
-                  Saves immediately on click via onSaveConnection so
-                  the runtime fan-out (main.ts → dheeCoreManager →
-                  oversightState) fires.
-                */}
-                <div className={styles.sectionHeader} style={{ marginTop: 24 }}>
-                  <h3>AI Oversight</h3>
-                  <p>
-                    The agent observes runner events and intervenes when
-                    something looks off. VLM provides image descriptions
-                    so the agent can judge generated assets against the
-                    prompt.
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={
-                        settings?.piOversight ?? emptySettings.piOversight
-                      }
-                      onChange={(event) =>
-                        onSaveConnection({ piOversight: event.target.checked })
-                      }
-                      style={{ marginTop: 4 }}
-                    />
-                    <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500 }}>Agent oversight</span>
-                      <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Auto-engages the agent on runner events (failed,
-                        completed, per-asset when VLM is on).
-                      </span>
-                    </span>
-                  </label>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      cursor: (settings?.piOversight ?? true)
-                        ? 'pointer'
-                        : 'not-allowed',
-                      opacity: (settings?.piOversight ?? true) ? 1 : 0.5,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={settings?.vlmJudge ?? emptySettings.vlmJudge}
-                      disabled={!(settings?.piOversight ?? true)}
-                      onChange={(event) =>
-                        onSaveConnection({ vlmJudge: event.target.checked })
-                      }
-                      style={{ marginTop: 4 }}
-                    />
-                    <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500 }}>VLM judge</span>
-                      <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Vision-LLM describes generated images for the
-                        agent. Configure the VLM provider in the Connection
-                        tab. Disabled when oversight is off (VLM standalone
-                        has no consumer).
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </>
             ) : activeTab === 'workflows' ? (
               <WorkflowsTab isCloudMode={settings?.comfyBackend === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
@@ -1198,10 +1067,21 @@ export default function SettingsPanel({
                   <legend>VLM (vision judge)</legend>
                   <p className={styles.infoText}>
                     Reads generated images and grades them against the prompt
-                    so the agent can flag misses. Toggle the VLM judge in the
-                    Appearance tab; configure the provider here. Independent
-                    of LLM and ComfyUI — flip any combo.
+                    so the agent can flag misses. Independent of LLM and
+                    ComfyUI — flip any combo.
                   </p>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={isVlmJudgeOn}
+                      onChange={(event) =>
+                        onSaveConnection({ vlmJudge: event.target.checked })
+                      }
+                    />
+                    Enable VLM judge
+                  </label>
+                  {isVlmJudgeOn ? (
+                    <>
                   <div className={styles.cloudToggleRow}>
                     <label
                       className={styles.checkboxLabel}
@@ -1341,6 +1221,13 @@ export default function SettingsPanel({
                         from the engine <code>.env</code> in your <code>dhee-core</code> checkout (dev mode).
                       </p>
                     </>
+                  )}
+                    </>
+                  ) : (
+                    <p className={styles.infoText}>
+                      VLM judge is off — the agent won&apos;t grade generated
+                      images. Enable it above to configure a vision provider.
+                    </p>
                   )}
                 </fieldset>
 
