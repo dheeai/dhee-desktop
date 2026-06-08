@@ -11,7 +11,6 @@
  * See productionLayers.test.ts.
  */
 import type { RunStageView } from './deriveRunModel';
-import { humanizeId } from './vocab';
 import { groupByScene, hasScenes } from './sceneGroups';
 
 export type LayerKind = 'film' | 'script' | 'gallery' | 'board';
@@ -50,7 +49,7 @@ export function buildProductionLayers(stages: RunStageView[]): ProductionLayer[]
   for (const s of visualStages) {
     const layer: ProductionLayer = {
       id: s.id,
-      label: humanizeId(s.id),
+      label: s.label, // bundle-declared displayName (deriveRunModel), else humanized id
       kind: hasScenes(groupByScene(s.items)) ? 'gallery' : 'board',
       stageIds: [s.id],
       count: s.total,

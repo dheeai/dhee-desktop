@@ -420,6 +420,7 @@ export function registerdheeIpcBridge(
           nodes: Array<{
             id: string;
             kind: 'stage' | 'collection';
+            displayName?: string;
             displayCapability?: string;
             headlineField?: string;
             outputs: { format: string; pattern: string };
@@ -444,6 +445,7 @@ export function registerdheeIpcBridge(
             nodes: bundle.nodes.map((n) => ({
               id: n.id,
               kind: n.kind,
+              ...(n.displayName ? { displayName: n.displayName } : {}),
               ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
               ...(n.headlineField ? { headlineField: n.headlineField } : {}),
               outputs: { format: n.outputs.format, pattern: n.outputs.pattern },

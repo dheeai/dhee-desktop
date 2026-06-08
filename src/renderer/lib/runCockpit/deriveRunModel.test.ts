@@ -177,6 +177,23 @@ describe('deriveRunModel — mid-run narrative', () => {
   });
 });
 
+describe('deriveRunModel — bundle display names', () => {
+  it('uses node.displayName for the stage label, falling back to a humanized id', () => {
+    const nodes = [
+      { id: 'shot_image', kind: 'collection', displayName: 'Shots', outputs: { format: 'image', pattern: 's/{id}.png' } },
+      { id: 'scenes_plan', kind: 'stage', outputs: { format: 'json', pattern: 's.json' } },
+    ];
+    const instances = [
+      inst('scenes_plan', 'completed', { outputPath: 's.json' }),
+      inst('shot_image', 'in_progress', { itemId: 'scene_1_shot_1' }),
+    ];
+    const m = deriveRunModel({ instances, edges: [], bundleNodes: nodes, runnerActive: true, cancelling: false, agentBusy: false, now: NOW });
+    const byId = Object.fromEntries(m.stages.map((s) => [s.id, s]));
+    expect(byId.shot_image.label).toBe('Shots'); // bundle-declared
+    expect(byId.scenes_plan.label).toBe('Scenes Plan'); // humanized fallback
+  });
+});
+
 describe('deriveRunModel — ETA guards', () => {
   it('is null when fewer than 2 completed timestamps exist in the active stage', () => {
     const instances = [

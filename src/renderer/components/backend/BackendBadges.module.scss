@@ -3,43 +3,54 @@
 .row {
   display: inline-flex;
   align-items: center;
-  gap: $spacing-xs;
+  gap: 6px;
 }
 
+/* Decodable provider lane: state dot · LANE · state word. */
 .badge {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  gap: 5px;
+  gap: 7px;
   flex: 0 0 auto;
-  min-height: 18px;
-  padding: 0 6px;
-  border-radius: $radius-sm;
-  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.28);
-  background: rgba(var(--color-accent-primary-rgb), 0.1);
-  color: $color-text-primary;
-  font-size: 10px;
-  font-weight: $font-weight-bold;
+  padding: 5px 10px;
+  min-height: 24px;
+  border-radius: $radius-full;
+  border: 1px solid $color-border-subtle;
+  background: transparent;
+  font-family: $font-family-mono;
+  font-size: 9.5px;
+  font-weight: $font-weight-medium;
+  letter-spacing: 0.12em;
   line-height: 1;
-  letter-spacing: 0.3px;
   text-transform: uppercase;
+  color: $color-text-secondary;
 }
 
 .dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: currentColor;
+  flex: none;
+  background: $color-success;
+  box-shadow: 0 0 7px rgba(var(--color-success-rgb), 0.6);
 }
 
-.local {
-  border-color: rgba(var(--color-border-strong-rgb), 0.38);
-  background: rgba(var(--color-bg-panel-soft-rgb), 0.22);
+.lane {
   color: $color-text-secondary;
 }
 
+.state {
+  color: $color-text-muted;
+}
+
+/* Cloud lanes pick up a faint success tint on the state word + border. */
 .cloud {
-  border-color: rgba(var(--color-success-rgb), 0.34);
-  background: rgba(var(--color-success-rgb), 0.14);
+  border-color: rgba(var(--color-success-rgb), 0.3);
+}
+.cloud .state {
   color: $color-success;
+}
+
+.local {
+  /* steady neutral lane; dot still reads "present" */
 }

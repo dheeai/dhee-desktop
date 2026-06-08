@@ -26,8 +26,7 @@ import { groupByScene } from '../../lib/runCockpit/sceneGroups';
 import type { RunModel, RunStageView, RunDeliverable } from '../../lib/runCockpit/deriveRunModel';
 import type { InstanceGraphNode } from '../../../shared/dheeIpc';
 import { toFileUrl } from '../../utils/pathResolver';
-import { MarkdownCardBody } from '../nodes/content/MarkdownCardBody';
-import { JsonCardBody } from '../nodes/content/JsonCardBody';
+import { ScriptDoc } from './ScriptDoc';
 import { CardDetailModal } from '../CardDetailModal';
 import type { CardAction } from '../cardDetailModel';
 import styles from './ProductionView.module.scss';
@@ -310,22 +309,25 @@ export function ProductionView() {
     if (docs.length === 0) {
       return <div className={styles.emptyNote}>Your treatment appears here as Dhee writes it.<br />Tell it your story in chat to begin.</div>;
     }
+    const [lead, ...rest] = docs;
     return (
       <div>
-        {docs.map((s, i) => {
-          const it = s.items[0];
-          return (
-            <div key={s.id} className={styles.scriptDoc}>
-              {sec(i + 1, s.label, (s.format ?? 'text').toUpperCase())}
-              <div className={styles.scriptDocBody}>
-                {s.format === 'md'
-                  ? <MarkdownCardBody projectDir={projectDir} outputPath={it.outputPath ?? null} />
-                  : <JsonCardBody projectDir={projectDir} outputPath={it.outputPath ?? null} />}
-              </div>
-              {s.status === 'active' ? <div className={styles.writingLine}>Writing…</div> : null}
+        {/* lead text stage = the treatment, on a script page */}
+        <div className={styles.page}>
+          <div className={styles.pkick}>{lead.label}</div>
+          <div className={styles.ptitle}>{projectTitle()}</div>
+          <ScriptDoc projectDir={projectDir} outputPath={lead.items[0].outputPath ?? null} format={lead.format ?? 'md'} />
+          {lead.status === 'active' ? <div className={styles.writingLine}>Writing…</div> : null}
+        </div>
+        {rest.map((s, i) => (
+          <div key={s.id} className={styles.scriptDoc}>
+            {sec(i + 2, s.label, (s.format ?? 'text').toUpperCase())}
+            <div className={styles.scriptDocBody}>
+              <ScriptDoc projectDir={projectDir} outputPath={s.items[0].outputPath ?? null} format={s.format ?? 'md'} />
             </div>
-          );
-        })}
+            {s.status === 'active' ? <div className={styles.writingLine}>Writing…</div> : null}
+          </div>
+        ))}
       </div>
     );
   }

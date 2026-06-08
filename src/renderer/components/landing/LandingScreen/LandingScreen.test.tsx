@@ -257,7 +257,8 @@ describe('LandingScreen', () => {
   it('uses the project folder name instead of a stale manifest title', async () => {
     render(<LandingScreen />);
 
-    expect(await screen.findByText('demo')).not.toBeNull();
+    // 'demo' now appears both in the featured banner and its grid card.
+    expect((await screen.findAllByText('demo')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Stale Manifest Title')).toBeNull();
   });
 

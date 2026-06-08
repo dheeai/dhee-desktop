@@ -20,12 +20,14 @@ interface BackendBadgesProps {
   className?: string;
 }
 
-function laneLabel(lane: string, isCloud: boolean): string {
-  return `${lane} ${isCloud ? '☁ Cloud' : '🖥 Local'}`;
-}
-
-function laneClass(isCloud: boolean): string {
-  return `${styles.badge} ${isCloud ? styles.cloud : styles.local}`;
+function Lane({ name, cloud, testid }: { name: string; cloud: boolean; testid: string }) {
+  return (
+    <span className={`${styles.badge} ${cloud ? styles.cloud : styles.local}`} data-testid={testid}>
+      <span className={styles.dot} />
+      <span className={styles.lane}>{name}</span>
+      <span className={styles.state}>{cloud ? 'Cloud' : 'Local'}</span>
+    </span>
+  );
 }
 
 function isCloud(lane: BackendLane | undefined, account: AccountInfo | null): boolean {
@@ -66,18 +68,9 @@ export default function BackendBadges({ className }: BackendBadgesProps) {
 
   return (
     <div className={rowClass} title={title}>
-      <span className={laneClass(llmCloud)} data-testid="badge-llm">
-        <span className={styles.dot} />
-        {laneLabel('LLM', llmCloud)}
-      </span>
-      <span className={laneClass(comfyCloud)} data-testid="badge-comfy">
-        <span className={styles.dot} />
-        {laneLabel('Comfy', comfyCloud)}
-      </span>
-      <span className={laneClass(vlmCloud)} data-testid="badge-vlm">
-        <span className={styles.dot} />
-        {laneLabel('VLM', vlmCloud)}
-      </span>
+      <Lane name="LLM" cloud={llmCloud} testid="badge-llm" />
+      <Lane name="Comfy" cloud={comfyCloud} testid="badge-comfy" />
+      <Lane name="VLM" cloud={vlmCloud} testid="badge-vlm" />
     </div>
   );
 }

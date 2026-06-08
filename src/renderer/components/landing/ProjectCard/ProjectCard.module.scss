@@ -17,9 +17,13 @@
     box-shadow $transition-fast;
 
   &:hover {
-    transform: translateY(-2px);
-    border-color: rgba(var(--color-accent-primary-rgb), 0.24);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+    transform: translateY(-3px);
+    // Thick amber highlight so the hovered production pops. The 2px ring
+    // (box-shadow, not border-width) avoids any layout shift.
+    border-color: $color-accent-primary;
+    box-shadow:
+      0 0 0 2px $color-accent-primary,
+      0 16px 36px rgba(0, 0, 0, 0.55);
   }
 
   &:hover .actions,
@@ -105,6 +109,10 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  // Mute the raw still so every card reads on-theme regardless of the
+  // video's colours. The true colour brightens back in on hover.
+  filter: brightness(0.6) saturate(0.82);
+  transition: filter $transition-normal;
 }
 
 .placeholder {
@@ -127,18 +135,34 @@
 
 .overlay {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 2px;
   padding: $spacing-md;
+  // Translucent on-theme box across the WHOLE tile (not just the bottom):
+  // unifies every card to the warm-black palette and lifts text contrast.
+  // Heavier toward the bottom where the title + specs sit.
   background: linear-gradient(
-    to top,
-    rgba(var(--color-bg-app-rgb), 0.94) 0%,
-    rgba(var(--color-bg-app-rgb), 0.82) 42%,
-    rgba(var(--color-bg-app-rgb), 0) 100%
+    180deg,
+    rgba(var(--color-bg-app-rgb), 0.46) 0%,
+    rgba(var(--color-bg-app-rgb), 0.66) 52%,
+    rgba(var(--color-bg-app-rgb), 0.92) 100%
+  );
+  transition: background $transition-normal;
+}
+
+// Hover reveals the real still: brighten the image, lighten the box.
+.card:hover .thumbnail {
+  filter: brightness(0.84) saturate(1);
+}
+.card:hover .overlay {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--color-bg-app-rgb), 0.2) 0%,
+    rgba(var(--color-bg-app-rgb), 0.5) 55%,
+    rgba(var(--color-bg-app-rgb), 0.9) 100%
   );
 }
 

@@ -27,7 +27,7 @@ import NewProjectScreen from '../NewProjectScreen/NewProjectScreen';
 import ProjectCard from '../ProjectCard/ProjectCard';
 import DeleteProjectDialog from '../ProjectActionDialog/DeleteProjectDialog';
 import RenameProjectDialog from '../ProjectActionDialog/RenameProjectDialog';
-import { getProjectNameFromPath, sortRecentProjects } from '../projectDisplay';
+import { getProjectNameFromPath, sortRecentProjects, toFileUrl } from '../projectDisplay';
 import styles from './LandingScreen.module.scss';
 import type { BackendProjectFile } from '../../../services/project/backendProjectAdapter';
 import {
@@ -495,6 +495,11 @@ export default function LandingScreen() {
       }),
     [metadataByPath, recentProjects],
   );
+  // Featured "Continue" banner: the ACTUAL most-recent production (what
+  // you were last working on — the practical one to resume), thumbnail or
+  // not. When it has no still we drop the scrim and show the warm on-theme
+  // base so it still reads as a designed banner.
+  const featuredProject = useMemo(() => projectCards[0] ?? null, [projectCards]);
   // Pagination removed (UX-10): the responsive .projectsGrid + scroll
   // already handles any number of project cards. 9-per-page was a
   // hostile cap for users with many projects.
@@ -663,6 +668,8 @@ export default function LandingScreen() {
 
   return (
     <div className={styles.container}>
+      <div className={styles.grain} aria-hidden="true" />
+      <div className={styles.vignette} aria-hidden="true" />
       <header className={styles.topBar}>
         <div className={styles.topBarBrand}>
           <img
@@ -785,15 +792,41 @@ export default function LandingScreen() {
             />
 
             <section className={styles.projectsSection}>
-              <div className={styles.projectsHeader}>
-                <h2 className={styles.projectsTitle}>
-                  Projects
-                  {projectCards.length > 0 ? (
-                    <span className={styles.projectsCount}>
-                      {projectCards.length}
-                    </span>
+              {featuredProject ? (
+                <button
+                  type="button"
+                  className={styles.featured}
+                  onClick={() => handleSelectRecent(featuredProject.path)}
+                  aria-label={`Resume ${featuredProject.name}`}
+                >
+                  <span
+                    className={styles.featuredBg}
+                    style={
+                      featuredProject.thumbnailPath
+                        ? { backgroundImage: `url("${toFileUrl(featuredProject.thumbnailPath)}")` }
+                        : undefined
+                    }
+                  />
+                  {featuredProject.thumbnailPath ? (
+                    <span className={styles.featuredScrim} />
                   ) : null}
-                </h2>
+                  <span className={styles.featuredMeta}>
+                    <span className={styles.featuredKick}>Continue · last production</span>
+                    <span className={styles.featuredTitle}>{featuredProject.name}</span>
+                    <span className={styles.featuredPlay}>
+                      <span className={styles.featuredTri} />
+                      Resume
+                    </span>
+                  </span>
+                </button>
+              ) : null}
+              <div className={styles.projectsHeader}>
+                <span className={styles.projectsKicker}>Productions</span>
+                <h2 className={styles.projectsTitle}>Your Studio</h2>
+                <span className={styles.projectsRule} />
+                {projectCards.length > 0 ? (
+                  <span className={styles.projectsCount}>{projectCards.length}</span>
+                ) : null}
               </div>
 
               {projectCards.length === 0 ? (

@@ -76,6 +76,7 @@ export interface RunModel {
 export interface DeriveBundleNode {
   id: string;
   kind?: string;
+  displayName?: string;
   outputs?: { format?: string };
 }
 
@@ -160,10 +161,12 @@ export function deriveRunModel(input: DeriveRunModelInput): RunModel {
 
   const bundleFormat = new Map<string, string | undefined>();
   const bundleKind = new Map<string, string | undefined>();
+  const bundleDisplayName = new Map<string, string | undefined>();
   if (bundleNodes) {
     for (const n of bundleNodes) {
       bundleFormat.set(n.id, n.outputs?.format);
       bundleKind.set(n.id, n.kind);
+      bundleDisplayName.set(n.id, n.displayName);
     }
   }
 
@@ -217,7 +220,7 @@ export function deriveRunModel(input: DeriveRunModelInput): RunModel {
       });
     return {
       id,
-      label: humanizeId(id),
+      label: bundleDisplayName.get(id) ?? humanizeId(id),
       total,
       done,
       running,

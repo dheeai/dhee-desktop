@@ -539,7 +539,8 @@ export interface ResolveBundleRequest {
  */
 export interface BundleDisplay {
   thumbnail?: {
-    from: string;
+    /** Capability tag, or a priority list tried in order (first available wins). */
+    from: string | string[];
     pick?: 'first_completed' | 'random_completed' | 'latest_completed';
   };
   stats?: Array<{
@@ -676,6 +677,8 @@ export interface ResolveBundleResponse {
     nodes: Array<{
       id: string;
       kind: 'stage' | 'collection';
+      /** Bundle-declared human label for this stage (e.g. "Shots"); falls back to a humanized id. */
+      displayName?: string;
       displayCapability?: string;
       /**
        * Optional dot-path into the node's JSON output naming the field
