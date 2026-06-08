@@ -30,6 +30,7 @@ import {
 } from './cardDetailModel';
 import { prepareEdit, applyEdit, prepareReadableView, type PreparedEdit, type ReadableField } from './nodeTextEdit';
 import { toFileUrl } from '../utils/pathResolver';
+import { humanizeId } from '../lib/runCockpit/vocab';
 
 interface Props {
   instance: InstanceGraphNode | null;
@@ -429,7 +430,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
       style={{
         position: 'fixed',
         inset: 0,
-        background: 'rgba(8, 9, 13, 0.82)',
+        background: 'rgba(10, 9, 8, 0.86)',
         backdropFilter: 'blur(6px)',
         zIndex: 1000,
         display: 'flex',
@@ -441,16 +442,17 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
       <div
         onClick={(e) => e.stopPropagation()}
         style={{
-          background: 'var(--color-accent-primary-contrast, #161821)',
-          border: '1px solid rgba(168, 156, 139, 0.18)',
+          background:
+            'radial-gradient(120% 80% at 12% 0%, rgba(var(--color-accent-primary-rgb), 0.06), transparent 55%), var(--color-bg-app)',
+          border: '1px solid rgba(var(--color-accent-primary-rgb), 0.18)',
           borderRadius: 14,
           width: 'min(1200px, 96vw)',
           height: 'min(820px, 90vh)',
           display: 'flex',
           flexDirection: 'column',
-          color: '#e5e1d8',
-          fontFamily: 'system-ui, -apple-system, sans-serif',
-          boxShadow: '0 30px 80px rgba(0,0,0,0.6)',
+          color: 'var(--color-text-primary)',
+          fontFamily: 'var(--font-body, system-ui, -apple-system, sans-serif)',
+          boxShadow: '0 40px 90px -30px rgba(0,0,0,0.8)',
           overflow: 'hidden',
         }}
       >
@@ -466,15 +468,15 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
           }}
         >
           <div>
-            <div style={{ fontSize: 11, color: 'var(--color-text-secondary)', letterSpacing: 0.6, textTransform: 'uppercase', fontWeight: 600 }}>
-              {instance.nodeId}
+            <div style={{ fontFamily: 'var(--font-mono, ui-monospace, Menlo, monospace)', fontSize: 10, color: 'var(--color-accent-primary)', letterSpacing: '0.22em', textTransform: 'uppercase', fontWeight: 600 }}>
+              {humanizeId(instance.nodeId)}
               {panel !== 'view' && (
-                <span style={{ color: 'var(--color-accent-primary)', marginLeft: 8 }}>· {panel === 'versions' ? 'Versions' : 'Edit'}</span>
+                <span style={{ color: 'var(--color-text-muted)', marginLeft: 8 }}>· {panel === 'versions' ? 'Versions' : 'Edit'}</span>
               )}
             </div>
             {instance.itemId && (
-              <div style={{ fontFamily: 'ui-monospace, Menlo, monospace', fontSize: 14, color: '#e5e1d8', marginTop: 4 }}>
-                {instance.itemId}
+              <div style={{ fontFamily: 'var(--font-display, Fraunces, Georgia, serif)', fontSize: 23, fontWeight: 400, letterSpacing: '-0.01em', color: 'var(--color-text-primary)', marginTop: 4, lineHeight: 1.05 }}>
+                {humanizeId(instance.itemId)}
               </div>
             )}
             {instance.outputPath && (
@@ -495,7 +497,7 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
             <span
               style={{
                 background: statusColor(instance.status),
-                color: 'var(--color-accent-primary-contrast, #161821)',
+                color: 'var(--color-bg-app)',
                 padding: '4px 10px',
                 borderRadius: 5,
                 fontSize: 10,
@@ -513,18 +515,27 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
         </div>
 
         {/* Body */}
-        <div style={{ flex: 1, overflow: 'auto', background: '#0c0d11' }}>
+        <div style={{ flex: 1, overflow: 'auto', background: '#070605' }}>
           {/* ── VIEW ─────────────────────────────────────────────── */}
           {panel === 'view' && (
             <>
               {fmt === 'image' && fileUrl && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: 24 }}>
-                  <img src={fileUrl} alt={instance.outputPath ?? ''} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: 20 }}>
+                  <img src={fileUrl} alt={instance.outputPath ?? ''} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', borderRadius: 6, boxShadow: '0 20px 50px -20px rgba(0,0,0,0.8)' }} />
                 </div>
               )}
               {fmt === 'video' && fileUrl && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: 24 }}>
-                  <video src={fileUrl} controls style={{ maxWidth: '100%', maxHeight: '100%' }} />
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', padding: 16 }}>
+                  {/* Autoplays on open — the modal was reached via a click,
+                      so Chromium allows sound. Native controls cover
+                      pause/scrub/fullscreen. */}
+                  <video
+                    src={fileUrl}
+                    controls
+                    autoPlay
+                    playsInline
+                    style={{ maxWidth: '100%', maxHeight: '100%', borderRadius: 6, boxShadow: '0 20px 50px -20px rgba(0,0,0,0.8)' }}
+                  />
                 </div>
               )}
               {fmt === 'audio' && fileUrl && (

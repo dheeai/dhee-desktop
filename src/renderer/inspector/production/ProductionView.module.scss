@@ -124,6 +124,21 @@
 }
 .heroPlay:hover { transform: scale(1.06); }
 .heroPlay::after { content: ''; margin-left: 4px; border-left: 19px solid rgba(255, 255, 255, 0.95); border-top: 12px solid transparent; border-bottom: 12px solid transparent; }
+// Fullscreen affordance, top-right, mirroring the reel tag.
+.heroFs {
+  position: absolute; z-index: 4; top: 12px; right: 14px;
+  width: 34px; height: 34px; border-radius: 50%;
+  display: grid; place-items: center; cursor: pointer;
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(10, 9, 8, 0.5); border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(3px);
+  transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+.heroFs:hover { transform: scale(1.06); border-color: $color-accent-primary; color: #fff; }
+// Idle poster invites a click; once playing the native controls drive it.
+.hero:not(.heroIsPlaying) .heroVideo { cursor: pointer; }
+.heroIsPlaying { align-items: stretch; background: #000; }
+.heroIsPlaying .heroVideo { z-index: 5; object-fit: contain; background: #000; }
 .hbar { height: 4px; width: 200px; border-radius: 99px; background: rgba(255, 255, 255, 0.16); overflow: hidden; margin-top: 12px; }
 .hbar > i { display: block; height: 100%; width: 40%; background: $color-accent-primary; animation: indet 1.5s ease-in-out infinite; }
 @keyframes indet { from { margin-left: -42%; } to { margin-left: 100%; } }

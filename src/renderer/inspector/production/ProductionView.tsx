@@ -13,7 +13,7 @@
  * layer in ../../lib/runCockpit/ and the memory note
  * "Production View must be bundle-agnostic".
  */
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import { useRunModel } from '../../hooks/useRunModel';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useProject } from '../../contexts/ProjectContext';
@@ -86,6 +86,26 @@ export function ProductionView() {
   }, [model.stages]);
 
   const [openKey, setOpenKey] = useState<string | null>(null);
+  // Inline Final Cut playback — the hero plays in place (and can go
+  // fullscreen) instead of bouncing through the detail modal.
+  const heroVideoRef = useRef<HTMLVideoElement>(null);
+  const [heroPlaying, setHeroPlaying] = useState(false);
+  const playHero = useCallback(() => {
+    const v = heroVideoRef.current;
+    if (v) {
+      v.muted = false;
+      void v.play().catch(() => undefined);
+    }
+    setHeroPlaying(true);
+  }, []);
+  const fullscreenHero = useCallback(() => {
+    const v = heroVideoRef.current;
+    if (!v) return;
+    v.muted = false;
+    void v.play().catch(() => undefined);
+    setHeroPlaying(true);
+    void v.requestFullscreen?.().catch(() => undefined);
+  }, []);
   const openItem = openKey ? itemByKey.get(openKey) ?? null : null;
   const openInstance: InstanceGraphNode | null = openItem
     ? {
@@ -236,25 +256,48 @@ export function ProductionView() {
       : 'No footage yet — direct Dhee in chat and your cut assembles here.';
     return (
       <>
-        <div className={styles.hero}>
+        <div className={`${styles.hero} ${heroPlaying ? styles.heroIsPlaying : ''}`}>
           {phase === 'finished' && final && final.outputPath ? (
-            <video className={styles.heroVideo} src={fileUrl(projectDir!, final.outputPath, final.ts)} muted preload="metadata" />
+            <video
+              ref={heroVideoRef}
+              className={styles.heroVideo}
+              src={fileUrl(projectDir!, final.outputPath, final.ts)}
+              muted={!heroPlaying}
+              controls={heroPlaying}
+              playsInline
+              preload="metadata"
+              onClick={!heroPlaying ? playHero : undefined}
+            />
           ) : recent.length ? (
             <div className={styles.heroMontage}>{recent.map((i) => <span key={i.key} style={{ background: placeholderFor(i.key) }} />)}</div>
           ) : (
             <div className={`${styles.heroMontage} ${styles.heroLeader}`} />
           )}
-          {sprock(styles.heroSprockTop)}
-          {sprock(styles.heroSprockBot)}
-          <div className={styles.heroScrim} />
-          <div className={styles.reeltag}>Reel 01{phase !== 'finished' && phase !== 'new' ? ` · ${phase}` : ''}</div>
-          {phase === 'finished' && final ? <button type="button" className={styles.heroPlay} aria-label="Play" onClick={() => setOpenKey(final.key)} /> : null}
-          <div className={styles.heroMeta}>
-            <div className={styles.heroKicker}>{kicker}</div>
-            <div className={styles.heroTtl}>{projectTitle()}</div>
-            <div className={styles.heroSub}>{sub}</div>
-            {phase === 'assembling' ? <div className={styles.hbar}><i /></div> : null}
-          </div>
+          {/* Film-frame chrome + meta hide once the cut is playing. */}
+          {!heroPlaying ? (
+            <>
+              {sprock(styles.heroSprockTop)}
+              {sprock(styles.heroSprockBot)}
+              <div className={styles.heroScrim} />
+              <div className={styles.reeltag}>Reel 01{phase !== 'finished' && phase !== 'new' ? ` · ${phase}` : ''}</div>
+              {phase === 'finished' && final ? (
+                <>
+                  <button type="button" className={styles.heroPlay} aria-label="Play final cut" onClick={playHero} />
+                  <button type="button" className={styles.heroFs} aria-label="Play fullscreen" onClick={fullscreenHero}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
+                    </svg>
+                  </button>
+                </>
+              ) : null}
+              <div className={styles.heroMeta}>
+                <div className={styles.heroKicker}>{kicker}</div>
+                <div className={styles.heroTtl}>{projectTitle()}</div>
+                <div className={styles.heroSub}>{phase === 'finished' ? 'Finished — click to play, or ⛶ for fullscreen.' : sub}</div>
+                {phase === 'assembling' ? <div className={styles.hbar}><i /></div> : null}
+              </div>
+            </>
+          ) : null}
         </div>
         {model.stages.some((s) => s.kind === 'visual' && s.done > 0)
           ? renderStoryboardStages()
