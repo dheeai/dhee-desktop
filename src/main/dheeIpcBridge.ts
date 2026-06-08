@@ -423,6 +423,8 @@ export function registerdheeIpcBridge(
             displayName?: string;
             displayCapability?: string;
             headlineField?: string;
+            itemSource?: string;
+            itemKey?: string;
             outputs: { format: string; pattern: string };
             inputs?: Array<{ from: string }>;
           }>;
@@ -448,6 +450,12 @@ export function registerdheeIpcBridge(
               ...(n.displayName ? { displayName: n.displayName } : {}),
               ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
               ...(n.headlineField ? { headlineField: n.headlineField } : {}),
+              // Fan-out metadata — lets the run cockpit compute a stable
+              // expected total for collection stages (how many items the
+              // source will produce) instead of the lazily-materialized
+              // count. Bundle-agnostic: just itemSource + itemKey.
+              ...(n.itemSource ? { itemSource: n.itemSource } : {}),
+              ...(n.itemKey ? { itemKey: n.itemKey } : {}),
               outputs: { format: n.outputs.format, pattern: n.outputs.pattern },
               inputs: (n.inputs ?? []).map((i) => ({ from: i.from })),
             })),

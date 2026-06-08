@@ -84,6 +84,15 @@ export interface DeriveRunModelInput {
   instances: InstanceGraphNode[];
   edges: InstanceGraphEdge[];
   bundleNodes?: DeriveBundleNode[];
+  /**
+   * Per-stage expected item count, keyed by nodeId — how many items a
+   * collection WILL ultimately produce, resolved from the bundle's
+   * itemSource/itemKey fan-out metadata (see computeExpectedTotals). Lets a
+   * stage show a stable "47 / 50" instead of a denominator that creeps up
+   * as the walker lazily materializes each item (47/48 → 48/49 …). Absent
+   * entries fall back to the materialized instance count.
+   */
+  expectedTotals?: Record<string, number>;
   runnerActive: boolean;
   cancelling: boolean;
   agentBusy: boolean;
@@ -120,6 +129,7 @@ export function deriveRunModel(input: DeriveRunModelInput): RunModel {
     instances,
     edges,
     bundleNodes,
+    expectedTotals,
     runnerActive,
     cancelling,
     agentBusy,
@@ -195,7 +205,16 @@ export function deriveRunModel(input: DeriveRunModelInput): RunModel {
       else if (i.status === 'invalidated') invalidated += 1;
       else pending += 1;
     }
-    const total = insts.length;
+    // Total = the bundle-declared expected fan-out count when known and
+    // larger than what's materialized so far (the denominator stays stable
+    // as items stream in); else the materialized count. `pending` absorbs
+    // the not-yet-materialized remainder so done+running+failed+pending+
+    // invalidated === total.
+    const materialized = insts.length;
+    const expected = expectedTotals?.[id];
+    const total =
+      typeof expected === 'number' && expected > materialized ? expected : materialized;
+    pending = total - done - running - failed - invalidated;
     let status: StageStatus;
     if (running > 0) status = 'active';
     else if (failed > 0) status = 'failed';
@@ -281,12 +300,14 @@ export function deriveRunModel(input: DeriveRunModelInput): RunModel {
     ? pluralizeNoun(humanizeId(activeStage.id).toLowerCase(), activeStage.total)
     : 'nodes';
 
-  // Rebuild scope.
+  // Rebuild scope: everything not yet successfully built across the whole
+  // run. Derived from the (expected-aware) stage totals so it counts items
+  // the walker hasn't materialized yet — not just live instances. Excludes
+  // `failed` (errored, not pending-to-build); with no expected data this
+  // equals the old in_progress+pending+invalidated instance count.
   let cascadeCount = 0;
-  for (const i of instances) {
-    if (i.status === 'pending' || i.status === 'in_progress' || i.status === 'invalidated') {
-      cascadeCount += 1;
-    }
+  for (const s of stages) {
+    cascadeCount += Math.max(0, s.total - s.done - s.failed);
   }
 
   // Deliverables strip: the active stage if it is previewable, else the

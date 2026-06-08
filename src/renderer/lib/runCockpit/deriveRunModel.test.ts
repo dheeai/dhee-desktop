@@ -251,3 +251,55 @@ describe('deriveRunModel — non-video bundle stays agnostic', () => {
     expect(m.deliverables).toEqual([]);
   });
 });
+
+describe('deriveRunModel — expectedTotals (stable fan-out denominator)', () => {
+  it('uses the expected count as a collection total, not the materialized count', () => {
+    // 3 instances materialized (2 done + 1 running) but the bundle fan-out
+    // says 50 will exist. The counter must read 50, not creep 3→4→5…
+    const instances = [
+      inst('shot_image', 'completed', { itemId: 's1' }),
+      inst('shot_image', 'completed', { itemId: 's2' }),
+      inst('shot_image', 'in_progress', { itemId: 's3' }),
+    ];
+    const m = deriveRunModel({
+      instances, edges: [], bundleNodes: NARRATIVE,
+      expectedTotals: { shot_image: 50 },
+      runnerActive: true, cancelling: false, agentBusy: false, now: NOW,
+    });
+    const stage = m.stages.find((s) => s.id === 'shot_image')!;
+    expect(stage.done).toBe(2);
+    expect(stage.running).toBe(1);
+    expect(stage.total).toBe(50);
+    expect(stage.pending).toBe(47); // 50 - 2 done - 1 running
+    expect(stage.status).toBe('active');
+  });
+
+  it('counts unmaterialized work in overall total and cascadeCount', () => {
+    const instances = [
+      inst('shot_image', 'completed', { itemId: 's1' }),
+      inst('shot_image', 'in_progress', { itemId: 's2' }),
+    ];
+    const m = deriveRunModel({
+      instances, edges: [], bundleNodes: NARRATIVE,
+      expectedTotals: { shot_image: 10 },
+      runnerActive: true, cancelling: false, agentBusy: false, now: NOW,
+    });
+    expect(m.overall.total).toBe(10); // not 2
+    expect(m.overall.done).toBe(1);
+    expect(m.cascadeCount).toBe(9); // 10 - 1 done - 0 failed
+  });
+
+  it('never drops below the materialized count (stale/smaller expected ignored)', () => {
+    const instances = [
+      inst('shot_image', 'completed', { itemId: 's1' }),
+      inst('shot_image', 'completed', { itemId: 's2' }),
+      inst('shot_image', 'completed', { itemId: 's3' }),
+    ];
+    const m = deriveRunModel({
+      instances, edges: [], bundleNodes: NARRATIVE,
+      expectedTotals: { shot_image: 2 },
+      runnerActive: true, cancelling: false, agentBusy: false, now: NOW,
+    });
+    expect(m.stages.find((s) => s.id === 'shot_image')!.total).toBe(3);
+  });
+});

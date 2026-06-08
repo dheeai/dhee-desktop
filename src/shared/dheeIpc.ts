@@ -686,6 +686,19 @@ export interface ResolveBundleResponse {
        * for non-json kinds. See dhee-core NodeDef.headlineField.
        */
       headlineField?: string;
+      /**
+       * Fan-out source for a `collection` node — the upstream node id whose
+       * output it iterates. With `itemKey`, lets the run cockpit compute a
+       * stable expected total (how many items WILL be produced) instead of
+       * the lazily-materialized instance count. See dhee-core NodeDef.
+       */
+      itemSource?: string;
+      /**
+       * The array field, inside `itemSource`'s JSON output, this collection
+       * fans out over (e.g. "shots" vs "scenes"). Bundle-agnostic: the
+       * cockpit reads `sourcePlan[itemKey].length` — no node names baked in.
+       */
+      itemKey?: string;
       outputs: { format: string; pattern: string };
       /**
        * Upstream dependencies — used by the Inspector Canvas to draw
