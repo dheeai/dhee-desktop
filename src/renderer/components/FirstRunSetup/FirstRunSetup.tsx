@@ -157,6 +157,10 @@ export default function FirstRunSetup() {
   // else (remote OpenAI/OpenRouter, Gemini) requires one.
   const keyRequired = provider === 'gemini' || !isLocalLlmUrl(baseUrl);
 
+  // Models the server reported on a successful "Test connection" — offered
+  // as a picker instead of a blank free-text box.
+  const detectedModels = llmProbe && llmProbe.ok && llmProbe.models ? llmProbe.models : [];
+
   const steps: Step[] = recipe === 'cloud' ? ['recipe', 'brain', 'preflight'] : ['recipe', 'brain', 'renderer', 'preflight'];
   const stepIdx = steps.indexOf(step);
 
@@ -333,7 +337,22 @@ export default function FirstRunSetup() {
                     />
                   </Field>
                   <Field label="Model (optional — sensible default used)">
-                    <Input placeholder="default" value={model} onChange={(e) => setModel(e.target.value)} />
+                    {detectedModels.length > 0 ? (
+                      <select
+                        className={styles.modelSelect}
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                      >
+                        <option value="">Auto · sensible default</option>
+                        {detectedModels.map((m) => (
+                          <option key={m} value={m}>
+                            {m}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <Input placeholder="default" value={model} onChange={(e) => setModel(e.target.value)} />
+                    )}
                   </Field>
                   <div className={styles.row}>
                     <Button variant="ghost" onClick={() => void runLlmProbe()} disabled={llmProbing}>

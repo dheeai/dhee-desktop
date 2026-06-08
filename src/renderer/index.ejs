@@ -1,5 +1,12 @@
 <!DOCTYPE html>
-<html>
+<!--
+  Preset the official theme on the root element so the very first paint
+  uses the Cinematic palette. Without this, first paint falls through to
+  the bare `:root` block (studio-neutral blue) until AppSettingsContext
+  applies the theme via JS — producing a blue flash before the warm-black
+  UI loads. Must stay in sync with DEFAULT_THEME_ID in themes.ts.
+-->
+<html data-theme="cinematic">
   <head>
     <meta charset="utf-8" />
     <meta

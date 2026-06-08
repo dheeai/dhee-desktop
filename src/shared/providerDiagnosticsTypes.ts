@@ -33,5 +33,5 @@ export interface LlmProbeInput {
 }
 
 export type LlmProbeResult =
-  | { ok: true; message: string }
+  | { ok: true; message: string; models?: string[] }
   | { ok: false; message: string; detail?: string };

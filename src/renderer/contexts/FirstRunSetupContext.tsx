@@ -16,6 +16,14 @@ interface FirstRunSetupValue {
   open: () => void;
   /** Finish (or skip) the flow and persist completion. */
   complete: (reason?: 'manual_finish' | 'skipped') => Promise<void>;
+  /**
+   * True after the user finished setup intending to start a production
+   * ("Create your first project →"). The landing reads this to open the
+   * New Production flow directly instead of dead-ending on an empty grid.
+   */
+  pendingNewProject: boolean;
+  /** Clear pendingNewProject once the landing has acted on it. */
+  clearPendingNewProject: () => void;
 }
 
 // Default is a safe no-op so components rendered outside the provider
@@ -26,11 +34,14 @@ const FirstRunSetupContext = createContext<FirstRunSetupValue>({
   ready: false,
   open: () => undefined,
   complete: async () => undefined,
+  pendingNewProject: false,
+  clearPendingNewProject: () => undefined,
 });
 
 export function FirstRunSetupProvider({ children }: { children: ReactNode }) {
   const [isActive, setIsActive] = useState(false);
   const [ready, setReady] = useState(false);
+  const [pendingNewProject, setPendingNewProject] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -56,6 +67,10 @@ export function FirstRunSetupProvider({ children }: { children: ReactNode }) {
       open: () => setIsActive(true),
       complete: async (reason = 'manual_finish') => {
         setIsActive(false);
+        // Finishing (not skipping) means "take me into my first
+        // production" — carry the intent so the landing opens New
+        // Production rather than dropping onto an empty grid.
+        if (reason !== 'skipped') setPendingNewProject(true);
         try {
           await window.electron.onboarding.complete({
             skipped: reason === 'skipped',
@@ -65,8 +80,10 @@ export function FirstRunSetupProvider({ children }: { children: ReactNode }) {
           /* completion is best-effort; the UI already closed */
         }
       },
+      pendingNewProject,
+      clearPendingNewProject: () => setPendingNewProject(false),
     }),
-    [isActive, ready],
+    [isActive, ready, pendingNewProject],
   );
 
   return <FirstRunSetupContext.Provider value={value}>{children}</FirstRunSetupContext.Provider>;

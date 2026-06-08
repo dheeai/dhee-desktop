@@ -452,6 +452,38 @@
   line-height: 1.5;
 }
 
+/* Backend gate — Roll is blocked until the required lanes are configured. */
+.gate {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-warning);
+  background: rgba(var(--color-warning-rgb), 0.1);
+  border: 1px solid rgba(var(--color-warning-rgb), 0.4);
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.gate:hover {
+  background: rgba(var(--color-warning-rgb), 0.18);
+}
+.gateDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+.gateConnect {
+  color: var(--color-text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .rollButton {
   display: inline-flex;
   align-items: center;

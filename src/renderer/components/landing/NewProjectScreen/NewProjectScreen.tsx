@@ -70,6 +70,12 @@ interface BundleSummary {
 interface NewProjectScreenProps {
   isOpen: boolean;
   onClose: () => void;
+  /** When false, Roll is gated — a required lane isn't configured. Defaults to ready. */
+  backendReady?: boolean;
+  /** Lanes still needing setup, shown in the gate notice. */
+  unconfiguredLanes?: Array<{ lane: string; reason: string }>;
+  /** Open Settings to connect lanes (from the gate notice). */
+  onConnectBackends?: () => void;
 }
 
 const STORY_INPUT_ID = 'story_input';
@@ -139,7 +145,13 @@ function formatSeconds(s: number): string {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenProps) {
+export default function NewProjectScreen({
+  isOpen,
+  onClose,
+  backendReady = true,
+  unconfiguredLanes = [],
+  onConnectBackends,
+}: NewProjectScreenProps) {
   const { openProject } = useWorkspace();
 
   const [bundles, setBundles] = useState<BundleSummary[]>([]);
@@ -312,6 +324,7 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
     storyText.trim().length >= 8 &&
     title.trim().length > 0 &&
     workspacePath.trim().length > 0 &&
+    backendReady &&
     !isSubmitting;
 
   const handleSelectBundle = useCallback((id: string) => {
@@ -598,6 +611,19 @@ export default function NewProjectScreen({ isOpen, onClose }: NewProjectScreenPr
 
         <div className={styles.footer}>
           <div className={styles.error}>{error}</div>
+          {!backendReady ? (
+            <button type="button" className={styles.gate} onClick={onConnectBackends}>
+              <span className={styles.gateDot} />
+              <span>
+                Connect{' '}
+                {unconfiguredLanes.length
+                  ? unconfiguredLanes.map((l) => l.lane.toUpperCase()).join(' · ')
+                  : 'your engine'}{' '}
+                to roll
+              </span>
+              <span className={styles.gateConnect}>Connect →</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className={`${styles.rollButton} ${canRoll ? styles.rollButtonReady : ''} ${isSubmitting ? styles.rollButtonLoading : ''}`}

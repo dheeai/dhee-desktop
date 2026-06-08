@@ -21,6 +21,7 @@ import {
   useOptionalFirstRunTour,
   type FirstRunTourLandingAction,
 } from '../../../contexts/FirstRunTourContext';
+import { useFirstRunSetup } from '../../../contexts/FirstRunSetupContext';
 import SettingsPanel from '../../SettingsPanel';
 import type { LandingProjectCard } from '../ProjectCard/ProjectCard';
 import NewProjectScreen from '../NewProjectScreen/NewProjectScreen';
@@ -333,10 +334,16 @@ async function loadSingleProjectMetadata(
 }
 
 export default function LandingScreen() {
-  const { recentProjects, openProject, isLoading, refreshRecentProjects } =
-    useWorkspace();
+  const {
+    recentProjects,
+    recentProjectsLoaded,
+    openProject,
+    isLoading,
+    refreshRecentProjects,
+  } = useWorkspace();
   const { isLoading: isProjectLoading } = useProject();
   const firstRunTour = useOptionalFirstRunTour();
+  const { pendingNewProject, clearPendingNewProject } = useFirstRunSetup();
   const {
     themeId,
     settings,
@@ -360,6 +367,15 @@ export default function LandingScreen() {
     Record<string, ProjectMetadata>
   >({});
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
+
+  // First-run finished with "Create your first project" → open the New
+  // Production flow directly instead of dead-ending on the empty grid.
+  useEffect(() => {
+    if (pendingNewProject) {
+      setIsNewProjectDialogOpen(true);
+      clearPendingNewProject();
+    }
+  }, [pendingNewProject, clearPendingNewProject]);
   const [renameTarget, setRenameTarget] = useState<PendingProjectAction | null>(
     null,
   );
@@ -829,17 +845,20 @@ export default function LandingScreen() {
                 ) : null}
               </div>
 
-              {projectCards.length === 0 ? (
+              {!recentProjectsLoaded ? (
+                // Recents still loading — render nothing in this slot so
+                // the "Roll your first production" empty state never
+                // flashes before we know whether the studio is actually
+                // empty. (Fixes the boot flash of the first-run CTA for
+                // users who have projects.)
+                null
+              ) : projectCards.length === 0 ? (
                 <div className={styles.emptyState}>
-                  <img
-                    src={dheeLogoUrl}
-                    alt=""
-                    aria-hidden="true"
-                    className={styles.emptyStateLogo}
-                    draggable={false}
-                  />
+                  <div className={styles.emptyStateLeader} aria-hidden="true">
+                    <span>00</span>
+                  </div>
                   <h3 className={styles.emptyStateTitle}>
-                    Start your first project
+                    Roll your first production
                   </h3>
                   <p className={styles.emptyStateMessage}>
                     Drop a story, an idea, or a script. Dhee will break it into
@@ -915,6 +934,13 @@ export default function LandingScreen() {
       <NewProjectScreen
         isOpen={isNewProjectDialogOpen}
         onClose={() => setIsNewProjectDialogOpen(false)}
+        backendReady={backendStatus.allConfigured}
+        unconfiguredLanes={backendStatus.unconfiguredLanes}
+        onConnectBackends={() => {
+          clearError();
+          setIsNewProjectDialogOpen(false);
+          setActiveView('settings');
+        }}
       />
       <RenameProjectDialog
         isOpen={renameTarget !== null}

@@ -43,6 +43,26 @@ async function fetchOk(
   }
 }
 
+/** Parse model ids from an OpenAI-compatible GET /models body. Best-effort, capped. */
+async function fetchModelIds(url: string, headers?: Record<string, string>): Promise<string[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    // eslint-disable-next-line compat/compat
+    const response = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+    if (!response.ok) return [];
+    const body = (await response.json()) as { data?: Array<{ id?: unknown }> };
+    return (body.data ?? [])
+      .map((m) => (typeof m?.id === 'string' ? m.id : null))
+      .filter((x): x is string => x !== null)
+      .slice(0, 50);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function cloudAccountDiagnostic(
   account: AccountInfo | null,
 ): ProviderDiagnosticItem {
@@ -239,13 +259,21 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
 
   const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : undefined;
   const result = await fetchOk(joinUrl(baseUrl, '/models'), headers);
-  return result.ok
-    ? { ok: true, message: `Model endpoint reachable for ${model}.` }
-    : {
-        ok: false,
-        message: `Could not reach ${baseUrl}.`,
-        detail: result.status ? `HTTP ${result.status}` : result.error,
-      };
+  if (!result.ok) {
+    return {
+      ok: false,
+      message: `Could not reach ${baseUrl}.`,
+      detail: result.status ? `HTTP ${result.status}` : result.error,
+    };
+  }
+  // Reachable — enumerate the served models so the form can offer a picker
+  // instead of a blank box.
+  const models = await fetchModelIds(joinUrl(baseUrl, '/models'), headers);
+  return {
+    ok: true,
+    message: models.length ? `Reachable — ${models.length} models available.` : `Model endpoint reachable for ${model}.`,
+    models,
+  };
 }
 
 async function vlmDiagnostic(

@@ -214,7 +214,7 @@ describe('LandingScreen', () => {
     mockRecentProjects = [];
 
     render(<LandingScreen />);
-    expect(await screen.findByText('Start your first project')).not.toBeNull();
+    expect(await screen.findByText('Roll your first production')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Help' }));
     expect(mockStartTour).toHaveBeenCalledWith({ source: 'help' });

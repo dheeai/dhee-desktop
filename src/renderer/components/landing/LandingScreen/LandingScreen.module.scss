@@ -711,17 +711,47 @@
 }
 
 .emptyState {
-  @include panel-base;
-  border-radius: $radius-lg;
-  padding: 64px $spacing-xl;
+  background: transparent;
+  border: none;
+  padding: 80px $spacing-xl;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
   gap: 14px;
   color: $color-text-secondary;
-  min-height: 360px;
+  min-height: 440px;
   justify-content: center;
+}
+
+// Film-leader countdown motif in place of the logo — a cinematic
+// "ready to roll" invitation rather than a blank panel.
+.emptyStateLeader {
+  position: relative;
+  width: 116px;
+  height: 116px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  margin-bottom: 6px;
+  border: 1.5px solid rgba(var(--color-border-strong-rgb), 0.6);
+  background: repeating-conic-gradient(
+    rgba(var(--color-text-primary-rgb), 0.05) 0 12deg,
+    transparent 12deg 30deg
+  );
+}
+.emptyStateLeader::before {
+  content: '';
+  position: absolute;
+  inset: 13px;
+  border-radius: 50%;
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.3);
+}
+.emptyStateLeader span {
+  font-family: var(--font-display);
+  font-size: 40px;
+  font-weight: 500;
+  color: $color-text-muted;
 }
 
 .emptyStateLogo {

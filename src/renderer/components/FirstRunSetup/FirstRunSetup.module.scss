@@ -221,6 +221,24 @@
   }
 }
 
+.modelSelect {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  padding: 10px 12px;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent-primary);
+    box-shadow: var(--shadow-focus);
+  }
+}
+
 .row {
   display: flex;
   gap: 10px;
