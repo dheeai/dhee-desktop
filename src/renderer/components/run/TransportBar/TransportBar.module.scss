@@ -1,0 +1,262 @@
+@import '../../../styles/tokens';
+
+/* TransportBar — the honest, unified run surface. Appears only while the
+   agent or the walk is doing work; the slim StatusStrip stays above it. */
+.bar {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 16px 9px;
+  background:
+    linear-gradient(180deg, rgba(var(--color-accent-primary-rgb), 0.07), rgba(var(--color-accent-primary-rgb), 0.015)),
+    $color-bg-panel-elevated;
+  border-bottom: 1px solid rgba(var(--color-accent-primary-rgb), 0.18);
+  box-shadow: inset 0 1px 0 rgba(var(--color-accent-primary-rgb), 0.16);
+  animation: slideDown 0.26s cubic-bezier(0.2, 0, 0, 1);
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.main {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+/* rec ring — circular overall-progress arc around a pulsing dot */
+.rec {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+.rec svg { transform: rotate(-90deg); display: block; }
+.recTrack { stroke: rgba(var(--color-text-muted-rgb), 0.22); }
+.recFill {
+  stroke: $color-accent-primary;
+  stroke-linecap: round;
+  transition: stroke-dashoffset 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.recDot {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: $color-accent-recording;
+  animation: recPulse 1.5s ease-out infinite;
+}
+.recDot.cancel { background: $color-text-muted; animation: none; }
+@keyframes recPulse {
+  0%   { box-shadow: 0 0 0 0 rgba(var(--color-accent-recording-rgb), 0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(var(--color-accent-recording-rgb), 0); }
+  100% { box-shadow: 0 0 0 0 rgba(var(--color-accent-recording-rgb), 0); }
+}
+
+/* phase + current node */
+.phase {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 120px;
+  flex: none;
+}
+.phaseLabel {
+  font-family: $font-family-mono;
+  font-size: 10px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: $color-accent-primary;
+}
+.phaseLabel.cancel { color: $color-text-muted; }
+.phaseNow {
+  font-family: $font-family-ui-sans;
+  font-size: 12.5px;
+  color: $color-text-secondary;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
+.phaseNow b { color: $color-text-primary; font-weight: 600; }
+
+/* counter + meter (flex grow) */
+.meterWrap {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.meterTop {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.count {
+  font-family: $font-family-base;
+  font-weight: 500;
+  color: $color-text-primary;
+  font-size: 22px;
+  line-height: 1;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+.count .of { color: $color-text-muted; font-size: 15px; }
+.count .unit {
+  font-family: $font-family-mono;
+  font-size: 9.5px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: $color-text-muted;
+  margin-left: 9px;
+}
+.meterMeta {
+  font-family: $font-family-mono;
+  font-size: 10.5px;
+  color: $color-text-muted;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+.meterMeta b { color: $color-text-secondary; font-weight: 500; }
+.cascade {
+  color: $color-accent-primary;
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.3);
+  border-radius: $radius-full;
+  padding: 1px 8px;
+  margin-left: 10px;
+}
+
+.meter {
+  height: 5px;
+  border-radius: $radius-full;
+  background: rgba(var(--color-text-muted-rgb), 0.16);
+  overflow: hidden;
+  position: relative;
+}
+.meterFill {
+  display: block;
+  height: 100%;
+  border-radius: $radius-full;
+  background: linear-gradient(90deg, $color-accent-primary, $color-accent-primary-hover);
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.meter::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.18), transparent);
+  transform: translateX(-100%);
+  animation: sheen 2.4s ease-in-out infinite;
+}
+.meter.indeterminate .meterFill { width: 40% !important; animation: indet 1.4s ease-in-out infinite; }
+@keyframes sheen { 0% { transform: translateX(-100%); } 60%, 100% { transform: translateX(240%); } }
+@keyframes indet { 0% { margin-left: -42%; } 100% { margin-left: 100%; } }
+
+/* clock */
+.clock {
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: none;
+}
+.elapsed {
+  font-family: $font-family-mono;
+  font-size: 16px;
+  font-weight: 500;
+  color: $color-text-primary;
+  letter-spacing: 0.02em;
+}
+.eta {
+  font-family: $font-family-mono;
+  font-size: 10px;
+  color: $color-text-muted;
+  letter-spacing: 0.04em;
+}
+
+/* stop */
+.stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  font-family: $font-family-mono;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: $color-text-primary;
+  padding: 7px 13px;
+  border-radius: $radius-md;
+  cursor: pointer;
+  background: rgba(var(--color-error-rgb), 0.16);
+  border: 1px solid rgba(var(--color-error-rgb), 0.5);
+  transition: all 0.15s ease;
+}
+.stop:hover:not(:disabled) {
+  background: rgba(var(--color-error-rgb), 0.28);
+  border-color: $color-error;
+}
+.stop:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* stage rail */
+.rail {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  padding-top: 2px;
+  scrollbar-width: none;
+}
+.rail::-webkit-scrollbar { display: none; }
+.stagePip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  flex: none;
+}
+.pipDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: $color-status-pending;
+  flex: none;
+}
+.stagePip.done .pipDot { background: $color-status-completed; }
+.stagePip.failed .pipDot { background: $color-status-failed; }
+.stagePip.active .pipDot {
+  background: $color-status-running;
+  box-shadow: 0 0 0 0 rgba(var(--color-accent-recording-rgb), 0.5);
+  animation: recPulse 1.5s ease-out infinite;
+}
+.pipLabel {
+  font-family: $font-family-mono;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: $color-text-muted;
+  white-space: nowrap;
+}
+.stagePip.done .pipLabel { color: $color-text-secondary; }
+.stagePip.active .pipLabel { color: $color-text-primary; }
+.pipCount {
+  font-family: $font-family-mono;
+  font-size: 9px;
+  color: $color-text-muted;
+}
+.stagePip.active .pipCount { color: $color-accent-primary; }
+.railSep {
+  width: 14px;
+  height: 1px;
+  background: rgba(var(--color-text-muted-rgb), 0.25);
+  flex: none;
+}
+.stagePip.done + .railSep { background: rgba(var(--color-status-completed-rgb), 0.4); }

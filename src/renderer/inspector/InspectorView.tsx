@@ -16,23 +16,31 @@ import { useProject } from '../contexts/ProjectContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
 import { InspectorCanvas } from './InspectorCanvas';
 import { InstanceCardsCanvas } from './InstanceCardsCanvas';
+import { ProductionView } from './production/ProductionView';
 import type { ProjectStateLike } from '../lib/bundleCapability';
 
-type InspectorMode = 'cards' | 'stages';
+type InspectorMode = 'production' | 'cards' | 'stages';
 
 const MODE_STORAGE_KEY = 'dhee.inspector.mode';
 
 function loadMode(): InspectorMode {
   try {
     const v = localStorage.getItem(MODE_STORAGE_KEY);
-    return v === 'stages' ? 'stages' : 'cards';
+    if (v === 'stages' || v === 'cards' || v === 'production') return v;
+    return 'production';
   } catch {
-    return 'cards';
+    return 'production';
   }
 }
 function saveMode(m: InspectorMode): void {
   try { localStorage.setItem(MODE_STORAGE_KEY, m); } catch { /* ignore */ }
 }
+
+const MODES: Array<{ id: InspectorMode; label: string }> = [
+  { id: 'production', label: 'Production' },
+  { id: 'cards', label: 'Cards' },
+  { id: 'stages', label: 'Graph' },
+];
 
 export interface InspectorViewProps {
   /** Fired when the goal node is clicked (PreviewPanel switches tabs). */
@@ -97,38 +105,28 @@ export function InspectorView({ onGoalClick }: InspectorViewProps = {}) {
           fontSize: 11,
         }}
       >
-        <button
-          onClick={() => setModePersistent('cards')}
-          style={{
-            padding: '4px 10px',
-            background: mode === 'cards' ? 'var(--color-accent-primary)' : 'transparent',
-            color: mode === 'cards' ? 'var(--color-accent-primary-contrast, #161821)' : 'var(--color-text-secondary)',
-            border: 'none',
-            borderRadius: 4,
-            fontWeight: mode === 'cards' ? 600 : 400,
-            cursor: 'pointer',
-          }}
-          data-testid="inspector-mode-cards"
-        >
-          Cards
-        </button>
-        <button
-          onClick={() => setModePersistent('stages')}
-          style={{
-            padding: '4px 10px',
-            background: mode === 'stages' ? 'var(--color-accent-primary)' : 'transparent',
-            color: mode === 'stages' ? 'var(--color-accent-primary-contrast, #161821)' : 'var(--color-text-secondary)',
-            border: 'none',
-            borderRadius: 4,
-            fontWeight: mode === 'stages' ? 600 : 400,
-            cursor: 'pointer',
-          }}
-          data-testid="inspector-mode-stages"
-        >
-          Stages
-        </button>
+        {MODES.map((m) => (
+          <button
+            key={m.id}
+            onClick={() => setModePersistent(m.id)}
+            style={{
+              padding: '4px 10px',
+              background: mode === m.id ? 'var(--color-accent-primary)' : 'transparent',
+              color: mode === m.id ? 'var(--color-accent-primary-contrast, #161821)' : 'var(--color-text-secondary)',
+              border: 'none',
+              borderRadius: 4,
+              fontWeight: mode === m.id ? 600 : 400,
+              cursor: 'pointer',
+            }}
+            data-testid={`inspector-mode-${m.id}`}
+          >
+            {m.label}
+          </button>
+        ))}
       </div>
-      {mode === 'cards' ? (
+      {mode === 'production' ? (
+        <ProductionView />
+      ) : mode === 'cards' ? (
         <InstanceCardsCanvas projectDir={projectDirectory ?? null} pollMs={3000} />
       ) : (
         <InspectorCanvas

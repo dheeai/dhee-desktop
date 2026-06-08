@@ -1,13 +1,16 @@
 /**
- * StatusStrip — the only persistent top-edge UI in the binary
- * workspace.
+ * StatusStrip — the only persistent top-edge UI in the binary workspace.
  *
  * Layout (left → right):
- *   ← Back   Project · Bundle   |   RUN STATUS (or idle)   |   overlay launchers   ⚙
+ *   ← Back   Project · Bundle   |   ACTIVITY chip   |   overlay launchers   ⚙
  *
- * Tests pin: project label, run-status appearance & elapsed
- * timing, Stop button wiring, idle vs active state, overlay
- * launchers fire the OverlayProvider's open() with the right key.
+ * The center is now a compact, HONEST activity chip reflecting the walk
+ * runner OR the agent working a turn ("Idle" / "Working" / "Running" /
+ * "Stopping…"). The detailed run readout (task kind, elapsed, Stop) moved
+ * to the TransportBar — those are covered by TransportBar's own tests.
+ *
+ * Tests pin: project label, the honest activity chip across runner/agent
+ * states, overlay launchers, back, badges.
  */
 import '@testing-library/jest-dom';
 import { render, screen, act } from '@testing-library/react';
@@ -16,6 +19,14 @@ import { render, screen, act } from '@testing-library/react';
 jest.mock('../../backend/BackendBadges', () => ({
   __esModule: true,
   default: () => <div data-testid="backend-badges-stub" />,
+}));
+
+// The strip now reads useDheeSession for the agent-busy half of its honest
+// activity chip. Drive it via a mutable mock.
+let mockSessionStatus = 'idle';
+jest.mock('../../../hooks/useDheeSession', () => ({
+  useDheeSession: () => ({ status: mockSessionStatus }),
+  useOptionalDheeSession: () => ({ status: mockSessionStatus }),
 }));
 
 import { StatusStrip } from './StatusStrip';
@@ -36,6 +47,7 @@ beforeEach(() => {
   runnerCancelMock.mockReset();
   runnerStatusMock.mockResolvedValue({ active: false });
   runnerCancelMock.mockResolvedValue({ ok: true });
+  mockSessionStatus = 'idle';
   jest.useFakeTimers();
 });
 
@@ -70,35 +82,30 @@ describe('StatusStrip', () => {
     expect(screen.getByTestId('status-state')).toHaveTextContent(/idle/i);
   });
 
-  it('renders the running task kind + Stop button when a runner is active', async () => {
+  it('reads "Running" when the walk runner is active', async () => {
     runnerStatusMock.mockResolvedValue({
       active: true,
       kind: 'compose_video',
       taskId: 't1',
-      startedAt: Date.now() - 10_000, // 10s ago
+      startedAt: Date.now() - 10_000,
     });
     renderStrip();
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId('status-state')).toHaveTextContent(/running/i);
-    expect(screen.getByText(/compose_video/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /stop/i })).toBeInTheDocument();
+    // kind/elapsed/Stop are the TransportBar's job now — not the strip.
+    expect(screen.queryByRole('button', { name: /stop/i })).toBeNull();
+    expect(screen.queryByText(/compose_video/i)).toBeNull();
   });
 
-  it('Stop button calls runnerCancel', async () => {
-    runnerStatusMock.mockResolvedValue({
-      active: true,
-      kind: 'render',
-      taskId: 't1',
-      startedAt: Date.now(),
-    });
+  it('reads "Working" when the agent is busy but no walk is running (no more "Idle" lie)', async () => {
+    runnerStatusMock.mockResolvedValue({ active: false });
+    mockSessionStatus = 'running';
     renderStrip();
     await act(async () => { await Promise.resolve(); });
-    const stop = screen.getByRole('button', { name: /stop/i });
-    await act(async () => { stop.click(); });
-    expect(runnerCancelMock).toHaveBeenCalled();
+    expect(screen.getByTestId('status-state')).toHaveTextContent(/working/i);
   });
 
-  it('shows "Stopping…" when a cancel is in flight', async () => {
+  it('shows "Stopping…" when a runner cancel is in flight', async () => {
     runnerStatusMock.mockResolvedValue({
       active: true,
       cancelling: true,
@@ -109,18 +116,6 @@ describe('StatusStrip', () => {
     renderStrip();
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId('status-state')).toHaveTextContent(/stopping/i);
-  });
-
-  it('shows elapsed time since the run started (mm:ss)', async () => {
-    runnerStatusMock.mockResolvedValue({
-      active: true,
-      kind: 'render',
-      taskId: 't1',
-      startedAt: Date.now() - 65_000, // 1m 5s ago
-    });
-    renderStrip();
-    await act(async () => { await Promise.resolve(); });
-    expect(screen.getByTestId('status-elapsed')).toHaveTextContent(/01:05|1:05/);
   });
 
   it('renders overlay launcher buttons and fires the right OverlayKey', async () => {

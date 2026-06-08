@@ -6,21 +6,21 @@
  * Layout (left → right):
  *   ← Back   Project · Bundle    [ RUN STATUS or idle ]   overlay launchers
  *
- * The run-status block grows to fill the middle when active, showing
- * the task kind, an elapsed mm:ss timer, and a Stop button. Idle
- * state is a subtle "Idle" pill so the user always knows the engine
- * is reachable.
+ * The center is a compact, HONEST activity chip: it reflects the walk
+ * runner OR the agent working a turn (previously it only knew the walk,
+ * so it read "Idle" while the agent was busy). The detailed readout —
+ * phase, progress, elapsed, Stop — lives in the TransportBar directly
+ * below; the strip just answers "is it working?" at a glance.
  */
-import { useEffect, useState } from 'react';
 import {
   ChevronLeft,
-  Square,
   Settings as SettingsIcon,
   Film,
   FileText,
   Clock,
 } from 'lucide-react';
 import { useRunnerStatus } from '../../../hooks/useRunnerStatus';
+import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useOverlay, type OverlayKey } from '../../../overlays/OverlayContext';
 import BackendBadges from '../../backend/BackendBadges';
 import styles from './StatusStrip.module.scss';
@@ -34,25 +34,13 @@ export interface StatusStripProps {
   bundleId?: string;
 }
 
-function formatElapsed(startedAt: number, now: number): string {
-  const sec = Math.max(0, Math.floor((now - startedAt) / 1000));
-  const mm = Math.floor(sec / 60).toString().padStart(2, '0');
-  const ss = (sec % 60).toString().padStart(2, '0');
-  return `${mm}:${ss}`;
-}
-
 export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps) {
-  const { status, active, cancelling, cancel } = useRunnerStatus();
+  const { active: runnerActive, cancelling } = useRunnerStatus();
+  const { status: sessionStatus } = useDheeSession();
   const { open } = useOverlay();
-  const [now, setNow] = useState<number>(() => Date.now());
-
-  // Tick a clock once per second so the elapsed counter updates
-  // independently of the runner poll cadence.
-  useEffect(() => {
-    if (!active) return;
-    const id = setInterval(() => setNow(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [active]);
+  const agentBusy = sessionStatus === 'running';
+  const active = runnerActive || agentBusy;
+  const activityLabel = cancelling ? 'Stopping…' : runnerActive ? 'Running' : 'Working';
 
   const launchers: Array<{ key: OverlayKey; label: string; Icon: typeof SettingsIcon }> = [
     { key: 'library', label: 'Library', Icon: Film },
@@ -93,26 +81,7 @@ export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps)
         ) : (
           <span className={styles.runningPill} data-testid="status-state">
             <span className={`${styles.dot} ${cancelling ? styles.dotCancel : styles.dotRun}`} />
-            <span className={styles.runLabel}>
-              {cancelling ? 'Stopping…' : 'Running'}
-            </span>
-            <span className={styles.kind}>{status?.kind ?? 'task'}</span>
-            {status?.startedAt ? (
-              <span className={styles.elapsed} data-testid="status-elapsed">
-                {formatElapsed(status.startedAt, now)}
-              </span>
-            ) : null}
-            <button
-              type="button"
-              className={styles.stopButton}
-              onClick={() => void cancel()}
-              aria-label="Stop"
-              title="Stop the current run"
-              disabled={cancelling}
-            >
-              <Square size={11} fill="currentColor" />
-              <span>Stop</span>
-            </button>
+            <span className={styles.runLabel}>{activityLabel}</span>
           </span>
         )}
       </div>
