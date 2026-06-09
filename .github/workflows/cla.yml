@@ -1,15 +1,12 @@
 # CLA Assistant — asks first-time contributors to sign CLA.md before their PR
 # can merge, then remembers their signature forever (one-time, ~30s for them).
 #
-# ── ONE-TIME SETUP (repo admin) ────────────────────────────────────────────
-#  1. Create a Personal Access Token (classic) with `repo` scope, OR a
-#     fine-grained token with Contents read/write on this repo. It is used to
-#     commit signatures to the `cla-signatures` branch.
-#  2. Add it as a repository secret named  CLA_ASSISTANT_PAT
-#       Settings → Secrets and variables → Actions → New repository secret
-#  3. Confirm the team GitHub usernames in the `allowlist` below (members whose
-#     IP is already assigned via employment don't need to sign).
-# ────────────────────────────────────────────────────────────────────────────
+# Signatures are stored in THIS repo on the `cla-signatures` branch, so the
+# built-in GITHUB_TOKEN is sufficient — NO Personal Access Token needed.
+# (A PAT is only required when signatures are stored in a separate repo.)
+#
+# Only setup left: confirm the team GitHub usernames in the `allowlist` below
+# (members whose IP is already assigned via employment don't need to sign).
 
 name: CLA Assistant
 
@@ -34,11 +31,9 @@ jobs:
         uses: contributor-assistant/github-action@v2.6.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # PAT used only to store signatures on the cla-signatures branch:
-          PERSONAL_ACCESS_TOKEN: ${{ secrets.CLA_ASSISTANT_PAT }}
         with:
           path-to-signatures: 'signatures/cla.json'
-          path-to-document: 'https://github.com/dheeai/dhee-desktop/blob/main/CLA.md'
+          path-to-document: 'https://github.com/dheeai/dhee-desktop/blob/master/CLA.md'
           branch: 'cla-signatures'
           # Team members with employment IP assignment — they don't sign.
           # VERIFY these usernames before relying on the workflow.
