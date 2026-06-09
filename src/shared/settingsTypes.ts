@@ -84,6 +84,12 @@ export interface AppSettings {
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */
   comfyuiUrl: string;
+  /**
+   * Opt-in single-GPU coordination. When enabled, chat is paused while
+   * a local ComfyUI render is actively holding the GPU so a local
+   * pi-agent LLM cannot compete for VRAM. Cloud lanes remain usable.
+   */
+  singleGpuMode: boolean;
   /** Comfy Cloud API key used when comfyuiUrl points at cloud.comfy.org. */
   comfyCloudApiKey: string;
   /**

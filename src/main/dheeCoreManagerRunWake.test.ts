@@ -21,7 +21,10 @@
  *      (headless) → no nudge, no throw.
  *   7. explicit spec.sessionId is honored when it maps to a session.
  */
-import { describe, expect, it, jest, beforeEach } from '@jest/globals';
+import { describe, expect, it, jest, beforeEach, afterEach } from '@jest/globals';
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
 
 jest.mock('electron', () => ({ app: { isPackaged: false } }));
 
@@ -97,6 +100,34 @@ beforeEach(() => {
   runTurnSpy.mockResolvedValue({ ok: true, assistant_text: 'ok', tool_calls: [] });
 });
 
+const tempDirs: string[] = [];
+afterEach(() => {
+  for (const dir of tempDirs.splice(0)) {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+function projectWithFinalVideo(): string {
+  const dir = mkdtempSync(join(tmpdir(), 'dhee-run-wake-'));
+  tempDirs.push(dir);
+  mkdirSync(join(dir, 'assets/videos/final'), { recursive: true });
+  writeFileSync(join(dir, 'assets/videos/final/final_video.mp4'), 'fake video');
+  writeFileSync(
+    join(dir, 'project.json'),
+    JSON.stringify({
+      walkState: {
+        nodes: {
+          final_video: {
+            status: 'completed',
+            outputPath: 'assets/videos/final/final_video.mp4',
+          },
+        },
+      },
+    }),
+  );
+  return dir;
+}
+
 /**
  * Establish a live agent session focused on a project + prime
  * lastEventCb (chatPrompt caches the eventCb). Returns the captured
@@ -111,20 +142,35 @@ async function primeSession(mgr: InstanceType<typeof dheeCoreManager>, sessionId
 }
 
 describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
-  it('1. completed + idle owning session → injects a completed nudge', async () => {
+  it('1. completed + final output → emits notice + media directly without waking the LLM', async () => {
     const mgr = makeMgr();
-    await primeSession(mgr, 's-1', '/tmp/proj-a');
+    const projectDir = projectWithFinalVideo();
+    const events = await primeSession(mgr, 's-1', projectDir);
     runTurnSpy.mockClear();
 
-    mgr.onRunTerminal('completed', terminalEvent('/tmp/proj-a'));
+    mgr.onRunTerminal('completed', terminalEvent(projectDir));
     // onRunTerminal fires chatPrompt asynchronously (void). Let the
     // microtask/promise chain flush.
     await new Promise((r) => setTimeout(r, 0));
 
-    expect(runTurnSpy).toHaveBeenCalledTimes(1);
-    const msg = runTurnSpy.mock.calls[0]![1] as string;
-    expect(msg).toMatch(/completed/i);
-    expect(msg).toMatch(/^\[system\]/);
+    expect(runTurnSpy).not.toHaveBeenCalled();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          eventName: 'notification',
+          data: expect.objectContaining({
+            message: expect.stringMatching(/Bundle run completed/i),
+          }),
+        }),
+        expect.objectContaining({
+          eventName: 'media_generated',
+          data: expect.objectContaining({
+            kind: 'video',
+            path: join(projectDir, 'assets/videos/final/final_video.mp4'),
+          }),
+        }),
+      ]),
+    );
   });
 
   it('1b. completed-but-GATED + idle → injects a gate nudge, not a plain completion (issue #133)', async () => {
@@ -254,14 +300,25 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     expect(runTurnSpy).not.toHaveBeenCalled();
   });
 
-  it('7. explicit spec.sessionId is honored', async () => {
+  it('7. explicit spec.sessionId is honored for direct completion notices', async () => {
     const mgr = makeMgr();
-    await primeSession(mgr, 's-7', '/tmp/proj-d');
+    const events = await primeSession(mgr, 's-7', '/tmp/proj-d');
     runTurnSpy.mockClear();
 
     mgr.onRunTerminal('completed', terminalEvent('/tmp/proj-d', undefined, 's-7'));
     await new Promise((r) => setTimeout(r, 0));
-    expect(runTurnSpy).toHaveBeenCalledTimes(1);
+    expect(runTurnSpy).not.toHaveBeenCalled();
+    expect(events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sessionId: 's-7',
+          eventName: 'notification',
+          data: expect.objectContaining({
+            message: expect.stringMatching(/Bundle run completed/i),
+          }),
+        }),
+      ]),
+    );
   });
 
   it('9. hard-cancel watchdog force-resets a turn whose in-flight tool never releases the lock', async () => {

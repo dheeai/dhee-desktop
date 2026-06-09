@@ -71,6 +71,7 @@ const emptySettings: AppSettings = {
   vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
+  singleGpuMode: false,
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai',
@@ -103,6 +104,7 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
     llmProvider: next.llmProvider === 'gemini' ? 'gemini' : 'openai',
     comfyuiMode: comfyuiUrl ? 'custom' : 'inherit',
     comfyuiUrl,
+    singleGpuMode: next.singleGpuMode === true,
     comfyCloudApiKey: next.comfyCloudApiKey ?? '',
     googleApiKey: next.googleApiKey ?? '',
     geminiModel: next.geminiModel?.trim() || emptySettings.geminiModel,
@@ -336,7 +338,7 @@ export default function SettingsPanel({
 
   const handleInput = (
     key: keyof AppSettings,
-    value: string | number | undefined,
+    value: string | number | boolean | undefined,
   ) => {
     // Defense-in-depth: the cloud-lane checkboxes are `disabled` when
     // !account so this branch is normally unreachable from the UI, but
@@ -367,6 +369,7 @@ export default function SettingsPanel({
       vlmBackend: normalized.vlmBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
+      singleGpuMode: normalized.singleGpuMode,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
       llmProvider: normalized.llmProvider,
       googleApiKey: normalized.googleApiKey,
@@ -869,6 +872,25 @@ export default function SettingsPanel({
                       </p>
                     </>
                   )}
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
+                  <legend>Single GPU Mode</legend>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={form.singleGpuMode}
+                      onChange={(event) =>
+                        handleInput('singleGpuMode', event.target.checked)
+                      }
+                    />
+                    Pause chat during local ComfyUI renders
+                  </label>
+                  <p className={styles.infoText}>
+                    Use this when local ComfyUI and a local LLM share one GPU.
+                    Chat stays available during LLM work and pauses only while
+                    local ComfyUI is rendering.
+                  </p>
                 </fieldset>
 
                 <fieldset className={styles.fieldset}>

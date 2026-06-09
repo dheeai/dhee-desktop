@@ -27,6 +27,7 @@ const baseSettings: AppSettings = {
   vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
+  singleGpuMode: false,
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai',

@@ -38,6 +38,7 @@ const defaults: AppSettings = {
   vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
+  singleGpuMode: false,
   comfyCloudApiKey: '',
   comfyuiTimeout: FIXED_COMFYUI_TIMEOUT_SECONDS,
   llmProvider: 'openai',
@@ -162,6 +163,8 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
       ? 'cloud'
       : 'local';
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
+  const singleGpuMode =
+    (value as { singleGpuMode?: unknown } | null | undefined)?.singleGpuMode === true;
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
   const llmProvider = normalizeLLMProvider(value?.llmProvider);
@@ -231,6 +234,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     vlmBackend,
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
+    singleGpuMode,
     comfyCloudApiKey,
     comfyEndpoints,
     comfyuiTimeout: FIXED_COMFYUI_TIMEOUT_SECONDS,

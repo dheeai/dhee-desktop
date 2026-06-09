@@ -263,6 +263,28 @@
   position: relative;
 }
 
+.singleGpuBanner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid rgba(var(--color-warning-rgb), 0.34);
+  border-radius: 8px;
+  background: rgba(var(--color-bg-panel-elevated-rgb), 0.72);
+  color: $color-text-primary;
+  font-size: $font-size-xs;
+  line-height: 1.4;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  svg {
+    flex: 0 0 auto;
+    color: $color-warning;
+  }
+}
+
 .textarea {
   width: 100%;
   background: $color-bg-panel-elevated;

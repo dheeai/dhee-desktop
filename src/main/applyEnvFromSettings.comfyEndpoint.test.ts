@@ -58,6 +58,7 @@ const base = {
   // ComfyUI
   comfyuiMode: 'custom' as const,
   comfyuiUrl: TAILNET,
+  singleGpuMode: false,
   comfyuiTimeout: 1800,
   comfyCloudApiKey: '',
   comfyEndpoints: {} as Record<string, string>,
