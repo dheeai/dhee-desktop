@@ -6,8 +6,9 @@
  * Non-blocking `dhee_start_run` ends the agent turn immediately, so the
  * agent is no longer "watching" the run. When the run finishes we tap
  * it on the shoulder with one of these messages so it can announce
- * completion or react to a failure — replacing the single-turn
- * narration the old blocking `dhee_run_bundle` gave for free.
+ * completion or react to a failure — supplying the narration a blocking
+ * run-and-wait would have given inline (there is intentionally no such
+ * blocking agent tool; start_run + this nudge is the only run path).
  *
  * Kept pure + separate so the wording + the transient/structural
  * classification are unit-testable without the Electron/runner stack.

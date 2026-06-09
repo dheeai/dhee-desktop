@@ -1276,7 +1276,7 @@ describe('ChatPanelEmbedded', () => {
   // parallel. Resume/Stop in the header target the background
   // session; the inline send button stays Send-only.
 
-  it('clicking Resume drives the pi-agent via chatPrompt (Phase 6.5c.c) — agent then calls dhee_run_bundle which dispatches via BackgroundTaskRunner', async () => {
+  it('clicking Resume drives the pi-agent via chatPrompt — agent then calls dhee_start_run which dispatches via BackgroundTaskRunner', async () => {
     // Architecture: dhee_run_to was previously dispatched on a
     // dedicated bg session; now dhee-core's runner singleton
     // handles detached execution, so the chat panel can fire from
@@ -1315,16 +1315,15 @@ describe('ChatPanelEmbedded', () => {
       fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
     });
 
-    // Phase 6.5c.c: Resume routes through chatPrompt instead of
-    // runTask, so the pi-agent owns bundle dispatch. The agent
-    // (post-Phase-6.5c.c) calls dhee_run_bundle which goes via
-    // BackgroundTaskRunner — but at this layer we only assert that
-    // the chatPrompt message names dhee_run_bundle so the agent
-    // knows which tool to invoke.
+    // Resume routes through chatPrompt instead of runTask, so the
+    // pi-agent owns bundle dispatch. The agent calls dhee_start_run
+    // (non-blocking) which goes via BackgroundTaskRunner — but at this
+    // layer we only assert that the chatPrompt message names
+    // dhee_start_run so the agent knows which tool to invoke.
     expect(mockState.chatPromptCalls.length).toBeGreaterThanOrEqual(1);
     const last = mockState.chatPromptCalls[mockState.chatPromptCalls.length - 1];
     expect(last?.sessionId).toBe('s-1');
-    expect(last?.message).toMatch(/dhee_run_bundle/);
+    expect(last?.message).toMatch(/dhee_start_run/);
   });
 
   it('clicking Resume kicks off a dhee_run_to task, then Stop appears once runnerStatus reports active', async () => {

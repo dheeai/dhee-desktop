@@ -1784,7 +1784,7 @@ export class dheeCoreManager {
    * informational only (the runner reads the spec's projectDir +
    * stage; it doesn't interpret natural language). For pi-agent-
    * driven chat where the model picks tools, Phase 6.2b will hang
-   * pi-agent in-process and have it call dhee_run_bundle.
+   * pi-agent in-process and have it call dhee_start_run.
    *
    * Translates the runner's typed events (tool / result /
    * notification / asset / terminal) into dheeCoreEvents matching
