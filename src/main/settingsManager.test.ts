@@ -100,4 +100,14 @@ describe('settingsManager theme normalization', () => {
     expect(normalized.comfyuiUrl).toBe('https://cloud.comfy.org');
     expect(normalized.comfyCloudApiKey).toBe('cloud-test-key');
   });
+
+  it('defaults single GPU mode off and preserves explicit opt-in', () => {
+    expect(normalizeSettings(baseSettings).singleGpuMode).toBe(false);
+    expect(
+      normalizeSettings({
+        ...baseSettings,
+        singleGpuMode: true,
+      }).singleGpuMode,
+    ).toBe(true);
+  });
 });

@@ -20,7 +20,7 @@
  */
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import { isLocalLlmUrl } from '../shared/localUrl';
-import type { OkResponse } from '../shared/dheeIpc';
+import type { OkResponse, RunnerCurrentResource } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
 import {
@@ -88,6 +88,40 @@ function getPackagedManagerModuleUrl(): string | null {
       'index.js',
     ),
   ).href;
+}
+
+function inferMediaKind(filePath: string): 'image' | 'video' {
+  return /\.(mp4|mov|webm|mkv|m4v)$/i.test(filePath) ? 'video' : 'image';
+}
+
+function resolveCompletedRunOutput(projectDir: string): { filePath: string; kind: 'image' | 'video' } | null {
+  const projectJsonPath = path.join(projectDir, 'project.json');
+  if (!fsExistsSync(projectJsonPath)) return null;
+  try {
+    const project = JSON.parse(fsReadFileSync(projectJsonPath, 'utf8')) as {
+      walkState?: {
+        nodes?: Record<string, { status?: string; outputPath?: string }>;
+      };
+    };
+    const nodes = project.walkState?.nodes ?? {};
+    const finalVideo = nodes.final_video;
+    const relOrAbs =
+      finalVideo?.status === 'completed' && finalVideo.outputPath
+        ? finalVideo.outputPath
+        : Object.values(nodes).find((entry) =>
+            entry.status === 'completed' &&
+            typeof entry.outputPath === 'string' &&
+            /\.(mp4|mov|webm|mkv|m4v)$/i.test(entry.outputPath),
+          )?.outputPath;
+    if (!relOrAbs) return null;
+    const filePath = path.isAbsolute(relOrAbs)
+      ? relOrAbs
+      : path.join(projectDir, relOrAbs);
+    return { filePath, kind: inferMediaKind(filePath) };
+  } catch (err) {
+    log.warn('[dheeCoreManager] failed to resolve completed run output:', err);
+    return null;
+  }
 }
 
 // Phase 6.4: narrowed to the host-helper surface that survives the
@@ -229,6 +263,7 @@ type RunnersModule = {
       id: string;
       spec: { kind: string; projectName: string; sessionId: string };
       startedAt: number;
+      currentResource?: RunnerCurrentResource | null;
     };
     isCancelling?: () => boolean;
   };
@@ -1181,12 +1216,42 @@ export class dheeCoreManager {
       // announces the real reason (issue #133) — a gated pause must not
       // read as a finish, or the agent confabulates why downstream
       // produced nothing.
+      if (!gatedAfter && sessionId && this.lastEventCb && projectDir) {
+        const output = resolveCompletedRunOutput(projectDir);
+        this.emitRunNotice(
+          sessionId,
+          'info',
+          output
+            ? `Bundle run completed. Final output: ${path.basename(output.filePath)}.`
+            : 'Bundle run completed.',
+        );
+        if (output) {
+          this.lastEventCb({
+            eventName: 'media_generated',
+            sessionId,
+            data: {
+              kind: output.kind,
+              path: output.filePath,
+              project: path.basename(projectDir),
+            },
+          });
+        }
+        // Do not wake the LLM for a successful end-to-end completion:
+        // it already has enough context and may choose expensive or
+        // irrelevant discovery tools. The renderer can show the final
+        // media directly from walkState.
+        return;
+      }
+
       const nudge = gatedAfter
         ? buildGatedNudge({
             gatedAfter,
             ...(payload.task?.pendingAfterGate ? { pendingAfterGate: payload.task.pendingAfterGate } : {}),
           })
-        : buildCompletedNudge({});
+        : buildCompletedNudge({
+            ...(projectDir ? { projectDir } : {}),
+            nodeId: 'final_video',
+          });
       // Nudge the agent to announce (only when there's a live, idle session).
       if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
         void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
@@ -2124,6 +2189,7 @@ export class dheeCoreManager {
     projectName?: string;
     startedAt?: number;
     sessionId?: string;
+    currentResource?: RunnerCurrentResource | null;
   }> {
     const mod = await loadRunnersModule();
     const runner = mod.getBackgroundTaskRunner();
@@ -2137,7 +2203,17 @@ export class dheeCoreManager {
       projectName: active.spec.projectName,
       startedAt: active.startedAt,
       sessionId: active.spec.sessionId,
+      currentResource: active.currentResource ?? null,
     };
+  }
+
+  private async isSingleGpuChatBlocked(): Promise<boolean> {
+    if (this.lastSettings?.singleGpuMode !== true) return false;
+    const status = await this.getBackgroundTaskStatus().catch(() => null);
+    return (
+      status?.active === true &&
+      status.currentResource?.kind === 'local_comfy'
+    );
   }
 
   /**
@@ -2424,6 +2500,14 @@ export class dheeCoreManager {
     // this conversation can re-wake the agent when it finishes.
     if (eventCb) this.lastEventCb = eventCb;
     void this.ensureRunWakeSubscription();
+
+    if (await this.isSingleGpuChatBlocked()) {
+      return {
+        ok: false,
+        error:
+          'Single GPU mode is active: chat is paused while local ComfyUI is rendering. Use Stop to interrupt the render, or switch ComfyUI/LLM to cloud to chat during renders.',
+      };
+    }
 
     // chatDeps is lazy-loaded from dhee-core; tests inject via __setChatDeps.
     let deps: ChatDeps;

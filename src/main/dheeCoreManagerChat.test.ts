@@ -22,7 +22,7 @@ jest.mock('electron', () => ({
 }));
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
-const { dheeCoreManager, __setChatDeps } =
+const { dheeCoreManager, __setChatDeps, __setRunnersLoader } =
   require('./dheeCoreManager') as typeof import('./dheeCoreManager');
 
 type AnyAsync = (...args: unknown[]) => Promise<unknown>;
@@ -67,6 +67,14 @@ beforeEach(() => {
     assistant_text: 'Hello from the agent.',
     tool_calls: [{ name: 'dhee_get_status' }],
   });
+  __setRunnersLoader(async () => ({
+    getBackgroundTaskRunner: () => ({
+      cancel: () => false,
+      getActive: () => null,
+      isCancelling: () => false,
+      on: () => () => undefined,
+    }),
+  }) as never);
 });
 
 describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
@@ -105,6 +113,40 @@ describe('dheeCoreManager.chatPrompt (Phase 6.5a)', () => {
     await mgr.chatPrompt('s-3', 'x');
     const opts = runTurnSpy.mock.calls[0]![2] as { keepAlive?: boolean } | undefined;
     expect(opts?.keepAlive).toBe(true);
+  });
+
+  it('rejects chat while single GPU mode is paused on an active local ComfyUI render', async () => {
+    __setRunnersLoader(async () => ({
+      getBackgroundTaskRunner: () => ({
+        cancel: () => true,
+        getActive: () => ({
+          id: 'task-1',
+          spec: { kind: 'run_to', projectName: 'p', sessionId: 's-gpu' },
+          startedAt: 1,
+          currentResource: {
+            kind: 'local_comfy',
+            tool: 'comfy.tti',
+            nodeId: 'shot_image',
+            startedAt: 1,
+          },
+        }),
+        isCancelling: () => false,
+        on: () => () => undefined,
+      }),
+    }) as never);
+    const mgr = new dheeCoreManager();
+    mgr.__setLastSettingsForTesting({
+      ...(TEST_SETTINGS as Record<string, unknown>),
+      singleGpuMode: true,
+    } as never);
+    await mgr.focusSessionProject('s-gpu', 'p', '/tmp/p');
+
+    const result = await mgr.chatPrompt('s-gpu', 'can I ask?');
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/Single GPU mode/i);
+    expect(buildSessionSpy).not.toHaveBeenCalled();
+    expect(runTurnSpy).not.toHaveBeenCalled();
   });
 
   it('passes the Dhee Cloud proxy base URL into buildPiSession when LLM backend is cloud', async () => {

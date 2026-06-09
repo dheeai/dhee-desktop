@@ -44,11 +44,15 @@ export function isTransientFailure(error: string | undefined): boolean {
   return TRANSIENT_HINTS.some((h) => m.includes(h));
 }
 
-export function buildCompletedNudge(opts: { videoPath?: string }): string {
+export function buildCompletedNudge(opts: { videoPath?: string; projectDir?: string; nodeId?: string }): string {
   const where = opts.videoPath ? ` The final video is at ${opts.videoPath}.` : '';
+  const show =
+    opts.projectDir && opts.nodeId
+      ? ` Call dhee_show_node_output with projectDir="${opts.projectDir}" and nodeId="${opts.nodeId}" if you need to show it. Do not call dhee_describe_bundle, dhee_list_bundles, or dhee_read project.json.`
+      : '';
   return (
     `[system] The bundle run just completed in the background.${where} ` +
-    `Tell the user it's done and offer to show it. Do not start another run unless they ask.`
+    `Tell the user it's done.${show} Do not start another run unless they ask.`
   );
 }
 

@@ -16,6 +16,7 @@ function baseSettings(overrides: Partial<AppSettings> = {}): AppSettings {
     vlmBackend: 'local',
     comfyuiMode: 'custom',
     comfyuiUrl: '',
+    singleGpuMode: false,
     comfyCloudApiKey: '',
     comfyuiTimeout: 1800,
     llmProvider: 'openai',

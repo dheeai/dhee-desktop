@@ -14,6 +14,7 @@ describe('App', () => {
           get: jest.fn().mockResolvedValue({
             comfyuiMode: 'inherit',
             comfyuiUrl: '',
+            singleGpuMode: false,
             comfyCloudApiKey: '',
             comfyuiTimeout: 1800,
             llmProvider: 'lmstudio',

@@ -31,11 +31,13 @@ jest.mock('../../../contexts/WorkspaceContext', () => ({
 // saveConnectionSettings stub records writes so the toggle-click
 // tests can assert on them.
 let mockSavedConnectionSettings: Array<Record<string, unknown>> = [];
+let mockSingleGpuMode = false;
 jest.mock('../../../contexts/AppSettingsContext', () => ({
   useAppSettings: () => ({
     settings: {
       piOversight: true,
       vlmJudge: true,
+      singleGpuMode: mockSingleGpuMode,
     },
     saveConnectionSettings: jest.fn(async (patch: Record<string, unknown>) => {
       mockSavedConnectionSettings.push(patch);
@@ -121,6 +123,7 @@ function publishEvent(eventName: dheeEventName, data: unknown): void {
 beforeEach(() => {
   mockWorkspaceProjectName = null;
   mockSavedConnectionSettings = [];
+  mockSingleGpuMode = false;
   mockState = {
     runTaskCalls: [],
     chatPromptCalls: [],
@@ -442,6 +445,36 @@ describe('ChatPanelEmbedded', () => {
       'how many shots are there?',
     );
     // …and the background run was NOT cancelled (no cancelTask fired).
+    expect(mockState.cancelCalls).toHaveLength(0);
+  });
+
+  it('single GPU mode pauses chat while a local ComfyUI render is active', async () => {
+    mockSingleGpuMode = true;
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+      jest.fn(async () => ({
+        active: true,
+        projectName: 'p',
+        currentResource: {
+          kind: 'local_comfy',
+          tool: 'comfy.tti',
+          nodeId: 'shot_image',
+          startedAt: Date.now(),
+        },
+      }));
+
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByText(/Single GPU mode: chat is paused/i)).toBeInTheDocument(),
+    );
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(input).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: 'how many shots are there?' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(mockState.chatPromptCalls).toHaveLength(0);
     expect(mockState.cancelCalls).toHaveLength(0);
   });
 

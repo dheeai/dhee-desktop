@@ -39,7 +39,8 @@ import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
-import type { dheeEvent } from '../../../../shared/dheeIpc';
+import { useAppSettings } from '../../../contexts/AppSettingsContext';
+import type { dheeEvent, RunnerStatusResponse } from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
 import {
@@ -219,6 +220,7 @@ export default function ChatPanelEmbedded() {
   const firstRunTour = useOptionalFirstRunTour();
   const agent = useAgent();
   const chatQuestions = useChatQuestions();
+  const { settings } = useAppSettings();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
@@ -422,6 +424,8 @@ export default function ChatPanelEmbedded() {
   // button reflects reality regardless of which tool pi-agent fired
   // to start the run.
   const [runnerActive, setRunnerActive] = useState(false);
+  const [runnerCurrentResource, setRunnerCurrentResource] =
+    useState<RunnerStatusResponse['currentResource'] | null>(null);
 
   // Stop-after-each-collection gate. Per-project: mirrors
   // `features.gateAfterCollections` in the active project's
@@ -540,6 +544,7 @@ export default function ChatPanelEmbedded() {
         // window catches any run that doesn't surface via runnerStatus.
         const recentRender = Date.now() - lastRenderEventRef.current < RENDER_ACTIVITY_TTL_MS;
         setRunnerActive(!!status?.active || recentRender);
+        setRunnerCurrentResource(status?.currentResource ?? null);
         // Mirror server-side `cancelling` into local pendingCancel.
         // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"
@@ -553,7 +558,10 @@ export default function ChatPanelEmbedded() {
           setPendingCancel((prev) => (prev ? prev : true));
         }
       } catch {
-        if (!cancelled) setRunnerActive(false);
+        if (!cancelled) {
+          setRunnerActive(false);
+          setRunnerCurrentResource(null);
+        }
       }
     };
     tick();
@@ -974,10 +982,15 @@ export default function ChatPanelEmbedded() {
     setChatAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const singleGpuChatBlocked =
+    settings?.singleGpuMode === true &&
+    runnerCurrentResource?.kind === 'local_comfy';
+
   const handleSend = async () => {
     const text = input.trim();
     // A turn must have either text or at least one attachment.
     if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
+    if (singleGpuChatBlocked) return;
     firstRunTour.notifyTourEvent('chat_prompt_sent');
 
     // If pi-agent is mid-turn (e.g. running a multi-step regen +
@@ -1260,7 +1273,8 @@ export default function ChatPanelEmbedded() {
             ? 'Connecting'
             : 'Idle';
 
-  const sendActive = input.trim().length > 0 && isReady;
+  const chatInputDisabled = !isReady || singleGpuChatBlocked;
+  const sendActive = input.trim().length > 0 && isReady && !singleGpuChatBlocked;
 
   return (
     <div className={styles.root}>
@@ -1561,13 +1575,23 @@ export default function ChatPanelEmbedded() {
         {/* Live activity transport (issue #161) — the single indicator of
             what Dhee is doing right now. Renders nothing when idle. */}
         <ActivityTransport state={activity} onStop={() => void handleCancel()} />
+        {singleGpuChatBlocked && (
+          <div className={styles.singleGpuBanner} role="status">
+            <AlertCircle size={14} />
+            <span>
+              Single GPU mode: chat is paused while local ComfyUI is
+              rendering. Use Stop to interrupt, or switch to cloud to chat
+              during renders.
+            </span>
+          </div>
+        )}
         <div className={styles.inputWrapper}>
           <button
             type="button"
             onClick={handleAttachClick}
             aria-label="Attach file"
             title="Attach a ComfyUI workflow JSON"
-            disabled={!isReady || isMainBusy}
+            disabled={chatInputDisabled || isMainBusy}
             className={styles.attachButton}
           >
             <Paperclip size={16} />
@@ -1582,18 +1606,23 @@ export default function ChatPanelEmbedded() {
               }
             }}
             placeholder={
-              isMainBusy
+              singleGpuChatBlocked
+                ? 'Single GPU mode pauses chat while local ComfyUI renders…'
+                : isMainBusy
                 ? 'Thinking…'
                 : isRunning
                   ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
                   : 'Type a task and press Enter…'
             }
             rows={2}
-            disabled={!isReady}
+            disabled={chatInputDisabled}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim().length > 0 || chatAttachments.length > 0)
+                if (
+                  !singleGpuChatBlocked &&
+                  (input.trim().length > 0 || chatAttachments.length > 0)
+                )
                   handleSend();
               }
             }}
@@ -1605,12 +1634,14 @@ export default function ChatPanelEmbedded() {
             onClick={handleSend}
             aria-label="Send"
             title={
-              isMainBusy
+              singleGpuChatBlocked
+                ? 'Chat is paused while local ComfyUI renders in Single GPU mode'
+                : isMainBusy
                 ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
             disabled={
-              !isReady ||
+              chatInputDisabled ||
               (input.trim().length === 0 && chatAttachments.length === 0)
             }
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}

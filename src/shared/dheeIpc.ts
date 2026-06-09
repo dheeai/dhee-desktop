@@ -270,6 +270,17 @@ export interface RunnerCancelResponse {
   cancelled: boolean;
 }
 
+export type RunnerCurrentResourceKind = 'local_comfy' | 'local_llm';
+
+export interface RunnerCurrentResource {
+  kind: RunnerCurrentResourceKind;
+  tool?: string;
+  nodeId?: string;
+  itemId?: string;
+  resourceKey?: string;
+  startedAt: number;
+}
+
 export interface RunnerStatusResponse {
   active: boolean;
   /**
@@ -286,6 +297,7 @@ export interface RunnerStatusResponse {
   projectName?: string;
   startedAt?: number;
   sessionId?: string;
+  currentResource?: RunnerCurrentResource | null;
 }
 
 export interface ConfigureProjectRequest {

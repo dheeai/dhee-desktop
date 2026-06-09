@@ -11,6 +11,7 @@ const baseSettings = {
   vlmBackend: 'local' as const,
   comfyuiMode: 'inherit' as const,
   comfyuiUrl: '',
+  singleGpuMode: false,
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai' as const,
@@ -212,6 +213,34 @@ describe('SettingsPanel', () => {
     expect(screen.getByLabelText('Comfy Cloud API Key')).toBeInTheDocument();
     // "OpenAI-Compatible" appears in both LLM and VLM provider toggles.
     expect(screen.getAllByText('OpenAI-Compatible').length).toBeGreaterThan(0);
+  });
+
+  it('saves the single GPU mode toggle with connection settings', async () => {
+    const onSave = jest.fn().mockResolvedValue(true);
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSave}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    fireEvent.click(
+      screen.getByLabelText('Pause chat during local ComfyUI renders'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));
+
+    expect(onSave).toHaveBeenCalled();
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      singleGpuMode: true,
+    });
   });
 
   it('orders Gemini model before API key in provider settings', async () => {

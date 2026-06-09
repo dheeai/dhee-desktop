@@ -36,6 +36,16 @@ describe('buildCompletedNudge', () => {
     expect(n).toMatch(/do not start another run/i);
     expect(n).toMatch(/^\[system\]/);
   });
+  it('when asked to show a known node, forbids bundle discovery and project.json dumps', () => {
+    const n = buildCompletedNudge({
+      projectDir: '/projects/the-exit-interview',
+      nodeId: 'final_video',
+    });
+    expect(n).toContain('dhee_show_node_output');
+    expect(n).toContain('nodeId="final_video"');
+    expect(n).toMatch(/do not call dhee_describe_bundle/i);
+    expect(n).toMatch(/dhee_read project\.json/i);
+  });
   it('works without a video path', () => {
     expect(buildCompletedNudge({})).toMatch(/completed/i);
   });
