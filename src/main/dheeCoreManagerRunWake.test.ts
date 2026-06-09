@@ -127,6 +127,35 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     expect(msg).toMatch(/^\[system\]/);
   });
 
+  it('1b. completed-but-GATED + idle → injects a gate nudge, not a plain completion (issue #133)', async () => {
+    const mgr = makeMgr();
+    await primeSession(mgr, 's-1b', '/tmp/proj-gated');
+    runTurnSpy.mockClear();
+
+    // A terminal "completed" event the runner stamped with the gate
+    // reason (run paused on stop-after-each-collection, not finished).
+    const gatedEvent = {
+      task: {
+        id: 'task-gated',
+        spec: { params: { projectDir: '/tmp/proj-gated' } },
+        gatedAfter: 'shot_image_prompt',
+        pendingAfterGate: ['shot_image', 'final_video'],
+      },
+    };
+    mgr.onRunTerminal('completed', gatedEvent);
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(runTurnSpy).toHaveBeenCalledTimes(1);
+    const msg = runTurnSpy.mock.calls[0]![1] as string;
+    // The agent must hear "paused at the gate", NOT a generic finish —
+    // and be steered off the ComfyUI-misconfig confabulation.
+    expect(msg).toMatch(/paused/i);
+    expect(msg).toContain('shot_image_prompt');
+    expect(msg).toMatch(/gateAfterCollections|stop after each collection/i);
+    expect(msg).toMatch(/not a failure/i);
+    expect(msg).not.toMatch(/just completed in the background/i);
+  });
+
   it('2. failed (structural) + idle → fix-upstream framing + visible notice (C2)', async () => {
     const mgr = makeMgr();
     const events = await primeSession(mgr, 's-2', '/tmp/proj-b');

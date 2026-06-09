@@ -51,6 +51,31 @@ export function buildCompletedNudge(opts: { videoPath?: string }): string {
   );
 }
 
+/**
+ * The run didn't finish — it PAUSED on the stop-after-each-collection
+ * gate (gateAfterCollections), by design, after a collection node. This
+ * nudge makes the gate the explicit reason so the agent announces the
+ * pause + offers to resume, instead of seeing "completed" with empty
+ * downstream stages and confabulating a cause (the issue #133 bug: it
+ * blamed an unconfigured ComfyUI and offered to set it up).
+ */
+export function buildGatedNudge(opts: { gatedAfter?: string; pendingAfterGate?: string[] }): string {
+  const after = opts.gatedAfter ? ` after collection '${opts.gatedAfter}'` : '';
+  const pending = opts.pendingAfterGate ?? [];
+  const pendingLine =
+    pending.length > 0 ? ` Stages still pending behind the gate: ${pending.join(', ')}.` : '';
+  return (
+    `[system] The bundle run PAUSED${after} because the "Stop after each ` +
+    `collection" gate (gateAfterCollections) is on — this is an intentional, ` +
+    `by-design pause, NOT a failure and NOT a missing endpoint.${pendingLine} ` +
+    `The downstream stages have not run yet only because of the gate, so do ` +
+    `NOT attribute the missing output to a missing/unconfigured endpoint ` +
+    `(e.g. ComfyUI). Tell the user this batch is ready to review, then resume ` +
+    `(dhee_start_run) to continue — or, if they don't want per-collection ` +
+    `pauses, they can turn the gate off for an end-to-end run.`
+  );
+}
+
 export function buildFailedNudge(opts: { error?: string; nodeId?: string }): string {
   const at = opts.nodeId ? ` at node ${opts.nodeId}` : '';
   const err = opts.error ?? '(no error detail)';
