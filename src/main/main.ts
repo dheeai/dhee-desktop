@@ -62,6 +62,7 @@ import {
 } from './onboardingManager';
 import { runProviderDiagnostics, probeLlm, warmLlmModel } from './providerDiagnostics';
 import type { LlmProbeInput } from '../shared/providerDiagnosticsTypes';
+import { loadLocalLlmModelForSingleGpu } from './singleGpuCoordinator';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import {
   captureDesktopAuthStarted,
@@ -450,6 +451,13 @@ ipcMain.handle(
   'provider-diagnostics:warm-llm-model',
   async (_event, input: LlmProbeInput) => {
     const settings = getSettings();
+    if (settings.singleGpuMode === true && input.model?.trim()) {
+      return loadLocalLlmModelForSingleGpu(settings, {
+        model: input.model,
+        baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
+        apiKey: input.apiKey ?? settings.openaiApiKey,
+      });
+    }
     return warmLlmModel({
       ...input,
       baseUrl: input.baseUrl ?? settings.openaiBaseUrl,

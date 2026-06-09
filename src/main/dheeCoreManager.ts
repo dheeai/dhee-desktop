@@ -40,6 +40,10 @@ import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, buildStopAtRevi
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
+import {
+  freeComfyBeforeLocalLlm,
+  unloadLocalLlmBeforeLocalComfy,
+} from './singleGpuCoordinator';
 
 export interface dheeCloudAuthRuntime {
   websiteUrl: string;
@@ -183,6 +187,9 @@ type ManagerModule = {
     root: string;
     projectsDir: string;
   };
+  addLocalResourceStartListener?: (
+    listener: (resource: RunnerCurrentResource) => void | Promise<void>,
+  ) => () => void;
 
   // Phase 6.4: workflow CRUD + WorkflowModeRegistry + chat-session
   // persistence are no longer exposed by dhee-core (the underlying
@@ -1045,6 +1052,7 @@ export class dheeCoreManager {
    * needs the same desktop token + website URL cached here.
    */
   private lastCloudAuth: dheeCloudAuthRuntime | null = null;
+  private unsubscribeLocalResourceStart: (() => void) | null = null;
 
   /**
    * Test seam — seed `lastSettings` without going through start().
@@ -1509,6 +1517,15 @@ export class dheeCoreManager {
     // {provider, modelId, apiKey} for the pi-agent.
     this.lastSettings = settings;
     this.lastCloudAuth = cloudAuth ?? null;
+    this.unsubscribeLocalResourceStart?.();
+    this.unsubscribeLocalResourceStart = null;
+    if (settings.singleGpuMode === true) {
+      this.unsubscribeLocalResourceStart =
+        this.managerModule.addLocalResourceStartListener?.(async (resource) => {
+          if (resource.kind !== 'local_comfy') return;
+          await unloadLocalLlmBeforeLocalComfy(settings);
+        }) ?? null;
+    }
 
     // Seed process-wide oversight + VLM flags from persisted
     // AppSettings on the very first run. Pi-agent-in-process
@@ -1525,6 +1542,8 @@ export class dheeCoreManager {
    * started flag so isStarted() reflects reality.
    */
   stop(): void {
+    this.unsubscribeLocalResourceStart?.();
+    this.unsubscribeLocalResourceStart = null;
     this.started = false;
   }
 
@@ -2516,6 +2535,10 @@ export class dheeCoreManager {
         error:
           'Single GPU mode is active: chat is paused while local ComfyUI is rendering. Use Stop to interrupt the render, or switch ComfyUI/LLM to cloud to chat during renders.',
       };
+    }
+
+    if (this.lastSettings) {
+      await freeComfyBeforeLocalLlm(this.lastSettings);
     }
 
     // chatDeps is lazy-loaded from dhee-core; tests inject via __setChatDeps.
