@@ -942,7 +942,7 @@ export default function ChatPanelEmbedded() {
   // greeting instead. The agent's SKILL.md has an "Onboarding a fresh
   // project" section that instructs it to ask one short question, wait
   // for the story, call `dhee_list_bundles`, pick the right bundle,
-  // and call `dhee_create_project(existingDir=…)` + `dhee_run_bundle`.
+  // and call `dhee_create_project(existingDir=…)` + `dhee_start_run`.
   useEffect(() => {
     // Fire ONLY when: a project is focused, the probe finished, the
     // project has no bundle pinned (fresh), and the session is ready.
@@ -1243,11 +1243,11 @@ export default function ChatPanelEmbedded() {
     if (!projectDirectory || !session.sessionId) return;
     setBgSessionId(session.sessionId);
 
-    // Phase 6.5c.c: route Resume through the pi-agent so the agent
-    // is the consistent entry point for bundle runs. Pi-agent's
-    // dhee_run_bundle (post-6.5c.c) dispatches via BackgroundTaskRunner,
-    // so progress events still surface in the status strip.
-    const task = `Continue running the bundle for the current project to completion. Call dhee_run_bundle with projectDir="${projectDirectory}". Stream progress as nodes finish, and once it completes call dhee_show_node_output for the goal node so I can see the result.`;
+    // Route Resume through the pi-agent so the agent is the consistent
+    // entry point for bundle runs. Pi-agent's dhee_start_run dispatches
+    // via BackgroundTaskRunner (non-blocking), so progress events surface
+    // in the status strip and completion comes back as a re-wake nudge.
+    const task = `Continue running the bundle for the current project to completion. Call dhee_start_run with projectDir="${projectDirectory}". You'll be notified when it finishes (or pauses on the stop-after-each-collection gate); once it completes call dhee_show_node_output for the goal node so I can see the result.`;
 
     setMessages((prev) => [
       ...prev,

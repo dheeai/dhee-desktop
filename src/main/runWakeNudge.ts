@@ -6,8 +6,9 @@
  * Non-blocking `dhee_start_run` ends the agent turn immediately, so the
  * agent is no longer "watching" the run. When the run finishes we tap
  * it on the shoulder with one of these messages so it can announce
- * completion or react to a failure — replacing the single-turn
- * narration the old blocking `dhee_run_bundle` gave for free.
+ * completion or react to a failure — supplying the narration a blocking
+ * run-and-wait would have given inline (there is intentionally no such
+ * blocking agent tool; start_run + this nudge is the only run path).
  *
  * Kept pure + separate so the wording + the transient/structural
  * classification are unit-testable without the Electron/runner stack.
@@ -48,6 +49,31 @@ export function buildCompletedNudge(opts: { videoPath?: string }): string {
   return (
     `[system] The bundle run just completed in the background.${where} ` +
     `Tell the user it's done and offer to show it. Do not start another run unless they ask.`
+  );
+}
+
+/**
+ * The run didn't finish — it PAUSED on the stop-after-each-collection
+ * gate (gateAfterCollections), by design, after a collection node. This
+ * nudge makes the gate the explicit reason so the agent announces the
+ * pause + offers to resume, instead of seeing "completed" with empty
+ * downstream stages and confabulating a cause (the issue #133 bug: it
+ * blamed an unconfigured ComfyUI and offered to set it up).
+ */
+export function buildGatedNudge(opts: { gatedAfter?: string; pendingAfterGate?: string[] }): string {
+  const after = opts.gatedAfter ? ` after collection '${opts.gatedAfter}'` : '';
+  const pending = opts.pendingAfterGate ?? [];
+  const pendingLine =
+    pending.length > 0 ? ` Stages still pending behind the gate: ${pending.join(', ')}.` : '';
+  return (
+    `[system] The bundle run PAUSED${after} because the "Stop after each ` +
+    `collection" gate (gateAfterCollections) is on — this is an intentional, ` +
+    `by-design pause, NOT a failure and NOT a missing endpoint.${pendingLine} ` +
+    `The downstream stages have not run yet only because of the gate, so do ` +
+    `NOT attribute the missing output to a missing/unconfigured endpoint ` +
+    `(e.g. ComfyUI). Tell the user this batch is ready to review, then resume ` +
+    `(dhee_start_run) to continue — or, if they don't want per-collection ` +
+    `pauses, they can turn the gate off for an end-to-end run.`
   );
 }
 

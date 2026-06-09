@@ -32,7 +32,7 @@ import {
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
-import { buildCompletedNudge, buildFailedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
+import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -1141,12 +1141,19 @@ export class dheeCoreManager {
    */
   onRunTerminal(kind: 'completed' | 'failed', e: unknown): void {
     const payload = e as {
-      task?: { spec?: { sessionId?: string; params?: { projectDir?: string } } };
+      task?: {
+        spec?: { sessionId?: string; params?: { projectDir?: string } };
+        // Stamped by the core runner when a run "completed" only because
+        // the stop-after-each-collection gate paused it (issue #133).
+        gatedAfter?: string;
+        pendingAfterGate?: string[];
+      };
       error?: string;
     };
     const spec = payload.task?.spec;
     const projectDir = spec?.params?.projectDir;
     const nodeId = extractNodeId(payload.error);
+    const gatedAfter = payload.task?.gatedAfter;
 
     // Resolve the owning live agent chat session (for the nudge): prefer
     // an explicit chat sessionId on the spec; otherwise reverse-look-up
@@ -1165,9 +1172,20 @@ export class dheeCoreManager {
     if (kind === 'completed') {
       // Fresh budget for the next run chain on this project.
       if (projectDir) this.autoRetriedRuns.delete(projectDir);
+      // A "completed" event can mean the run PAUSED on the gate rather
+      // than finishing end-to-end. Pick the matching nudge so the agent
+      // announces the real reason (issue #133) — a gated pause must not
+      // read as a finish, or the agent confabulates why downstream
+      // produced nothing.
+      const nudge = gatedAfter
+        ? buildGatedNudge({
+            gatedAfter,
+            ...(payload.task?.pendingAfterGate ? { pendingAfterGate: payload.task.pendingAfterGate } : {}),
+          })
+        : buildCompletedNudge({});
       // Nudge the agent to announce (only when there's a live, idle session).
       if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
-        void this.chatPrompt(sessionId, buildCompletedNudge({}), this.lastEventCb).catch((err) => {
+        void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
           log.warn('[dheeCoreManager] run-wake nudge failed:', err);
         });
       }
@@ -1766,7 +1784,7 @@ export class dheeCoreManager {
    * informational only (the runner reads the spec's projectDir +
    * stage; it doesn't interpret natural language). For pi-agent-
    * driven chat where the model picks tools, Phase 6.2b will hang
-   * pi-agent in-process and have it call dhee_run_bundle.
+   * pi-agent in-process and have it call dhee_start_run.
    *
    * Translates the runner's typed events (tool / result /
    * notification / asset / terminal) into dheeCoreEvents matching

@@ -2,6 +2,7 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildCompletedNudge,
   buildFailedNudge,
+  buildGatedNudge,
   isTransientFailure,
   extractNodeId,
 } from './runWakeNudge';
@@ -37,6 +38,37 @@ describe('buildCompletedNudge', () => {
   });
   it('works without a video path', () => {
     expect(buildCompletedNudge({})).toMatch(/completed/i);
+  });
+});
+
+describe('buildGatedNudge', () => {
+  it('frames the pause as the by-design gate, names the collection, and is a [system] message', () => {
+    const n = buildGatedNudge({ gatedAfter: 'shot_image_prompt' });
+    expect(n).toMatch(/^\[system\]/);
+    expect(n).toMatch(/paused/i);
+    expect(n).toContain('shot_image_prompt');
+    expect(n).toMatch(/gateAfterCollections|stop after each collection/i);
+    expect(n).toMatch(/by[- ]design|intentional/i);
+  });
+
+  it('explicitly steers away from the ComfyUI-misconfig confabulation and toward resume (issue #133)', () => {
+    const n = buildGatedNudge({
+      gatedAfter: 'shot_image_prompt',
+      pendingAfterGate: ['shot_image', 'final_video'],
+    });
+    expect(n).toMatch(/not a failure/i);
+    expect(n).toMatch(/ComfyUI/);
+    expect(n).toMatch(/resume/i);
+    // Lists what's still pending so the agent doesn't have to guess.
+    expect(n).toContain('shot_image');
+    expect(n).toContain('final_video');
+  });
+
+  it('tolerates a missing gatedAfter / pending list', () => {
+    const n = buildGatedNudge({});
+    expect(n).toMatch(/^\[system\]/);
+    expect(n).toMatch(/paused/i);
+    expect(n).not.toMatch(/Stages still pending/i);
   });
 });
 
