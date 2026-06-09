@@ -7,6 +7,7 @@ import type {
   ThemeId,
 } from '../../../shared/settingsTypes';
 import type {
+  LlmModelInfo,
   ProviderDiagnosticItem,
   ProviderDiagnosticsSnapshot,
   ProviderDiagnosticStatus,
@@ -59,7 +60,13 @@ type Props = {
 type ModelListState = {
   status: 'idle' | 'loading' | 'ready' | 'error';
   models: string[];
+  modelDetails?: LlmModelInfo[];
   message?: string;
+};
+
+type ModelWarmState = {
+  status: 'loading' | 'ready' | 'error';
+  message: string;
 };
 
 const emptyTierConfig: LLMTierConfig = {
@@ -200,6 +207,7 @@ export default function SettingsPanel({
     useState<ProviderDiagnosticsSnapshot | null>(null);
   const [providerDiagnosticsBusy, setProviderDiagnosticsBusy] = useState(false);
   const [modelLists, setModelLists] = useState<Record<string, ModelListState>>({});
+  const [modelWarmStates, setModelWarmStates] = useState<Record<string, ModelWarmState>>({});
   const canUseHostedComfy = canAccountUseHostedComfy(account);
   const isComfyBlockedByPlan = Boolean(account) && !canUseHostedComfy;
 
@@ -287,7 +295,11 @@ export default function SettingsPanel({
   ) => {
     setModelLists((prev) => ({
       ...prev,
-      [key]: { status: 'loading', models: prev[key]?.models ?? [] },
+      [key]: {
+        status: 'loading',
+        models: prev[key]?.models ?? [],
+        modelDetails: prev[key]?.modelDetails,
+      },
     }));
     try {
       const bridge = getProviderDiagnosticsBridge();
@@ -301,6 +313,7 @@ export default function SettingsPanel({
           [key]: {
             status: 'ready',
             models: result.models ?? [],
+            modelDetails: result.modelDetails,
             message: result.message,
           },
         }));
@@ -320,6 +333,45 @@ export default function SettingsPanel({
         [key]: {
           status: 'error',
           models: [],
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  };
+
+  const warmSelectedModel = async (
+    key: string,
+    input: {
+      provider: 'openai' | 'gemini';
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+    },
+  ) => {
+    if (!input.model) return;
+    setModelWarmStates((prev) => ({
+      ...prev,
+      [key]: { status: 'loading', message: `Loading ${input.model}...` },
+    }));
+    try {
+      const bridge = getProviderDiagnosticsBridge();
+      if (!bridge?.warmLlmModel) {
+        throw new Error('Model loading is unavailable in this build.');
+      }
+      const result = await bridge.warmLlmModel(input);
+      setModelWarmStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: result.ok ? 'ready' : 'error',
+          message: result.ok ? result.message : result.detail ?? result.message,
+        },
+      }));
+      await loadModels(key, input);
+    } catch (err) {
+      setModelWarmStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'error',
           message: err instanceof Error ? err.message : String(err),
         },
       }));
@@ -520,6 +572,7 @@ export default function SettingsPanel({
     tourId?: string;
   }) => {
     const state = modelLists[opts.id] ?? { status: 'idle' as const, models: [] };
+    const warmState = modelWarmStates[opts.id];
     const canQuery =
       !opts.disabled &&
       (opts.provider === 'openai' || Boolean((opts.apiKey ?? '').trim()));
@@ -550,8 +603,32 @@ export default function SettingsPanel({
         </div>
         <ComboList
           value={opts.value}
-          onChange={opts.onChange}
-          options={state.models.map((model) => ({ value: model }))}
+          onChange={(value) => {
+            opts.onChange(value);
+            setModelWarmStates((prev) => {
+              const next = { ...prev };
+              delete next[opts.id];
+              return next;
+            });
+          }}
+          onOptionSelect={(value) => {
+            opts.onChange(value);
+            if (opts.provider === 'openai') {
+              void warmSelectedModel(opts.id, {
+                provider: opts.provider,
+                apiKey: opts.apiKey,
+                model: value,
+                ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+              });
+            }
+          }}
+          options={state.models.map((model) => {
+            const detail = state.modelDetails?.find((m) => m.id === model);
+            return {
+              value: model,
+              label: detail?.status ? `${model}  ·  ${detail.status}` : model,
+            };
+          })}
           loading={state.status === 'loading'}
           disabled={opts.disabled}
           triggerDisabled={!canQuery}
@@ -564,6 +641,17 @@ export default function SettingsPanel({
         {state.status === 'ready' && state.models.length > 0 ? (
           <p className={styles.modelListHint}>
             {state.models.length} model{state.models.length === 1 ? '' : 's'} available from endpoint. You can still type a custom id.
+          </p>
+        ) : null}
+        {warmState ? (
+          <p
+            className={
+              warmState.status === 'error'
+                ? styles.modelListError
+                : styles.modelListHint
+            }
+          >
+            {warmState.message}
           </p>
         ) : null}
         {state.status === 'ready' && state.models.length === 0 ? (

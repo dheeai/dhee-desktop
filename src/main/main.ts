@@ -60,7 +60,7 @@ import {
   completeOnboarding,
   getOnboardingState,
 } from './onboardingManager';
-import { runProviderDiagnostics, probeLlm } from './providerDiagnostics';
+import { runProviderDiagnostics, probeLlm, warmLlmModel } from './providerDiagnostics';
 import type { LlmProbeInput } from '../shared/providerDiagnosticsTypes';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import {
@@ -440,6 +440,17 @@ ipcMain.handle(
     // Fall back to the saved base URL when the form didn't supply one.
     const settings = getSettings();
     return probeLlm({
+      ...input,
+      baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
+    });
+  },
+);
+
+ipcMain.handle(
+  'provider-diagnostics:warm-llm-model',
+  async (_event, input: LlmProbeInput) => {
+    const settings = getSettings();
+    return warmLlmModel({
       ...input,
       baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
     });

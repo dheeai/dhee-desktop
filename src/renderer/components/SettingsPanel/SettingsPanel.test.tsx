@@ -336,12 +336,20 @@ describe('SettingsPanel', () => {
       ok: true,
       message: 'Reachable — 2 models available.',
       models: ['qwen-local-a', 'qwen-local-b'],
+      modelDetails: [
+        { id: 'qwen-local-a', status: 'loaded' },
+        { id: 'qwen-local-b', status: 'unloaded' },
+      ],
+    });
+    const warmLlmModel = jest.fn().mockResolvedValue({
+      ok: true,
+      message: 'qwen-local-b is loaded.',
     });
     const onSave = jest.fn().mockResolvedValue(true);
     Object.defineProperty(window, 'electron', {
       configurable: true,
       value: {
-        providerDiagnostics: { probeLlm },
+        providerDiagnostics: { probeLlm, warmLlmModel },
       },
     });
 
@@ -385,8 +393,17 @@ describe('SettingsPanel', () => {
     expect(await screen.findByText(/2 models available from endpoint/i)).toBeInTheDocument();
     const modelField = modelInput.closest('.label') as HTMLElement;
     fireEvent.click(within(modelField).getByRole('button', { name: /Show Models/i }));
-    expect(within(modelField).getByRole('option', { name: 'qwen-local-a' })).toBeInTheDocument();
-    expect(within(modelField).getByRole('option', { name: 'qwen-local-b' })).toBeInTheDocument();
+    expect(within(modelField).getByRole('option', { name: /qwen-local-a.*loaded/i })).toBeInTheDocument();
+    const unloadedOption = within(modelField).getByRole('option', { name: /qwen-local-b.*unloaded/i });
+    expect(unloadedOption).toBeInTheDocument();
+    fireEvent.click(unloadedOption);
+    expect(warmLlmModel).toHaveBeenCalledWith({
+      provider: 'openai',
+      apiKey: '',
+      model: 'qwen-local-b',
+      baseUrl: 'http://100.93.149.119:8080/v1',
+    });
+    expect(await screen.findByText(/qwen-local-b is loaded/i)).toBeInTheDocument();
 
     fireEvent.change(modelInput, { target: { value: 'custom-model-id' } });
     fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));

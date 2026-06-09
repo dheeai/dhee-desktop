@@ -19,6 +19,7 @@ export type ComboListOption = {
 export type ComboListProps = {
   value: string;
   onChange: (value: string) => void;
+  onOptionSelect?: (value: string) => void;
   options: ComboListOption[];
   disabled?: boolean;
   triggerDisabled?: boolean;
@@ -39,6 +40,7 @@ export type ComboListProps = {
 export function ComboList({
   value,
   onChange,
+  onOptionSelect,
   options,
   disabled = false,
   triggerDisabled = false,
@@ -148,7 +150,11 @@ export function ComboList({
                   aria-selected={selected}
                   className={cx(styles.option, selected && styles.optionSelected)}
                   onClick={() => {
-                    onChange(option.value);
+                    if (onOptionSelect) {
+                      onOptionSelect(option.value);
+                    } else {
+                      onChange(option.value);
+                    }
                     setOpen(false);
                   }}
                 >
