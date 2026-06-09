@@ -36,7 +36,7 @@ import {
   parseSessionToolCalls,
   type SessionToolCall,
 } from './parseSessionToolCalls';
-import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
+import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, buildStopAtReviewNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
@@ -1181,7 +1181,7 @@ export class dheeCoreManager {
   onRunTerminal(kind: 'completed' | 'failed', e: unknown): void {
     const payload = e as {
       task?: {
-        spec?: { sessionId?: string; params?: { projectDir?: string } };
+        spec?: { sessionId?: string; params?: { projectDir?: string; stage?: string } };
         // Stamped by the core runner when a run "completed" only because
         // the stop-after-each-collection gate paused it (issue #133).
         gatedAfter?: string;
@@ -1191,6 +1191,7 @@ export class dheeCoreManager {
     };
     const spec = payload.task?.spec;
     const projectDir = spec?.params?.projectDir;
+    const stopAt = typeof spec?.params?.stage === 'string' ? spec.params.stage : undefined;
     const nodeId = extractNodeId(payload.error);
     const gatedAfter = payload.task?.gatedAfter;
 
@@ -1216,7 +1217,15 @@ export class dheeCoreManager {
       // announces the real reason (issue #133) — a gated pause must not
       // read as a finish, or the agent confabulates why downstream
       // produced nothing.
-      if (!gatedAfter && sessionId && this.lastEventCb && projectDir) {
+      if (!gatedAfter && stopAt && sessionId && !this.busySessions.has(sessionId) && this.lastEventCb && projectDir) {
+        const nudge = buildStopAtReviewNudge({ projectDir, stopAt });
+        void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
+          log.warn('[dheeCoreManager] run-wake stopAt nudge failed:', err);
+        });
+        return;
+      }
+
+      if (!gatedAfter && !stopAt && sessionId && this.lastEventCb && projectDir) {
         const output = resolveCompletedRunOutput(projectDir);
         this.emitRunNotice(
           sessionId,

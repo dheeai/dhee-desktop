@@ -202,6 +202,31 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     expect(msg).not.toMatch(/just completed in the background/i);
   });
 
+  it('1c. completed stopAt review run + idle → wakes agent to ask for user approval, not final completion', async () => {
+    const mgr = makeMgr();
+    const projectDir = projectWithFinalVideo();
+    await primeSession(mgr, 's-stopat', projectDir);
+    runTurnSpy.mockClear();
+
+    mgr.onRunTerminal('completed', {
+      task: {
+        id: 'task-stopat',
+        spec: {
+          sessionId: 's-stopat',
+          params: { projectDir, stage: 'shot_image' },
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(runTurnSpy).toHaveBeenCalledTimes(1);
+    const msg = runTurnSpy.mock.calls[0]![1] as string;
+    expect(msg).toMatch(/bounded review run/i);
+    expect(msg).toContain("stopAt='shot_image'");
+    expect(msg).toMatch(/ask the user if they are satisfied/i);
+    expect(msg).not.toMatch(/final video/i);
+  });
+
   it('2. failed (structural) + idle → fix-upstream framing + visible notice (C2)', async () => {
     const mgr = makeMgr();
     const events = await primeSession(mgr, 's-2', '/tmp/proj-b');

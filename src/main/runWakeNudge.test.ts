@@ -3,6 +3,7 @@ import {
   buildCompletedNudge,
   buildFailedNudge,
   buildGatedNudge,
+  buildStopAtReviewNudge,
   isTransientFailure,
   extractNodeId,
 } from './runWakeNudge';
@@ -79,6 +80,20 @@ describe('buildGatedNudge', () => {
     expect(n).toMatch(/^\[system\]/);
     expect(n).toMatch(/paused/i);
     expect(n).not.toMatch(/Stages still pending/i);
+  });
+});
+
+describe('buildStopAtReviewNudge', () => {
+  it('tells the agent to show the review artifact and not continue downstream', () => {
+    const n = buildStopAtReviewNudge({
+      projectDir: '/projects/alex-and-jordan',
+      stopAt: 'shot_image',
+    });
+    expect(n).toMatch(/^\[system\]/);
+    expect(n).toContain("stopAt='shot_image'");
+    expect(n).toContain('dhee_show_node_output');
+    expect(n).toMatch(/ask the user if they are satisfied/i);
+    expect(n).toMatch(/do NOT call dhee_start_run again/i);
   });
 });
 
