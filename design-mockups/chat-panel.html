@@ -1,0 +1,1056 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dhee Studio — Chat Panel (issue #161)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,500&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  /* ===================================================================
+     DHEE STUDIO — CHAT PANEL REDESIGN  (issue #161)
+     "The Director's Conversation" — the agent transcript as a shooting
+     ledger, and the loading state as an ON-SET TRANSPORT (not dots).
+
+       Problem 1  consecutive Dhee msgs each stamped + boxed
+                  → one BYLINE per author run; messages flow beneath it
+       Problem 2  intermediate tool steps flattened into bubbles
+                  → fold into an inline LEDGER RAIL (expandable)
+       #161 core  user is blind to what the agent is doing
+                  → LIVE ACTIVITY transport: verb + object + meter + ETA,
+                    morphing thinking → working → rendering → paused
+       run events → CLAPPERBOARD SLUGS, visually outside conversation
+
+     Tokens mirror the Cinematic theme exactly (see production-view.html).
+     =================================================================== */
+  :root{
+    --bg:#0a0908; --bg-2:#0e0c0a; --panel:#16120e; --panel-2:#1b1610; --panel-3:#1f1812; --inset:#100d0a; --paper:#181109;
+    --line:rgba(255,244,228,.07); --line-2:rgba(255,244,228,.12); --line-3:rgba(255,244,228,.18); --hair-amber:rgba(232,163,61,.18);
+    --ink:#f3ece1; --ink-dim:#bcae9c; --ink-mute:#857a6c; --ink-faint:#564d44;
+    --amber:#e8a33d; --amber-bright:#f6bd5e; --amber-soft:rgba(232,163,61,.14); --amber-glow:rgba(232,163,61,.4);
+    --done:#82a98c; --fail:#cf7a6f; --pending:#6c6359;
+    --r-sm:4px; --r-md:7px; --r-lg:11px; --r-xl:16px; --r-pill:999px;
+    --mono:'JetBrains Mono',monospace; --serif:'Fraunces',Georgia,serif; --sans:'Instrument Sans',system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;} html,body{height:100%;}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;-webkit-font-smoothing:antialiased;}
+  ::-webkit-scrollbar{width:9px;height:9px;} ::-webkit-scrollbar-thumb{background:rgba(255,244,228,.1);border-radius:99px;border:2px solid var(--bg);} ::-webkit-scrollbar-track{background:transparent;}
+
+  /* atmosphere */
+  .grain,.vignette{position:fixed;inset:0;pointer-events:none;z-index:9000;}
+  .grain{opacity:.045;mix-blend-mode:screen;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");animation:grain 7s steps(6) infinite;}
+  @keyframes grain{0%{transform:translate(0,0)}20%{transform:translate(-4%,3%)}40%{transform:translate(3%,-4%)}60%{transform:translate(-3%,2%)}80%{transform:translate(4%,-2%)}100%{transform:translate(0,0)}}
+  .vignette{background:radial-gradient(120% 120% at 50% 30%,transparent 52%,rgba(0,0,0,.5) 100%),radial-gradient(60% 44% at 50% -6%,rgba(232,163,61,.05),transparent 60%);}
+
+  /* ---------- page scaffold ---------- */
+  .page{position:relative;z-index:1;min-height:100vh;display:flex;flex-direction:column;}
+  .masthead{padding:30px 40px 20px;border-bottom:1px solid var(--line);max-width:1320px;margin:0 auto;width:100%;}
+  .masthead .kick{font-family:var(--mono);font-size:10px;letter-spacing:.32em;text-transform:uppercase;color:var(--amber);}
+  .masthead h1{font-family:var(--serif);font-weight:500;font-size:34px;letter-spacing:-.015em;margin:8px 0 6px;color:var(--ink);}
+  .masthead p{font-size:13.5px;color:var(--ink-mute);max-width:760px;line-height:1.6;margin:0;}
+  .masthead p b{color:var(--ink-dim);font-weight:600;}
+
+  .stage{display:grid;grid-template-columns:404px 1fr;gap:46px;padding:36px 40px 70px;max-width:1320px;margin:0 auto;width:100%;align-items:start;}
+  @media(max-width:1080px){.stage{grid-template-columns:1fr;}}
+
+  .col-label{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);margin:0 0 14px;display:flex;align-items:center;gap:10px;}
+  .col-label::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,var(--line-2),transparent);}
+
+  /* ===================================================================
+     THE PANEL — realistic 384px right-rail width, in a device frame
+     =================================================================== */
+  .device{width:404px;border:1px solid var(--line-2);border-radius:var(--r-lg);overflow:hidden;background:linear-gradient(180deg,var(--panel),var(--bg-2));box-shadow:0 50px 90px -50px rgba(0,0,0,.95),0 0 0 1px rgba(0,0,0,.4);position:sticky;top:30px;}
+  .panel{display:flex;flex-direction:column;height:760px;}
+
+  /* panel header */
+  .phead{display:flex;align-items:center;gap:11px;padding:11px 15px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel-2),var(--panel));}
+  .phead .mark{width:24px;height:24px;border-radius:var(--r-sm);display:grid;place-items:center;background:radial-gradient(120% 120% at 30% 20%,var(--amber-bright),var(--amber));color:#1a1206;font-family:var(--serif);font-weight:600;font-size:15px;box-shadow:0 0 14px var(--amber-glow);}
+  .phead .who{display:flex;flex-direction:column;gap:1px;}
+  .phead .who .n{font-family:var(--serif);font-size:16px;font-weight:500;color:var(--ink);line-height:1;}
+  .phead .who .s{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-faint);}
+  .phead .spacer{flex:1;}
+  .phead .pill{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-mute);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 9px;display:flex;align-items:center;gap:6px;}
+  .phead .pill .d{width:5px;height:5px;border-radius:50%;background:var(--done);box-shadow:0 0 6px var(--done);}
+
+  /* transcript scroll area */
+  .stream{flex:1;overflow-y:auto;padding:18px 16px 8px;background:radial-gradient(80% 40% at 30% 0,rgba(232,163,61,.035),transparent 60%);}
+  .stream>*{animation:rise .5s cubic-bezier(.2,0,0,1) both;}
+  .stream>*:nth-child(2){animation-delay:.05s;}.stream>*:nth-child(3){animation-delay:.1s;}.stream>*:nth-child(4){animation-delay:.15s;}.stream>*:nth-child(5){animation-delay:.2s;}.stream>*:nth-child(6){animation-delay:.25s;}
+  @keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+
+  /* ---------- clapperboard system slug ---------- */
+  .slug{display:flex;align-items:center;gap:10px;margin:6px 2px 20px;}
+  .slug .rule{flex:1;height:1px;background:var(--line);}
+  .slug .txt{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-faint);white-space:nowrap;}
+  .slug .txt b{color:var(--ink-mute);font-weight:500;}
+
+  /* run-event slug (amber) — RESUMING / RUN STARTED */
+  .runslug{display:flex;align-items:center;gap:9px;justify-content:center;margin:4px 0 20px;padding:7px 12px;border:1px solid var(--hair-amber);border-radius:var(--r-pill);background:linear-gradient(180deg,rgba(232,163,61,.08),rgba(232,163,61,.02));font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);width:max-content;max-width:100%;margin-left:auto;margin-right:auto;}
+  .runslug .d{width:6px;height:6px;border-radius:50%;background:var(--amber);box-shadow:0 0 8px var(--amber-glow);}
+  .runslug span{color:var(--ink-mute);}
+
+  /* ---------- USER turn ---------- */
+  .turn{margin-bottom:22px;}
+  .turn.user{display:flex;justify-content:flex-end;}
+  .turn.user .card{max-width:86%;background:rgba(232,163,61,.06);border:1px solid rgba(232,163,61,.24);border-left:3px solid var(--amber);border-radius:var(--r-md);padding:10px 13px;}
+  .turn.user .byline{font-family:var(--mono);font-size:9px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-mute);margin-bottom:5px;display:flex;justify-content:flex-end;gap:7px;}
+  .turn.user .byline .t{color:var(--ink-faint);}
+  .turn.user .body{font-size:13.5px;line-height:1.55;color:var(--ink);}
+
+  /* ---------- DHEE authored block (Problem 1) ---------- */
+  .turn.dhee{position:relative;padding-left:17px;}
+  .turn.dhee::before{content:'';position:absolute;left:3px;top:24px;bottom:6px;width:1.5px;border-radius:2px;background:linear-gradient(180deg,var(--amber),rgba(232,163,61,.08));opacity:.65;}
+  .byline.dhee{display:flex;align-items:center;gap:9px;margin-bottom:11px;}
+  .byline.dhee .glyph{width:18px;height:18px;border-radius:3px;display:grid;place-items:center;background:var(--amber-soft);border:1px solid var(--hair-amber);}
+  .byline.dhee .glyph::before{content:'';width:8px;height:8px;border:1.5px solid var(--amber);border-radius:1px;}
+  .byline.dhee .nm{font-family:var(--mono);font-size:9.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--amber);font-weight:600;}
+  .byline.dhee .t{font-family:var(--mono);font-size:9px;letter-spacing:.1em;color:var(--ink-faint);margin-left:auto;}
+
+  /* messages flowing beneath ONE byline — each msg is a .para, no eyebrow */
+  .para{font-size:13.5px;line-height:1.62;color:var(--ink-dim);margin:0 0 13px;}
+  .para:last-child{margin-bottom:0;}
+  .para strong,.para b{color:var(--ink);font-weight:600;}
+  .para code{font-family:var(--mono);font-size:.86em;background:rgba(255,244,228,.06);padding:1.5px 5px;border-radius:var(--r-sm);color:var(--amber-bright);}
+  .beats{margin:0 0 13px;padding:0;list-style:none;display:flex;flex-direction:column;gap:7px;}
+  .beats li{position:relative;padding-left:18px;font-size:13px;line-height:1.5;color:var(--ink-dim);}
+  .beats li::before{content:'';position:absolute;left:2px;top:8px;width:5px;height:5px;border-radius:50%;background:var(--amber);opacity:.7;}
+  .beats li b{color:var(--ink);}
+
+  /* ---------- LEDGER RAIL — folded tool steps (Problem 2) ---------- */
+  .ledger{margin:0 0 13px;border:1px solid var(--line);border-radius:var(--r-md);background:rgba(255,244,228,.018);overflow:hidden;}
+  .ledger .lhead{display:flex;align-items:center;gap:9px;padding:8px 11px;cursor:pointer;user-select:none;}
+  .ledger .lhead:hover{background:rgba(255,244,228,.025);}
+  .ledger .chev{width:6px;height:6px;border-right:1.5px solid var(--ink-mute);border-bottom:1.5px solid var(--ink-mute);transform:rotate(-45deg);transition:transform .18s;}
+  .ledger.open .chev{transform:rotate(45deg);}
+  .ledger .done-dot{width:13px;height:13px;border-radius:50%;border:1.5px solid var(--done);display:grid;place-items:center;}
+  .ledger .done-dot::before{content:'';width:5px;height:2.5px;border-left:1.5px solid var(--done);border-bottom:1.5px solid var(--done);transform:rotate(-45deg) translate(0,-1px);}
+  .ledger .ltitle{font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--ink-dim);}
+  .ledger .ltitle b{color:var(--ink);font-weight:600;}
+  .ledger .lcount{margin-left:auto;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-faint);}
+  .ledger .lsteps{display:none;flex-direction:column;border-top:1px solid var(--line);}
+  .ledger.open .lsteps{display:flex;}
+  .lstep{display:flex;align-items:center;gap:9px;padding:7px 11px 7px 13px;font-family:var(--mono);font-size:10px;color:var(--ink-mute);border-bottom:1px solid rgba(255,244,228,.04);}
+  .lstep:last-child{border-bottom:none;}
+  .lstep .tool{color:var(--amber-bright);}
+  .lstep .ar{color:var(--ink-faint);}
+  .lstep .ok{margin-left:auto;color:var(--done);font-size:9px;letter-spacing:.1em;}
+
+  /* ---------- inline artifact (scene still) ---------- */
+  .still{margin:0 0 13px;border:1px solid var(--line-2);border-radius:var(--r-md);overflow:hidden;background:var(--inset);}
+  .still .frame{position:relative;aspect-ratio:16/9;background:
+      linear-gradient(180deg,rgba(0,0,0,.1),rgba(0,0,0,.5)),
+      radial-gradient(70% 120% at 25% 15%,#caa15f 0%,#7d5a2e 38%,#2a1d10 78%);}
+  .still .sprock{position:absolute;left:0;right:0;height:9px;display:flex;gap:7px;padding:0 6px;align-items:center;background:#0c0805;}
+  .still .sprock.top{top:0;} .still .sprock.bot{bottom:0;}
+  .still .sprock i{width:8px;height:4px;border-radius:1px;background:rgba(255,244,228,.16);}
+  .still .scrim{position:absolute;left:0;right:0;bottom:9px;padding:9px 11px;display:flex;align-items:flex-end;justify-content:space-between;}
+  .still .slabel{font-family:var(--mono);font-size:9px;letter-spacing:.14em;text-transform:uppercase;color:rgba(255,244,228,.9);text-shadow:0 1px 4px rgba(0,0,0,.8);}
+  .still .slabel b{display:block;font-family:var(--serif);font-size:14px;letter-spacing:0;text-transform:none;color:#fff;font-weight:500;margin-top:2px;}
+  .still .stag{font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--amber-bright);background:rgba(20,14,9,.7);border:1px solid var(--hair-amber);border-radius:var(--r-pill);padding:2px 7px;}
+  .still .caption{padding:8px 11px;font-family:var(--mono);font-size:9.5px;color:var(--ink-mute);display:flex;gap:10px;border-top:1px solid var(--line);}
+  .still .caption b{color:var(--ink-dim);font-weight:500;}
+
+  /* ===================================================================
+     FIRST-CLASS TOOL CARDS — every dhee_* call + its result render as
+     ONE unit (call = header, result = body). The toolset is known and
+     finite, so each render category gets a purpose-built body.
+     =================================================================== */
+  .tcard{border:1px solid var(--line-2);border-radius:var(--r-md);overflow:hidden;margin:0 0 13px;background:linear-gradient(180deg,rgba(255,244,228,.022),transparent);}
+  .tcard .th{display:flex;align-items:center;gap:9px;padding:8px 11px;border-bottom:1px solid var(--line);}
+  .tcard .tg{width:19px;height:19px;border-radius:5px;flex:none;display:grid;place-items:center;background:var(--amber-soft);border:1px solid var(--hair-amber);color:var(--amber);}
+  .tcard .tg svg{width:11px;height:11px;}
+  .tcard .tt{font-size:12.5px;font-weight:600;color:var(--ink);letter-spacing:-.005em;line-height:1.2;}
+  .tcard .tt .sub{font-weight:400;color:var(--ink-mute);}
+  .tcard .tname{margin-left:auto;font-family:var(--mono);font-size:8px;letter-spacing:.06em;color:var(--ink-faint);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 7px;white-space:nowrap;}
+  .tcard .tdot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--done);box-shadow:0 0 6px var(--done);}
+  .tcard .tdot.amber{background:var(--amber);box-shadow:0 0 6px var(--amber-glow);}
+  .tcard .tb{padding:11px;}
+
+  /* category accents */
+  .tcard.edit .tg{background:rgba(232,163,61,.14);}
+  .tcard.artifact .tg{background:rgba(130,169,140,.16);border-color:rgba(130,169,140,.3);color:var(--done);}
+  .tcard.fs .tg{background:rgba(255,244,228,.05);border-color:var(--line-2);color:var(--ink-mute);}
+  .tcard.ask{border-color:var(--hair-amber);background:linear-gradient(180deg,rgba(232,163,61,.06),transparent);}
+
+  /* --- inspection: status readout --- */
+  .statline{display:flex;gap:9px;flex-wrap:wrap;margin-bottom:10px;}
+  .stat{display:flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10px;color:var(--ink-dim);}
+  .stat .sd{width:8px;height:8px;border-radius:2px;flex:none;}
+  .stat b{color:var(--ink);font-weight:600;}
+  .segbar{height:6px;border-radius:var(--r-pill);overflow:hidden;display:flex;gap:1.5px;}
+  .segbar i{height:100%;}
+  .si-done{background:var(--done);} .si-run{background:var(--amber);} .si-pend{background:var(--pending);} .si-fail{background:var(--fail);}
+  .gatechip{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);border:1px solid var(--hair-amber);background:var(--amber-soft);border-radius:var(--r-pill);padding:3px 9px;}
+
+  /* --- edit: critique + cascade blast radius --- */
+  .quote{font-size:12px;line-height:1.5;color:var(--ink-dim);border-left:2px solid var(--hair-amber);padding-left:10px;margin:0 0 11px;font-family:var(--serif);font-style:italic;}
+  .cascade{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-family:var(--mono);font-size:9px;}
+  .cascade .src{color:var(--amber);border:1px solid var(--hair-amber);background:var(--amber-soft);border-radius:var(--r-pill);padding:2px 8px;letter-spacing:.04em;}
+  .cascade .arr{color:var(--ink-faint);}
+  .cascade .node{color:var(--ink-mute);border:1px solid var(--line-2);border-radius:var(--r-pill);padding:2px 8px;letter-spacing:.04em;}
+  .cascade .node.warn{color:var(--fail);border-color:rgba(207,122,111,.3);}
+  .cascade .more{color:var(--ink-faint);}
+  .cascnote{font-family:var(--mono);font-size:9px;color:var(--ink-faint);margin-top:9px;letter-spacing:.04em;}
+  .cascnote b{color:var(--ink-dim);}
+  .confirmrow{display:flex;gap:7px;margin-top:12px;}
+  .cbtn{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;padding:6px 12px;border-radius:var(--r-sm);cursor:pointer;border:1px solid var(--line-2);background:transparent;color:var(--ink-dim);}
+  .cbtn:hover{border-color:var(--line-3);color:var(--ink);}
+  .cbtn.primary{background:radial-gradient(120% 120% at 30% 20%,var(--amber-bright),var(--amber));color:#1a1206;border-color:transparent;font-weight:600;box-shadow:0 0 10px var(--amber-glow);}
+
+  /* --- takes: version strip --- */
+  .takes{display:flex;gap:9px;overflow-x:auto;padding-bottom:4px;margin:-2px;padding-left:2px;padding-top:2px;}
+  .take{flex:none;width:84px;cursor:pointer;}
+  .take .tk{aspect-ratio:1;border-radius:var(--r-sm);border:1px solid var(--line-2);position:relative;overflow:hidden;background:radial-gradient(80% 90% at 30% 20%,#caa15f,#5e431f 60%,#241a0e);}
+  .take:nth-child(2) .tk{background:radial-gradient(80% 90% at 60% 30%,#9fb0c0,#41506015 55%,#1a2230);}
+  .take:nth-child(3) .tk{background:radial-gradient(80% 90% at 40% 70%,#c98b6b,#5e3a26 60%,#241410);}
+  .take.sel .tk{border-color:var(--amber);box-shadow:0 0 0 1px var(--amber),0 0 14px var(--amber-glow);}
+  .take .star{position:absolute;top:4px;right:5px;color:var(--amber);font-size:11px;text-shadow:0 1px 3px #000;}
+  .take .meta{margin-top:6px;font-family:var(--mono);font-size:8px;color:var(--ink-mute);line-height:1.5;}
+  .take .meta b{color:var(--ink-dim);}
+  .take.sel .meta b{color:var(--amber);}
+
+  /* --- interactive: clickable options --- */
+  .qhead{font-size:12.5px;color:var(--ink);font-weight:600;margin-bottom:10px;line-height:1.4;}
+  .qopts{display:flex;flex-direction:column;gap:7px;}
+  .qopt{border:1px solid var(--line-2);border-radius:var(--r-sm);padding:9px 11px;cursor:pointer;transition:all .14s;}
+  .qopt:hover{border-color:var(--hair-amber);background:var(--amber-soft);}
+  .qopt .ol{font-size:12px;font-weight:600;color:var(--ink);}
+  .qopt .od{font-size:10.5px;color:var(--ink-mute);margin-top:2px;line-height:1.4;}
+  .awaiting{display:flex;align-items:center;gap:7px;margin-top:10px;font-family:var(--mono);font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--amber);}
+  .awaiting .ad{width:6px;height:6px;border-radius:50%;background:var(--amber);animation:pulse 1.5s infinite;}
+
+  /* --- bundle/project --- */
+  .created{display:flex;align-items:center;gap:10px;}
+  .created .fld{width:30px;height:30px;border-radius:var(--r-sm);display:grid;place-items:center;background:rgba(130,169,140,.14);border:1px solid rgba(130,169,140,.3);color:var(--done);flex:none;}
+  .created .ct{font-size:12.5px;color:var(--ink);}
+  .created .cp{font-family:var(--mono);font-size:9px;color:var(--ink-mute);margin-top:2px;}
+  .created .cp b{color:var(--amber-bright);}
+
+  /* --- filesystem readout --- */
+  .fsout{font-family:var(--mono);font-size:10px;line-height:1.65;color:var(--ink-mute);background:var(--inset);border:1px solid var(--line);border-radius:var(--r-sm);padding:9px 11px;overflow-x:auto;white-space:pre;}
+  .fsout .fl{color:var(--ink-faint);} .fsout .hl{color:var(--amber-bright);} .fsout .fm{color:var(--ink-dim);}
+
+  /* condensed tool line — a SUPERSEDED card collapses to one row; only the
+     live edge of a turn stays full, so a 40-step run never towers. */
+  .tline{display:flex;align-items:center;gap:9px;border:1px solid var(--line);border-radius:var(--r-md);padding:7px 10px;margin:0 0 9px;cursor:pointer;background:rgba(255,244,228,.012);transition:background .14s;}
+  .tline:hover{background:rgba(255,244,228,.035);}
+  .tline .tg{width:17px;height:17px;border-radius:4px;flex:none;display:grid;place-items:center;background:var(--amber-soft);border:1px solid var(--hair-amber);color:var(--amber);}
+  .tline .tg svg{width:10px;height:10px;}
+  .tline .tg.edit{background:rgba(232,163,61,.14);}
+  .tline .tlt{font-size:12px;color:var(--ink-dim);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .tline .tlt b{color:var(--ink);font-weight:600;}
+  .tline .chip{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.04em;color:var(--ink-mute);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 8px;white-space:nowrap;flex:none;}
+  .tline .exp{width:6px;height:6px;border-right:1.5px solid var(--ink-faint);border-bottom:1.5px solid var(--ink-faint);transform:rotate(45deg);flex:none;margin-left:2px;}
+
+  /* design decision (#161): humanized title only — the raw dhee_* name is NOT
+     surfaced in the UI (toolName stays in message.meta for debugging). */
+  .tname{display:none;}
+
+  /* running / streaming — the call shows as a card immediately, result streams in */
+  .tdot.run{background:var(--amber);box-shadow:0 0 6px var(--amber-glow);animation:pulse 1.5s infinite;}
+  .streambody{font-size:12.5px;line-height:1.55;color:var(--ink-dim);font-family:var(--serif);}
+
+  /* error / failure tool card — first-class, classified transient vs structural */
+  .tcard.err{border-color:rgba(207,122,111,.34);background:linear-gradient(180deg,rgba(207,122,111,.05),transparent);}
+  .tcard.err .tg{background:rgba(207,122,111,.16);border-color:rgba(207,122,111,.34);color:var(--fail);}
+  .errmsg{font-family:var(--mono);font-size:10px;line-height:1.5;color:#e6b3a8;background:rgba(207,122,111,.08);border:1px solid rgba(207,122,111,.22);border-radius:var(--r-sm);padding:8px 10px;margin-bottom:10px;}
+  .classchip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;border-radius:var(--r-pill);padding:3px 9px;}
+  .classchip .cd{width:5px;height:5px;border-radius:50%;background:currentColor;}
+  .classchip.transient{color:var(--amber);border:1px solid var(--hair-amber);background:var(--amber-soft);}
+  .classchip.structural{color:var(--fail);border:1px solid rgba(207,122,111,.3);background:rgba(207,122,111,.08);}
+
+  /* failed transport state */
+  .activity.failed{border-color:rgba(207,122,111,.4);background:linear-gradient(180deg,rgba(207,122,111,.08),rgba(207,122,111,.02)),var(--panel-2);box-shadow:inset 0 1px 0 rgba(207,122,111,.16);}
+  .activity.failed .faildial{width:30px;height:30px;flex:none;border-radius:50%;border:1.5px solid var(--fail);display:grid;place-items:center;color:var(--fail);font-family:var(--serif);font-weight:600;font-size:17px;line-height:1;}
+  .activity.failed .actverb{color:var(--fail);}
+  .actretry{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#1a1206;background:radial-gradient(120% 120% at 30% 20%,var(--amber-bright),var(--amber));border:none;border-radius:var(--r-sm);padding:6px 11px;cursor:pointer;flex:none;font-weight:600;box-shadow:0 0 10px var(--amber-glow);}
+
+  /* ===================================================================
+     LIVE ACTIVITY TRANSPORT — the heart of #161
+     Sits pinned above the composer. Reads the agent's CURRENT activity.
+     =================================================================== */
+  .activity{margin:8px 16px 0;border:1px solid var(--hair-amber);border-radius:var(--r-md);background:linear-gradient(180deg,rgba(232,163,61,.075),rgba(232,163,61,.015)),var(--panel-2);box-shadow:inset 0 1px 0 rgba(232,163,61,.14);padding:11px 13px;display:flex;align-items:center;gap:12px;}
+  /* the REC dial */
+  .dial{position:relative;width:30px;height:30px;flex:none;}
+  .dial svg{transform:rotate(-90deg);display:block;}
+  .dial .dt{stroke:rgba(255,255,255,.09);}
+  .dial .df{stroke:var(--amber);stroke-linecap:round;filter:drop-shadow(0 0 3px var(--amber-glow));transition:stroke-dashoffset .6s;}
+  .dial .dot{position:absolute;inset:0;margin:auto;width:7px;height:7px;border-radius:50%;background:var(--amber);animation:pulse 1.5s infinite;}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(232,163,61,.5)}70%{box-shadow:0 0 0 7px rgba(232,163,61,0)}100%{box-shadow:0 0 0 0 rgba(232,163,61,0)}}
+  /* indeterminate dial — thinking/working spin a short arc (no meter); rendering fills a fixed arc */
+  .dial.spin svg{animation:spin 1.05s linear infinite;transform-origin:center;}
+  @keyframes spin{from{transform:rotate(0)}to{transform:rotate(360deg)}}
+  .actbody{flex:1;min-width:0;display:flex;flex-direction:column;gap:5px;}
+  .actline{display:flex;align-items:baseline;gap:8px;}
+  .actverb{font-family:var(--mono);font-size:9.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);}
+  .actobj{font-size:13px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .actobj .of{color:var(--ink-faint);}
+  .caret{display:inline-block;width:7px;height:14px;background:var(--amber);margin-left:2px;transform:translateY(2px);animation:blink 1s step-end infinite;}
+  @keyframes blink{50%{opacity:0;}}
+  .meter{height:4px;border-radius:var(--r-pill);background:rgba(255,255,255,.07);overflow:hidden;position:relative;}
+  .meter>i{display:block;height:100%;border-radius:var(--r-pill);background:linear-gradient(90deg,var(--amber),var(--amber-bright));box-shadow:0 0 7px var(--amber-glow);}
+  .meter::after{content:'';position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.22),transparent);transform:translateX(-100%);animation:sheen 2.2s ease-in-out infinite;}
+  @keyframes sheen{0%{transform:translateX(-100%)}55%,100%{transform:translateX(260%)}}
+  .actmeta{display:flex;gap:12px;font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--ink-mute);}
+  .actmeta b{color:var(--ink-dim);font-weight:500;}
+  .actstop{flex:none;width:26px;height:26px;border-radius:var(--r-sm);display:grid;place-items:center;background:rgba(207,122,111,.14);border:1px solid rgba(207,122,111,.4);cursor:pointer;}
+  .actstop:hover{background:rgba(207,122,111,.22);}
+  .actstop .sq{width:8px;height:8px;border-radius:1px;background:#e6b3a8;}
+
+  /* --- transport state machine: only the active state shows --- */
+  .actzone .actstate{display:none;}
+  .panel[data-state="thinking"]  .actstate.thinking,
+  .panel[data-state="working"]   .actstate.working,
+  .panel[data-state="rendering"] .actstate.rendering,
+  .panel[data-state="failed"]    .actstate.failed,
+  .panel[data-state="done"]      .actstate.done{display:flex;}
+  .panel[data-state="paused"]    .actstate.paused{display:block;}
+  /* idle → nothing renders; composer sits directly under the transcript */
+  .actstate.paused{margin:8px 16px 0;}
+
+  /* done bar — calm, non-amber, dismissable */
+  .activity.done{border-color:rgba(130,169,140,.34);background:linear-gradient(180deg,rgba(130,169,140,.09),rgba(130,169,140,.02)),var(--panel-2);box-shadow:inset 0 1px 0 rgba(130,169,140,.16);}
+  .activity.done .checkdial{width:30px;height:30px;flex:none;border-radius:50%;border:1.5px solid var(--done);display:grid;place-items:center;}
+  .activity.done .checkdial::before{content:'';width:9px;height:5px;border-left:2px solid var(--done);border-bottom:2px solid var(--done);transform:rotate(-45deg) translate(0,-1.5px);}
+  .activity.done .actverb{color:var(--done);}
+  .donego{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:#1a1206;background:radial-gradient(120% 120% at 30% 20%,var(--amber-bright),var(--amber));border:none;border-radius:var(--r-sm);padding:6px 11px;cursor:pointer;flex:none;font-weight:600;box-shadow:0 0 10px var(--amber-glow);}
+
+  /* composer */
+  .composer{padding:12px 14px 14px;border-top:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--panel-2));}
+  .inputwrap{display:flex;align-items:flex-end;gap:9px;border:1px solid var(--line-2);border-radius:var(--r-md);background:var(--inset);padding:9px 10px;transition:border-color .15s,box-shadow .15s;}
+  .inputwrap:focus-within{border-color:var(--hair-amber);box-shadow:0 0 0 3px rgba(232,163,61,.08);}
+  .inputwrap .ph{flex:1;font-size:13.5px;color:var(--ink-faint);line-height:1.5;padding:1px 0;}
+  .inputwrap .icon{width:28px;height:28px;border-radius:var(--r-sm);display:grid;place-items:center;color:var(--ink-mute);cursor:pointer;flex:none;}
+  .inputwrap .icon:hover{color:var(--ink-dim);background:rgba(255,255,255,.04);}
+  .inputwrap .send{background:radial-gradient(120% 120% at 30% 20%,var(--amber-bright),var(--amber));color:#1a1206;box-shadow:0 0 12px var(--amber-glow);}
+  .inputwrap .send:hover{background:var(--amber-bright);color:#1a1206;}
+  .clegend{display:flex;align-items:center;gap:9px;margin-top:9px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:var(--ink-faint);}
+  .clegend .kbd{border:1px solid var(--line-2);border-radius:3px;padding:1px 5px;color:var(--ink-mute);}
+  .clegend .spacer{flex:1;}
+
+  /* ===================================================================
+     SPEC COLUMN — zoomed state cards (evaluate the loading indicator)
+     =================================================================== */
+  .specs{display:flex;flex-direction:column;gap:26px;}
+  .specgroup{}
+  .specgroup>.gh{font-family:var(--serif);font-size:19px;font-weight:500;color:var(--ink);margin:0 0 4px;letter-spacing:-.01em;}
+  .specgroup>.gd{font-size:12.5px;color:var(--ink-mute);line-height:1.55;margin:0 0 16px;max-width:560px;}
+  .specgroup>.gd b{color:var(--ink-dim);}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;}
+
+  .scard{border:1px solid var(--line);border-radius:var(--r-md);background:linear-gradient(180deg,var(--panel),var(--bg-2));overflow:hidden;}
+  .scard .sh{display:flex;align-items:center;gap:8px;padding:9px 12px;border-bottom:1px solid var(--line);}
+  .scard .sh .no{font-family:var(--mono);font-size:9px;letter-spacing:.18em;color:var(--ink-faint);}
+  .scard .sh .nm{font-family:var(--mono);font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim);}
+  .scard .sh .tag{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--amber);border:1px solid var(--hair-amber);border-radius:var(--r-pill);padding:2px 7px;}
+  .scard .sbody{padding:14px 13px;}
+  .scard .note{padding:0 13px 13px;font-size:11.5px;line-height:1.5;color:var(--ink-mute);}
+  .scard .note b{color:var(--ink-dim);}
+
+  /* reuse activity inside spec cards */
+  .scard .activity{margin:0;}
+
+  /* paused-at-gate slate */
+  .gateslate{border:1px solid var(--hair-amber);border-radius:var(--r-md);background:linear-gradient(180deg,rgba(232,163,61,.08),rgba(232,163,61,.02));padding:13px;}
+  .gateslate .gline{display:flex;align-items:center;gap:9px;margin-bottom:8px;}
+  .gateslate .pausemark{width:22px;height:22px;border-radius:50%;border:1.5px solid var(--amber);display:grid;place-items:center;flex:none;}
+  .gateslate .pausemark i{width:2.5px;height:9px;background:var(--amber);margin:0 1px;border-radius:1px;}
+  .gateslate .gtitle{font-family:var(--mono);font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber);font-weight:600;}
+  .gateslate .gtxt{font-size:12.5px;line-height:1.5;color:var(--ink-dim);margin:0 0 12px;}
+  .gateslate .gtxt b{color:var(--ink);}
+  .gateslate .gpending{font-family:var(--mono);font-size:9px;letter-spacing:.06em;color:var(--ink-mute);margin-bottom:12px;}
+  .gateslate .gpending b{color:var(--ink-dim);}
+  .gateslate .gbtns{display:flex;gap:8px;}
+  .gbtn{font-family:var(--mono);font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;padding:7px 13px;border-radius:var(--r-sm);cursor:pointer;border:1px solid var(--line-2);background:transparent;color:var(--ink-dim);}
+  .gbtn:hover{border-color:var(--line-3);color:var(--ink);}
+  .gbtn.primary{background:radial-gradient(120% 120% at 30% 20%,var(--amber-bright),var(--amber));color:#1a1206;border-color:transparent;box-shadow:0 0 12px var(--amber-glow);font-weight:600;}
+
+  /* before/after coalescing diagram */
+  .ba{display:grid;grid-template-columns:1fr 1fr;gap:0;border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;}
+  .ba .col{padding:14px;}
+  .ba .col.before{border-right:1px solid var(--line);background:rgba(207,122,111,.03);}
+  .ba .col.after{background:rgba(130,169,140,.03);}
+  .ba .ct{font-family:var(--mono);font-size:9px;letter-spacing:.18em;text-transform:uppercase;margin-bottom:11px;display:flex;align-items:center;gap:7px;}
+  .ba .before .ct{color:var(--fail);}
+  .ba .after .ct{color:var(--done);}
+  .ba .ct .dot{width:5px;height:5px;border-radius:50%;background:currentColor;}
+  .stamp{border:1px solid var(--line-2);border-radius:var(--r-sm);padding:7px 8px;margin-bottom:7px;background:rgba(255,244,228,.02);}
+  .stamp .eb{font-family:var(--mono);font-size:7.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);margin-bottom:4px;}
+  .stamp .ln{height:4px;border-radius:2px;background:rgba(255,244,228,.1);margin-bottom:4px;}
+  .stamp .ln.s{width:60%;}
+  .blk{position:relative;padding-left:11px;}
+  .blk::before{content:'';position:absolute;left:0;top:16px;bottom:2px;width:1.5px;background:linear-gradient(180deg,var(--amber),rgba(232,163,61,.1));border-radius:2px;opacity:.6;}
+  .blk .eb{font-family:var(--mono);font-size:7.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--amber);margin-bottom:9px;}
+  .blk .ln{height:4px;border-radius:2px;background:rgba(255,244,228,.1);margin-bottom:7px;}
+  .blk .ln.s{width:55%;}
+  .blk .grp{margin-bottom:9px;}
+
+  /* mini key/footnote rows */
+  .keyrow{display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line);}
+  .keyrow:last-child{border-bottom:none;}
+  .keyrow .kn{font-family:var(--mono);font-size:9px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);min-width:108px;padding-top:2px;}
+  .keyrow .kt{font-size:12.5px;line-height:1.55;color:var(--ink-mute);}
+  .keyrow .kt b{color:var(--ink-dim);}
+
+  .footer{max-width:1320px;margin:0 auto;width:100%;padding:0 40px 60px;}
+  .footer .fh{font-family:var(--mono);font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ink-faint);margin-bottom:6px;}
+
+  /* spec chrome: live-state switcher above the device (NOT part of the UI) */
+  .stateswitch{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:0 0 14px;padding:9px 11px;border:1px dashed var(--line-3);border-radius:var(--r-md);background:rgba(255,244,228,.015);}
+  .stateswitch .ssl{font-family:var(--mono);font-size:8.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ink-faint);margin-right:4px;}
+  .stateswitch button{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-mute);background:none;border:1px solid var(--line-2);border-radius:var(--r-pill);padding:5px 11px;cursor:pointer;transition:all .14s;}
+  .stateswitch button:hover{color:var(--ink-dim);border-color:var(--line-3);}
+  .stateswitch button.on{color:var(--amber);background:var(--amber-soft);border-color:var(--hair-amber);}
+
+  @media(prefers-reduced-motion:reduce){
+    .grain,.meter::after,.dial .dot,.dial.spin svg,.caret,.stream>*,.runslug .d{animation:none!important;}
+  }
+</style>
+</head>
+<body>
+<div class="grain"></div>
+<div class="vignette"></div>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="kick">Dhee Studio · Chat Panel · issue #161</div>
+    <h1>The Director&rsquo;s Conversation</h1>
+    <p>A redesign of the embedded agent chat. Consecutive Dhee messages coalesce into a single authored block under <b>one byline</b>; intermediate tool steps fold into an inline <b>ledger rail</b>; and the agent&rsquo;s work is never invisible &mdash; a live <b>ON-SET transport</b> reads its current activity (thinking &rarr; working &rarr; rendering &rarr; paused-at-gate). Rendered at the real 384&nbsp;px right-rail width.</p>
+  </header>
+
+  <div class="stage">
+
+    <!-- ============ THE PANEL ============ -->
+    <div>
+      <div class="col-label">Live panel &mdash; true width</div>
+      <div class="stateswitch">
+        <span class="ssl">Preview</span>
+        <button data-s="thinking">Thinking</button>
+        <button data-s="working">Working</button>
+        <button data-s="rendering" class="on">Rendering</button>
+        <button data-s="paused">Paused</button>
+        <button data-s="failed">Failed</button>
+        <button data-s="done">Done</button>
+        <button data-s="idle">Idle</button>
+      </div>
+      <div class="device">
+        <div class="panel" data-state="rendering">
+
+          <!-- header -->
+          <div class="phead">
+            <div class="mark">D</div>
+            <div class="who">
+              <span class="n">Dhee</span>
+              <span class="s">Maya&rsquo;s Awakening</span>
+            </div>
+            <div class="spacer"></div>
+            <div class="pill"><span class="d"></span> Connected</div>
+          </div>
+
+          <!-- transcript -->
+          <div class="stream">
+
+            <div class="slug"><span class="rule"></span><span class="txt">Today &middot; <b>2:14 PM</b></span><span class="rule"></span></div>
+
+            <!-- USER -->
+            <div class="turn user">
+              <div class="card">
+                <div class="byline"><span>You</span><span class="t">2:14 PM</span></div>
+                <div class="body">Let&rsquo;s make the opening feel more like dawn &mdash; warmer, and let it breathe a little slower.</div>
+              </div>
+            </div>
+
+            <!-- DHEE — one byline, many messages flowing beneath (Problem 1) -->
+            <div class="turn dhee">
+              <div class="byline dhee">
+                <span class="glyph"></span>
+                <span class="nm">Dhee</span>
+                <span class="t">2:14 PM</span>
+              </div>
+
+              <p class="para">Good call &mdash; dawn reads warmer and slower than the current cold open. Here&rsquo;s what I&rsquo;ll change across the first beat:</p>
+
+              <ul class="beats">
+                <li><b>Palette</b> &mdash; shift the grade from steel-blue to amber low-sun</li>
+                <li><b>Pacing</b> &mdash; stretch shots 1&ndash;3 by ~0.8s, add a hold on the horizon</li>
+                <li><b>Sound</b> &mdash; trade the synth pad for low room tone + first birds</li>
+              </ul>
+
+              <!-- FIRST-CLASS TOOL CARDS — each call + its result is ONE unit -->
+
+              <!-- dhee_get_status → CONDENSED (superseded by later cards) -->
+              <div class="tline">
+                <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span>
+                <span class="tlt">Checked where things stand</span>
+                <span class="chip">28 / 40 done</span>
+                <span class="exp"></span>
+              </div>
+
+              <!-- dhee_critique_node → CONDENSED (superseded) -->
+              <div class="tline">
+                <span class="tg edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                <span class="tlt">Critiqued <b>opening_beat</b></span>
+                <span class="chip">6 nodes cascading</span>
+                <span class="exp"></span>
+              </div>
+
+              <!-- dhee_show_node_output → artifact (LIVE EDGE — stays full) -->
+              <div class="tcard artifact">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L4 22"/></svg></span>
+                  <span class="tt">Horizon, first light <span class="sub">scene 03 · shot 01</span></span>
+                  <span class="tname">dhee_show_node_output</span>
+                </div>
+                <div class="still" style="border:none;border-radius:0;margin:0;">
+                  <div class="frame">
+                    <div class="sprock top"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                    <div class="scrim">
+                      <span class="slabel">amber low-sun<b>2.4s hold on horizon</b></span>
+                      <span class="stag">Updated</span>
+                    </div>
+                    <div class="sprock bot"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+                  </div>
+                  <div class="caption"><b>shot_01.png</b><span>·</span>1920&times;1080<span>·</span>just now</div>
+                </div>
+              </div>
+
+              <p class="para">Updated the first three shots and re-scored the bed. Want me to <b>re-render</b> those shots now, or keep tuning the script first?</p>
+            </div>
+
+            <!-- run event slug -->
+            <div class="runslug"><span class="d"></span>Run resumed<span>&middot; ltx_director &middot; gate ON</span></div>
+
+          </div>
+
+          <!-- LIVE ACTIVITY TRANSPORT — swaps with panel state (see switcher) -->
+          <div class="actzone">
+
+            <!-- thinking: indeterminate, no meter -->
+            <div class="activity actstate thinking">
+              <div class="dial spin">
+                <svg width="30" height="30" viewBox="0 0 30 30">
+                  <circle class="dt" cx="15" cy="15" r="12" fill="none" stroke-width="2.5"/>
+                  <circle class="df" cx="15" cy="15" r="12" fill="none" stroke-width="2.5" stroke-dasharray="22 200"/>
+                </svg>
+                <span class="dot"></span>
+              </div>
+              <div class="actbody">
+                <div class="actline"><span class="actverb">Thinking</span><span class="actobj">reading your note<span class="caret"></span></span></div>
+                <div class="actmeta"><span>working it out&hellip;</span></div>
+              </div>
+            </div>
+
+            <!-- working: a tool is running -->
+            <div class="activity actstate working">
+              <div class="dial spin">
+                <svg width="30" height="30" viewBox="0 0 30 30">
+                  <circle class="dt" cx="15" cy="15" r="12" fill="none" stroke-width="2.5"/>
+                  <circle class="df" cx="15" cy="15" r="12" fill="none" stroke-width="2.5" stroke-dasharray="34 200"/>
+                </svg>
+                <span class="dot"></span>
+              </div>
+              <div class="actbody">
+                <div class="actline"><span class="actverb">Reading</span><span class="actobj">the current status</span></div>
+                <div class="actmeta"><span style="color:var(--amber-bright)">dhee_get_status</span><span>elapsed <b>0:04</b></span></div>
+              </div>
+            </div>
+
+            <!-- rendering: countable long job -->
+            <div class="activity actstate rendering">
+              <div class="dial">
+                <svg width="30" height="30" viewBox="0 0 30 30">
+                  <circle class="dt" cx="15" cy="15" r="12" fill="none" stroke-width="2.5"/>
+                  <circle class="df" cx="15" cy="15" r="12" fill="none" stroke-width="2.5" stroke-dasharray="75.4" stroke-dashoffset="27"/>
+                </svg>
+                <span class="dot"></span>
+              </div>
+              <div class="actbody">
+                <div class="actline"><span class="actverb">Rendering</span><span class="actobj">shot 12 <span class="of">of 40</span> &middot; horizon, first light</span></div>
+                <div class="meter"><i style="width:64%"></i></div>
+                <div class="actmeta"><span><b>64%</b></span><span>elapsed <b>3:18</b></span><span>eta <b>~1:50</b></span></div>
+              </div>
+              <button class="actstop" title="Stop run"><span class="sq"></span></button>
+            </div>
+
+            <!-- done: calm confirmation -->
+            <div class="activity actstate done">
+              <span class="checkdial"></span>
+              <div class="actbody">
+                <div class="actline"><span class="actverb">Finished</span><span class="actobj">final cut ready &middot; 40 shots</span></div>
+                <div class="actmeta"><span>rendered in <b>5:08</b></span><span>1080p &middot; 1:12 runtime</span></div>
+              </div>
+              <button class="donego">Show it</button>
+            </div>
+
+            <!-- paused at gate (#133) -->
+            <div class="actstate paused">
+              <div class="gateslate">
+                <div class="gline"><span class="pausemark"><i></i><i></i></span><span class="gtitle">Paused at the gate</span></div>
+                <p class="gtxt">Stopped after collection <b>&lsquo;character_image&rsquo;</b> because <b>&ldquo;stop after each collection&rdquo;</b> is on. Intentional &mdash; not a failure.</p>
+                <div class="gpending">Still pending: <b>shot_image</b>, <b>final_video</b></div>
+                <div class="gbtns"><button class="gbtn primary">Continue run</button><button class="gbtn">Adjust first</button></div>
+              </div>
+            </div>
+
+            <!-- failed: classified transient vs structural -->
+            <div class="activity failed actstate failed">
+              <span class="faildial">!</span>
+              <div class="actbody">
+                <div class="actline"><span class="actverb">Failed</span><span class="actobj">at shot 14 &middot; Comfy 502</span></div>
+                <div class="actmeta"><span style="color:var(--amber-bright)">looks transient</span><span>&mdash; may have recovered</span></div>
+              </div>
+              <button class="actretry">Retry</button>
+            </div>
+
+          </div>
+
+          <!-- composer -->
+          <div class="composer">
+            <div class="inputwrap">
+              <span class="icon" title="Attach">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+              </span>
+              <span class="ph">Reply to Dhee&hellip;</span>
+              <span class="icon send" title="Send">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2L11 13"/><path d="M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              </span>
+            </div>
+            <div class="clegend">
+              <span class="kbd">&crarr;</span> send
+              <span class="kbd">&#8679;&crarr;</span> newline
+              <span class="spacer"></span>
+              <span>Dhee keeps working when you close the panel</span>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- ============ SPEC COLUMN ============ -->
+    <div class="specs">
+
+      <!-- FIRST-CLASS TOOL CARDS — the directive -->
+      <div class="specgroup">
+        <div class="col-label">Every tool call &amp; result &mdash; first-class</div>
+        <h2 class="gh" style="margin-top:0;">We know the toolset, so we render it</h2>
+        <p class="gd">The <code style="font-family:var(--mono);color:var(--amber-bright)">dhee_*</code> surface is finite and we know exactly what each call returns. So a tool call and its result render as <b>one purpose-built card</b> &mdash; the call is the header, the result is the body &mdash; never folded away as a &ldquo;working note.&rdquo; A handful of archetypes cover all 26 tools, with shared treatments for in-flight, failure, and condensed states.</p>
+
+        <div class="cards">
+
+          <!-- TAKES / VERSIONS -->
+          <div class="scard">
+            <div class="sh"><span class="no">A</span><span class="nm">Takes &middot; versions</span><span class="tag">list / select / fork</span></div>
+            <div class="sbody">
+              <div class="tcard" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="2" y="6" width="14" height="14" rx="2"/><path d="M8 6V4a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-2"/></svg></span>
+                  <span class="tt">3 takes of <span class="sub">shot_07</span></span>
+                  <span class="tname">dhee_list_versions</span>
+                </div>
+                <div class="tb">
+                  <div class="takes">
+                    <div class="take sel"><div class="tk"><span class="star">&#9733;</span></div><div class="meta"><b>ltx_director</b><br>$0.04 &middot; 6s ago</div></div>
+                    <div class="take"><div class="tk"></div><div class="meta">ltx_director<br>$0.04 &middot; 4m ago</div></div>
+                    <div class="take"><div class="tk"></div><div class="meta">flux_still<br>$0.02 &middot; 9m ago</div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Every roll of the dice is kept. &#9733; is selected; tap a take to <b>dhee_select_version</b>. Stochastic outputs are retained, not overwritten.</div>
+          </div>
+
+          <!-- EDIT preview → confirm -->
+          <div class="scard">
+            <div class="sh"><span class="no">B</span><span class="nm">Edit &middot; cascade</span><span class="tag">preview &rarr; confirm</span></div>
+            <div class="sbody">
+              <div class="tcard edit" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                  <span class="tt">Rewrite <span class="sub">characters_plan</span></span>
+                  <span class="tname">dhee_write_node_content</span>
+                  <span class="tdot amber"></span>
+                </div>
+                <div class="tb">
+                  <p class="quote">Make Maya older &mdash; late 30s, weathered, grey at the temples.</p>
+                  <div class="cascade">
+                    <span class="src">characters_plan</span><span class="arr">&rarr;</span>
+                    <span class="node warn">character_image</span><span class="node warn">shot_image</span><span class="node warn">final_video</span>
+                  </div>
+                  <div class="cascnote" style="color:var(--fail);">High impact &mdash; re-runs <b>23 nodes</b> incl. all renders</div>
+                  <div class="confirmrow"><button class="cbtn primary">Apply &amp; cascade</button><button class="cbtn">Discard</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="note">High-blast edits return a <b>preview</b> first (amber dot = awaiting confirm). The user sees the blast radius before committing.</div>
+          </div>
+
+          <!-- INTERACTIVE PROMPT -->
+          <div class="scard">
+            <div class="sh"><span class="no">C</span><span class="nm">Ask &middot; choices</span><span class="tag">ask_question</span></div>
+            <div class="sbody">
+              <div class="tcard ask" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.1 9a3 3 0 1 1 4.5 2.6c-.9.5-1.6 1.2-1.6 2.4"/><path d="M12 17h.01"/></svg></span>
+                  <span class="tt">Needs your call</span>
+                  <span class="tname">dhee_ask_question</span>
+                </div>
+                <div class="tb">
+                  <div class="qhead">The dawn grade looks warm &mdash; which way for the score?</div>
+                  <div class="qopts">
+                    <div class="qopt"><div class="ol">Low room tone + first birds</div><div class="od">Naturalistic; lets the image lead</div></div>
+                    <div class="qopt"><div class="ol">Soft piano motif</div><div class="od">Emotional; signals a memory</div></div>
+                  </div>
+                  <div class="awaiting"><span class="ad"></span>Awaiting your choice</div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Pickers are <b>clickable, not prose</b>. The agent ends its turn; the card holds an awaiting-you state until you pick.</div>
+          </div>
+
+          <!-- INSPECT workflow -->
+          <div class="scard">
+            <div class="sh"><span class="no">D</span><span class="nm">Inspect &middot; config</span><span class="tag">check_workflow</span></div>
+            <div class="sbody">
+              <div class="tcard" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 12l5-5"/><circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/></svg></span>
+                  <span class="tt">Checked the render workflow</span>
+                  <span class="tname">dhee_check_workflow</span>
+                  <span class="tdot amber"></span>
+                </div>
+                <div class="tb">
+                  <div class="cascnote" style="margin:0 0 9px;color:var(--fail);">2 model refs missing on this endpoint</div>
+                  <div class="cascade">
+                    <span class="node warn">UNETLoader.unet_name</span>
+                    <span class="node warn">VAELoader.vae_name</span>
+                  </div>
+                  <div class="cascnote">Available: <b>ltxv-2b-0.9.8.safetensors</b> +4 &mdash; tap to remap</div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Config audits return structured <b>missing refs + available options</b> &mdash; actionable chips, not a wall of JSON.</div>
+          </div>
+
+          <!-- PROJECT created -->
+          <div class="scard">
+            <div class="sh"><span class="no">E</span><span class="nm">Lifecycle</span><span class="tag">create_project / fork</span></div>
+            <div class="sbody">
+              <div class="tcard artifact" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
+                  <span class="tt">Project created</span>
+                  <span class="tname">dhee_create_project</span>
+                </div>
+                <div class="tb">
+                  <div class="created">
+                    <span class="fld"><svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></span>
+                    <div><div class="ct"><b>Maya&rsquo;s Awakening</b></div><div class="cp">~/dhee-studios/mayas-awakening &middot; bundle <b>ltx_director</b></div></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Lifecycle events confirm with the concrete <b>path + bundle</b>, never a bare sentence.</div>
+          </div>
+
+          <!-- FILESYSTEM -->
+          <div class="scard">
+            <div class="sh"><span class="no">F</span><span class="nm">Filesystem</span><span class="tag">read / ls / grep / find</span></div>
+            <div class="sbody">
+              <div class="tcard fs" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg></span>
+                  <span class="tt">Searched the script</span>
+                  <span class="tname">dhee_grep</span>
+                </div>
+                <div class="tb">
+                  <div class="fsout"><span class="fl">scene_03.md</span><span class="fm">:14</span>  dawn breaks over the <span class="hl">horizon</span>
+<span class="fl">scene_03.md</span><span class="fm">:22</span>  the <span class="hl">horizon</span> holds, then cut
+<span class="fl">scene_07.md</span><span class="fm">:3</span>   far <span class="hl">horizon</span>, dusk light</div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Even scoped fs reads get a clean mono readout &mdash; lowest chroma, still first-class.</div>
+          </div>
+
+          <!-- MEDIA: video + audio -->
+          <div class="scard">
+            <div class="sh"><span class="no">G</span><span class="nm">Artifact &middot; media</span><span class="tag">asset-type drives body</span></div>
+            <div class="sbody">
+              <div class="tcard artifact" style="margin:0 0 10px;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4"/></svg></span>
+                  <span class="tt">final_video <span class="sub">1:12</span></span>
+                  <span class="tname">dhee_show_node_output</span>
+                </div>
+                <div class="tb" style="padding:0;">
+                  <div style="position:relative;aspect-ratio:16/9;background:radial-gradient(70% 130% at 50% 38%,#3c2b18,#140e09);display:grid;place-items:center;">
+                    <span style="width:0;height:0;border-left:17px solid var(--amber);border-top:11px solid transparent;border-bottom:11px solid transparent;filter:drop-shadow(0 0 11px var(--amber-glow));"></span>
+                  </div>
+                </div>
+              </div>
+              <div class="tcard artifact" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h2l2-6 3 14 3-10 2 4h6"/></svg></span>
+                  <span class="tt">room_tone.wav <span class="sub">0:48</span></span>
+                  <span class="tname">dhee_read_artifact</span>
+                </div>
+                <div class="tb">
+                  <div style="display:flex;align-items:center;gap:2px;height:30px;">
+                    <i style="flex:1;background:var(--amber);opacity:.7;height:24%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:52%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:38%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:78%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:46%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:90%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:34%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:64%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:28%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:72%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:44%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:86%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:40%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:58%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:30%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:68%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:50%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:82%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:36%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:60%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:26%;border-radius:1px;"></i><i style="flex:1;background:var(--amber);opacity:.7;height:74%;border-radius:1px;"></i>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Asset type drives the body: image &rarr; still, <b>video &rarr; player</b>, <b>audio &rarr; waveform</b>, text &rarr; reading peek.</div>
+          </div>
+
+          <!-- RUN CONTROL → transport -->
+          <div class="scard">
+            <div class="sh"><span class="no">H</span><span class="nm">Run control</span><span class="tag">start_run / stop_run</span></div>
+            <div class="sbody" style="display:flex;align-items:center;justify-content:center;min-height:118px;text-align:center;">
+              <div>
+                <div style="font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin-bottom:8px;">&darr; drives the transport</div>
+                <div style="font-size:12px;color:var(--ink-mute);line-height:1.5;max-width:230px;">Run tools don&rsquo;t print a bubble &mdash; they <b style="color:var(--ink-dim);">activate the live ON-SET transport</b> above the composer (states 01&ndash;04, left).</div>
+              </div>
+            </div>
+            <div class="note">The run is a <b>state of the panel</b>, not a message in the log.</div>
+          </div>
+
+          <!-- ERROR / FAILURE -->
+          <div class="scard">
+            <div class="sh"><span class="no">I</span><span class="nm">Error &middot; failure</span><span class="tag">transient vs structural</span></div>
+            <div class="sbody">
+              <div class="tcard err" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.7-3l-8-14a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></span>
+                  <span class="tt">Render failed <span class="sub">shot 14</span></span>
+                </div>
+                <div class="tb">
+                  <div class="errmsg">comfy.image: transient upstream error after 3 attempts &mdash; 502 Bad Gateway</div>
+                  <span class="classchip transient"><span class="cd"></span>Transient &middot; retryable</span>
+                  <div class="confirmrow"><button class="cbtn primary">Retry shot 14</button><button class="cbtn">Inspect</button></div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Failures are first-class too. The card classifies <b>transient</b> (flaky endpoint &mdash; retry) vs <b>structural</b> (fix the node) &mdash; the same split the run-wake nudge already makes.</div>
+          </div>
+
+          <!-- RUNNING / STREAMING -->
+          <div class="scard">
+            <div class="sh"><span class="no">J</span><span class="nm">Running &middot; streaming</span><span class="tag">call before result</span></div>
+            <div class="sbody">
+              <div class="tcard edit" style="margin:0;">
+                <div class="th">
+                  <span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span>
+                  <span class="tt">Writing <span class="sub">shot_03_prompt</span></span>
+                  <span class="tdot run"></span>
+                </div>
+                <div class="tb">
+                  <div class="streambody">Wide on the ridge line as the first amber light spills over &mdash; the camera holds, a breath of wind moving through the grass<span class="caret"></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="note">A tool mid-flight shows the <b>call as a card immediately</b> (pulsing dot), result <b>streaming in</b>. When it lands the dot goes solid; if later superseded, it condenses.</div>
+          </div>
+
+          <!-- CONDENSE behavior -->
+          <div class="scard" style="grid-column:1/-1;">
+            <div class="sh"><span class="no">K</span><span class="nm">Condense when superseded</span><span class="tag">long turns</span></div>
+            <div class="sbody" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start;">
+              <div>
+                <div class="tline" style="margin-bottom:9px;"><span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h4l3 8 4-16 3 8h4"/></svg></span><span class="tlt">Checked where things stand</span><span class="chip">28 / 40 done</span><span class="exp"></span></div>
+                <div class="tline" style="margin-bottom:9px;"><span class="tg edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><span class="tlt">Critiqued <b>opening_beat</b></span><span class="chip">6 nodes</span><span class="exp"></span></div>
+                <div class="tline" style="margin-bottom:0;"><span class="tg edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></span><span class="tlt">Wrote <b>shot_02_prompt</b></span><span class="chip">128 chars</span><span class="exp"></span></div>
+                <div style="text-align:center;font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--amber);margin:11px 0 9px;">&darr; latest stays full</div>
+                <div class="tcard artifact" style="margin:0;">
+                  <div class="th"><span class="tg"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.8"/><path d="M21 15l-5-5L4 22"/></svg></span><span class="tt">Horizon, first light</span></div>
+                  <div class="tb" style="padding:0;"><div style="aspect-ratio:16/9;background:radial-gradient(70% 120% at 25% 15%,#caa15f,#7d5a2e 38%,#2a1d10 78%);"></div></div>
+                </div>
+              </div>
+              <div class="note" style="padding:0;font-size:12.5px;line-height:1.6;">
+                As a turn grows, finished cards <b>collapse to a single row</b> &mdash; icon &middot; humanized title &middot; a result chip carrying the outcome (<code style="font-family:var(--mono);color:var(--amber-bright)">28&nbsp;/&nbsp;40&nbsp;done</code>, <code style="font-family:var(--mono);color:var(--amber-bright)">6&nbsp;nodes</code>). Tap any row to re-expand it to the full card.
+                <br><br>
+                Only the <b>live edge</b> of the turn stays full, so the 13-step run from the issue screenshot reads as a tidy ledger with one open card at the bottom &mdash; never a tower of boxes. The raw <code style="font-family:var(--mono);color:var(--ink-dim)">dhee_*</code> name is gone from every header; the humanized title carries it.
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- THE LIVE ACTIVITY INDICATOR — #161 core -->
+      <div class="specgroup">
+        <div class="col-label">The live activity indicator</div>
+        <h2 class="gh" style="margin-top:0;">Never &ldquo;blind to what the agent is doing&rdquo;</h2>
+        <p class="gd">One component, four states. It always answers <b>&ldquo;what is Dhee doing right now?&rdquo;</b> in plain language &mdash; a verb, an object, and (when countable) real progress. It replaces the three bouncing dots.</p>
+
+        <div class="cards">
+
+          <!-- THINKING -->
+          <div class="scard">
+            <div class="sh"><span class="no">01</span><span class="nm">Thinking</span><span class="tag">no tool yet</span></div>
+            <div class="sbody">
+              <div class="activity">
+                <div class="dial">
+                  <svg width="30" height="30" viewBox="0 0 30 30">
+                    <circle class="dt" cx="15" cy="15" r="12" fill="none" stroke-width="2.5"/>
+                    <circle class="df" cx="15" cy="15" r="12" fill="none" stroke-width="2.5" stroke-dasharray="20 200" stroke-dashoffset="0"/>
+                  </svg>
+                  <span class="dot"></span>
+                </div>
+                <div class="actbody">
+                  <div class="actline">
+                    <span class="actverb">Thinking</span>
+                    <span class="actobj">reading your note<span class="caret"></span></span>
+                  </div>
+                  <div class="actmeta"><span>no progress bar &mdash; indeterminate</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="note">Indeterminate work (the model is composing). Pulsing dial + blinking caret, <b>no meter</b> &mdash; honest about not knowing duration.</div>
+          </div>
+
+          <!-- WORKING -->
+          <div class="scard">
+            <div class="sh"><span class="no">02</span><span class="nm">Working</span><span class="tag">tool call</span></div>
+            <div class="sbody">
+              <div class="activity">
+                <div class="dial">
+                  <svg width="30" height="30" viewBox="0 0 30 30">
+                    <circle class="dt" cx="15" cy="15" r="12" fill="none" stroke-width="2.5"/>
+                    <circle class="df" cx="15" cy="15" r="12" fill="none" stroke-width="2.5" stroke-dasharray="35 200" stroke-dashoffset="0"/>
+                  </svg>
+                  <span class="dot"></span>
+                </div>
+                <div class="actbody">
+                  <div class="actline">
+                    <span class="actverb">Reading</span>
+                    <span class="actobj">the current status</span>
+                  </div>
+                  <div class="actmeta"><span style="color:var(--amber-bright)">dhee_get_status</span><span>elapsed <b>0:04</b></span></div>
+                </div>
+              </div>
+            </div>
+            <div class="note">A tool is running. Verb is humanised (&ldquo;Reading&rdquo;, &ldquo;Writing&rdquo;, &ldquo;Critiquing&rdquo;); the raw <b>tool name</b> sits in the meta line for the curious.</div>
+          </div>
+
+          <!-- RENDERING -->
+          <div class="scard">
+            <div class="sh"><span class="no">03</span><span class="nm">Rendering</span><span class="tag">countable &middot; long job</span></div>
+            <div class="sbody">
+              <div class="activity">
+                <div class="dial">
+                  <svg width="30" height="30" viewBox="0 0 30 30">
+                    <circle class="dt" cx="15" cy="15" r="12" fill="none" stroke-width="2.5"/>
+                    <circle class="df" cx="15" cy="15" r="12" fill="none" stroke-width="2.5" stroke-dasharray="75.4" stroke-dashoffset="27"/>
+                  </svg>
+                  <span class="dot"></span>
+                </div>
+                <div class="actbody">
+                  <div class="actline">
+                    <span class="actverb">Rendering</span>
+                    <span class="actobj">shot 12 <span class="of">of 40</span></span>
+                  </div>
+                  <div class="meter"><i style="width:64%"></i></div>
+                  <div class="actmeta"><span><b>64%</b></span><span>elapsed <b>3:18</b></span><span>eta <b>~1:50</b></span></div>
+                </div>
+                <button class="actstop" title="Stop run"><span class="sq"></span></button>
+              </div>
+            </div>
+            <div class="note">A collection node with N items &mdash; a real <b>meter + ETA</b> from completed/total, plus a one-click <b>stop</b>. The dial fills to match.</div>
+          </div>
+
+          <!-- PAUSED AT GATE -->
+          <div class="scard">
+            <div class="sh"><span class="no">04</span><span class="nm">Paused at gate</span><span class="tag">issue #133</span></div>
+            <div class="sbody">
+              <div class="gateslate">
+                <div class="gline">
+                  <span class="pausemark"><i></i><i></i></span>
+                  <span class="gtitle">Paused at the gate</span>
+                </div>
+                <p class="gtxt">Stopped after collection <b>&lsquo;character_image&rsquo;</b> because <b>&ldquo;stop after each collection&rdquo;</b> is on. This is intentional &mdash; not a failure, not a missing endpoint.</p>
+                <div class="gpending">Still pending: <b>shot_image</b>, <b>final_video</b></div>
+                <div class="gbtns">
+                  <button class="gbtn primary">Continue run</button>
+                  <button class="gbtn">Adjust first</button>
+                </div>
+              </div>
+            </div>
+            <div class="note">The transport <b>morphs into a slate</b> when the run gates. The visual itself says &ldquo;intentional&rdquo; &mdash; reinforcing the #133 fix so the agent never confabulates a ComfyUI cause.</div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- COALESCING — Problem 1 -->
+      <div class="specgroup">
+        <div class="col-label">Problem 1 &mdash; coalesce consecutive Dhee messages</div>
+        <h2 class="gh">One byline per author run</h2>
+        <p class="gd">A single multi-step turn used to render as <b>N stamped boxes</b>, each with its own DHEE eyebrow. Now a run of consecutive Dhee messages is <b>one authored block</b> &mdash; byline once, an amber spine down the side, messages flowing beneath. The eyebrow only returns when the author flips.</p>
+        <div class="ba">
+          <div class="col before">
+            <div class="ct"><span class="dot"></span>Before &mdash; 4 stamped boxes</div>
+            <div class="stamp"><div class="eb">Dhee · 2:14</div><div class="ln"></div><div class="ln s"></div></div>
+            <div class="stamp"><div class="eb">Dhee · 2:14</div><div class="ln"></div></div>
+            <div class="stamp"><div class="eb">Dhee · 2:14</div><div class="ln"></div><div class="ln s"></div></div>
+            <div class="stamp"><div class="eb">Dhee · 2:14</div><div class="ln s"></div></div>
+          </div>
+          <div class="col after">
+            <div class="ct"><span class="dot"></span>After &mdash; 1 authored block</div>
+            <div class="blk">
+              <div class="eb">Dhee · 2:14</div>
+              <div class="grp"><div class="ln"></div><div class="ln s"></div></div>
+              <div class="grp"><div class="ln"></div></div>
+              <div class="grp"><div class="ln"></div><div class="ln s"></div></div>
+              <div class="grp"><div class="ln s"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CONTENT KINDS — Problem 2 -->
+      <div class="specgroup">
+        <div class="col-label">Problem 2 &mdash; intentional treatment per content kind</div>
+        <h2 class="gh">Each kind reads as what it is</h2>
+        <p class="gd">The chat mixes conversation, working notes, run events and artifacts. Instead of flattening everything into stamped bubbles, each gets a distinct, restrained treatment.</p>
+        <div style="border:1px solid var(--line);border-radius:var(--r-md);padding:4px 16px;background:linear-gradient(180deg,var(--panel),var(--bg-2));">
+          <div class="keyrow"><span class="kn">Authored prose</span><span class="kt">Final answer &amp; streaming text &mdash; <b>Instrument Sans body</b> under the one byline. This is the conversation.</span></div>
+          <div class="keyrow"><span class="kn">Tool I/O</span><span class="kt">Every <code style="font-family:var(--mono);color:var(--amber-bright)">dhee_*</code> call + its result is a <b>first-class card</b> (status readout, cascade preview, take-strip, picker&hellip;) &mdash; call is the header, result is the body. Never folded, because we know what each returns.</span></div>
+          <div class="keyrow"><span class="kn">Run events</span><span class="kt">Pipeline notices (&ldquo;Run resumed&rdquo;, &ldquo;Run started&rdquo;) are <b>centered amber slugs</b> &mdash; clearly outside the conversation, never a bubble.</span></div>
+          <div class="keyrow"><span class="kn">Artifacts</span><span class="kt">Scene / shot outputs render as <b>filmstrip stills</b> with sprocket edges and a mono caption &mdash; an artifact, not a paragraph.</span></div>
+          <div class="keyrow"><span class="kn">Live activity</span><span class="kt">The pinned <b>ON-SET transport</b> above the composer &mdash; the only thing that animates, so motion always means &ldquo;Dhee is working.&rdquo;</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="footer">
+    <div class="fh">Notes</div>
+    <p style="font-size:12px;color:var(--ink-mute);line-height:1.6;max-width:860px;margin:0;">
+      Static HTML mockup &mdash; animations (dial pulse, meter sheen, caret blink, staggered reveal) are live; data is illustrative.
+      Built on the Cinematic theme tokens (<code style="font-family:var(--mono);color:var(--amber-bright)">--bg #0a0908 · --amber #e8a33d</code>, Fraunces / Instrument&nbsp;Sans / JetBrains&nbsp;Mono).
+      Touch points from #161: <code style="font-family:var(--mono);color:var(--ink-dim)">MessageList</code> (coalesce into author blocks), <code style="font-family:var(--mono);color:var(--ink-dim)">MessageBubble</code> (drop per-msg eyebrow),
+      a new <code style="font-family:var(--mono);color:var(--ink-dim)">ToolCard</code> family (one per render category, replacing <code style="font-family:var(--mono);color:var(--ink-dim)">IntermediateMessageGroup</code> + <code style="font-family:var(--mono);color:var(--ink-dim)">ToolCallCard</code>), and a new <code style="font-family:var(--mono);color:var(--ink-dim)">ActivityTransport</code> replacing <code style="font-family:var(--mono);color:var(--ink-dim)">TypingIndicator</code>.
+    </p>
+  </div>
+
+</div>
+<script>
+  (function(){
+    var panel = document.querySelector('.panel');
+    var btns = document.querySelectorAll('.stateswitch button');
+    btns.forEach(function(b){
+      b.addEventListener('click', function(){
+        panel.dataset.state = b.dataset.s;
+        btns.forEach(function(x){ x.classList.toggle('on', x === b); });
+      });
+    });
+  })();
+</script>
+</body>
+</html>

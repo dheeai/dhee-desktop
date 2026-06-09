@@ -46,112 +46,18 @@ import {
   classifyProjectState,
   type ProjectLifecycleState,
 } from './classifyProjectState';
+import type { ChatMessage, ToolStatus } from './chatMessageModel';
+import { coalesceTranscript, type TurnEntry } from './coalesceTranscript';
+import { deriveActivityState } from './activityState';
+import TranscriptTurn from '../TranscriptTurn';
+import ActivityTransport from '../ActivityTransport';
 import ProjectCTA, { type CTAAction } from './ProjectCTA';
 import ProjectRunButton from './ProjectRunButton';
-
-type Role =
-  | 'user'
-  | 'assistant'
-  | 'tool'
-  | 'system'
-  | 'media'
-  | 'question'
-  | 'phase'
-  | 'progress'
-  | 'thinking'
-  | 'bundle-choices'
-  | 'question-card';
-type ToolStatus = 'in_progress' | 'completed' | 'error';
-
-interface ChatMessage {
-  id: string;
-  role: Role;
-  text?: string;
-  toolName?: string;
-  toolCallId?: string;
-  toolStatus?: ToolStatus;
-  toolArgsSummary?: string;
-  /**
-   * For role='progress' rows: the toolCallId of the originating tool
-   * (e.g. dhee_run_to). One row per stream_chunk event so each
-   * `[info] [N/M] Working on…` line is its own discrete block in the
-   * chat — easier to scan than the previous "all concatenated into
-   * one giant <pre> blob" rendering.
-   */
-  progressForToolCallId?: string;
-  /** For role='progress' rows: the line itself (already trimmed). */
-  progressText?: string;
-  /**
-   * For role='thinking' rows: the originating tool's call id. Used to
-   * group consecutive reasoning chunks emitted under the same tool
-   * invocation into a single growing thinking block.
-   */
-  thinkingForToolCallId?: string;
-  /** For role='thinking' rows: the accumulated reasoning text. */
-  thinkingText?: string;
-  mediaKind?: 'image' | 'video';
-  mediaPath?: string;
-  mediaProject?: string;
-  /**
-   * Optional ms-timestamp from the tool's `details.created_at` (or
-   * mtime). Threaded into the file:// URL as `?v=<key>` so the
-   * Electron renderer fetches fresh bytes when the canonical
-   * artifact has been overwritten since the bubble was first
-   * created. Without this, the browser keeps serving the cached
-   * first-version bytes and the user sees the "old mangled hands."
-   */
-  mediaCreatedAt?: number;
-  /** Streaming bubbles aren't yet finalized; agent_response replaces text. */
-  streaming?: boolean;
-  /** agent_question fields */
-  question?: string;
-  options?: string[];
-  defaultOption?: string;
-  answered?: boolean;
-  /**
-   * For role='system' rows emitted from the executor's `notification`
-   * event: the severity level (info / warning / error). When set to
-   * 'error' the renderer styles the pill as a red error card so the
-   * user notices ComfyUI / LLM failures instead of skimming past them
-   * as ordinary system messages.
-   */
-  notificationLevel?: 'info' | 'warning' | 'error';
-  /**
-   * For role='bundle-choices' rows: bundle ids the agent offered via
-   * dhee_present_bundle_choices, with display metadata. Renderer turns
-   * each into a clickable card; click sends `Use <bundleId>` as the
-   * next user message. `ids` is preserved as the canonical wire id;
-   * `bundles` carries the displayName/summary the picker shows.
-   */
-  bundleChoices?: {
-    ids: string[];
-    bundles?: Array<{ id: string; displayName: string; summary: string }>;
-    question?: string;
-  };
-  /** Set true once user clicked one of the choices — disables remaining cards. */
-  bundleChoiceMade?: string | null;
-  /**
-   * For role='question-card' rows: a generic agent question rendered
-   * as a clickable card grid via dhee_ask_question. `answered` holds
-   * the user's picks (joined into the user message when sent).
-   */
-  questionCard?: {
-    question: string;
-    options: Array<{ id: string; label: string; description?: string }>;
-    multiSelect: boolean;
-  };
-  /** Picked option ids for a question-card; null until the user submits. */
-  questionCardAnswered?: string[] | null;
-}
 
 interface ContextUsage {
   used: number;
   limit: number;
 }
-
-type MessageListItem =
-  | { kind: 'message'; message: ChatMessage }
-  | { kind: 'progressGroup'; id: string; rows: ChatMessage[] };
 
 let nextMessageId = 1;
 function newMessageId(): string {
@@ -266,33 +172,6 @@ function mergeStreamText(
   return base + chunk;
 }
 
-function groupConsecutiveProgress(messages: ChatMessage[]): MessageListItem[] {
-  const items: MessageListItem[] = [];
-  let pendingRows: ChatMessage[] = [];
-
-  const flushProgress = () => {
-    if (pendingRows.length === 0) return;
-    items.push({
-      kind: 'progressGroup',
-      id: `progress-${pendingRows[0].id}`,
-      rows: pendingRows,
-    });
-    pendingRows = [];
-  };
-
-  for (const message of messages) {
-    if (message.role === 'progress') {
-      pendingRows.push(message);
-      continue;
-    }
-
-    flushProgress();
-    items.push({ kind: 'message', message });
-  }
-
-  flushProgress();
-  return items;
-}
 
 // Moved to ./mediaResolution.ts (with URL encoding fix — see comment in
 // resolveMediaSrc there). The unit tests live in mediaResolution.test.ts.
@@ -1318,6 +1197,37 @@ export default function ChatPanelEmbedded() {
   // had no visible kill switch.
   const isRunning = runnerActive || pendingCancel || isMainBusy;
 
+  // ---- live activity transport (issue #161) ----
+  // The most recent progress line (for [N/M] meter parsing) and the
+  // most recent still-running tool (for a humanized "working" verb).
+  const latestProgressText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === 'progress' && m.progressText) return m.progressText;
+    }
+    return undefined;
+  }, [messages]);
+  const activeToolName = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === 'tool' && m.toolStatus === 'in_progress' && m.toolName) {
+        return m.toolName;
+      }
+    }
+    return undefined;
+  }, [messages]);
+  const activity = useMemo(
+    () =>
+      deriveActivityState({
+        agentBusy: isMainBusy,
+        runnerActive,
+        pendingCancel,
+        latestProgress: latestProgressText,
+        activeTool: activeToolName ? { toolName: activeToolName } : undefined,
+      }),
+    [isMainBusy, runnerActive, pendingCancel, latestProgressText, activeToolName],
+  );
+
   const contextPct = contextUsage
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
     : null;
@@ -1548,18 +1458,35 @@ export default function ChatPanelEmbedded() {
               : 'Open a project from the sidebar to begin.'}
           </div>
         ) : (
-          groupConsecutiveProgress(messages).map((item) =>
-            item.kind === 'progressGroup' ? (
-              <ProgressGroup key={item.id} rows={item.rows} />
-            ) : item.message.role === 'question' ? (
-              <QuestionRow
-                key={item.message.id}
-                message={item.message}
-                onSelect={(opt) => handleSelectOption(item.message.id, opt)}
-              />
-            ) : item.message.role === 'thinking' ? (
-              <ThinkingRow key={item.message.id} message={item.message} />
-            ) : (
+          coalesceTranscript(messages).map((item) => {
+            if (item.kind === 'turn') {
+              // Problem 1: a run of agent messages renders as ONE authored
+              // block (single byline). Tool entries render first-class via
+              // ToolCard inside TranscriptTurn; the rest are delegated back
+              // to the panel's existing renderers (minus the per-message
+              // eyebrow, which now lives once on the turn).
+              return (
+                <TranscriptTurn
+                  key={item.id}
+                  entries={item.entries}
+                  renderEntry={(entry) =>
+                    renderTurnEntry(entry, projectDirectory)
+                  }
+                />
+              );
+            }
+            if (item.kind === 'question') {
+              return (
+                <QuestionRow
+                  key={item.message.id}
+                  message={item.message}
+                  onSelect={(opt) => handleSelectOption(item.message.id, opt)}
+                />
+              );
+            }
+            // user / system / phase / question-card / bundle-choices —
+            // standalone items still routed through MessageRow.
+            return (
               <MessageRow
                 key={item.message.id}
                 message={item.message}
@@ -1567,8 +1494,8 @@ export default function ChatPanelEmbedded() {
                 onBundleChoiceClick={handleBundleChoiceClick}
                 onQuestionCardClick={handleQuestionCardClick}
               />
-            ),
-          )
+            );
+          })
         )}
         {/* External question banners — posted via the ChatQuestions
          *  context by non-chat code (e.g. the PreviewPanel's "Redo
@@ -1627,6 +1554,9 @@ export default function ChatPanelEmbedded() {
         {attachmentError && (
           <div className={styles.attachmentError}>{attachmentError}</div>
         )}
+        {/* Live activity transport (issue #161) — the single indicator of
+            what Dhee is doing right now. Renders nothing when idle. */}
+        <ActivityTransport state={activity} onStop={() => void handleCancel()} />
         <div className={styles.inputWrapper}>
           <button
             type="button"
@@ -1788,6 +1718,43 @@ function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
       ))}
     </div>
   );
+}
+
+/**
+ * Renders the non-tool entries of a coalesced turn. Tool entries are
+ * handled first-class by TranscriptTurn (ToolCard); everything else is
+ * delegated here so we reuse the existing media / progress / thinking
+ * rendering. Assistant text renders body-only — the "Dhee" byline lives
+ * once on the turn (issue #161, Problem 1), so we must NOT route it through
+ * MessageRow's assistant branch (which stamps its own eyebrow).
+ */
+function renderTurnEntry(
+  entry: TurnEntry,
+  projectDirectory: string | null,
+): React.ReactNode {
+  if (entry.kind === 'progressGroup') {
+    return <ProgressGroup rows={entry.rows} />;
+  }
+  if (entry.kind === 'thinking') {
+    return <ThinkingRow message={entry.message} />;
+  }
+  if (entry.kind === 'media') {
+    return (
+      <MessageRow message={entry.message} projectDirectory={projectDirectory} />
+    );
+  }
+  if (entry.kind === 'text') {
+    const text = dedupeDoubled(entry.message.text ?? '');
+    if (!text.trim()) return null;
+    return (
+      <div className={`${styles.bubble} ${styles.bubbleAssistant}`}>
+        <div className={styles.bubbleBody}>
+          <MarkdownContent text={text} />
+        </div>
+      </div>
+    );
+  }
+  return null; // 'tool' handled by TranscriptTurn
 }
 
 function MessageRow({
@@ -2188,6 +2155,9 @@ function handleEvent(
             toolName: data.toolName ?? '(unknown tool)',
             toolStatus: data.status ?? 'in_progress',
             toolArgsSummary: summarizeArgs(data.arguments),
+            ...(data.arguments && typeof data.arguments === 'object'
+              ? { toolArgs: data.arguments as Record<string, unknown> }
+              : {}),
           },
         ];
       });
@@ -2209,6 +2179,17 @@ function handleEvent(
       };
       // Update the matching tool card in place (NOT a new card).
       const newStatus: ToolStatus = data.isError ? 'error' : 'completed';
+      // Capture the result text + structured details so the tool card can
+      // render its result first-class (status counts, cascade affectedNodes,
+      // check_workflow missing_refs, version lists, …). Shape varies per
+      // tool; the card body reads `toolDetails` defensively.
+      const capturedResultText = toolResultText(data.result?.content);
+      const capturedDetails = (data.result as { details?: unknown } | undefined)
+        ?.details;
+      const capturedToolDetails =
+        capturedDetails && typeof capturedDetails === 'object'
+          ? (capturedDetails as Record<string, unknown>)
+          : undefined;
       const toolNameForChoices = data.toolCallId
         ? toolNameByCallIdRef.current?.get(data.toolCallId)
         : undefined;
@@ -2308,7 +2289,16 @@ function handleEvent(
       setMessages((prev) => {
         const updated: ChatMessage[] = prev.map((m) =>
           m.role === 'tool' && m.toolCallId === data.toolCallId
-            ? { ...m, toolStatus: newStatus }
+            ? {
+                ...m,
+                toolStatus: newStatus,
+                ...(capturedResultText
+                  ? { toolResultText: capturedResultText }
+                  : {}),
+                ...(capturedToolDetails
+                  ? { toolDetails: capturedToolDetails }
+                  : {}),
+              }
             : m,
         );
         // Bundle picker — append a clickable cards row.

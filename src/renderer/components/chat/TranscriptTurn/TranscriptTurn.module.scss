@@ -1,0 +1,58 @@
+@import '../../../styles/tokens';
+
+// One authored block per agent run (Problem 1): a single byline with a
+// hairline amber spine; every entry flows beneath it — no repeated eyebrow.
+
+.turn {
+  position: relative;
+  padding-left: 17px;
+  margin-bottom: $spacing-xl;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 3px;
+    top: 24px;
+    bottom: 4px;
+    width: 1.5px;
+    border-radius: 2px;
+    background: linear-gradient(
+      180deg,
+      $color-accent-primary,
+      rgba(var(--color-accent-primary-rgb), 0.08)
+    );
+    opacity: 0.6;
+  }
+}
+
+.byline {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 11px;
+}
+
+.glyph {
+  width: 18px;
+  height: 18px;
+  border-radius: 3px;
+  display: grid;
+  place-items: center;
+  background: rgba(var(--color-accent-primary-rgb), 0.14);
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.18);
+  color: $color-accent-primary;
+}
+
+.name {
+  font-family: $font-family-mono;
+  font-size: 9.5px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: $color-accent-primary;
+  font-weight: $font-weight-semibold;
+}
+
+.entries {
+  display: flex;
+  flex-direction: column;
+}
