@@ -63,6 +63,28 @@ async function fetchModelIds(url: string, headers?: Record<string, string>): Pro
   }
 }
 
+async function fetchGeminiModelIds(apiKey: string): Promise<string[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    // eslint-disable-next-line compat/compat
+    const response = await fetch(
+      `${GEMINI_MODELS_URL}?key=${encodeURIComponent(apiKey)}`,
+      { method: 'GET', signal: controller.signal },
+    );
+    if (!response.ok) return [];
+    const body = (await response.json()) as { models?: Array<{ name?: unknown }> };
+    return (body.models ?? [])
+      .map((m) => (typeof m?.name === 'string' ? m.name.replace(/^models\//, '') : null))
+      .filter((x): x is string => x !== null)
+      .slice(0, 50);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 function cloudAccountDiagnostic(
   account: AccountInfo | null,
 ): ProviderDiagnosticItem {
@@ -233,10 +255,14 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
     const result = await fetchOk(
       `${GEMINI_MODELS_URL}?key=${encodeURIComponent(key)}`,
     );
+    const models = result.ok ? await fetchGeminiModelIds(key) : [];
     return result.ok
       ? {
           ok: true,
-          message: `Gemini key verified${input.model ? ` for ${input.model}` : ''}.`,
+          message: models.length
+            ? `Gemini key verified — ${models.length} models available.`
+            : `Gemini key verified${input.model ? ` for ${input.model}` : ''}.`,
+          models,
         }
       : {
           ok: false,

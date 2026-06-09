@@ -10,6 +10,9 @@ export type { ButtonProps, ButtonVariant, ButtonSize } from './Button/Button';
 export { Input, Textarea, Select, Field } from './controls/Controls';
 export type { InputProps, TextareaProps, SelectProps, FieldProps } from './controls/Controls';
 
+export { ComboList } from './ComboList/ComboList';
+export type { ComboListOption, ComboListProps } from './ComboList/ComboList';
+
 export { SegmentedControl } from './SegmentedControl/SegmentedControl';
 export type { SegmentedControlProps, SegmentedOption } from './SegmentedControl/SegmentedControl';
 

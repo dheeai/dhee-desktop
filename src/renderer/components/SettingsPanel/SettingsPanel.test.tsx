@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import SettingsPanel from './SettingsPanel';
 
 jest.mock('react', () => jest.requireActual('react'));
@@ -329,6 +329,70 @@ describe('SettingsPanel', () => {
     expect(
       await screen.findByText('OpenAI-compatible LLM needs an API key.'),
     ).toBeInTheDocument();
+  });
+
+  it('loads model ids for the Settings model field while preserving free text entry', async () => {
+    const probeLlm = jest.fn().mockResolvedValue({
+      ok: true,
+      message: 'Reachable — 2 models available.',
+      models: ['qwen-local-a', 'qwen-local-b'],
+    });
+    const onSave = jest.fn().mockResolvedValue(true);
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        providerDiagnostics: { probeLlm },
+      },
+    });
+
+    let container!: HTMLElement;
+    await act(async () => {
+      const rendered = render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={{
+            ...baseSettings,
+            openaiBaseUrl: 'http://100.93.149.119:8080/v1',
+            openaiApiKey: '',
+            openaiModel: 'qwen-current',
+          }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSave}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+      container = rendered.container;
+    });
+
+    const modelInput = container.querySelector(
+      'input[data-tour-id="settings-llm-model"]',
+    ) as HTMLInputElement;
+    expect(modelInput).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.focus(modelInput);
+    });
+
+    expect(probeLlm).toHaveBeenCalledWith({
+      provider: 'openai',
+      apiKey: '',
+      model: 'qwen-current',
+      baseUrl: 'http://100.93.149.119:8080/v1',
+    });
+    expect(await screen.findByText(/2 models available from endpoint/i)).toBeInTheDocument();
+    const modelField = modelInput.closest('.label') as HTMLElement;
+    fireEvent.click(within(modelField).getByRole('button', { name: /Show Models/i }));
+    expect(within(modelField).getByRole('option', { name: 'qwen-local-a' })).toBeInTheDocument();
+    expect(within(modelField).getByRole('option', { name: 'qwen-local-b' })).toBeInTheDocument();
+
+    fireEvent.change(modelInput, { target: { value: 'custom-model-id' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));
+
+    expect(onSave).toHaveBeenCalled();
+    expect(onSave.mock.calls[0][0].openaiModel).toBe('custom-model-id');
   });
 
   it('hides Medium and Light tier sections when "use same LLM for all tasks" is checked', async () => {
