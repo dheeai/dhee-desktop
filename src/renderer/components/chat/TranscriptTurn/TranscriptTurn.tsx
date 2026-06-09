@@ -15,6 +15,8 @@ export interface TranscriptTurnProps {
    */
   renderEntry: (entry: TurnEntry, index: number) => ReactNode;
   byline?: string;
+  /** Threaded to ToolCard so artifact cards can resolve their media paths. */
+  projectDirectory?: string | null;
 }
 
 /**
@@ -27,6 +29,7 @@ export default function TranscriptTurn({
   entries,
   renderEntry,
   byline = 'Dhee',
+  projectDirectory = null,
 }: TranscriptTurnProps) {
   return (
     <div className={styles.turn}>
@@ -44,6 +47,7 @@ export default function TranscriptTurn({
                 key={entry.message.id}
                 message={entry.message}
                 condensed={entry.condensed}
+                projectDirectory={projectDirectory}
               />
             );
           }

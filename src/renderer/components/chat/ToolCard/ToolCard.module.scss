@@ -31,13 +31,17 @@
   color: $color-accent-primary;
 }
 
-// Per-archetype glyph tint
-.artifact .glyph {
+// Per-archetype glyph tint — keyed off the data-archetype attribute, NOT a
+// CSS-module class. Archetype names (run / takes / generic …) collide with
+// internal element classes (segbar fill `.run`, version strip `.takes`,
+// body text `.generic`), so applying styles[archetype] as a class fills the
+// whole card with e.g. the solid-amber segbar color. The attribute is safe.
+[data-archetype='artifact'] .glyph {
   background: rgba(var(--color-success-rgb), 0.16);
   border-color: rgba(var(--color-success-rgb), 0.3);
   color: $color-success;
 }
-.fs .glyph {
+[data-archetype='fs'] .glyph {
   background: rgba(var(--color-text-primary-rgb), 0.05);
   border-color: $color-border-strong;
   color: $color-text-muted;
@@ -76,6 +80,28 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+// Collapsible header — the entire header is the toggle (click anywhere to
+// collapse an expanded card), so the user never has to hit a tiny caret.
+.headToggle {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid $color-border-subtle;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    background: rgba(var(--color-text-primary-rgb), 0.03);
+  }
+}
+.headChevron {
+  flex: none;
+  margin-left: 4px;
+  color: $color-text-muted;
 }
 
 .body {
@@ -305,6 +331,20 @@
   font-family: $font-family-mono;
   font-size: 10px;
   color: $color-text-muted;
+}
+
+// ---- artifact (image / video inline, folds with the card) ----
+.artifactBody {
+  padding: 0;
+  line-height: 0;
+}
+.artifactMedia {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 340px;
+  object-fit: contain;
+  background: $color-bg-app;
 }
 
 // ---- generic ----

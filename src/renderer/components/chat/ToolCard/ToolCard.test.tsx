@@ -133,4 +133,57 @@ describe('ToolCard', () => {
     fireEvent.click(screen.getByRole('button'));
     expect(screen.getByRole('progressbar')).toBeInTheDocument();
   });
+
+  it('a non-condensed (live-edge) card can still be collapsed', () => {
+    render(
+      <ToolCard
+        message={tool({
+          toolName: 'dhee_get_status',
+          toolStatus: 'completed',
+          toolResultText: STATUS_TEXT,
+        })}
+      />,
+    );
+    // Live-edge cards start expanded…
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    // …but are still collapsible (every card folds, not just superseded ones).
+    fireEvent.click(screen.getByRole('button', { name: /collapse/i }));
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('renders an artifact image inside the card body', () => {
+    render(
+      <ToolCard
+        projectDirectory="/proj"
+        message={tool({
+          toolName: 'dhee_show_node_output',
+          toolStatus: 'completed',
+          toolArgs: { nodeId: 'shot_1' },
+          toolDetails: { file_path: '/proj/assets/shot_1.png', asset_type: 'image' },
+        })}
+      />,
+    );
+    const img = screen.getByRole('img');
+    expect(img.getAttribute('src')).toMatch(/shot_1\.png/);
+  });
+
+  it('expanded condensed card can be collapsed again', () => {
+    render(
+      <ToolCard
+        condensed
+        message={tool({
+          toolName: 'dhee_get_status',
+          toolStatus: 'completed',
+          toolResultText: STATUS_TEXT,
+        })}
+      />,
+    );
+    // Expand.
+    fireEvent.click(screen.getByRole('button', { name: /expand/i }));
+    expect(screen.getByRole('progressbar')).toBeInTheDocument();
+    // Collapse back to the one-line summary.
+    fireEvent.click(screen.getByRole('button', { name: /collapse/i }));
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    expect(screen.getByText('28/40 done')).toBeInTheDocument();
+  });
 });

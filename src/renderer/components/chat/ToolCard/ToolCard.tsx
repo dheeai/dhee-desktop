@@ -12,6 +12,7 @@ import {
   Terminal,
   Wrench,
   ChevronDown,
+  ChevronUp,
   Loader2,
 } from 'lucide-react';
 import type { ChatMessage } from '../ChatPanelEmbedded/chatMessageModel';
@@ -29,6 +30,11 @@ import {
   type StatusCounts,
   type VersionRow,
 } from '../ChatPanelEmbedded/toolResultParsers';
+import { extractRehydratedMedia } from '../ChatPanelEmbedded/rehydratedMedia';
+import {
+  resolveMediaSrc,
+  cacheBustMediaSrc,
+} from '../ChatPanelEmbedded/mediaResolution';
 import styles from './ToolCard.module.scss';
 
 const GLYPHS: Record<ToolArchetype, ReactNode> = {
@@ -201,6 +207,45 @@ function RunningBody({ message }: { message: ChatMessage }) {
   );
 }
 
+function ArtifactBody({
+  message,
+  projectDirectory,
+}: {
+  message: ChatMessage;
+  projectDirectory: string | null;
+}) {
+  const media = extractRehydratedMedia({
+    details: message.toolDetails,
+    resultText: message.toolResultText,
+  });
+  if (!media) return <GenericBody message={message} />;
+  const src = cacheBustMediaSrc(
+    resolveMediaSrc(media.path, projectDirectory),
+    media.createdAt ?? null,
+  );
+  return (
+    <div className={styles.artifactBody}>
+      {media.kind === 'image' ? (
+        <img
+          src={src}
+          alt={media.path.split('/').pop() ?? 'artifact'}
+          className={styles.artifactMedia}
+          onError={(e) => {
+            (e.currentTarget as HTMLImageElement).style.display = 'none';
+          }}
+        />
+      ) : (
+        <video
+          src={src}
+          controls
+          preload="metadata"
+          className={styles.artifactMedia}
+        />
+      )}
+    </div>
+  );
+}
+
 function GenericBody({ message }: { message: ChatMessage }) {
   const text = (message.toolResultText ?? message.toolArgsSummary ?? '').trim();
   if (!text) return null;
@@ -214,13 +259,21 @@ function GenericBody({ message }: { message: ChatMessage }) {
 function ToolBody({
   message,
   archetype,
+  projectDirectory,
 }: {
   message: ChatMessage;
   archetype: ToolArchetype;
+  projectDirectory: string | null;
 }) {
   if (message.toolStatus === 'in_progress')
     return <RunningBody message={message} />;
   if (message.toolStatus === 'error') return <ErrorBody message={message} />;
+
+  // Artifact tools render their image/video INSIDE the card so it folds with
+  // the card (was previously a separate media row that stayed on collapse).
+  if (archetype === 'artifact') {
+    return <ArtifactBody message={message} projectDirectory={projectDirectory} />;
+  }
 
   const name = message.toolName ?? '';
 
@@ -261,32 +314,41 @@ function StatusDot({ status }: { status: ChatMessage['toolStatus'] }) {
 
 export interface ToolCardProps {
   message: ChatMessage;
-  /** When true the card renders as a single collapsed line until clicked. */
+  /**
+   * Sets the INITIAL fold state — condensed cards (superseded ones) start
+   * collapsed, the live-edge card starts open. Either way the user can
+   * toggle; a manual toggle sticks even if the card is later superseded.
+   */
   condensed?: boolean;
+  /** For resolving artifact file paths to displayable src URLs. */
+  projectDirectory?: string | null;
 }
 
 export default function ToolCard({
   message,
   condensed = false,
+  projectDirectory = null,
 }: ToolCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  // null = follow `condensed`; true/false = a sticky manual choice.
+  const [override, setOverride] = useState<boolean | null>(null);
+  const expanded = override ?? !condensed;
   const name = message.toolName ?? '';
   const archetype = toolArchetype(name);
   const title = humanizeTool(name);
   const object = toolObject(message);
 
-  if (condensed && !expanded) {
+  if (!expanded) {
     const chip = resultChip(message);
     return (
       <button
         type="button"
         className={styles.line}
-        onClick={() => setExpanded(true)}
+        data-archetype={archetype}
+        onClick={() => setOverride(true)}
         aria-expanded={false}
+        aria-label={`Expand: ${title}`}
       >
-        <span className={`${styles.glyph} ${styles[archetype]}`}>
-          {GLYPHS[archetype]}
-        </span>
+        <span className={styles.glyph}>{GLYPHS[archetype]}</span>
         <span className={styles.lineTitle}>
           {title}
           {object && <b> {object}</b>}
@@ -299,21 +361,31 @@ export default function ToolCard({
 
   return (
     <div
-      className={`${styles.card} ${styles[archetype]}`}
+      className={styles.card}
       data-archetype={archetype}
       data-status={message.toolStatus ?? 'in_progress'}
     >
-      <div className={styles.head}>
-        <span className={`${styles.glyph} ${styles[archetype]}`}>
-          {GLYPHS[archetype]}
-        </span>
+      {/* The whole header toggles — every card collapses, click anywhere. */}
+      <button
+        type="button"
+        className={`${styles.head} ${styles.headToggle}`}
+        onClick={() => setOverride(false)}
+        aria-expanded
+        aria-label={`Collapse: ${title}`}
+      >
+        <span className={styles.glyph}>{GLYPHS[archetype]}</span>
         <span className={styles.title}>
           {title}
           {object && <span className={styles.object}> {object}</span>}
         </span>
         <StatusDot status={message.toolStatus} />
-      </div>
-      <ToolBody message={message} archetype={archetype} />
+        <ChevronUp size={14} className={styles.headChevron} aria-hidden="true" />
+      </button>
+      <ToolBody
+        message={message}
+        archetype={archetype}
+        projectDirectory={projectDirectory}
+      />
     </div>
   );
 }

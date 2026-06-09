@@ -33,7 +33,7 @@ import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
-import { extractToolResultFilePath, cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
+import { cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useAgent } from '../../../contexts/AgentContext';
@@ -329,7 +329,10 @@ export default function ChatPanelEmbedded() {
           toolName: tc.toolName,
           toolCallId: tc.id,
           toolStatus: status,
+          ...(tc.args ? { toolArgs: tc.args } : {}),
           ...(argsSummary ? { toolArgsSummary: argsSummary } : {}),
+          ...(tc.resultText ? { toolResultText: tc.resultText } : {}),
+          ...(tc.details ? { toolDetails: tc.details } : {}),
         },
       });
     }
@@ -1469,6 +1472,7 @@ export default function ChatPanelEmbedded() {
                 <TranscriptTurn
                   key={item.id}
                   entries={item.entries}
+                  projectDirectory={projectDirectory}
                   renderEntry={(entry) =>
                     renderTurnEntry(entry, projectDirectory)
                   }
@@ -1747,7 +1751,9 @@ function renderTurnEntry(
     const text = dedupeDoubled(entry.message.text ?? '');
     if (!text.trim()) return null;
     return (
-      <div className={`${styles.bubble} ${styles.bubbleAssistant}`}>
+      <div
+        className={`${styles.bubble} ${styles.bubbleAssistant} ${styles.inTurn}`}
+      >
         <div className={styles.bubbleBody}>
           <MarkdownContent text={text} />
         </div>
@@ -2325,33 +2331,11 @@ function handleEvent(
             },
           ];
         }
-        // Phase 6.5c.b: when a tool result has a file_path (dhee_show_*
-        // tools), append a `media` row so the chat renders the image/
-        // video inline. Path lives under result.details.file_path for
-        // dhee custom tools; extractToolResultFilePath handles both
-        // shapes (and the legacy flat one) so the lookup doesn't miss.
-        const { filePath, createdAt } = extractToolResultFilePath(data.result);
-        if (!data.isError && filePath) {
-          const ext = filePath.toLowerCase().match(/\.(\w+)$/)?.[1] ?? '';
-          const isImage = /^(png|jpg|jpeg|gif|webp|bmp)$/i.test(ext);
-          const isVideo = /^(mp4|mov|webm|mkv|m4v)$/i.test(ext);
-          if (isImage || isVideo) {
-            return [
-              ...updated,
-              {
-                id: newMessageId(),
-                role: 'media' as const,
-                mediaKind: (isImage ? 'image' : 'video') as 'image' | 'video',
-                // Stamp the createdAt on the mediaPath as a cache-bust
-                // key so the renderer fetches fresh bytes when the
-                // canonical artifact has been overwritten since the
-                // last render of this file:// URL.
-                mediaPath: filePath,
-                ...(createdAt ? { mediaCreatedAt: createdAt } : {}),
-              } as ChatMessage,
-            ];
-          }
-        }
+        // Artifact tools (dhee_show_* / read_artifact) no longer append a
+        // SEPARATE media row — the captured tool result (toolDetails.file_path
+        // / result text) is rendered INSIDE the artifact ToolCard, so the
+        // image/video folds with the card (issue #161 visual pass). Standalone
+        // node outputs still arrive via `media_generated` and render as rows.
         return updated;
       });
       // If this tool may have mutated project.json's lifecycle fields,
