@@ -36,8 +36,7 @@ jobs:
           path-to-document: 'https://github.com/dheeai/dhee-desktop/blob/master/CLA.md'
           branch: 'cla-signatures'
           # Team members with employment IP assignment — they don't sign.
-          # VERIFY these usernames before relying on the workflow.
-          allowlist: ganarajpr,kiran7893,myadaramsaikiran,*[bot]
+          allowlist: ganarajpr,kiran7893,*[bot]
           custom-pr-sign-comment: 'I have read the CLA Document and I hereby sign the CLA'
           custom-allsigned-prcomment: 'All contributors have signed the CLA. ✅'
           lock-pullrequest-aftermerge: false
