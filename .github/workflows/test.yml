@@ -58,12 +58,25 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci
 
-      # `dheeCoreManager.ts` does `import('dhee-core/runners')` —
-      # jest's TS resolution needs that subpath available in
-      # node_modules. Install dhee-core as a local file dep into
-      # the desktop tree so ts-jest can find it.
+      # `dheeCoreManager.ts` does `import('dhee-core/runners')` — jest's
+      # resolution needs that subpath present in node_modules.
+      #
+      # We CANNOT use `npm install ./dhee-core` here: dhee-core is a pnpm
+      # workspace and declares `@dhee/runner-sdk: "workspace:*"`, so npm
+      # aborts with `EUNSUPPORTEDPROTOCOL: Unsupported URL Type
+      # "workspace:"` while resolving that dep (this is why this job has
+      # been red since 0.1.9). We don't need npm to install dhee-core's
+      # deps anyway — the `pnpm build` step above already built its dist
+      # AND installed its node_modules. We only need the package
+      # resolvable, so symlink it into node_modules exactly like local
+      # dev does (node_modules/dhee-core -> the checkout). Node resolves
+      # dhee-core's own deps from dhee-core/node_modules via realpath.
       - name: Link dhee-core into desktop node_modules
-        run: npm install --no-save --ignore-scripts ./dhee-core
+        run: |
+          rm -rf node_modules/dhee-core
+          ln -s "$GITHUB_WORKSPACE/dhee-core" node_modules/dhee-core
+          test -f node_modules/dhee-core/dist/server/runners/index.js \
+            && echo "dhee-core/runners dist resolvable via symlink"
 
       # `setupFiles` in jest config runs check-build-exists.ts which
       # asserts dist/main + dist/renderer are present. Locally these
