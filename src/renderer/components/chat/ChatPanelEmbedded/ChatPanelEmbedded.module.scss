@@ -803,6 +803,27 @@
   }
 }
 
+// In-turn assistant prose (#161): a TranscriptTurn already owns the byline
+// AND a single continuous left spine for the whole authored block, so the
+// per-message standalone chrome (own rail, inter-bubble divider, indent,
+// big margins) must be stripped — otherwise each message reads as its own
+// fragmented block. Keep only the markdown body styling below.
+.bubbleAssistant.inTurn {
+  margin: 0 0 10px;
+  padding-left: 0;
+
+  &::before {
+    display: none;
+  }
+}
+.bubbleAssistant.inTurn + .bubbleAssistant.inTurn {
+  margin-top: 0;
+
+  &::after {
+    display: none;
+  }
+}
+
 // Markdown overrides inside the assistant body — restraint, not
 // suppression. Headings get a discreet weight bump; paragraphs
 // breathe; code keeps a low-contrast token chip rather than a hard

@@ -32,6 +32,10 @@ import {
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
+import {
+  parseSessionToolCalls,
+  type SessionToolCall,
+} from './parseSessionToolCalls';
 import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
@@ -1592,7 +1596,7 @@ export class dheeCoreManager {
    */
   getSessionHistorySnapshot(sessionId: string): {
     messages: Array<Record<string, unknown>>;
-    toolCalls: Array<Record<string, unknown>>;
+    toolCalls: SessionToolCall[];
     focusedProject?: string;
     compactionCount: number;
   } | null {
@@ -1686,7 +1690,11 @@ export class dheeCoreManager {
       }
       return {
         messages,
-        toolCalls: [],
+        // Reconstruct the tool-call timeline (call + result, joined by id)
+        // so reopening a project rebuilds its tool cards. Previously []
+        // because the old chat panel couldn't render tool calls from
+        // history; the #161 redesign can.
+        toolCalls: parseSessionToolCalls(content),
         focusedProject: path.basename(projectDir),
         compactionCount,
       };

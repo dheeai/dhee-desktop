@@ -497,7 +497,9 @@ describe('ChatPanelEmbedded', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/dhee_run_to/i)).toBeInTheDocument();
+      // The raw dhee_* name is no longer surfaced (issue #161) — the card
+      // shows a humanized title instead.
+      expect(screen.getByText('Run to')).toBeInTheDocument();
     });
   });
 
@@ -1006,14 +1008,12 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
-    // Polished tool card: status is carried by data-status on both
-    // the card wrapper and the leading dot (the dot pulses while
-    // running). Assert the data attribute, not legacy glyph text —
-    // the visual is a styled dot, not a unicode character.
+    // First-class ToolCard: status is carried by data-status on the card
+    // wrapper; the title is humanized (no raw dhee_* name surfaced).
     await waitFor(() => {
-      const card = container.querySelector('[class*="toolCard"]');
+      const card = container.querySelector('[data-archetype]');
       expect(card?.getAttribute('data-status')).toBe('in_progress');
-      expect(card?.textContent).toContain('dhee_list_items');
+      expect(card?.textContent).toContain('List items');
     });
 
     act(() => {
@@ -1026,7 +1026,7 @@ describe('ChatPanelEmbedded', () => {
     });
 
     await waitFor(() => {
-      const card = container.querySelector('[class*="toolCard"]');
+      const card = container.querySelector('[data-archetype]');
       expect(card?.getAttribute('data-status')).toBe('completed');
     });
   });
@@ -1122,8 +1122,9 @@ describe('ChatPanelEmbedded', () => {
 
     await new Promise((r) => setTimeout(r, 0));
 
-    // The bash tool card itself appears (compact one-liner).
-    expect(container.textContent).toContain('bash');
+    // The bash tool card itself appears (humanized title — the raw tool
+    // name is no longer surfaced).
+    expect(container.textContent).toContain('Bash');
     // But NO progress rows — the bash output is dropped.
     expect(
       container.querySelectorAll('[aria-label="Run progress"]').length,

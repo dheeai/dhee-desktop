@@ -216,9 +216,13 @@ export interface HistorySnapshot {
   toolCalls: Array<{
     id: string;
     toolName: string;
-    args?: Record<string, string>;
+    args?: Record<string, unknown>;
     status: 'executing' | 'completed' | 'error';
     result?: unknown;
+    /** Flattened tool-result text, when the session recorded one. */
+    resultText?: string;
+    /** Structured tool-result `details` (cascade nodes, missing refs, …). */
+    details?: Record<string, unknown>;
     startTime: number;
     duration?: number;
     agentName?: string;
