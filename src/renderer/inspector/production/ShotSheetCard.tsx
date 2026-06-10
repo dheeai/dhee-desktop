@@ -1,19 +1,17 @@
 /**
- * ShotSheetCard — one shot's permanent "sheet": every artifact for that shot
- * (image prompt, frame(s), motion directive, clip) stacked together, readable,
- * always available. Each entry is a labelled lane; text artifacts project to
- * readable prose (raw behind a toggle), media render in place. Absence is
- * graceful — a single-frame shot simply has no last-frame lanes; an
- * in-progress entry shows a "producing…" placeholder rather than nothing.
+ * ShotSheetCard — DUMB render of one pre-resolved EntityCard. All grouping /
+ * pairing / status was decided by buildProductionDoc; this just lays out the
+ * header + each pair side-by-side (media left, the text that produced it
+ * right). ReadableArtifact (the file read) only mounts when the sheet is open.
  */
 import { useState } from 'react';
-import type { ShotSheet, ShotEntry } from '../../lib/runCockpit/shotSheets';
+import type { EntityCard, ArtifactPair, ArtifactRef } from '../../lib/runCockpit/productionModel';
 import { toFileUrl } from '../../utils/pathResolver';
 import { ReadableArtifact } from './ReadableArtifact';
 import styles from './ProductionView.module.scss';
 
 interface Props {
-  sheet: ShotSheet;
+  entity: EntityCard;
   projectDir: string;
   defaultOpen?: boolean;
   onOpenEntry: (key: string) => void;
@@ -23,112 +21,90 @@ function mediaUrl(projectDir: string, outputPath: string, ts?: number): string {
   return `${toFileUrl(`${projectDir}/${outputPath}`)}?t=${ts ?? 0}`;
 }
 
-function laneNoun(e: ShotEntry): string {
-  if (e.frameRole === 'last') return `${e.stageLabel} · last frame`;
-  if (e.frameRole === 'first' && /frame|image|shot/i.test(e.stageLabel)) return `${e.stageLabel} · first frame`;
-  return e.stageLabel;
+function MediaBlock({ media, projectDir, expectVideo }: { media?: ArtifactRef; projectDir: string; expectVideo: boolean }) {
+  const done = media?.status === 'completed' && !!media.outputPath;
+  const running = media?.status === 'in_progress';
+  if (done && media?.outputPath) {
+    return media.format === 'video' ? (
+      <div className={styles.pairMediaInner}>
+        <video
+          className={styles.laneVideo}
+          src={mediaUrl(projectDir, media.outputPath, media.ts)}
+          muted loop playsInline preload="metadata"
+          onMouseOver={(e) => void (e.currentTarget as HTMLVideoElement).play().catch(() => undefined)}
+          onMouseOut={(e) => (e.currentTarget as HTMLVideoElement).pause()}
+        />
+        <span className={styles.videoPin} />
+      </div>
+    ) : (
+      <div className={styles.pairMediaInner}>
+        <img className={styles.laneImg} src={mediaUrl(projectDir, media.outputPath, media.ts)} alt="" />
+      </div>
+    );
+  }
+  return (
+    <div className={`${styles.pairMediaInner} ${styles.lanePlaceholder} ${running ? styles.laneLive : ''}`}>
+      <span className={styles.phTag}>{running ? 'producing…' : expectVideo ? 'clip queued' : 'queued'}</span>
+    </div>
+  );
 }
 
-function MediaLane({ entry, projectDir }: { entry: ShotEntry; projectDir: string }) {
-  const done = entry.status === 'completed' && !!entry.outputPath;
-  const running = entry.status === 'in_progress';
+function PairRow({ pair, projectDir }: { pair: ArtifactPair; projectDir: string }) {
+  const { media, text } = pair;
+  const textDone = text?.status === 'completed' && !!text.outputPath;
+  const textRunning = text?.status === 'in_progress';
   return (
-    <div className={styles.lane}>
-      <div className={styles.laneRail}>{laneNoun(entry)}</div>
-      <div className={styles.laneBody}>
-        {done && entry.outputPath ? (
-          entry.format === 'video' ? (
-            <div className={styles.laneMedia}>
-              <video
-                className={styles.laneVideo}
-                src={mediaUrl(projectDir, entry.outputPath, entry.ts)}
-                muted
-                loop
-                playsInline
-                preload="metadata"
-                onMouseOver={(e) => void (e.currentTarget as HTMLVideoElement).play().catch(() => undefined)}
-                onMouseOut={(e) => (e.currentTarget as HTMLVideoElement).pause()}
-              />
-              <span className={styles.videoPin} />
-            </div>
+    <div className={`${styles.pairRow} ${text ? '' : styles.pairSolo}`}>
+      <div className={styles.pairMedia}>
+        <span className={styles.mediaTag}>{pair.mediaTag}</span>
+        <MediaBlock media={media} projectDir={projectDir} expectVideo={pair.expectVideo} />
+      </div>
+      {text ? (
+        <div className={styles.pairText}>
+          <div className={styles.artifactLabel}>{text.stageLabel}</div>
+          {textDone ? (
+            <ReadableArtifact projectDir={projectDir} outputPath={text.outputPath ?? null} format={text.format} headlineField={text.headlineField} compact />
           ) : (
-            <div className={styles.laneMedia}>
-              <img className={styles.laneImg} src={mediaUrl(projectDir, entry.outputPath, entry.ts)} alt={laneNoun(entry)} />
-            </div>
-          )
-        ) : (
-          <div className={`${styles.laneMedia} ${styles.lanePlaceholder} ${running ? styles.laneLive : ''}`}>
-            <span className={styles.phTag}>{running ? 'producing…' : 'queued'}</span>
-          </div>
-        )}
-      </div>
+            <div className={styles.lanePending}>{textRunning ? 'Writing…' : 'Queued — not written yet.'}</div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }
 
-function TextLane({ entry, projectDir }: { entry: ShotEntry; projectDir: string }) {
-  const done = entry.status === 'completed' && !!entry.outputPath;
-  const running = entry.status === 'in_progress';
-  return (
-    <div className={styles.lane}>
-      <div className={styles.laneRail}>{laneNoun(entry)}</div>
-      <div className={styles.laneBody}>
-        {done ? (
-          <ReadableArtifact
-            projectDir={projectDir}
-            outputPath={entry.outputPath ?? null}
-            format={entry.format}
-            headlineField={entry.headlineField}
-            compact
-          />
-        ) : (
-          <div className={styles.lanePending}>{running ? 'Writing…' : 'Queued — not written yet.'}</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-export function ShotSheetCard({ sheet, projectDir, defaultOpen, onOpenEntry }: Props) {
+export function ShotSheetCard({ entity, projectDir, defaultOpen, onOpenEntry }: Props) {
   const [open, setOpen] = useState(!!defaultOpen);
-  const firstFrame = sheet.entries.find((e) => e.format === 'image' && e.status === 'completed' && e.outputPath);
-  const statusCls = sheet.status === 'running' ? styles.shotRunning : sheet.status === 'done' ? styles.shotDone : styles.shotQueued;
+  const statusCls = entity.status === 'running' ? styles.shotRunning : entity.status === 'done' ? styles.shotDone : styles.shotQueued;
+  const refs = entity.pairs.flatMap((p) => [p.text, p.media]).filter(Boolean) as ArtifactRef[];
 
   return (
-    <article className={`${styles.shotSheet} ${sheet.status === 'running' ? styles.shotSheetRunning : ''} ${open ? styles.shotOpen : ''}`}>
+    <article className={`${styles.shotSheet} ${entity.status === 'running' ? styles.shotSheetRunning : ''} ${open ? styles.shotOpen : ''}`}>
       <button type="button" className={styles.sheetHead} onClick={() => setOpen((o) => !o)}>
         <span className={styles.sheetThumb}>
-          {firstFrame?.outputPath ? (
-            <img src={mediaUrl(projectDir, firstFrame.outputPath, firstFrame.ts)} alt="" />
-          ) : (
-            <span className={styles.sheetThumbPh} />
-          )}
+          {entity.thumb?.outputPath ? <img src={mediaUrl(projectDir, entity.thumb.outputPath, entity.thumb.ts)} alt="" /> : <span className={styles.sheetThumbPh} />}
         </span>
         <span className={styles.sheetId}>
-          <span className={styles.sheetSlug}>{sheet.label}</span>
-          <span className={styles.sheetCount}>{sheet.entries.length} artifact{sheet.entries.length === 1 ? '' : 's'}</span>
+          <span className={styles.sheetSlug}>{entity.label}</span>
+          <span className={styles.sheetCount}>{entity.artifactCount} artifact{entity.artifactCount === 1 ? '' : 's'}</span>
         </span>
         <span className={styles.sheetRight}>
           <span className={`${styles.statusChip} ${statusCls}`}>
             <span className={styles.cd} />
-            {sheet.status === 'running' ? 'producing' : sheet.status === 'done' ? 'complete' : 'queued'}
+            {entity.status === 'running' ? 'producing' : entity.status === 'done' ? 'complete' : 'queued'}
           </span>
           <span className={styles.chev} />
         </span>
       </button>
       {open ? (
         <div className={styles.sheetBody}>
-          {sheet.entries.map((e) =>
-            e.isText ? (
-              <TextLane key={e.key} entry={e} projectDir={projectDir} />
-            ) : (
-              <MediaLane key={e.key} entry={e} projectDir={projectDir} />
-            ),
-          )}
+          {entity.pairs.map((p, i) => (
+            <PairRow key={p.text?.key ?? p.media?.key ?? i} pair={p} projectDir={projectDir} />
+          ))}
           <div className={styles.sheetActions}>
-            {sheet.entries.map((e) => (
-              <button key={e.key} type="button" className={styles.act} onClick={() => onOpenEntry(e.key)} title={`Open ${e.stageLabel}`}>
-                {e.stageLabel}
+            {refs.map((ref) => (
+              <button key={ref.key} type="button" className={styles.act} onClick={() => onOpenEntry(ref.key)} title={`Open ${ref.stageLabel}`}>
+                {ref.stageLabel}
               </button>
             ))}
           </div>

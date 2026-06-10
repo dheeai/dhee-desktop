@@ -52,6 +52,19 @@ function headlineOf(o: Record<string, unknown>): { text: string; key: string } |
   }
   return null;
 }
+/** A small flat object (≤3 scalar fields) — render as a chip, not a card. */
+function isThinObject(v: unknown): v is Record<string, unknown> {
+  return isPlainObject(v) && Object.keys(v).length <= 3 && Object.values(v).every((x) => scalarText(x) !== null);
+}
+/** "leo · character" — headline plus its remaining scalar fields. */
+function thinObjectText(o: Record<string, unknown>): string {
+  const h = headlineOf(o);
+  const rest = Object.entries(o)
+    .filter(([k]) => k !== h?.key)
+    .map(([, v]) => scalarText(v))
+    .filter((s): s is string => !!s && s !== '—');
+  return [h?.text, ...rest].filter(Boolean).join(' · ');
+}
 
 function Chips({ items }: { items: string[] }) {
   const shown = items.slice(0, MAX_ITEMS);
@@ -71,6 +84,8 @@ function ValueView({ value, depth }: { value: unknown; depth: number }) {
     if (value.length === 0) return <span className={styles.fieldVal}>—</span>;
     const scalars = value.map(scalarText);
     if (scalars.every((x) => x !== null)) return <Chips items={scalars as string[]} />;
+    // arrays of thin objects (e.g. references {id,type}) → compact chips, not cards
+    if (value.every(isThinObject)) return <Chips items={(value as Record<string, unknown>[]).map(thinObjectText)} />;
     if (depth >= MAX_DEPTH) return <span className={styles.fieldVal}>{value.length} items</span>;
     const shown = value.slice(0, MAX_ITEMS);
     return (

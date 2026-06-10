@@ -1,31 +1,27 @@
 /**
  * ProductionView — the cinematic canvas (default workspace view).
  *
- * A single SCROLLING DOCUMENT of per-stage sections, derived from the run
- * model (deriveRunModel) + section/pill derivation (productionSections) +
- * the per-shot join (shotSheets). Bundle-agnostic:
- *   · text/json single stages  → readable documents (ReadableArtifact)
- *   · non-shot visual stages    → reference boards
- *   · all shot-keyed stages     → ONE "Shots" section of per-shot shot sheets
- *                                 (image prompt + frame(s) + motion + clip)
- *   · terminal single visual    → the Film hero (finished cut)
+ * DUMB renderer. ALL shape/grouping/pairing/classification is decided ONCE by
+ * the pure buildProductionDoc(model) (../../lib/runCockpit/productionModel) —
+ * this component just loops over doc.sections and renders each by kind, with
+ * no logic and nothing to recompute per render. That keeps it cheap and
+ * predictable (the earlier render-storm came from doing grouping in render).
  *
- * The sticky pill bar gives EVERY stage its own status pill: the running
- * stage radiates (indicate-only — it never moves the view), a teal "viewing"
- * dot tracks where the user is, and clicking a pill scrolls to its section.
- * No artifact is ever dumped as raw JSON — raw is always behind "Inspect".
+ *   · 'doc'    → ReadableArtifact(s); breakdowns collapsed
+ *   · 'board'  → media tiles
+ *   · 'sheets' → ShotSheetCard per entity (frame+prompt / clip+directive paired)
+ *   · 'film'   → the finished-cut hero
  *
- * The chat panel is a SIBLING (WorkspaceLayout), not part of this view.
- * See the run-cockpit data layer in ../../lib/runCockpit/ and the memories
- * "Production View must be bundle-agnostic" + "Production View shot-sheets".
+ * The sticky pill bar gives EVERY stage its own live-status pill (running
+ * radiates — indicate-only; it never moves the view); clicking scrolls. The
+ * chat panel is a WorkspaceLayout sibling, not part of this view.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRunModel } from '../../hooks/useRunModel';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useProject } from '../../contexts/ProjectContext';
-import { buildProductionLayout, type ProductionSection } from '../../lib/runCockpit/productionSections';
-import { buildShotSheets } from '../../lib/runCockpit/shotSheets';
-import type { RunModel, RunStageView, RunDeliverable } from '../../lib/runCockpit/deriveRunModel';
+import { buildProductionDoc, type Section, type ArtifactRef } from '../../lib/runCockpit/productionModel';
+import type { RunDeliverable } from '../../lib/runCockpit/deriveRunModel';
 import type { InstanceGraphNode } from '../../../shared/dheeIpc';
 import { toFileUrl } from '../../utils/pathResolver';
 import { ReadableArtifact } from './ReadableArtifact';
@@ -45,21 +41,8 @@ function placeholderFor(key: string): string {
   for (let i = 0; i < key.length; i += 1) h = (h * 31 + key.charCodeAt(i)) | 0;
   return PLACEHOLDERS[Math.abs(h) % PLACEHOLDERS.length];
 }
-
 function fileUrl(projectDir: string, outputPath: string, ts?: number): string {
   return `${toFileUrl(`${projectDir}/${outputPath}`)}?t=${ts ?? 0}`;
-}
-
-type HeroPhase = 'new' | 'writing' | 'rendering' | 'assembling' | 'finished';
-
-function heroPhase(model: RunModel, filmStage: RunStageView | null): HeroPhase {
-  const anyVisualDone = model.stages.some((s) => s.kind === 'visual' && s.done > 0);
-  const running = model.activity === 'running' || model.activity === 'thinking' || model.activity === 'cancelling';
-  if (filmStage && filmStage.done > 0) return 'finished';
-  if (filmStage && filmStage.running > 0) return 'assembling';
-  if (anyVisualDone) return 'rendering';
-  if (running) return 'writing';
-  return 'new';
 }
 
 export function ProductionView() {
@@ -68,19 +51,14 @@ export function ProductionView() {
   const { bundle } = useProject();
   const projectDir = projectDirectory ?? null;
 
-  const layout = useMemo(() => buildProductionLayout(model.stages), [model.stages]);
   const headlineFields = useMemo(() => {
     const m = new Map<string, string | undefined>();
     for (const n of bundle?.nodes ?? []) m.set(n.id, n.headlineField);
     return m;
   }, [bundle]);
-  const shotSheets = useMemo(() => buildShotSheets(model.stages, headlineFields), [model.stages, headlineFields]);
 
-  const stageById = useMemo(() => {
-    const m = new Map<string, RunStageView>();
-    for (const s of model.stages) m.set(s.id, s);
-    return m;
-  }, [model.stages]);
+  // THE shape — computed once per model change. The render below is dumb.
+  const doc = useMemo(() => buildProductionDoc(model, headlineFields), [model, headlineFields]);
 
   // flat key → deliverable, for the detail modal (across all stages)
   const itemByKey = useMemo(() => {
@@ -90,7 +68,6 @@ export function ProductionView() {
   }, [model.stages]);
 
   const [openKey, setOpenKey] = useState<string | null>(null);
-  // viewing-state: which section is on screen (teal dot), via IntersectionObserver.
   const [viewingId, setViewingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionEls = useRef(new Map<string, HTMLElement>());
@@ -107,7 +84,7 @@ export function ProductionView() {
     );
     for (const el of sectionEls.current.values()) obs.observe(el);
     return () => obs.disconnect();
-  }, [layout.sections.length]);
+  }, [doc.sections.length]);
 
   const scrollToSection = useCallback((id: string) => {
     sectionEls.current.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -168,6 +145,7 @@ export function ProductionView() {
   if (!projectDir) {
     return <div className={styles.root}><div className={styles.emptyNote}>Open a project to use the Production View.</div></div>;
   }
+  const dir = projectDir;
 
   const registerSection = (id: string) => (el: HTMLElement | null) => {
     if (el) sectionEls.current.set(id, el);
@@ -176,10 +154,9 @@ export function ProductionView() {
 
   return (
     <div className={styles.root} ref={scrollRef}>
-      {/* sticky per-stage pill bar — indicate-only live status + scroll nav */}
       <div className={styles.head}>
         <div className={styles.pillbar}>
-          {layout.pills.map((p) => {
+          {doc.pills.map((p) => {
             const running = p.status === 'active';
             const done = p.status === 'done';
             const viewing = viewingId === p.sectionId;
@@ -206,13 +183,8 @@ export function ProductionView() {
       </div>
 
       <div className={styles.bodyWrap}>
-        {layout.sections.map((section, i) => (
-          <section
-            key={section.id}
-            data-section-id={section.id}
-            ref={registerSection(section.id)}
-            className={styles.docSection}
-          >
+        {doc.sections.map((section, i) => (
+          <section key={section.id} data-section-id={section.id} ref={registerSection(section.id)} className={styles.docSection}>
             {renderSection(section, i + 1)}
           </section>
         ))}
@@ -220,7 +192,7 @@ export function ProductionView() {
 
       <CardDetailModal
         instance={openInstance}
-        projectDir={projectDir}
+        projectDir={dir}
         headlineField={openHeadlineField}
         onClose={() => setOpenKey(null)}
         onAction={onModalAction}
@@ -228,7 +200,7 @@ export function ProductionView() {
     </div>
   );
 
-  // ---- section renderers ----
+  // ---- dumb section dispatch ----
 
   function sec(no: number, nm: string, ct: string) {
     return (
@@ -241,63 +213,70 @@ export function ProductionView() {
     );
   }
 
-  function renderSection(section: ProductionSection, no: number) {
-    if (section.kind === 'film') return renderFilm(stageById.get(section.stageIds[0]) ?? null, no);
-    if (section.kind === 'shots') return renderShots(no);
-    if (section.kind === 'board') return renderBoard(stageById.get(section.stageIds[0])!, no);
-    return renderDoc(stageById.get(section.stageIds[0])!, no);
+  function renderSection(section: Section, no: number) {
+    switch (section.kind) {
+      case 'film': return renderFilm(section, no);
+      case 'sheets': return renderSheets(section, no);
+      case 'board': return renderBoard(section, no);
+      case 'doc': return renderDoc(section, no);
+      default: return null;
+    }
   }
 
-  function renderDoc(stage: RunStageView, no: number) {
-    const hf = headlineFields.get(stage.id);
-    const items = stage.items;
-    const multi = items.length > 1; // a text/json COLLECTION (e.g. per-character prompts)
+  function renderDoc(section: Extract<Section, { kind: 'doc' }>, no: number) {
+    const multi = section.items.length > 1;
+    const body = section.items.length === 0 ? (
+      <div className={styles.scriptDocBody}>
+        <div className={styles.docLoading}>{section.writing ? 'Writing…' : 'Not written yet.'}</div>
+      </div>
+    ) : (
+      section.items.map((it) => (
+        <div key={it.key} className={styles.scriptDocBody}>
+          {multi ? <div className={styles.docItemLabel}>{it.label}</div> : null}
+          {it.outputPath ? (
+            <ReadableArtifact projectDir={dir} outputPath={it.outputPath} format={it.format} headlineField={it.headlineField} />
+          ) : (
+            <div className={styles.docLoading}>{it.status === 'in_progress' ? 'Writing…' : 'Queued — not written yet.'}</div>
+          )}
+        </div>
+      ))
+    );
     return (
       <div className={styles.scriptDoc}>
-        {sec(no, stage.label, (stage.format ?? 'text').toUpperCase())}
-        {items.length === 0 ? (
-          <div className={styles.scriptDocBody}>
-            <div className={styles.docLoading}>{stage.status === 'active' ? 'Writing…' : 'Not written yet.'}</div>
-          </div>
-        ) : (
-          items.map((it) => (
-            <div key={it.key} className={styles.scriptDocBody}>
-              {multi ? <div className={styles.docItemLabel}>{it.label}</div> : null}
-              {it.outputPath ? (
-                <ReadableArtifact projectDir={projectDir} outputPath={it.outputPath} format={stage.format} headlineField={hf} />
-              ) : (
-                <div className={styles.docLoading}>{it.status === 'in_progress' ? 'Writing…' : 'Queued — not written yet.'}</div>
-              )}
-            </div>
-          ))
-        )}
-        {stage.status === 'active' && items.length === 0 ? <div className={styles.writingLine}>Writing…</div> : null}
+        {sec(no, section.label, (section.format ?? 'text').toUpperCase())}
+        {section.collapsed ? (
+          <details className={styles.blueprint}>
+            <summary>Show {section.label}</summary>
+            <div className={styles.blueprintBody}>{body}</div>
+          </details>
+        ) : body}
+        {section.writing && section.items.length === 0 ? <div className={styles.writingLine}>Writing…</div> : null}
       </div>
     );
   }
 
-  function renderShots(no: number) {
-    if (shotSheets.length === 0) {
+  function renderSheets(section: Extract<Section, { kind: 'sheets' }>, no: number) {
+    if (section.entities.length === 0) {
       return (
         <>
-          {sec(no, 'Shots', 'shot sheets')}
-          <div className={styles.emptyNote}>Shot sheets appear here as Dhee writes each shot’s prompt, then its frame, motion, and clip.</div>
+          {sec(no, section.label, 'sheets')}
+          <div className={styles.emptyNote}>{section.label} appear here as Dhee writes each one’s prompt, then its media.</div>
         </>
       );
     }
     return (
       <>
-        {sec(no, 'Shots', `${shotSheets.length} shots`)}
+        {sec(no, section.label, `${section.entities.length} ${section.label.toLowerCase()}`)}
         <div className={styles.sheetIntro}>
-          Each shot keeps its image prompt, frame(s), motion directive, and clip together — permanently. Open one to read everything about that shot.
+          Each keeps its prompt and generated media together — permanently. Open one to read everything about it.
         </div>
         <div className={styles.shotList}>
-          {shotSheets.map((sheet, idx) => (
+          {section.entities.map((entity, idx) => (
             <ShotSheetCard
-              key={sheet.key}
-              sheet={sheet}
-              projectDir={projectDir!}
-              defaultOpen={sheet.status === 'running' || idx < 2}
+              key={entity.key}
+              entity={entity}
+              projectDir={dir}
+              defaultOpen={entity.status === 'running' || idx < 2}
               onOpenEntry={setOpenKey}
             />
           ))}
@@ -306,56 +285,42 @@ export function ProductionView() {
     );
   }
 
-  function tile(it: RunDeliverable, opts: { portrait?: boolean; captionName?: boolean; chips?: number[] } = {}) {
-    const done = it.status === 'completed' && !!it.outputPath;
-    const rendering = it.status === 'in_progress';
-    const cls = `${styles.tile} ${opts.portrait ? styles.portrait : ''} ${done ? '' : rendering ? styles.tRendering : styles.tQueued}`;
+  function tile(ref: ArtifactRef, portrait: boolean) {
+    const done = ref.status === 'completed' && !!ref.outputPath;
+    const rendering = ref.status === 'in_progress';
+    const cls = `${styles.tile} ${portrait ? styles.portrait : ''} ${done ? '' : rendering ? styles.tRendering : styles.tQueued}`;
     const hideOnError = (e: { currentTarget: HTMLElement }) => { e.currentTarget.style.display = 'none'; };
-    const media = done && it.outputPath
-      ? it.format === 'video'
-        ? <video className={styles.thumb} src={fileUrl(projectDir!, it.outputPath, it.ts)} muted preload="metadata" onError={hideOnError} />
-        : it.format === 'image'
-          ? <img className={styles.thumb} src={fileUrl(projectDir!, it.outputPath, it.ts)} alt={it.label} onError={hideOnError} />
+    const media = done && ref.outputPath
+      ? ref.format === 'video'
+        ? <video className={styles.thumb} src={fileUrl(dir, ref.outputPath, ref.ts)} muted preload="metadata" onError={hideOnError} />
+        : ref.format === 'image'
+          ? <img className={styles.thumb} src={fileUrl(dir, ref.outputPath, ref.ts)} alt={ref.label} onError={hideOnError} />
           : null
       : null;
     return (
-      <div key={it.key} className={cls} onClick={() => setOpenKey(it.key)} role="button" tabIndex={0}>
-        <span className={styles.thumbFill} style={{ background: placeholderFor(it.key) }} />
+      <div key={ref.key} className={cls} onClick={() => setOpenKey(ref.key)} role="button" tabIndex={0}>
+        <span className={styles.thumbFill} style={{ background: placeholderFor(ref.key) }} />
         {media}
-        {it.format === 'video' && done ? <span className={styles.videoPin} /> : null}
+        {ref.format === 'video' && done ? <span className={styles.videoPin} /> : null}
         {rendering ? <span className={styles.badge2}>rendering</span> : !done ? <span className={styles.badge2}>queued</span> : null}
-        {opts.captionName ? (
-          <span className={`${styles.cap} ${styles.capName}`}>
-            {it.label}
-            {opts.chips && opts.chips.length ? <span className={styles.chips}>{opts.chips.map((s) => <b key={s}>Sc {s}</b>)}</span> : null}
-          </span>
-        ) : (
-          <span className={styles.cap}>{it.label}</span>
-        )}
+        <span className={`${styles.cap} ${styles.capName}`}>{ref.label}</span>
       </div>
     );
   }
 
-  function renderBoard(stage: RunStageView, no: number) {
-    const portrait = stage.format === 'image' && /char|cast|person|actor/i.test(stage.id);
+  function renderBoard(section: Extract<Section, { kind: 'board' }>, no: number) {
     return (
       <>
-        {sec(no, stage.label, `${stage.total} references`)}
-        <div className={`${styles.board} ${portrait ? styles.boardCast : styles.boardLocs}`}>
-          {stage.items.map((it) => tile(it, { portrait, captionName: true }))}
+        {sec(no, section.label, `${section.tiles.length} references`)}
+        <div className={`${styles.board} ${section.portrait ? styles.boardCast : styles.boardLocs}`}>
+          {section.tiles.map((t) => tile(t, section.portrait))}
         </div>
       </>
     );
   }
 
-  function renderFilm(filmStage: RunStageView | null, no: number) {
-    const phase = heroPhase(model, filmStage);
-    const final = filmStage?.items.find((i) => i.status === 'completed' && i.outputPath) ?? null;
-    const recent = model.stages
-      .filter((s) => s.kind === 'visual')
-      .flatMap((s) => s.items)
-      .filter((i) => i.status === 'completed' && i.outputPath && i.format === 'image')
-      .slice(-5);
+  function renderFilm(section: Extract<Section, { kind: 'film' }>, no: number) {
+    const { phase, final, recent } = section;
     const sprock = (cls: string) => <div className={`${styles.heroSprock} ${cls}`}>{Array.from({ length: 22 }, (_, i) => <i key={i} />)}</div>;
     const kicker = phase === 'finished' ? 'Final Cut' : phase === 'assembling' ? 'Final Cut · assembling' : phase === 'rendering' ? 'Rough cut · not yet assembled' : phase === 'writing' ? 'Final Cut · pre-production' : 'Final Cut';
     const sub =
@@ -366,13 +331,13 @@ export function ProductionView() {
       : 'No footage yet — direct Dhee in chat and your cut assembles here.';
     return (
       <>
-        {sec(no, filmStage?.label ?? 'Final Cut', phase)}
+        {sec(no, section.label, phase)}
         <div className={`${styles.hero} ${heroPlaying ? styles.heroIsPlaying : ''}`}>
-          {phase === 'finished' && final && final.outputPath ? (
+          {phase === 'finished' && final?.outputPath ? (
             <video
               ref={heroVideoRef}
               className={styles.heroVideo}
-              src={fileUrl(projectDir!, final.outputPath, final.ts)}
+              src={fileUrl(dir, final.outputPath, final.ts)}
               muted={!heroPlaying}
               controls={heroPlaying}
               playsInline
@@ -380,7 +345,7 @@ export function ProductionView() {
               onClick={!heroPlaying ? playHero : undefined}
             />
           ) : recent.length ? (
-            <div className={styles.heroMontage}>{recent.map((i) => <span key={i.key} style={{ background: placeholderFor(i.key) }} />)}</div>
+            <div className={styles.heroMontage}>{recent.map((r) => <span key={r.key} style={{ background: placeholderFor(r.key) }} />)}</div>
           ) : (
             <div className={`${styles.heroMontage} ${styles.heroLeader}`} />
           )}
@@ -414,7 +379,6 @@ export function ProductionView() {
   }
 
   function projectTitle(): string {
-    const dir = projectDir ?? '';
     const base = dir.replace(/\\/g, '/').split('/').pop() ?? 'Production';
     return base.replace(/\.dhee$/i, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
