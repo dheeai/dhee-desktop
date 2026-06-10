@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom';
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import SettingsPanel from './SettingsPanel';
 
 jest.mock('react', () => jest.requireActual('react'));
@@ -11,6 +11,8 @@ const baseSettings = {
   vlmBackend: 'local' as const,
   comfyuiMode: 'inherit' as const,
   comfyuiUrl: '',
+  singleGpuMode: false,
+  budgetCapUsd: 5,
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai' as const,
@@ -57,16 +59,14 @@ describe('SettingsPanel', () => {
     });
   });
 
-  it('calls onThemeChange when a theme card is selected', async () => {
-    const onThemeChange = jest.fn();
-
+  it('no longer renders the theme picker or the Appearance tab (theming disabled)', async () => {
     await act(async () => {
       render(
         <SettingsPanel
           isOpen
           settings={baseSettings}
           onClose={jest.fn()}
-          onThemeChange={onThemeChange}
+          onThemeChange={jest.fn()}
           onSaveConnection={jest.fn()}
           isSavingConnection={false}
           error={null}
@@ -74,8 +74,34 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Deep Forest & Gold'));
-    expect(onThemeChange).toHaveBeenCalledWith('deep-forest-gold');
+    // The Appearance tab (theme grid + the dead Agent-oversight toggle)
+    // was removed. No tab button, no theme cards.
+    expect(screen.queryByText('Appearance')).toBeNull();
+    expect(screen.queryByText('Deep Forest & Gold')).toBeNull();
+  });
+
+  it('exposes the VLM judge toggle in the Connection tab and saves on change', async () => {
+    const onSaveConnection = jest.fn();
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSaveConnection}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    // VLM judge was relocated here from the retired Appearance tab; it
+    // saves immediately on toggle (baseSettings has it on → click turns
+    // it off).
+    fireEvent.click(screen.getByLabelText('Enable VLM judge'));
+    expect(onSaveConnection).toHaveBeenCalledWith({ vlmJudge: false });
   });
 
   it('disables both Cloud toggles when signed-out and surfaces a Sign In CTA banner', async () => {
@@ -87,6 +113,7 @@ describe('SettingsPanel', () => {
         account: {
           get: jest.fn().mockResolvedValue(null),
           getBillingUrl: jest.fn().mockResolvedValue(''),
+          getAuthStatus: jest.fn().mockResolvedValue('idle'),
           signIn,
           signOut: jest.fn(),
           refreshBalance: jest.fn(),
@@ -95,6 +122,7 @@ describe('SettingsPanel', () => {
             onChangeHandler = cb;
             return () => {};
           },
+          onAuthStatusChange: () => () => {},
         },
       },
     });
@@ -114,7 +142,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     // Both cloud toggles are present but disabled (no signed-in account).
     const llmCloudCheckbox = screen.getByLabelText(
@@ -180,12 +208,41 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     expect(screen.getByLabelText('ComfyUI URL')).toBeInTheDocument();
     expect(screen.getByLabelText('Comfy Cloud API Key')).toBeInTheDocument();
     // "OpenAI-Compatible" appears in both LLM and VLM provider toggles.
     expect(screen.getAllByText('OpenAI-Compatible').length).toBeGreaterThan(0);
+  });
+
+  it('saves the single GPU mode toggle with connection settings', async () => {
+    const onSave = jest.fn().mockResolvedValue(true);
+    await act(async () => {
+      render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={baseSettings}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSave}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+    });
+
+    fireEvent.click(
+      screen.getByLabelText('Pause chat during local ComfyUI renders'),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));
+
+    expect(onSave).toHaveBeenCalled();
+    expect(onSave.mock.calls[0][0]).toMatchObject({
+      singleGpuMode: true,
+      budgetCapUsd: 5,
+    });
   });
 
   it('orders Gemini model before API key in provider settings', async () => {
@@ -276,6 +333,87 @@ describe('SettingsPanel', () => {
     ).toBeInTheDocument();
   });
 
+  it('loads model ids for the Settings model field while preserving free text entry', async () => {
+    const probeLlm = jest.fn().mockResolvedValue({
+      ok: true,
+      message: 'Reachable — 2 models available.',
+      models: ['qwen-local-a', 'qwen-local-b'],
+      modelDetails: [
+        { id: 'qwen-local-a', status: 'loaded' },
+        { id: 'qwen-local-b', status: 'unloaded' },
+      ],
+    });
+    const warmLlmModel = jest.fn().mockResolvedValue({
+      ok: true,
+      message: 'qwen-local-b is loaded.',
+    });
+    const onSave = jest.fn().mockResolvedValue(true);
+    Object.defineProperty(window, 'electron', {
+      configurable: true,
+      value: {
+        providerDiagnostics: { probeLlm, warmLlmModel },
+      },
+    });
+
+    let container!: HTMLElement;
+    await act(async () => {
+      const rendered = render(
+        <SettingsPanel
+          isOpen
+          initialTab="connection"
+          settings={{
+            ...baseSettings,
+            openaiBaseUrl: 'http://100.93.149.119:8080/v1',
+            openaiApiKey: '',
+            openaiModel: 'qwen-current',
+          }}
+          onClose={jest.fn()}
+          onThemeChange={jest.fn()}
+          onSaveConnection={onSave}
+          isSavingConnection={false}
+          error={null}
+        />,
+      );
+      container = rendered.container;
+    });
+
+    const modelInput = container.querySelector(
+      'input[data-tour-id="settings-llm-model"]',
+    ) as HTMLInputElement;
+    expect(modelInput).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.focus(modelInput);
+    });
+
+    expect(probeLlm).toHaveBeenCalledWith({
+      provider: 'openai',
+      apiKey: '',
+      model: 'qwen-current',
+      baseUrl: 'http://100.93.149.119:8080/v1',
+    });
+    expect(await screen.findByText(/2 models available from endpoint/i)).toBeInTheDocument();
+    const modelField = modelInput.closest('.label') as HTMLElement;
+    fireEvent.click(within(modelField).getByRole('button', { name: /Show Models/i }));
+    expect(within(modelField).getByRole('option', { name: /qwen-local-a.*loaded/i })).toBeInTheDocument();
+    const unloadedOption = within(modelField).getByRole('option', { name: /qwen-local-b.*unloaded/i });
+    expect(unloadedOption).toBeInTheDocument();
+    fireEvent.click(unloadedOption);
+    expect(warmLlmModel).toHaveBeenCalledWith({
+      provider: 'openai',
+      apiKey: '',
+      model: 'qwen-local-b',
+      baseUrl: 'http://100.93.149.119:8080/v1',
+    });
+    expect(await screen.findByText(/qwen-local-b is loaded/i)).toBeInTheDocument();
+
+    fireEvent.change(modelInput, { target: { value: 'custom-model-id' } });
+    fireEvent.click(screen.getByRole('button', { name: /Save & Restart/i }));
+
+    expect(onSave).toHaveBeenCalled();
+    expect(onSave.mock.calls[0][0].openaiModel).toBe('custom-model-id');
+  });
+
   it('hides Medium and Light tier sections when "use same LLM for all tasks" is checked', async () => {
     await act(async () => {
       render(
@@ -291,7 +429,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     expect(screen.queryByText('Medium LLM')).not.toBeInTheDocument();
     expect(screen.queryByText('Light LLM')).not.toBeInTheDocument();
@@ -312,7 +450,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     expect(screen.getByText('Medium LLM')).toBeInTheDocument();
     expect(screen.getByText('Light LLM')).toBeInTheDocument();
@@ -334,7 +472,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     // Cloud on → ComfyUI URL / Comfy Cloud API Key are not in the DOM.
     expect(screen.queryByLabelText('ComfyUI URL')).not.toBeInTheDocument();
@@ -361,11 +499,13 @@ describe('SettingsPanel', () => {
             token: 'desktop-jwt',
           }),
           getBillingUrl: jest.fn().mockResolvedValue(''),
+          getAuthStatus: jest.fn().mockResolvedValue('idle'),
           signIn: jest.fn(),
           signOut: jest.fn(),
           refreshBalance: jest.fn(),
           openBilling: jest.fn(),
           onChange: () => () => {},
+          onAuthStatusChange: () => () => {},
         },
       },
     });
@@ -430,7 +570,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     // None of the LLM provider inputs should be in the DOM —
     // not the Heavy fieldset, not Medium/Light tiers, not the
@@ -470,7 +610,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     // VLM toggle checked.
     const vlmToggle = screen.getByLabelText(
@@ -501,7 +641,7 @@ describe('SettingsPanel', () => {
       );
     });
 
-    fireEvent.click(screen.getByText('Connection'));
+    fireEvent.click(screen.getByText('Connection', { selector: 'span' }));
 
     // Medium tier defaults to provider=openai per the fixture, so the Base URL
     // input renders. Edit the Model ID under "Medium LLM" — there are multiple

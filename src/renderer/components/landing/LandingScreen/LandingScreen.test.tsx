@@ -214,7 +214,7 @@ describe('LandingScreen', () => {
     mockRecentProjects = [];
 
     render(<LandingScreen />);
-    expect(await screen.findByText('Start your first project')).not.toBeNull();
+    expect(await screen.findByText('Roll your first production')).not.toBeNull();
 
     fireEvent.click(screen.getByRole('button', { name: 'Help' }));
     expect(mockStartTour).toHaveBeenCalledWith({ source: 'help' });
@@ -257,7 +257,8 @@ describe('LandingScreen', () => {
   it('uses the project folder name instead of a stale manifest title', async () => {
     render(<LandingScreen />);
 
-    expect(await screen.findByText('demo')).not.toBeNull();
+    // 'demo' now appears both in the featured banner and its grid card.
+    expect((await screen.findAllByText('demo')).length).toBeGreaterThan(0);
     expect(screen.queryByText('Stale Manifest Title')).toBeNull();
   });
 
@@ -300,5 +301,32 @@ describe('LandingScreen', () => {
       screen.queryByRole('button', { name: 'Next projects page' }),
     ).toBeNull();
     expect(screen.queryByText(/1-9 of 11/)).toBeNull();
+  });
+
+  it('reflects live provider reachability in the header dots', async () => {
+    // Probe result: ComfyUI unreachable, LLM + VLM reachable.
+    (
+      window.electron as unknown as { providerDiagnostics: unknown }
+    ).providerDiagnostics = {
+      run: jest.fn(async () => ({
+        checkedAt: 1,
+        items: [
+          { id: 'cloud-account', label: 'Dhee Cloud account', status: 'warning', message: '' },
+          { id: 'comfyui', label: 'ComfyUI', status: 'error', message: 'Could not reach ComfyUI.' },
+          { id: 'llm', label: 'LLM', status: 'ready', message: 'Model endpoint reachable.' },
+          { id: 'vlm', label: 'VLM judge', status: 'ready', message: 'VLM endpoint reachable.' },
+        ],
+      })),
+    };
+
+    const { container } = render(<LandingScreen />);
+
+    // Once the probe resolves: one blinking-red (unreachable) Comfy dot,
+    // two steady-green (reachable) dots for LLM + VLM.
+    await waitFor(() =>
+      expect(container.querySelector('.statusDotUnreachable')).not.toBeNull(),
+    );
+    expect(container.querySelectorAll('.statusDotUnreachable')).toHaveLength(1);
+    expect(container.querySelectorAll('.statusDotReachable')).toHaveLength(2);
   });
 });

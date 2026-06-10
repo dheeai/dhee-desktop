@@ -1,8 +1,10 @@
 /**
  * Local `dhee-core` is linked via `file:../dhee-core` and ships no prebuilt `dist/`.
- * Without a build, Electron fails to import `dhee-core/manager` and Dhee IPC never registers.
+ * Without a build, Electron fails to import the `dhee-core` barrel and Dhee IPC never registers.
  *
- * When `dist/server/manager.js` is missing, run `dhee-core`'s build once (uses pnpm in that repo).
+ * When `dist/index.js` is missing, run `dhee-core`'s build once (uses pnpm in that repo).
+ * (Phase 6.4: the old spawn entry `dist/server/manager.js` is gone — dhee-core is
+ * embedded in-process via its main barrel.)
  * Set DHEE_SKIP_CORE_BUILD=1 to skip (e.g. CI with a prebuilt tarball).
  */
 const fs = require('fs');
@@ -53,7 +55,7 @@ function main() {
     return;
   }
 
-  const marker = path.join(coreRoot, 'dist', 'server', 'manager.js');
+  const marker = path.join(coreRoot, 'dist', 'index.js');
   if (fs.existsSync(marker)) {
     console.log('[ensure-dhee-core-dist] dist already present');
     return;

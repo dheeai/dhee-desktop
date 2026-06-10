@@ -17,8 +17,8 @@ When you push a `v*` release tag, GitHub Actions automatically:
 
 ```bash
 # 1. Make sure your code is committed and pushed
-git checkout main
-git pull origin main
+git checkout master
+git pull origin master
 
 # 2. Create and push a release tag
 git tag v0.1.0
@@ -47,8 +47,8 @@ from `package.json`, so `v0.1.0` creates the public release
 
 ```bash
 # Switch to the branch you want to release
-git checkout main
-git pull origin main
+git checkout master
+git pull origin master
 
 # Make sure all changes are committed
 git status
@@ -67,7 +67,7 @@ Commit the change:
 ```bash
 git add package.json
 git commit -m "Bump version to 0.1.0"
-git push origin main
+git push origin master
 ```
 
 ### Step 3: Create and Push Tag

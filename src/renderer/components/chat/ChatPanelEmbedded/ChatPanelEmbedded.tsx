@@ -25,137 +25,40 @@ import {
   ArrowUp,
   ChevronDown,
   Download,
-  Eye,
-  EyeOff,
   Loader2,
   Paperclip,
-  ScanEye,
   X,
 } from 'lucide-react';
 import type { Attachment } from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
-import { extractToolResultFilePath, cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
+import { cacheBustMediaSrc, resolveMediaSrc } from './mediaResolution';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
-import { useAppSettings } from '../../../contexts/AppSettingsContext';
 import { useAgent } from '../../../contexts/AgentContext';
 import { useChatQuestions } from '../../../contexts/ChatQuestionsContext';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
-import type { dheeEvent } from '../../../../shared/dheeIpc';
+import { useAppSettings } from '../../../contexts/AppSettingsContext';
+import type { dheeEvent, RunnerStatusResponse } from '../../../../shared/dheeIpc';
 import type { PersistedChatMessage } from '../../../../shared/chatTypes';
 import { postChatNotice, subscribeChatNotices } from '../../../utils/chatNotices';
 import {
   classifyProjectState,
   type ProjectLifecycleState,
 } from './classifyProjectState';
+import type { ChatMessage, ToolStatus } from './chatMessageModel';
+import { coalesceTranscript, type TurnEntry } from './coalesceTranscript';
+import { deriveActivityState } from './activityState';
+import TranscriptTurn from '../TranscriptTurn';
+import ActivityTransport from '../ActivityTransport';
 import ProjectCTA, { type CTAAction } from './ProjectCTA';
 import ProjectRunButton from './ProjectRunButton';
-
-type Role =
-  | 'user'
-  | 'assistant'
-  | 'tool'
-  | 'system'
-  | 'media'
-  | 'question'
-  | 'phase'
-  | 'progress'
-  | 'thinking'
-  | 'bundle-choices'
-  | 'question-card';
-type ToolStatus = 'in_progress' | 'completed' | 'error';
-
-interface ChatMessage {
-  id: string;
-  role: Role;
-  text?: string;
-  toolName?: string;
-  toolCallId?: string;
-  toolStatus?: ToolStatus;
-  toolArgsSummary?: string;
-  /**
-   * For role='progress' rows: the toolCallId of the originating tool
-   * (e.g. dhee_run_to). One row per stream_chunk event so each
-   * `[info] [N/M] Working on…` line is its own discrete block in the
-   * chat — easier to scan than the previous "all concatenated into
-   * one giant <pre> blob" rendering.
-   */
-  progressForToolCallId?: string;
-  /** For role='progress' rows: the line itself (already trimmed). */
-  progressText?: string;
-  /**
-   * For role='thinking' rows: the originating tool's call id. Used to
-   * group consecutive reasoning chunks emitted under the same tool
-   * invocation into a single growing thinking block.
-   */
-  thinkingForToolCallId?: string;
-  /** For role='thinking' rows: the accumulated reasoning text. */
-  thinkingText?: string;
-  mediaKind?: 'image' | 'video';
-  mediaPath?: string;
-  mediaProject?: string;
-  /**
-   * Optional ms-timestamp from the tool's `details.created_at` (or
-   * mtime). Threaded into the file:// URL as `?v=<key>` so the
-   * Electron renderer fetches fresh bytes when the canonical
-   * artifact has been overwritten since the bubble was first
-   * created. Without this, the browser keeps serving the cached
-   * first-version bytes and the user sees the "old mangled hands."
-   */
-  mediaCreatedAt?: number;
-  /** Streaming bubbles aren't yet finalized; agent_response replaces text. */
-  streaming?: boolean;
-  /** agent_question fields */
-  question?: string;
-  options?: string[];
-  defaultOption?: string;
-  answered?: boolean;
-  /**
-   * For role='system' rows emitted from the executor's `notification`
-   * event: the severity level (info / warning / error). When set to
-   * 'error' the renderer styles the pill as a red error card so the
-   * user notices ComfyUI / LLM failures instead of skimming past them
-   * as ordinary system messages.
-   */
-  notificationLevel?: 'info' | 'warning' | 'error';
-  /**
-   * For role='bundle-choices' rows: bundle ids the agent offered via
-   * dhee_present_bundle_choices, with display metadata. Renderer turns
-   * each into a clickable card; click sends `Use <bundleId>` as the
-   * next user message. `ids` is preserved as the canonical wire id;
-   * `bundles` carries the displayName/summary the picker shows.
-   */
-  bundleChoices?: {
-    ids: string[];
-    bundles?: Array<{ id: string; displayName: string; summary: string }>;
-    question?: string;
-  };
-  /** Set true once user clicked one of the choices — disables remaining cards. */
-  bundleChoiceMade?: string | null;
-  /**
-   * For role='question-card' rows: a generic agent question rendered
-   * as a clickable card grid via dhee_ask_question. `answered` holds
-   * the user's picks (joined into the user message when sent).
-   */
-  questionCard?: {
-    question: string;
-    options: Array<{ id: string; label: string; description?: string }>;
-    multiSelect: boolean;
-  };
-  /** Picked option ids for a question-card; null until the user submits. */
-  questionCardAnswered?: string[] | null;
-}
 
 interface ContextUsage {
   used: number;
   limit: number;
 }
-
-type MessageListItem =
-  | { kind: 'message'; message: ChatMessage }
-  | { kind: 'progressGroup'; id: string; rows: ChatMessage[] };
 
 let nextMessageId = 1;
 function newMessageId(): string {
@@ -172,6 +75,30 @@ function newMessageId(): string {
  * enough that we don't flood the IPC layer.
  */
 const RUNNER_STATUS_POLL_MS = 1500;
+
+/**
+ * Defense-in-depth for the "silent run" bug. The real fix is making
+ * regenerate runs dispatch through the BackgroundTaskRunner so
+ * `runnerStatus()` reflects them (that poll is the authoritative,
+ * continuous signal). This is a secondary backstop: a `media_generated`
+ * event proves a node just produced output, so we keep the indicator
+ * lit briefly after one in case a run surfaces media before the next
+ * poll catches it (or via some future event-emitting path that
+ * `runnerStatus` misses). `media_generated` is used — not
+ * tool_call/result — because only renders emit it, so it can't
+ * false-positive on ordinary agent file tools (bash/read/edit). Kept
+ * short so it merely bridges poll latency and never lingers noticeably
+ * after a run ends.
+ */
+const RENDER_ACTIVITY_TTL_MS = 4_000;
+
+/**
+ * Cap on the "Still cancelling…" notice loop. The main process force-
+ * resets a wedged session after ~90s; this is a renderer backstop so
+ * the notice can't count up indefinitely if that signal is missed.
+ * Comfortably larger than the 90s watchdog.
+ */
+const CANCEL_NOTICE_CAP_SEC = 180;
 
 /**
  * Detect the "text concatenated with itself" pattern that the
@@ -246,33 +173,6 @@ function mergeStreamText(
   return base + chunk;
 }
 
-function groupConsecutiveProgress(messages: ChatMessage[]): MessageListItem[] {
-  const items: MessageListItem[] = [];
-  let pendingRows: ChatMessage[] = [];
-
-  const flushProgress = () => {
-    if (pendingRows.length === 0) return;
-    items.push({
-      kind: 'progressGroup',
-      id: `progress-${pendingRows[0].id}`,
-      rows: pendingRows,
-    });
-    pendingRows = [];
-  };
-
-  for (const message of messages) {
-    if (message.role === 'progress') {
-      pendingRows.push(message);
-      continue;
-    }
-
-    flushProgress();
-    items.push({ kind: 'message', message });
-  }
-
-  flushProgress();
-  return items;
-}
 
 // Moved to ./mediaResolution.ts (with URL encoding fix — see comment in
 // resolveMediaSrc there). The unit tests live in mediaResolution.test.ts.
@@ -295,12 +195,32 @@ function summarizeArgs(args: unknown): string {
   return parts.join(' ');
 }
 
+/**
+ * Extract the text body of a pi tool result regardless of shape.
+ *
+ * The pi tool's execute() returns `content: [{type:'text', text}]`, but
+ * the main process flattens that to a plain string before forwarding to
+ * the renderer (see dheeCoreManager's tool_execution_end mapping). The
+ * picker parsers (bundle_choices / question_choices) need the raw text
+ * either way, so accept both shapes and return '' when neither matches.
+ */
+function toolResultText(
+  content: string | Array<{ type?: string; text?: string }> | undefined,
+): string {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    return content.find((c) => c?.type === 'text')?.text ?? '';
+  }
+  return '';
+}
+
 export default function ChatPanelEmbedded() {
   const session = useDheeSession();
   const { projectName, projectDirectory } = useWorkspace();
   const firstRunTour = useOptionalFirstRunTour();
   const agent = useAgent();
   const chatQuestions = useChatQuestions();
+  const { settings } = useAppSettings();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
@@ -411,7 +331,10 @@ export default function ChatPanelEmbedded() {
           toolName: tc.toolName,
           toolCallId: tc.id,
           toolStatus: status,
+          ...(tc.args ? { toolArgs: tc.args } : {}),
           ...(argsSummary ? { toolArgsSummary: argsSummary } : {}),
+          ...(tc.resultText ? { toolResultText: tc.resultText } : {}),
+          ...(tc.details ? { toolDetails: tc.details } : {}),
         },
       });
     }
@@ -501,20 +424,18 @@ export default function ChatPanelEmbedded() {
   // button reflects reality regardless of which tool pi-agent fired
   // to start the run.
   const [runnerActive, setRunnerActive] = useState(false);
+  const [runnerCurrentResource, setRunnerCurrentResource] =
+    useState<RunnerStatusResponse['currentResource'] | null>(null);
 
-  /**
-   * Pi-agent oversight + VLM judge runtime toggles read from
-   * AppSettings. They are GLOBAL — same value applies across all
-   * projects. The chat-header buttons and the Settings panel both
-   * write to AppSettings; main-process pushes the new values into
-   * core's `oversightState` global on every change.
-   *
-   * Default to true when settings haven't loaded yet — matches
-   * the "default ON" rule and avoids a flash-of-OFF on mount.
-   */
-  const appSettings = useAppSettings();
-  const piOversight = appSettings.settings?.piOversight ?? true;
-  const vlmJudge = appSettings.settings?.vlmJudge ?? true;
+  // Stop-after-each-collection gate. Per-project: mirrors
+  // `features.gateAfterCollections` in the active project's
+  // project.json. Read by the probe effect below; toggled by the
+  // header button (which read-modify-writes project.json). When on,
+  // dhee-core's walker halts after each collection node so the user
+  // can inspect that batch before resuming. See
+  // dhee-core docs/feature-flags.md.
+  const [gateAfterCollections, setGateAfterCollections] = useState(false);
+
   // Tracks the id of the currently-streaming assistant message so
   // multiple `stream_chunk` events accumulate into one bubble instead
   // of creating a new bubble per chunk.
@@ -528,6 +449,9 @@ export default function ChatPanelEmbedded() {
   // results.
   const toolNameByCallIdRef = useRef<Map<string, string>>(new Map());
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  // Timestamp of the last render `asset` event — used as a defense-in-
+  // depth running signal (see RENDER_ACTIVITY_TTL_MS).
+  const lastRenderEventRef = useRef<number>(0);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -550,6 +474,13 @@ export default function ChatPanelEmbedded() {
       const sid = event.sessionId;
       if (sid && sid !== mainId && sid !== bgSessionId) {
         return;
+      }
+      // Defense-in-depth running signal: a `media_generated` event means
+      // a node actually rendered something. Stamp the time so the
+      // indicator stays lit even if `runnerStatus` somehow doesn't
+      // reflect the run.
+      if (event.eventName === 'media_generated') {
+        lastRenderEventRef.current = Date.now();
       }
       // The header Stop button is no longer driven by tool-name
       // sniffing here. The previous tool-name allowlist
@@ -608,7 +539,12 @@ export default function ChatPanelEmbedded() {
       try {
         const status = await window.dhee.runnerStatus();
         if (cancelled) return;
-        setRunnerActive(!!status?.active);
+        // Authoritative signal OR a recent render-asset window. The
+        // poll owns turning it OFF (so it can't stick on); the asset
+        // window catches any run that doesn't surface via runnerStatus.
+        const recentRender = Date.now() - lastRenderEventRef.current < RENDER_ACTIVITY_TTL_MS;
+        setRunnerActive(!!status?.active || recentRender);
+        setRunnerCurrentResource(status?.currentResource ?? null);
         // Mirror server-side `cancelling` into local pendingCancel.
         // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"
@@ -622,7 +558,10 @@ export default function ChatPanelEmbedded() {
           setPendingCancel((prev) => (prev ? prev : true));
         }
       } catch {
-        if (!cancelled) setRunnerActive(false);
+        if (!cancelled) {
+          setRunnerActive(false);
+          setRunnerCurrentResource(null);
+        }
       }
     };
     tick();
@@ -684,6 +623,22 @@ export default function ChatPanelEmbedded() {
     const handle = setInterval(() => {
       const state = cancelStatusRef.current;
       if (!state.runnerActive && !state.chatBusy) return; // clearing imminent — skip
+      // Backstop: the main process force-resets a wedged session after
+      // ~90s (returning control). If for any reason that signal never
+      // reaches us, stop spamming after this cap and tell the user how
+      // to recover, rather than counting up forever (the 7h "Still
+      // cancelling…" wall).
+      const elapsedCapSec = Math.round((Date.now() - startedAt) / 1000);
+      if (elapsedCapSec >= CANCEL_NOTICE_CAP_SEC) {
+        postChatNotice({
+          level: 'warning',
+          message:
+            `Stop has been pending ${elapsedCapSec}s — the in-flight call isn't releasing the lock. ` +
+            `It should auto-reset shortly; if the chat stays locked, reload the window (⌘R) to recover.`,
+        });
+        clearInterval(handle);
+        return;
+      }
       const lanes: string[] = [];
       if (state.runnerActive) lanes.push('the pipeline runner');
       if (state.chatBusy) lanes.push('the chat session');
@@ -815,11 +770,18 @@ export default function ChatPanelEmbedded() {
       // need to know from project.json. If yes → don't dispatch the
       // onboarding greeting; the agent picks up where the user left off.
       let hasBundle = false;
+      // Strict boolean — only the literal `true` enables, matching the
+      // dhee-core reader (src/dag/projectFeatures.ts).
+      let gateOn = false;
       try {
         const raw = await reader.readFile(`${projectDirectory}/project.json`);
         if (typeof raw === 'string' && raw.length > 0) {
-          const pj = JSON.parse(raw) as { bundleSource?: unknown };
+          const pj = JSON.parse(raw) as {
+            bundleSource?: unknown;
+            features?: { gateAfterCollections?: unknown };
+          };
           hasBundle = typeof pj.bundleSource === 'string' && pj.bundleSource.length > 0;
+          gateOn = pj.features?.gateAfterCollections === true;
         }
       } catch {
         hasBundle = false;
@@ -828,6 +790,7 @@ export default function ChatPanelEmbedded() {
       if (cancelled) return;
       setIsSetupConfigured(hasBundle);
       setProjectState(lifecycle);
+      setGateAfterCollections(gateOn);
       setSetupProbeCompleted(true);
     })();
     return () => {
@@ -869,7 +832,7 @@ export default function ChatPanelEmbedded() {
   // greeting instead. The agent's SKILL.md has an "Onboarding a fresh
   // project" section that instructs it to ask one short question, wait
   // for the story, call `dhee_list_bundles`, pick the right bundle,
-  // and call `dhee_create_project(existingDir=…)` + `dhee_run_bundle`.
+  // and call `dhee_create_project(existingDir=…)` + `dhee_start_run`.
   useEffect(() => {
     // Fire ONLY when: a project is focused, the probe finished, the
     // project has no bundle pinned (fresh), and the session is ready.
@@ -1019,10 +982,15 @@ export default function ChatPanelEmbedded() {
     setChatAttachments((prev) => prev.filter((a) => a.id !== id));
   };
 
+  const singleGpuChatBlocked =
+    settings?.singleGpuMode === true &&
+    runnerCurrentResource?.kind === 'local_comfy';
+
   const handleSend = async () => {
     const text = input.trim();
     // A turn must have either text or at least one attachment.
     if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
+    if (singleGpuChatBlocked) return;
     firstRunTour.notifyTourEvent('chat_prompt_sent');
 
     // If pi-agent is mid-turn (e.g. running a multi-step regen +
@@ -1105,28 +1073,41 @@ export default function ChatPanelEmbedded() {
     streamingMsgIdRef.current = null;
   };
 
-  /**
-   * Toggle pi-agent oversight via AppSettings. The change is global —
-   * applies to all projects. Main-process pushes the new value into
-   * core's `oversightState` global on settings:update so the runtime
-   * picks it up on the next task dispatch (and via `setVLMEnabled`
-   * mid-run for VLM).
-   *
-   * VLM follows: when supervisor flips off the VLM toggle becomes a
-   * no-op (UI disabled, runtime gate also off) but its stored value
-   * is preserved so flipping supervisor back on restores the prior
-   * choice.
-   */
-  const handleTogglePiOversight = useCallback(async () => {
-    const next = !piOversight;
-    await appSettings.saveConnectionSettings({ piOversight: next });
-  }, [piOversight, appSettings]);
-
-  const handleToggleVlmJudge = useCallback(async () => {
-    if (!piOversight) return; // VLM is gated by supervisor; UI is disabled, but defend.
-    const next = !vlmJudge;
-    await appSettings.saveConnectionSettings({ vlmJudge: next });
-  }, [piOversight, vlmJudge, appSettings]);
+  // Stop-after-each-collection: per-project flag persisted in the
+  // active project's project.json (`features.gateAfterCollections`).
+  // We read-modify-write the whole file so walkState and every other
+  // field is preserved — only the one feature flag changes. Guarded by
+  // `isRunning` at the call site (button disabled), so this write never
+  // races the walker's own walkState writes. The walker reads the flag
+  // once at the start of a run, so changing it only affects the NEXT
+  // run regardless.
+  const handleToggleGate = useCallback(async () => {
+    if (!projectDirectory) return;
+    const next = !gateAfterCollections;
+    const jsonPath = `${projectDirectory}/project.json`;
+    try {
+      const raw = await window.electron.project.readFile(jsonPath);
+      const pj =
+        typeof raw === 'string' && raw.length > 0
+          ? (JSON.parse(raw) as Record<string, unknown>)
+          : {};
+      const features = {
+        ...(typeof pj.features === 'object' && pj.features
+          ? (pj.features as Record<string, unknown>)
+          : {}),
+        gateAfterCollections: next,
+      };
+      const updated = { ...pj, features };
+      await window.electron.project.writeFile(
+        jsonPath,
+        JSON.stringify(updated, null, 2),
+      );
+      setGateAfterCollections(next);
+    } catch {
+      // Leave the toggle as-is on failure; the next probe re-syncs it
+      // from disk so the UI never drifts from project.json.
+    }
+  }, [projectDirectory, gateAfterCollections]);
 
   const handleCancel = useCallback(async () => {
     // Stop kills BOTH execution lanes:
@@ -1157,11 +1138,11 @@ export default function ChatPanelEmbedded() {
     if (!projectDirectory || !session.sessionId) return;
     setBgSessionId(session.sessionId);
 
-    // Phase 6.5c.c: route Resume through the pi-agent so the agent
-    // is the consistent entry point for bundle runs. Pi-agent's
-    // dhee_run_bundle (post-6.5c.c) dispatches via BackgroundTaskRunner,
-    // so progress events still surface in the status strip.
-    const task = `Continue running the bundle for the current project to completion. Call dhee_run_bundle with projectDir="${projectDirectory}". Stream progress as nodes finish, and once it completes call dhee_show_node_output for the goal node so I can see the result.`;
+    // Route Resume through the pi-agent so the agent is the consistent
+    // entry point for bundle runs. Pi-agent's dhee_start_run dispatches
+    // via BackgroundTaskRunner (non-blocking), so progress events surface
+    // in the status strip and completion comes back as a re-wake nudge.
+    const task = `Continue running the bundle for the current project to completion. Call dhee_start_run with projectDir="${projectDirectory}". You'll be notified when it finishes (or pauses on the stop-after-each-collection gate); once it completes call dhee_show_node_output for the goal node so I can see the result.`;
 
     setMessages((prev) => [
       ...prev,
@@ -1232,6 +1213,37 @@ export default function ChatPanelEmbedded() {
   // had no visible kill switch.
   const isRunning = runnerActive || pendingCancel || isMainBusy;
 
+  // ---- live activity transport (issue #161) ----
+  // The most recent progress line (for [N/M] meter parsing) and the
+  // most recent still-running tool (for a humanized "working" verb).
+  const latestProgressText = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === 'progress' && m.progressText) return m.progressText;
+    }
+    return undefined;
+  }, [messages]);
+  const activeToolName = useMemo(() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const m = messages[i];
+      if (m.role === 'tool' && m.toolStatus === 'in_progress' && m.toolName) {
+        return m.toolName;
+      }
+    }
+    return undefined;
+  }, [messages]);
+  const activity = useMemo(
+    () =>
+      deriveActivityState({
+        agentBusy: isMainBusy,
+        runnerActive,
+        pendingCancel,
+        latestProgress: latestProgressText,
+        activeTool: activeToolName ? { toolName: activeToolName } : undefined,
+      }),
+    [isMainBusy, runnerActive, pendingCancel, latestProgressText, activeToolName],
+  );
+
   const contextPct = contextUsage
     ? Math.round((contextUsage.used / contextUsage.limit) * 100)
     : null;
@@ -1261,7 +1273,8 @@ export default function ChatPanelEmbedded() {
             ? 'Connecting'
             : 'Idle';
 
-  const sendActive = input.trim().length > 0 && isReady;
+  const chatInputDisabled = !isReady || singleGpuChatBlocked;
+  const sendActive = input.trim().length > 0 && isReady && !singleGpuChatBlocked;
 
   return (
     <div className={styles.root}>
@@ -1341,95 +1354,80 @@ export default function ChatPanelEmbedded() {
             onCancel={() => void handleCancel()}
           />
           {/*
-            Pi-agent oversight toggle. Eye when on (watching),
-            EyeOff when off. Click flips the local state + persists
-            via IPC. Independent of the VLM toggle in storage; the
-            VLM toggle's enabled-state mirrors this one.
+            Stop-after-each-collection toggle — the primary run-control
+            surface in the header. A prominent labeled switch (not a
+            bare icon). Click read-modify-writes
+            features.gateAfterCollections in the active project's
+            project.json. Disabled while a run is in flight — the flag
+            is read once at run start, so it only affects the NEXT run.
+            Defaults ON. (Replaced the old agent-oversight / VLM-judge
+            eye icons, which moved out of the header.)
           */}
           <button
             type="button"
-            aria-label={
-              piOversight
-                ? 'Agent oversight: ON (click to turn off)'
-                : 'Agent oversight: OFF (click to turn on)'
-            }
+            role="switch"
+            aria-checked={gateAfterCollections}
+            disabled={isRunning}
+            aria-label="Stop after each collection"
             title={
-              piOversight
-                ? 'Agent oversight: ON — auto-engages on runner events'
-                : 'Agent oversight: OFF — chat-only, no auto-engagement'
+              isRunning
+                ? 'Stop after each collection — pause the run to change this (takes effect next run)'
+                : gateAfterCollections
+                  ? 'Stop after each collection: ON — the run halts after every collection node (e.g. shot images, clips) so you can review; press Resume to continue'
+                  : 'Stop after each collection: OFF — the run goes straight through to the final output'
             }
-            onClick={() => void handleTogglePiOversight()}
+            onClick={() => void handleToggleGate()}
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              justifyContent: 'center',
-              width: 26,
-              height: 26,
-              padding: 0,
-              borderRadius: 6,
+              gap: 8,
+              height: 28,
+              padding: '0 12px',
+              borderRadius: 14,
               border: '1px solid var(--color-border-subtle)',
-              background: piOversight
+              background: gateAfterCollections
                 ? 'rgba(var(--color-accent-primary-rgb), 0.18)'
                 : 'transparent',
-              color: piOversight
+              color: gateAfterCollections
                 ? 'var(--color-accent-primary)'
-                : 'var(--color-text-muted)',
-              cursor: 'pointer',
-              transition: 'background 120ms ease, color 120ms ease',
+                : 'var(--color-text-secondary)',
+              cursor: isRunning ? 'not-allowed' : 'pointer',
+              opacity: isRunning ? 0.5 : 1,
+              fontSize: 12,
+              fontWeight: 600,
+              whiteSpace: 'nowrap',
+              transition: 'background 120ms ease, color 120ms ease, opacity 120ms ease',
             }}
           >
-            {piOversight ? <Eye size={14} /> : <EyeOff size={14} />}
-          </button>
-          {/*
-            VLM judge toggle. Disabled when supervisor is off (VLM
-            standalone has no consumer). Tooltip explains the
-            dependency. Always renders — disabled state is an
-            obvious affordance, not a hidden control.
-          */}
-          <button
-            type="button"
-            disabled={!piOversight}
-            aria-label={
-              !piOversight
-                ? 'VLM judge — turn supervisor on first'
-                : vlmJudge
-                  ? 'VLM judge: ON (click to turn off)'
-                  : 'VLM judge: OFF (click to turn on)'
-            }
-            title={
-              !piOversight
-                ? 'VLM judge — turn supervisor on first'
-                : vlmJudge
-                  ? 'VLM judge: ON — vision-LLM describes generated images for the agent'
-                  : 'VLM judge: OFF — agent has no vision feedback on assets'
-            }
-            onClick={() => void handleToggleVlmJudge()}
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              width: 26,
-              height: 26,
-              padding: 0,
-              borderRadius: 6,
-              border: '1px solid var(--color-border-subtle)',
-              background: !piOversight
-                ? 'transparent'
-                : vlmJudge
-                  ? 'rgba(var(--color-accent-primary-rgb), 0.18)'
-                  : 'transparent',
-              color: !piOversight
-                ? 'var(--color-text-muted)'
-                : vlmJudge
+            {/* switch track + sliding knob */}
+            <span
+              aria-hidden
+              style={{
+                position: 'relative',
+                width: 30,
+                height: 16,
+                flexShrink: 0,
+                borderRadius: 8,
+                background: gateAfterCollections
                   ? 'var(--color-accent-primary)'
                   : 'var(--color-text-muted)',
-              cursor: piOversight ? 'pointer' : 'not-allowed',
-              opacity: piOversight ? 1 : 0.45,
-              transition:
-                'background 120ms ease, color 120ms ease, opacity 120ms ease',
-            }}
-          >
-            <ScanEye size={14} />
+                transition: 'background 120ms ease',
+              }}
+            >
+              <span
+                style={{
+                  position: 'absolute',
+                  top: 2,
+                  left: gateAfterCollections ? 16 : 2,
+                  width: 12,
+                  height: 12,
+                  borderRadius: '50%',
+                  background: '#fff',
+                  transition: 'left 120ms ease',
+                }}
+              />
+            </span>
+            <span>Stop after each collection</span>
           </button>
           <div
             aria-label={`Status: ${session.status}`}
@@ -1477,18 +1475,36 @@ export default function ChatPanelEmbedded() {
               : 'Open a project from the sidebar to begin.'}
           </div>
         ) : (
-          groupConsecutiveProgress(messages).map((item) =>
-            item.kind === 'progressGroup' ? (
-              <ProgressGroup key={item.id} rows={item.rows} />
-            ) : item.message.role === 'question' ? (
-              <QuestionRow
-                key={item.message.id}
-                message={item.message}
-                onSelect={(opt) => handleSelectOption(item.message.id, opt)}
-              />
-            ) : item.message.role === 'thinking' ? (
-              <ThinkingRow key={item.message.id} message={item.message} />
-            ) : (
+          coalesceTranscript(messages).map((item) => {
+            if (item.kind === 'turn') {
+              // Problem 1: a run of agent messages renders as ONE authored
+              // block (single byline). Tool entries render first-class via
+              // ToolCard inside TranscriptTurn; the rest are delegated back
+              // to the panel's existing renderers (minus the per-message
+              // eyebrow, which now lives once on the turn).
+              return (
+                <TranscriptTurn
+                  key={item.id}
+                  entries={item.entries}
+                  projectDirectory={projectDirectory}
+                  renderEntry={(entry) =>
+                    renderTurnEntry(entry, projectDirectory)
+                  }
+                />
+              );
+            }
+            if (item.kind === 'question') {
+              return (
+                <QuestionRow
+                  key={item.message.id}
+                  message={item.message}
+                  onSelect={(opt) => handleSelectOption(item.message.id, opt)}
+                />
+              );
+            }
+            // user / system / phase / question-card / bundle-choices —
+            // standalone items still routed through MessageRow.
+            return (
               <MessageRow
                 key={item.message.id}
                 message={item.message}
@@ -1496,8 +1512,8 @@ export default function ChatPanelEmbedded() {
                 onBundleChoiceClick={handleBundleChoiceClick}
                 onQuestionCardClick={handleQuestionCardClick}
               />
-            ),
-          )
+            );
+          })
         )}
         {/* External question banners — posted via the ChatQuestions
          *  context by non-chat code (e.g. the PreviewPanel's "Redo
@@ -1556,13 +1572,26 @@ export default function ChatPanelEmbedded() {
         {attachmentError && (
           <div className={styles.attachmentError}>{attachmentError}</div>
         )}
+        {/* Live activity transport (issue #161) — the single indicator of
+            what Dhee is doing right now. Renders nothing when idle. */}
+        <ActivityTransport state={activity} onStop={() => void handleCancel()} />
+        {singleGpuChatBlocked && (
+          <div className={styles.singleGpuBanner} role="status">
+            <AlertCircle size={14} />
+            <span>
+              Single GPU mode: chat is paused while local ComfyUI is
+              rendering. Use Stop to interrupt, or switch to cloud to chat
+              during renders.
+            </span>
+          </div>
+        )}
         <div className={styles.inputWrapper}>
           <button
             type="button"
             onClick={handleAttachClick}
             aria-label="Attach file"
             title="Attach a ComfyUI workflow JSON"
-            disabled={!isReady || isMainBusy}
+            disabled={chatInputDisabled || isMainBusy}
             className={styles.attachButton}
           >
             <Paperclip size={16} />
@@ -1577,18 +1606,23 @@ export default function ChatPanelEmbedded() {
               }
             }}
             placeholder={
-              isMainBusy
+              singleGpuChatBlocked
+                ? 'Single GPU mode pauses chat while local ComfyUI renders…'
+                : isMainBusy
                 ? 'Thinking…'
                 : isRunning
                   ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
                   : 'Type a task and press Enter…'
             }
             rows={2}
-            disabled={!isReady}
+            disabled={chatInputDisabled}
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                if (input.trim().length > 0 || chatAttachments.length > 0)
+                if (
+                  !singleGpuChatBlocked &&
+                  (input.trim().length > 0 || chatAttachments.length > 0)
+                )
                   handleSend();
               }
             }}
@@ -1600,12 +1634,14 @@ export default function ChatPanelEmbedded() {
             onClick={handleSend}
             aria-label="Send"
             title={
-              isMainBusy
+              singleGpuChatBlocked
+                ? 'Chat is paused while local ComfyUI renders in Single GPU mode'
+                : isMainBusy
                 ? 'Cancel the current reply and send this message'
                 : 'Send (Enter)'
             }
             disabled={
-              !isReady ||
+              chatInputDisabled ||
               (input.trim().length === 0 && chatAttachments.length === 0)
             }
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
@@ -1719,6 +1755,45 @@ function ProgressGroup({ rows }: { rows: ChatMessage[] }) {
   );
 }
 
+/**
+ * Renders the non-tool entries of a coalesced turn. Tool entries are
+ * handled first-class by TranscriptTurn (ToolCard); everything else is
+ * delegated here so we reuse the existing media / progress / thinking
+ * rendering. Assistant text renders body-only — the "Dhee" byline lives
+ * once on the turn (issue #161, Problem 1), so we must NOT route it through
+ * MessageRow's assistant branch (which stamps its own eyebrow).
+ */
+function renderTurnEntry(
+  entry: TurnEntry,
+  projectDirectory: string | null,
+): React.ReactNode {
+  if (entry.kind === 'progressGroup') {
+    return <ProgressGroup rows={entry.rows} />;
+  }
+  if (entry.kind === 'thinking') {
+    return <ThinkingRow message={entry.message} />;
+  }
+  if (entry.kind === 'media') {
+    return (
+      <MessageRow message={entry.message} projectDirectory={projectDirectory} />
+    );
+  }
+  if (entry.kind === 'text') {
+    const text = dedupeDoubled(entry.message.text ?? '');
+    if (!text.trim()) return null;
+    return (
+      <div
+        className={`${styles.bubble} ${styles.bubbleAssistant} ${styles.inTurn}`}
+      >
+        <div className={styles.bubbleBody}>
+          <MarkdownContent text={text} />
+        </div>
+      </div>
+    );
+  }
+  return null; // 'tool' handled by TranscriptTurn
+}
+
 function MessageRow({
   message: m,
   projectDirectory,
@@ -1770,8 +1845,8 @@ function MessageRow({
                   textAlign: 'left',
                   padding: '12px 14px',
                   borderRadius: 8,
-                  border: `1px solid ${isMade ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
-                  background: isMade ? '#1c2533' : '#161821',
+                  border: `1px solid ${isMade ? 'var(--color-accent-primary)' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isMade ? '#1c2533' : 'var(--color-accent-primary-contrast, #161821)',
                   color: otherMade ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
                   cursor: made !== null ? 'default' : 'pointer',
                   fontSize: 13,
@@ -1793,7 +1868,7 @@ function MessageRow({
                   </div>
                 )}
                 {isMade && (
-                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-accent-primary)', marginTop: 6 }}>✓ selected</div>
                 )}
               </button>
             );
@@ -1830,8 +1905,8 @@ function MessageRow({
                   textAlign: 'left',
                   padding: '12px 14px',
                   borderRadius: 8,
-                  border: `1px solid ${isPicked ? '#5f88b2' : 'rgba(168, 156, 139, 0.24)'}`,
-                  background: isPicked ? '#1c2533' : '#161821',
+                  border: `1px solid ${isPicked ? 'var(--color-accent-primary)' : 'rgba(168, 156, 139, 0.24)'}`,
+                  background: isPicked ? '#1c2533' : 'var(--color-accent-primary-contrast, #161821)',
                   color: otherSubmitted ? 'rgba(229, 225, 216, 0.4)' : '#e5e1d8',
                   cursor: submitted ? 'default' : 'pointer',
                   fontSize: 13,
@@ -1853,7 +1928,7 @@ function MessageRow({
                   </div>
                 )}
                 {isPicked && (
-                  <div style={{ fontSize: 11, color: '#5f88b2', marginTop: 6 }}>✓ selected</div>
+                  <div style={{ fontSize: 11, color: 'var(--color-accent-primary)', marginTop: 6 }}>✓ selected</div>
                 )}
               </button>
             );
@@ -2117,6 +2192,9 @@ function handleEvent(
             toolName: data.toolName ?? '(unknown tool)',
             toolStatus: data.status ?? 'in_progress',
             toolArgsSummary: summarizeArgs(data.arguments),
+            ...(data.arguments && typeof data.arguments === 'object'
+              ? { toolArgs: data.arguments as Record<string, unknown> }
+              : {}),
           },
         ];
       });
@@ -2129,12 +2207,26 @@ function handleEvent(
         result?: {
           file_path?: string;
           asset_type?: string;
-          content?: Array<{ type?: string; text?: string }>;
+          // The main process flattens the pi tool result's content
+          // ([{type:'text',text}]) to a plain string before forwarding
+          // (dheeCoreManager tool_execution_end mapping). Accept BOTH.
+          content?: string | Array<{ type?: string; text?: string }>;
           details?: { file_path?: string; asset_type?: string; created_at?: number };
         };
       };
       // Update the matching tool card in place (NOT a new card).
       const newStatus: ToolStatus = data.isError ? 'error' : 'completed';
+      // Capture the result text + structured details so the tool card can
+      // render its result first-class (status counts, cascade affectedNodes,
+      // check_workflow missing_refs, version lists, …). Shape varies per
+      // tool; the card body reads `toolDetails` defensively.
+      const capturedResultText = toolResultText(data.result?.content);
+      const capturedDetails = (data.result as { details?: unknown } | undefined)
+        ?.details;
+      const capturedToolDetails =
+        capturedDetails && typeof capturedDetails === 'object'
+          ? (capturedDetails as Record<string, unknown>)
+          : undefined;
       const toolNameForChoices = data.toolCallId
         ? toolNameByCallIdRef.current?.get(data.toolCallId)
         : undefined;
@@ -2146,10 +2238,9 @@ function handleEvent(
       if (
         !data.isError
         && toolNameForChoices === 'dhee_present_bundle_choices'
-        && Array.isArray(data.result?.content)
       ) {
         try {
-          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const txt = toolResultText(data.result?.content);
           const parsed = JSON.parse(txt) as {
             kind?: string;
             bundleIds?: string[];
@@ -2194,10 +2285,9 @@ function handleEvent(
       if (
         !data.isError
         && toolNameForChoices === 'dhee_ask_question'
-        && Array.isArray(data.result?.content)
       ) {
         try {
-          const txt = data.result!.content!.find((c) => c?.type === 'text')?.text ?? '';
+          const txt = toolResultText(data.result?.content);
           const parsed = JSON.parse(txt) as {
             kind?: string;
             question?: string;
@@ -2236,7 +2326,16 @@ function handleEvent(
       setMessages((prev) => {
         const updated: ChatMessage[] = prev.map((m) =>
           m.role === 'tool' && m.toolCallId === data.toolCallId
-            ? { ...m, toolStatus: newStatus }
+            ? {
+                ...m,
+                toolStatus: newStatus,
+                ...(capturedResultText
+                  ? { toolResultText: capturedResultText }
+                  : {}),
+                ...(capturedToolDetails
+                  ? { toolDetails: capturedToolDetails }
+                  : {}),
+              }
             : m,
         );
         // Bundle picker — append a clickable cards row.
@@ -2263,33 +2362,11 @@ function handleEvent(
             },
           ];
         }
-        // Phase 6.5c.b: when a tool result has a file_path (dhee_show_*
-        // tools), append a `media` row so the chat renders the image/
-        // video inline. Path lives under result.details.file_path for
-        // dhee custom tools; extractToolResultFilePath handles both
-        // shapes (and the legacy flat one) so the lookup doesn't miss.
-        const { filePath, createdAt } = extractToolResultFilePath(data.result);
-        if (!data.isError && filePath) {
-          const ext = filePath.toLowerCase().match(/\.(\w+)$/)?.[1] ?? '';
-          const isImage = /^(png|jpg|jpeg|gif|webp|bmp)$/i.test(ext);
-          const isVideo = /^(mp4|mov|webm|mkv|m4v)$/i.test(ext);
-          if (isImage || isVideo) {
-            return [
-              ...updated,
-              {
-                id: newMessageId(),
-                role: 'media' as const,
-                mediaKind: (isImage ? 'image' : 'video') as 'image' | 'video',
-                // Stamp the createdAt on the mediaPath as a cache-bust
-                // key so the renderer fetches fresh bytes when the
-                // canonical artifact has been overwritten since the
-                // last render of this file:// URL.
-                mediaPath: filePath,
-                ...(createdAt ? { mediaCreatedAt: createdAt } : {}),
-              } as ChatMessage,
-            ];
-          }
-        }
+        // Artifact tools (dhee_show_* / read_artifact) no longer append a
+        // SEPARATE media row — the captured tool result (toolDetails.file_path
+        // / result text) is rendered INSIDE the artifact ToolCard, so the
+        // image/video folds with the card (issue #161 visual pass). Standalone
+        // node outputs still arrive via `media_generated` and render as rows.
         return updated;
       });
       // If this tool may have mutated project.json's lifecycle fields,

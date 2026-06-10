@@ -618,7 +618,12 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
         !projectDirectory);
     if (!shouldAutoStart) return;
     autoStartedRef.current = true;
-    startTour({ source: 'auto' });
+    // Walkthrough disconnected (2026-06): the first-run coachmark tour is
+    // intentionally left fully in place but no longer auto-starts on app
+    // launch (the full-screen FirstRunSetup flow handles onboarding now).
+    // We still flip the one-shot guard above so this effect settles. To
+    // restore the auto-tour, uncomment the line below.
+    // startTour({ source: 'auto' });
   }, [
     devMode,
     onboardingLoaded,
@@ -626,7 +631,6 @@ export function FirstRunTourProvider({ children }: { children: ReactNode }) {
     projectDirectory,
     recentProjects.length,
     recentProjectsLoaded,
-    startTour,
   ]);
 
   useEffect(() => {

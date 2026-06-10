@@ -63,6 +63,13 @@ describe('NewProjectScreen bundle packages', () => {
     Object.defineProperty(window, 'electron', {
       configurable: true,
       value: {
+        settings: {
+          get: async () => ({ comfyuiMode: 'local', comfyuiUrl: '' }),
+        },
+        bundleConfig: {
+          check: async () => ({ error: 'ComfyUI not connected in test' }),
+          resolution: async () => null,
+        },
         project: {
           listBundles,
           installBundlePackage,

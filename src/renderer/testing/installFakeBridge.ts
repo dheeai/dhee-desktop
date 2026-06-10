@@ -372,18 +372,16 @@ const fakeElectron = {
           vlmBackend: 'local',
           comfyuiMode: 'inherit',
           comfyuiUrl: '',
+          singleGpuMode: false,
+          budgetCapUsd: 5,
           comfyCloudApiKey: '',
           comfyuiTimeout: 1800,
           llmProvider: 'openai',
-          lmStudioUrl: 'http://127.0.0.1:1234',
-          lmStudioModel: 'qwen3',
           googleApiKey: '',
           geminiModel: 'gemini-2.5-flash',
           openaiApiKey: '',
           openaiBaseUrl: 'https://api.openai.com/v1',
           openaiModel: 'gpt-4o',
-          openRouterApiKey: '',
-          openRouterModel: 'z-ai/glm-4.7-flash',
           piOversight: true,
           vlmJudge: true,
         }),
@@ -420,7 +418,6 @@ const fakeElectron = {
     },
     getAudioDuration: () => Promise.resolve(0),
     getAudioWaveform: () => Promise.resolve({ peaks: [], duration: 0 }),
-    generateWordCaptions: () => Promise.resolve({ success: false }),
     readTree: (p: string) => {
       record('project.readTree', p);
       return Promise.resolve(
@@ -539,7 +536,6 @@ const fakeElectron = {
     },
     watchManifest: noopAsync,
     watchImagePlacements: noopAsync,
-    watchInfographicPlacements: noopAsync,
     refreshAssets: () => Promise.resolve({ success: true }),
     unwatchDirectory: noopAsync,
     getRecent: () => {
@@ -591,29 +587,6 @@ const fakeElectron = {
       subscribeElectron('project:file-change', cb),
     onManifestWritten: (cb: (payload: unknown) => void) =>
       subscribeElectron('project:manifest-written', cb),
-  },
-  remotion: {
-    renderInfographics: (p: unknown) => {
-      record('remotion.renderInfographics', p);
-      return Promise.resolve(
-        bridgeReturn('remotion.renderInfographics', { jobId: 'fake' }),
-      );
-    },
-    cancelJob: (jobId: string) => {
-      record('remotion.cancelJob', jobId);
-      return Promise.resolve();
-    },
-    getJob: () => Promise.resolve(null),
-    renderFromServerRequest: (p: unknown) => {
-      record('remotion.renderFromServerRequest', p);
-      return Promise.resolve(
-        bridgeReturn('remotion.renderFromServerRequest', { success: false }),
-      );
-    },
-    onProgress: (cb: (payload: unknown) => void) =>
-      subscribeElectron('remotion:progress', cb),
-    onJobComplete: (cb: (payload: unknown) => void) =>
-      subscribeElectron('remotion:job-complete', cb),
   },
   logger: {
     init: noopAsync,

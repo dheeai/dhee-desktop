@@ -7,20 +7,19 @@ import type {
   ThemeId,
 } from '../../../shared/settingsTypes';
 import type {
+  LlmModelInfo,
   ProviderDiagnosticItem,
   ProviderDiagnosticsSnapshot,
   ProviderDiagnosticStatus,
 } from '../../../shared/providerDiagnosticsTypes';
-import { DESKTOP_THEMES } from '../../themes';
+import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
+import { ComboList } from '../ui';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
-import { QuickstartTab } from './QuickstartTab';
 import styles from './SettingsPanel.module.scss';
 
 type SettingsTab =
-  | 'quickstart'
   | 'account'
-  | 'appearance'
   | 'connection'
   | 'workflows'
   | 'diagnostics';
@@ -58,6 +57,18 @@ type Props = {
   error?: string | null;
 };
 
+type ModelListState = {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  models: string[];
+  modelDetails?: LlmModelInfo[];
+  message?: string;
+};
+
+type ModelWarmState = {
+  status: 'loading' | 'ready' | 'error';
+  message: string;
+};
+
 const emptyTierConfig: LLMTierConfig = {
   provider: 'openai',
   openaiBaseUrl: 'https://api.openai.com/v1',
@@ -74,19 +85,16 @@ const emptySettings: AppSettings = {
   vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
+  singleGpuMode: false,
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai',
-  lmStudioUrl: 'http://127.0.0.1:1234',
-  lmStudioModel: 'qwen3',
   googleApiKey: '',
   geminiModel: 'gemini-2.5-flash',
   openaiApiKey: '',
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  openRouterApiKey: '',
-  openRouterModel: 'z-ai/glm-4.7-flash',
-  themeId: 'studio-neutral',
+  themeId: 'cinematic',
   piOversight: true,
   vlmJudge: true,
   vlmProvider: 'openai',
@@ -96,55 +104,34 @@ const emptySettings: AppSettings = {
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...emptyTierConfig },
   llmTierLight: { ...emptyTierConfig },
+  budgetCapUsd: 5,
 };
-
-function withV1Suffix(url: string): string {
-  return /\/v1\/?$/.test(url) ? url : `${url.replace(/\/$/, '')}/v1`;
-}
 
 function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
   const next = input ?? emptySettings;
   const comfyuiUrl = (next.comfyuiUrl || '').trim();
   const backendMode = next.backendMode === 'cloud' ? 'cloud' : 'local';
-  const llmProvider =
-    next.llmProvider === 'openrouter' || next.llmProvider === 'lmstudio'
-      ? 'openai'
-      : next.llmProvider;
-  const openaiApiKey =
-    llmProvider === 'openai' && next.llmProvider === 'openrouter'
-      ? next.openRouterApiKey || next.openaiApiKey
-      : next.openaiApiKey;
-  const openaiBaseUrl =
-    llmProvider === 'openai' && next.llmProvider === 'openrouter'
-      ? 'https://openrouter.ai/api/v1'
-      : llmProvider === 'openai' && next.llmProvider === 'lmstudio'
-        ? withV1Suffix(next.lmStudioUrl || emptySettings.lmStudioUrl)
-        : next.openaiBaseUrl;
-  const openaiModel =
-    llmProvider === 'openai' && next.llmProvider === 'openrouter'
-      ? next.openRouterModel || next.openaiModel
-      : llmProvider === 'openai' && next.llmProvider === 'lmstudio'
-        ? next.lmStudioModel || next.openaiModel
-        : next.openaiModel;
 
   return {
     ...emptySettings,
     ...next,
     backendMode,
-    llmProvider,
+    llmProvider: next.llmProvider === 'gemini' ? 'gemini' : 'openai',
     comfyuiMode: comfyuiUrl ? 'custom' : 'inherit',
     comfyuiUrl,
+    singleGpuMode: next.singleGpuMode === true,
+    budgetCapUsd:
+      typeof next.budgetCapUsd === 'number' &&
+      Number.isFinite(next.budgetCapUsd) &&
+      next.budgetCapUsd >= 0
+        ? next.budgetCapUsd
+        : emptySettings.budgetCapUsd,
     comfyCloudApiKey: next.comfyCloudApiKey ?? '',
-    lmStudioUrl: next.lmStudioUrl?.trim() || emptySettings.lmStudioUrl,
-    lmStudioModel: next.lmStudioModel?.trim() || emptySettings.lmStudioModel,
     googleApiKey: next.googleApiKey ?? '',
     geminiModel: next.geminiModel?.trim() || emptySettings.geminiModel,
-    openaiApiKey: openaiApiKey ?? '',
-    openaiBaseUrl: openaiBaseUrl?.trim() || emptySettings.openaiBaseUrl,
-    openaiModel: openaiModel?.trim() || emptySettings.openaiModel,
-    openRouterApiKey: next.openRouterApiKey ?? '',
-    openRouterModel:
-      next.openRouterModel?.trim() || emptySettings.openRouterModel,
+    openaiApiKey: next.openaiApiKey ?? '',
+    openaiBaseUrl: next.openaiBaseUrl?.trim() || emptySettings.openaiBaseUrl,
+    openaiModel: next.openaiModel?.trim() || emptySettings.openaiModel,
   };
 }
 
@@ -198,10 +185,9 @@ function diagnosticBadgeClass(status: ProviderDiagnosticStatus): string {
 export default function SettingsPanel({
   isOpen,
   variant = 'modal',
-  initialTab = 'appearance',
+  initialTab = 'connection',
   settings,
   onClose,
-  onThemeChange,
   onSaveConnection,
   isSavingConnection,
   error,
@@ -211,7 +197,8 @@ export default function SettingsPanel({
   const [form, setForm] = useState<AppSettings>(
     normalizeConnectionSettings(settings),
   );
-  const [activeTab, setActiveTab] = useState<SettingsTab>('quickstart');
+  const [activeTab, setActiveTab] = useState<SettingsTab>('connection');
+  const { open: openGuidedSetup } = useFirstRunSetup();
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [signingIn, setSigningIn] = useState(false);
   const [signInError, setSignInError] = useState<string | null>(null);
@@ -226,6 +213,8 @@ export default function SettingsPanel({
   const [providerDiagnostics, setProviderDiagnostics] =
     useState<ProviderDiagnosticsSnapshot | null>(null);
   const [providerDiagnosticsBusy, setProviderDiagnosticsBusy] = useState(false);
+  const [modelLists, setModelLists] = useState<Record<string, ModelListState>>({});
+  const [modelWarmStates, setModelWarmStates] = useState<Record<string, ModelWarmState>>({});
   const canUseHostedComfy = canAccountUseHostedComfy(account);
   const isComfyBlockedByPlan = Boolean(account) && !canUseHostedComfy;
 
@@ -301,6 +290,100 @@ export default function SettingsPanel({
       setProviderDiagnosticsBusy(false);
     }
   };
+
+  const loadModels = async (
+    key: string,
+    input: {
+      provider: 'openai' | 'gemini';
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+    },
+  ) => {
+    setModelLists((prev) => ({
+      ...prev,
+      [key]: {
+        status: 'loading',
+        models: prev[key]?.models ?? [],
+        modelDetails: prev[key]?.modelDetails,
+      },
+    }));
+    try {
+      const bridge = getProviderDiagnosticsBridge();
+      if (!bridge?.probeLlm) {
+        throw new Error('Model lookup is unavailable in this build.');
+      }
+      const result = await bridge.probeLlm(input);
+      if (result.ok) {
+        setModelLists((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'ready',
+            models: result.models ?? [],
+            modelDetails: result.modelDetails,
+            message: result.message,
+          },
+        }));
+      } else {
+        setModelLists((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'error',
+            models: [],
+            message: result.detail ?? result.message,
+          },
+        }));
+      }
+    } catch (err) {
+      setModelLists((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'error',
+          models: [],
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  };
+
+  const warmSelectedModel = async (
+    key: string,
+    input: {
+      provider: 'openai' | 'gemini';
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+    },
+  ) => {
+    if (!input.model) return;
+    setModelWarmStates((prev) => ({
+      ...prev,
+      [key]: { status: 'loading', message: `Loading ${input.model}...` },
+    }));
+    try {
+      const bridge = getProviderDiagnosticsBridge();
+      if (!bridge?.warmLlmModel) {
+        throw new Error('Model loading is unavailable in this build.');
+      }
+      const result = await bridge.warmLlmModel(input);
+      setModelWarmStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: result.ok ? 'ready' : 'error',
+          message: result.ok ? result.message : result.detail ?? result.message,
+        },
+      }));
+      await loadModels(key, input);
+    } catch (err) {
+      setModelWarmStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  };
   useEffect(() => {
     setForm(normalizeConnectionSettings(settings));
   }, [settings, isVisible]);
@@ -372,7 +455,7 @@ export default function SettingsPanel({
 
   const handleInput = (
     key: keyof AppSettings,
-    value: string | number | undefined,
+    value: string | number | boolean | undefined,
   ) => {
     // Defense-in-depth: the cloud-lane checkboxes are `disabled` when
     // !account so this branch is normally unreachable from the UI, but
@@ -403,17 +486,15 @@ export default function SettingsPanel({
       vlmBackend: normalized.vlmBackend,
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
+      singleGpuMode: normalized.singleGpuMode,
+      budgetCapUsd: normalized.budgetCapUsd,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
       llmProvider: normalized.llmProvider,
-      lmStudioUrl: normalized.lmStudioUrl,
-      lmStudioModel: normalized.lmStudioModel,
       googleApiKey: normalized.googleApiKey,
       geminiModel: normalized.geminiModel,
       openaiApiKey: normalized.openaiApiKey,
       openaiBaseUrl: normalized.openaiBaseUrl,
       openaiModel: normalized.openaiModel,
-      openRouterApiKey: normalized.openRouterApiKey,
-      openRouterModel: normalized.openRouterModel,
       llmUseSameForAllTiers: normalized.llmUseSameForAllTiers,
       llmTierMedium: normalized.llmTierMedium,
       llmTierLight: normalized.llmTierLight,
@@ -458,6 +539,10 @@ export default function SettingsPanel({
     form.comfyBackend === 'cloud' && !isComfyBlockedByPlan;
   const isLlmCloudMode = form.llmBackend === 'cloud';
   const isVlmCloudMode = form.vlmBackend === 'cloud';
+  // VLM judge master switch (moved here from the retired Appearance tab).
+  // Reads persisted settings and saves immediately on toggle — its own
+  // value, independent of the connection form's Save & Restart.
+  const isVlmJudgeOn = settings?.vlmJudge ?? emptySettings.vlmJudge;
   let comfyCloudToggleTitle: string | undefined;
   if (!account) {
     comfyCloudToggleTitle = 'Sign in to Dhee Cloud to enable Cloud mode';
@@ -481,11 +566,115 @@ export default function SettingsPanel({
       ? 'Connected to Cloud'
       : 'Cloud sign-in required'
     : 'Connected to Local';
-  const statusSupportText = isCloudMode
-    ? isCloudReady
-      ? 'The bundled core is running locally while paid calls use Dhee Cloud credits through the proxy.'
-      : 'Sign in to Dhee Cloud to route paid calls through the authenticated proxy.'
-    : 'The bundled core is running locally with the provider settings shown below.';
+
+  const renderModelIdInput = (opts: {
+    id: string;
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    provider: 'openai' | 'gemini';
+    apiKey?: string;
+    baseUrl?: string;
+    disabled?: boolean;
+    placeholder: string;
+    tourId?: string;
+  }) => {
+    const state = modelLists[opts.id] ?? { status: 'idle' as const, models: [] };
+    const warmState = modelWarmStates[opts.id];
+    const canQuery =
+      !opts.disabled &&
+      (opts.provider === 'openai' || Boolean((opts.apiKey ?? '').trim()));
+    const query = async () => {
+      if (!canQuery) return;
+      await loadModels(opts.id, {
+        provider: opts.provider,
+        apiKey: opts.apiKey,
+        model: opts.value,
+        ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+      });
+    };
+
+    return (
+      <div className={styles.label}>
+        <div className={styles.labelRow}>
+          <span>{opts.label}</span>
+          <button
+            type="button"
+            className={styles.inlineButton}
+            onClick={() => {
+              void query();
+            }}
+            disabled={!canQuery || state.status === 'loading'}
+          >
+            {state.status === 'loading' ? 'Loading models...' : 'Refresh models'}
+          </button>
+        </div>
+        <ComboList
+          value={opts.value}
+          onChange={(value) => {
+            opts.onChange(value);
+            setModelWarmStates((prev) => {
+              const next = { ...prev };
+              delete next[opts.id];
+              return next;
+            });
+          }}
+          onOptionSelect={(value) => {
+            opts.onChange(value);
+            if (opts.provider === 'openai') {
+              void warmSelectedModel(opts.id, {
+                provider: opts.provider,
+                apiKey: opts.apiKey,
+                model: value,
+                ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+              });
+            }
+          }}
+          options={state.models.map((model) => {
+            const detail = state.modelDetails?.find((m) => m.id === model);
+            return {
+              value: model,
+              label: detail?.status ? `${model}  ·  ${detail.status}` : model,
+            };
+          })}
+          loading={state.status === 'loading'}
+          disabled={opts.disabled}
+          triggerDisabled={!canQuery}
+          placeholder={opts.placeholder}
+          buttonLabel="Models"
+          inputClassName={`${styles.input} ${styles.modelComboInput}`}
+          dataTourId={opts.tourId}
+          onRequestOptions={query}
+        />
+        {state.status === 'ready' && state.models.length > 0 ? (
+          <p className={styles.modelListHint}>
+            {state.models.length} model{state.models.length === 1 ? '' : 's'} available from endpoint. You can still type a custom id.
+          </p>
+        ) : null}
+        {warmState ? (
+          <p
+            className={
+              warmState.status === 'error'
+                ? styles.modelListError
+                : styles.modelListHint
+            }
+          >
+            {warmState.message}
+          </p>
+        ) : null}
+        {state.status === 'ready' && state.models.length === 0 ? (
+          <p className={styles.modelListHint}>
+            Endpoint reached, but it did not return model ids. Type one manually.
+          </p>
+        ) : null}
+        {state.status === 'error' ? (
+          <p className={styles.modelListError}>
+            {state.message ?? 'Could not load models. Type one manually.'}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
 
   const renderTierSection = (
     tier: 'llmTierMedium' | 'llmTierLight',
@@ -526,19 +715,16 @@ export default function SettingsPanel({
 
         {cfg.provider === 'gemini' && (
           <>
-            <label className={styles.label}>
-              Gemini Model ID
-              <input
-                type="text"
-                className={styles.input}
-                value={cfg.geminiModel}
-                disabled={isLlmCloudMode}
-                onChange={(event) =>
-                  handleTierInput(tier, 'geminiModel', event.target.value)
-                }
-                placeholder="gemini-2.5-flash"
-              />
-            </label>
+            {renderModelIdInput({
+              id: `${tier}-gemini-model`,
+              label: 'Gemini Model ID',
+              value: cfg.geminiModel,
+              provider: 'gemini',
+              apiKey: cfg.googleApiKey,
+              disabled: isLlmCloudMode,
+              placeholder: 'gemini-2.5-flash',
+              onChange: (value) => handleTierInput(tier, 'geminiModel', value),
+            })}
             <label className={styles.label}>
               Google API Key
               <input
@@ -570,19 +756,17 @@ export default function SettingsPanel({
                 placeholder="https://api.openai.com/v1"
               />
             </label>
-            <label className={styles.label}>
-              Model ID
-              <input
-                type="text"
-                className={styles.input}
-                value={cfg.openaiModel}
-                disabled={isLlmCloudMode}
-                onChange={(event) =>
-                  handleTierInput(tier, 'openaiModel', event.target.value)
-                }
-                placeholder="gpt-4o"
-              />
-            </label>
+            {renderModelIdInput({
+              id: `${tier}-openai-model`,
+              label: 'Model ID',
+              value: cfg.openaiModel,
+              provider: 'openai',
+              apiKey: cfg.openaiApiKey,
+              baseUrl: cfg.openaiBaseUrl,
+              disabled: isLlmCloudMode,
+              placeholder: 'gpt-4o',
+              onChange: (value) => handleTierInput(tier, 'openaiModel', value),
+            })}
             <label className={styles.label}>
               API Key
               <input
@@ -673,11 +857,11 @@ export default function SettingsPanel({
         <aside className={styles.sidebar}>
           <button
             type="button"
-            className={`${styles.tabButton} ${activeTab === 'quickstart' ? styles.tabButtonActive : ''}`}
-            onClick={() => setActiveTab('quickstart')}
+            className={`${styles.tabButton} ${styles.tabLauncher}`}
+            onClick={openGuidedSetup}
           >
-            <span className={styles.tabLabel}>Quickstart</span>
-            <span className={styles.tabDescription}>Set one API key, done</span>
+            <span className={styles.tabLabel}>Guided setup →</span>
+            <span className={styles.tabDescription}>Pick a recipe, connect, verify</span>
           </button>
           <button
             type="button"
@@ -686,16 +870,6 @@ export default function SettingsPanel({
           >
             <span className={styles.tabLabel}>Account</span>
             <span className={styles.tabDescription}>Sign-in and credits</span>
-          </button>
-          <button
-            type="button"
-            className={`${styles.tabButton} ${activeTab === 'appearance' ? styles.tabButtonActive : ''}`}
-            onClick={() => setActiveTab('appearance')}
-          >
-            <span className={styles.tabLabel}>Appearance</span>
-            <span className={styles.tabDescription}>
-              Themes and visual preferences
-            </span>
           </button>
           <button
             type="button"
@@ -731,129 +905,8 @@ export default function SettingsPanel({
 
         <form className={styles.form} onSubmit={handleSubmit}>
           <section className={styles.section}>
-            {activeTab === 'quickstart' ? (
-              <QuickstartTab
-                onSave={onSaveConnection}
-                isSaving={!!isSavingConnection}
-              />
-            ) : activeTab === 'account' ? (
+            {activeTab === 'account' ? (
               <AccountTab />
-            ) : activeTab === 'appearance' ? (
-              <>
-                <div className={styles.sectionHeader}>
-                  <h3>Appearance</h3>
-                  <p>
-                    Choose a workspace palette tuned for long editing sessions.
-                  </p>
-                </div>
-                <div className={styles.themeGrid}>
-                  {DESKTOP_THEMES.map((theme) => {
-                    const isActive =
-                      (settings?.themeId ?? emptySettings.themeId) === theme.id;
-                    return (
-                      <button
-                        key={theme.id}
-                        type="button"
-                        className={`${styles.themeCard} ${isActive ? styles.themeCardActive : ''}`}
-                        onClick={() => onThemeChange(theme.id)}
-                      >
-                        <span className={styles.themePreview}>
-                          {theme.swatches.map((swatch) => (
-                            <span
-                              key={swatch}
-                              className={styles.themeSwatch}
-                              style={{ backgroundColor: swatch }}
-                            />
-                          ))}
-                        </span>
-                        <span className={styles.themeMeta}>
-                          <span className={styles.themeName}>{theme.name}</span>
-                          <span className={styles.themeDescription}>
-                            {theme.description}
-                          </span>
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {/*
-                  AI Oversight toggles. Global preferences (apply to
-                  all projects). Both default ON. VLM is gated by the
-                  supervisor toggle — disabled here when supervisor
-                  is off, mirroring the chat-header quick-toggle.
-                  Saves immediately on click via onSaveConnection so
-                  the runtime fan-out (main.ts → dheeCoreManager →
-                  oversightState) fires.
-                */}
-                <div className={styles.sectionHeader} style={{ marginTop: 24 }}>
-                  <h3>AI Oversight</h3>
-                  <p>
-                    The agent observes runner events and intervenes when
-                    something looks off. VLM provides image descriptions
-                    so the agent can judge generated assets against the
-                    prompt.
-                  </p>
-                </div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={
-                        settings?.piOversight ?? emptySettings.piOversight
-                      }
-                      onChange={(event) =>
-                        onSaveConnection({ piOversight: event.target.checked })
-                      }
-                      style={{ marginTop: 4 }}
-                    />
-                    <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500 }}>Agent oversight</span>
-                      <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Auto-engages the agent on runner events (failed,
-                        completed, per-asset when VLM is on).
-                      </span>
-                    </span>
-                  </label>
-                  <label
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: 12,
-                      cursor: (settings?.piOversight ?? true)
-                        ? 'pointer'
-                        : 'not-allowed',
-                      opacity: (settings?.piOversight ?? true) ? 1 : 0.5,
-                    }}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={settings?.vlmJudge ?? emptySettings.vlmJudge}
-                      disabled={!(settings?.piOversight ?? true)}
-                      onChange={(event) =>
-                        onSaveConnection({ vlmJudge: event.target.checked })
-                      }
-                      style={{ marginTop: 4 }}
-                    />
-                    <span style={{ display: 'flex', flexDirection: 'column' }}>
-                      <span style={{ fontWeight: 500 }}>VLM judge</span>
-                      <span style={{ opacity: 0.7, fontSize: 12, marginTop: 2 }}>
-                        Vision-LLM describes generated images for the
-                        agent. Configure the VLM provider in the Connection
-                        tab. Disabled when oversight is off (VLM standalone
-                        has no consumer).
-                      </span>
-                    </span>
-                  </label>
-                </div>
-              </>
             ) : activeTab === 'workflows' ? (
               <WorkflowsTab isCloudMode={settings?.comfyBackend === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
@@ -1045,6 +1098,54 @@ export default function SettingsPanel({
                 </fieldset>
 
                 <fieldset className={styles.fieldset}>
+                  <legend>Single GPU Mode</legend>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={form.singleGpuMode}
+                      onChange={(event) =>
+                        handleInput('singleGpuMode', event.target.checked)
+                      }
+                    />
+                    Pause chat during local ComfyUI renders
+                  </label>
+                  <p className={styles.infoText}>
+                    Use this when local ComfyUI and a local LLM share one GPU.
+                    Chat stays available during LLM work and pauses only while
+                    local ComfyUI is rendering.
+                  </p>
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
+                  <legend>Budget cap</legend>
+                  <label className={styles.label}>
+                    Stop a run after spending (USD)
+                    <input
+                      type="number"
+                      className={styles.input}
+                      min={0}
+                      step={1}
+                      value={form.budgetCapUsd}
+                      onChange={(event) => {
+                        const n = Number.parseFloat(event.target.value);
+                        handleInput(
+                          'budgetCapUsd',
+                          Number.isFinite(n) && n >= 0 ? n : 0,
+                        );
+                      }}
+                    />
+                  </label>
+                  <p className={styles.infoText}>
+                    A safety limit on paid generation (cloud LLM / image / video).
+                    A run pauses before the next paid step once a project reaches
+                    this much spend, so a runaway loop can&apos;t burn through your
+                    credits — you can then raise it and resume. Applies to new
+                    projects. Set to <strong>0</strong> for no cap. Fully local
+                    runs cost nothing and never hit it.
+                  </p>
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
                   <legend>LLM</legend>
                   <div className={styles.cloudToggleRow}>
                     <label
@@ -1108,19 +1209,16 @@ export default function SettingsPanel({
 
                       {form.llmProvider === 'gemini' && (
                         <>
-                          <label className={styles.label}>
-                            Gemini Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.geminiModel}
-                              onChange={(event) =>
-                                handleInput('geminiModel', event.target.value)
-                              }
-                              placeholder="gemini-2.5-flash"
-                              data-tour-id="settings-llm-model"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'heavy-gemini-model',
+                            label: 'Gemini Model ID',
+                            value: form.geminiModel,
+                            provider: 'gemini',
+                            apiKey: form.googleApiKey,
+                            placeholder: 'gemini-2.5-flash',
+                            tourId: 'settings-llm-model',
+                            onChange: (value) => handleInput('geminiModel', value),
+                          })}
 
                           <label className={styles.label}>
                             Google API Key
@@ -1169,19 +1267,17 @@ export default function SettingsPanel({
                             />
                           </div>
 
-                          <label className={styles.label}>
-                            Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.openaiModel}
-                              onChange={(event) =>
-                                handleInput('openaiModel', event.target.value)
-                              }
-                              placeholder="gpt-4o"
-                              data-tour-id="settings-llm-model"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'heavy-openai-model',
+                            label: 'Model ID',
+                            value: form.openaiModel,
+                            provider: 'openai',
+                            apiKey: form.openaiApiKey,
+                            baseUrl: form.openaiBaseUrl,
+                            placeholder: 'gpt-4o',
+                            tourId: 'settings-llm-model',
+                            onChange: (value) => handleInput('openaiModel', value),
+                          })}
 
                           <label className={styles.label}>
                             API Key
@@ -1240,10 +1336,21 @@ export default function SettingsPanel({
                   <legend>VLM (vision judge)</legend>
                   <p className={styles.infoText}>
                     Reads generated images and grades them against the prompt
-                    so the agent can flag misses. Toggle the VLM judge in the
-                    Appearance tab; configure the provider here. Independent
-                    of LLM and ComfyUI — flip any combo.
+                    so the agent can flag misses. Independent of LLM and
+                    ComfyUI — flip any combo.
                   </p>
+                  <label className={styles.checkboxLabel}>
+                    <input
+                      type="checkbox"
+                      checked={isVlmJudgeOn}
+                      onChange={(event) =>
+                        onSaveConnection({ vlmJudge: event.target.checked })
+                      }
+                    />
+                    Enable VLM judge
+                  </label>
+                  {isVlmJudgeOn ? (
+                    <>
                   <div className={styles.cloudToggleRow}>
                     <label
                       className={styles.checkboxLabel}
@@ -1313,18 +1420,15 @@ export default function SettingsPanel({
 
                       {form.vlmProvider === 'gemini' ? (
                         <>
-                          <label className={styles.label}>
-                            Gemini Vision Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.vlmModel}
-                              onChange={(event) =>
-                                handleInput('vlmModel', event.target.value)
-                              }
-                              placeholder="gemini-2.5-pro"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'vlm-gemini-model',
+                            label: 'Gemini Vision Model ID',
+                            value: form.vlmModel,
+                            provider: 'gemini',
+                            apiKey: form.vlmApiKey,
+                            placeholder: 'gemini-2.5-pro',
+                            onChange: (value) => handleInput('vlmModel', value),
+                          })}
                           <label className={styles.label}>
                             Google API Key
                             <input
@@ -1352,18 +1456,16 @@ export default function SettingsPanel({
                               placeholder="http://127.0.0.1:1234/v1"
                             />
                           </label>
-                          <label className={styles.label}>
-                            Vision Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.vlmModel}
-                              onChange={(event) =>
-                                handleInput('vlmModel', event.target.value)
-                              }
-                              placeholder="qwen-vl-72b"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'vlm-openai-model',
+                            label: 'Vision Model ID',
+                            value: form.vlmModel,
+                            provider: 'openai',
+                            apiKey: form.vlmApiKey,
+                            baseUrl: form.vlmBaseUrl,
+                            placeholder: 'qwen-vl-72b',
+                            onChange: (value) => handleInput('vlmModel', value),
+                          })}
                           <label className={styles.label}>
                             API Key
                             <input
@@ -1383,6 +1485,13 @@ export default function SettingsPanel({
                         from the engine <code>.env</code> in your <code>dhee-core</code> checkout (dev mode).
                       </p>
                     </>
+                  )}
+                    </>
+                  ) : (
+                    <p className={styles.infoText}>
+                      VLM judge is off — the agent won&apos;t grade generated
+                      images. Enable it above to configure a vision provider.
+                    </p>
                   )}
                 </fieldset>
 

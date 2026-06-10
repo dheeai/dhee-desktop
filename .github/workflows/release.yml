@@ -11,6 +11,19 @@ jobs:
     runs-on: macos-14
     permissions:
       contents: write
+    env:
+      # macOS code signing + notarization (mac job only — CSC_LINK on the
+      # Windows job would try to sign the .exe with the mac cert).
+      # electron-builder reads CSC_LINK / CSC_KEY_PASSWORD to sign, and (with
+      # build.mac.notarize=true) APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD /
+      # APPLE_TEAM_ID to notarize via notarytool. Missing secrets => signing /
+      # notarizing are skipped (no failure).
+      CSC_LINK: ${{ secrets.CSC_LINK }}
+      CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      # electron-builder's built-in notarization reads APPLE_APP_SPECIFIC_PASSWORD.
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_PASS }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
     steps:
       - name: Checkout dhee-desktop
@@ -62,7 +75,20 @@ jobs:
           dhee_INK_PATH: ${{ github.workspace }}/dhee-core
         run: npm run release
 
+      - name: Verify packaged app (native unpack + bundles)
+        run: node .erb/scripts/verify-packaged-app.js
+
   release-windows:
+    # TEMPORARILY UNSIGNED on a GitHub-hosted runner. The self-hosted "5090"
+    # box + Certum SimplySign signing keeps failing (dead SimplySign session /
+    # signtool selection), which left the Windows installer stale across
+    # several releases. Shipping unsigned here gets users an up-to-date build
+    # (SmartScreen will warn on first run). The signing infra is preserved for
+    # when the box is fixed: .erb/scripts/sign-windows.js (graceful-skips when
+    # WIN_SIGN_SHA1 is unset, so the build is just unsigned here, no failure)
+    # and .erb/scripts/simplysign-login.ps1 — to re-enable, restore the whole
+    # self-hosted job (runs-on: [self-hosted, Windows, simplysign] + the
+    # signtool/SimplySign steps) from git history (commit 536c5e6).
     runs-on: windows-latest
     permissions:
       contents: write
@@ -112,11 +138,16 @@ jobs:
           ANALYTICS_SALT: ${{ vars.ANALYTICS_SALT || secrets.ANALYTICS_SALT }}
         run: node .erb/scripts/write-runtime-config.js
 
+      # WIN_SIGN_SHA1 is intentionally unset → sign-windows.js skips signing
+      # (unsigned build, no failure).
       - name: Build and publish Electron app
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           dhee_INK_PATH: ${{ github.workspace }}\dhee-core
         run: npm run release
+
+      - name: Verify packaged app (native unpack + bundles)
+        run: node .erb/scripts/verify-packaged-app.js
 
   release-linux:
     runs-on: ubuntu-22.04
@@ -178,3 +209,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           dhee_INK_PATH: ${{ github.workspace }}/dhee-core
         run: npm run release
+
+      - name: Verify packaged app (native unpack + bundles)
+        run: node .erb/scripts/verify-packaged-app.js

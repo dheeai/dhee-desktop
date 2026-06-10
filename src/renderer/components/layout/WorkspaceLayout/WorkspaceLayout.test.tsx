@@ -52,6 +52,19 @@ jest.mock('../../../hooks/useRunnerStatus', () => ({
   }),
 }));
 
+// StatusStrip reads useDheeSession (honest activity chip); the layout test
+// doesn't wrap in DheeSessionProvider, so stub it.
+jest.mock('../../../hooks/useDheeSession', () => ({
+  useDheeSession: () => ({ status: 'idle' }),
+  useOptionalDheeSession: () => null,
+}));
+
+// TransportBar (run cockpit) pulls the live run model; not under test here.
+jest.mock('../../run/TransportBar/TransportBar', () => ({
+  __esModule: true,
+  default: () => <div data-testid="ws-transport" />,
+}));
+
 jest.mock('../../../inspector/InspectorView', () => ({
   InspectorView: () => <div data-testid="ws-inspector">inspector</div>,
 }));

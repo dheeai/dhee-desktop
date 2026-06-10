@@ -28,8 +28,6 @@ import {
 } from '../../../utils/pathResolver';
 import { imageToBase64, shouldUseBase64 } from '../../../utils/imageToBase64';
 import {
-  clampImageMove,
-  buildUpdatedInfographicOverride,
   buildUpdatedVideoSplitOverride,
   snapToSecond,
 } from '../../../utils/timelineImageEditing';
@@ -44,7 +42,6 @@ import type { SceneVersions } from '../../../types/dhee/timeline';
 import { PROJECT_PATHS, createAssetInfo } from '../../../types/dhee';
 import {
   TrackAudioIcon,
-  TrackOverlayIcon,
   TrackTextIcon,
   TrackVisualIcon,
 } from '../EditorIcons';
@@ -208,15 +205,10 @@ interface TimelineItemComponentProps {
     e: React.MouseEvent<HTMLDivElement>,
     item: TimelineItem,
   ) => void;
-  onInfographicDragMouseDown?: (
-    e: React.MouseEvent<HTMLDivElement>,
-    item: TimelineItem,
-  ) => void;
   onItemContextMenu?: (
     e: React.MouseEvent<HTMLDivElement>,
     item: TimelineItem,
   ) => void;
-  isEditing?: boolean;
 }
 
 function TimelineItemComponent({
@@ -226,9 +218,7 @@ function TimelineItemComponent({
   projectDirectory,
   isSelected,
   onItemClick,
-  onInfographicDragMouseDown,
   onItemContextMenu,
-  isEditing = false,
 }: TimelineItemComponentProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -243,12 +233,9 @@ function TimelineItemComponent({
     ? `${footerLabel}. ${item.prompt}`
     : footerLabel;
 
-  // Resolve video path from item (video and infographic both use videoPath for mp4)
+  // Resolve video path from item
   useEffect(() => {
-    if (
-      (item.type === 'video' || item.type === 'infographic') &&
-      item.videoPath
-    ) {
+    if (item.type === 'video' && item.videoPath) {
       setHasVideoPreviewFrame(false);
       resolveAssetPathForDisplay(item.videoPath, projectDirectory).then(
         (resolved) => {
@@ -533,73 +520,6 @@ function TimelineItemComponent({
     );
   }
 
-  // Handle infographic type (mp4 from Remotion, same as video block)
-  if (item.type === 'infographic' && videoPath) {
-    return (
-      <div
-        className={`${styles.videoBlock} ${styles.editableInfographicBlock} ${isSelected ? styles.selected : ''} ${isEditing ? styles.editing : ''}`}
-        style={{
-          left: `${left}px`,
-          width: `${width}px`,
-        }}
-        onMouseDown={(e) => {
-          if (onInfographicDragMouseDown) {
-            onInfographicDragMouseDown(e, item);
-          }
-        }}
-        onClick={(e) => {
-          if (onItemClick) {
-            onItemClick(e, item);
-          }
-        }}
-        onContextMenu={(e) => {
-          if (onItemContextMenu) {
-            onItemContextMenu(e, item);
-          }
-        }}
-        aria-label={accessibleLabel}
-      >
-        {!hasVideoPreviewFrame && (
-          <div className={styles.scenePlaceholder}>Info</div>
-        )}
-        <video
-          ref={videoRef}
-          src={videoPath}
-          className={styles.videoThumbnail}
-          preload="metadata"
-          muted
-          playsInline
-          style={{ visibility: hasVideoPreviewFrame ? 'visible' : 'hidden' }}
-        />
-        {clipBadgeLabel && (
-          <div className={styles.clipBadge}>{clipBadgeLabel}</div>
-        )}
-        <div className={styles.videoLabel}>{footerLabel}</div>
-      </div>
-    );
-  }
-
-  if (item.type === 'infographic' && !videoPath) {
-    return (
-      <div
-        className={`${styles.videoBlock} ${styles.editableInfographicBlock} ${isSelected ? styles.selected : ''} ${isEditing ? styles.editing : ''}`}
-        style={{ left: `${left}px`, width: `${width}px` }}
-        onMouseDown={(e) =>
-          onInfographicDragMouseDown && onInfographicDragMouseDown(e, item)
-        }
-        onClick={(e) => onItemClick && onItemClick(e, item)}
-        onContextMenu={(e) => onItemContextMenu && onItemContextMenu(e, item)}
-        aria-label={accessibleLabel}
-      >
-        <div className={styles.scenePlaceholder}>Info</div>
-        {clipBadgeLabel && (
-          <div className={styles.clipBadge}>{clipBadgeLabel}</div>
-        )}
-        <div className={styles.videoLabel}>{footerLabel}</div>
-      </div>
-    );
-  }
-
   if (item.type === 'text_overlay') {
     return (
       <div
@@ -741,7 +661,6 @@ interface TimelineContextMenuState {
 interface TimelineEditSnapshot {
   markers: TimelineMarker[];
   image_timing_overrides: dheeTimelineState['image_timing_overrides'];
-  infographic_timing_overrides: dheeTimelineState['infographic_timing_overrides'];
   video_split_overrides: dheeTimelineState['video_split_overrides'];
   segment_timing_overrides: dheeTimelineState['segment_timing_overrides'];
 }
@@ -753,8 +672,7 @@ const MemoTimelineItemComponent = React.memo(
     prev.left === next.left &&
     prev.width === next.width &&
     prev.projectDirectory === next.projectDirectory &&
-    prev.isSelected === next.isSelected &&
-    prev.isEditing === next.isEditing,
+    prev.isSelected === next.isSelected,
 );
 
 const MAX_TIMELINE_UNDO_STEPS = 100;
@@ -767,19 +685,6 @@ function cloneImageTimingOverrides(
   overrides: dheeTimelineState['image_timing_overrides'],
 ): dheeTimelineState['image_timing_overrides'] {
   const next: dheeTimelineState['image_timing_overrides'] = {};
-  Object.entries(overrides).forEach(([key, value]) => {
-    next[key] = {
-      start_time_seconds: value.start_time_seconds,
-      end_time_seconds: value.end_time_seconds,
-    };
-  });
-  return next;
-}
-
-function cloneInfographicTimingOverrides(
-  overrides: dheeTimelineState['infographic_timing_overrides'],
-): dheeTimelineState['infographic_timing_overrides'] {
-  const next: dheeTimelineState['infographic_timing_overrides'] = {};
   Object.entries(overrides).forEach(([key, value]) => {
     next[key] = {
       start_time_seconds: value.start_time_seconds,
@@ -840,7 +745,6 @@ export default function TimelinePanel({
     updateMarkers,
     updateImportedClips,
     updateImageTimingOverrides,
-    updateInfographicTimingOverrides,
     updateVideoSplitOverrides,
     updateSegmentTimingOverrides,
     addAsset,
@@ -851,7 +755,6 @@ export default function TimelinePanel({
   // Use unified timeline data from context (single source of truth for TimelinePanel + VideoLibraryView)
   const {
     timelineItems,
-    overlayItems,
     textOverlayItems,
     totalDuration: timelineTotalDuration,
     refreshAudioFiles,
@@ -1079,8 +982,6 @@ export default function TimelinePanel({
     useState(false);
   const [contextMenuState, setContextMenuState] =
     useState<TimelineContextMenuState | null>(null);
-  const [isGeneratingWordCaptions, setIsGeneratingWordCaptions] =
-    useState(false);
   const [captionGenerationMessage, setCaptionGenerationMessage] = useState<
     string | null
   >(null);
@@ -1175,16 +1076,9 @@ export default function TimelinePanel({
   const dragStartXRef = useRef(0);
   const dragStartPositionRef = useRef(0);
   const isClickRef = useRef(true);
-  const scrollPositionBeforeEditRef = useRef<number | null>(null);
-  const [activeEditingItemId, setActiveEditingItemId] = useState<string | null>(
-    null,
-  );
   const markersRef = useRef(markers);
   const imageTimingOverridesRef = useRef(
     timelineState.image_timing_overrides || {},
-  );
-  const infographicTimingOverridesRef = useRef(
-    timelineState.infographic_timing_overrides || {},
   );
   const videoSplitOverridesRef = useRef(
     timelineState.video_split_overrides || {},
@@ -1203,11 +1097,6 @@ export default function TimelinePanel({
   }, [timelineState.image_timing_overrides]);
 
   useEffect(() => {
-    infographicTimingOverridesRef.current =
-      timelineState.infographic_timing_overrides || {};
-  }, [timelineState.infographic_timing_overrides]);
-
-  useEffect(() => {
     videoSplitOverridesRef.current = timelineState.video_split_overrides || {};
   }, [timelineState.video_split_overrides]);
 
@@ -1221,9 +1110,6 @@ export default function TimelinePanel({
       markers: cloneMarkers(markersRef.current),
       image_timing_overrides: cloneImageTimingOverrides(
         imageTimingOverridesRef.current,
-      ),
-      infographic_timing_overrides: cloneInfographicTimingOverrides(
-        infographicTimingOverridesRef.current,
       ),
       video_split_overrides: cloneVideoSplitOverrides(
         videoSplitOverridesRef.current,
@@ -1274,9 +1160,6 @@ export default function TimelinePanel({
     updateImageTimingOverrides(
       cloneImageTimingOverrides(previous.image_timing_overrides),
     );
-    updateInfographicTimingOverrides(
-      cloneInfographicTimingOverrides(previous.infographic_timing_overrides),
-    );
     updateVideoSplitOverrides(
       cloneVideoSplitOverrides(previous.video_split_overrides),
     );
@@ -1287,7 +1170,6 @@ export default function TimelinePanel({
     setCanUndo(stack.length > 0);
   }, [
     updateImageTimingOverrides,
-    updateInfographicTimingOverrides,
     updateVideoSplitOverrides,
     updateSegmentTimingOverrides,
   ]);
@@ -1303,31 +1185,6 @@ export default function TimelinePanel({
       clearUndoHistory();
     };
   }, [clearUndoHistory]);
-
-  const commitInfographicTimingOverride = useCallback(
-    (
-      placementNumber: number,
-      sourceStartTime: number,
-      sourceEndTime: number,
-      editedStartTime: number,
-      editedEndTime: number,
-    ) => {
-      const currentOverrides = infographicTimingOverridesRef.current;
-      const nextOverrides = buildUpdatedInfographicOverride(
-        currentOverrides,
-        placementNumber,
-        sourceStartTime,
-        sourceEndTime,
-        editedStartTime,
-        editedEndTime,
-      );
-
-      if (nextOverrides !== currentOverrides) {
-        updateInfographicTimingOverrides(nextOverrides);
-      }
-    },
-    [updateInfographicTimingOverrides],
-  );
 
   const commitVideoSplitAtTime = useCallback(
     (item: TimelineItem, splitTimelineSeconds: number): boolean => {
@@ -1584,63 +1441,6 @@ export default function TimelinePanel({
     undoLastTimelineEdit();
   }, [undoLastTimelineEdit]);
 
-  const handleGenerateWordCaptions = useCallback(async () => {
-    if (!projectDirectory || isGeneratingWordCaptions) return;
-
-    const contextualAudioPath =
-      contextMenuState?.item?.type === 'audio'
-        ? contextMenuState.item.audioPath
-        : undefined;
-    const fallbackAudioPath =
-      audioTimelineItems.length > 0
-        ? [...audioTimelineItems].sort((a, b) => b.duration - a.duration)[0]
-            ?.audioPath
-        : undefined;
-    const selectedAudioPath = contextualAudioPath || fallbackAudioPath;
-
-    if (!selectedAudioPath) {
-      setCaptionGenerationMessage('No audio track available for captions.');
-      return;
-    }
-
-    setIsGeneratingWordCaptions(true);
-    setCaptionGenerationMessage(
-      'Generating captions... they will appear in the timeline when ready.',
-    );
-
-    try {
-      const result = await window.electron.project.generateWordCaptions(
-        projectDirectory,
-        selectedAudioPath,
-      );
-
-      if (!result.success) {
-        setCaptionGenerationMessage(
-          result.error || 'Failed to generate word captions.',
-        );
-        return;
-      }
-
-      const wordCount = result.words?.length ?? 0;
-      setCaptionGenerationMessage(
-        `Generated word captions (${wordCount} words).`,
-      );
-    } catch (error) {
-      setCaptionGenerationMessage(
-        error instanceof Error
-          ? error.message
-          : 'Failed to generate word captions.',
-      );
-    } finally {
-      setIsGeneratingWordCaptions(false);
-    }
-  }, [
-    projectDirectory,
-    isGeneratingWordCaptions,
-    contextMenuState,
-    audioTimelineItems,
-  ]);
-
   const handleDeleteAudioFromContextMenu = useCallback(async () => {
     if (!projectDirectory || contextMenuState?.item?.type !== 'audio') {
       return;
@@ -1682,8 +1482,6 @@ export default function TimelinePanel({
     refreshAssetManifest,
     refreshAudioFiles,
   ]);
-
-  const canGenerateWordCaptions = audioTimelineItems.length > 0;
 
   // Handle playhead drag start
   const handlePlayheadMouseDown = useCallback(
@@ -1759,103 +1557,6 @@ export default function TimelinePanel({
       setCurrentPosition,
       onDragStateChange,
       closeContextMenu,
-    ],
-  );
-
-  const handleInfographicDragMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>, item: TimelineItem) => {
-      if (item.type !== 'infographic' || item.placementNumber === undefined) {
-        return;
-      }
-      if (e.button !== 0) return;
-
-      e.stopPropagation();
-      e.preventDefault();
-      scrollPositionBeforeEditRef.current =
-        tracksRef.current?.scrollLeft ?? null;
-
-      const sourceStartTime = item.sourceStartTime ?? item.startTime;
-      const sourceEndTime = item.sourceEndTime ?? item.endTime;
-      const initialStartTime = item.startTime;
-      const initialDuration = Math.max(1, item.duration);
-
-      let lastStartTime = initialStartTime;
-      let hasRecordedUndoSnapshot = false;
-      const interactionSnapshot = captureSnapshot();
-
-      setActiveEditingItemId(item.id);
-      setIsDragging(true);
-      if (onDragStateChange) {
-        onDragStateChange(true);
-      }
-      wasPlayingBeforeDragRef.current = isPlaying;
-      dragStartXRef.current = e.clientX;
-      dragStartPositionRef.current = currentPosition;
-
-      if (isPlaying) {
-        setIsPlaying(false);
-      }
-
-      const handleMouseMove = (moveEvent: MouseEvent) => {
-        const deltaX = moveEvent.clientX - dragStartXRef.current;
-        if (Math.abs(deltaX) <= 5) {
-          return;
-        }
-
-        const deltaSeconds = pixelsToSeconds(deltaX, zoomLevel);
-        const nextRange = clampImageMove({
-          desiredStart: initialStartTime + deltaSeconds,
-          duration: initialDuration,
-          minStart: 0,
-          maxEnd: totalDuration,
-        });
-
-        if (nextRange.startTime !== lastStartTime) {
-          if (!hasRecordedUndoSnapshot) {
-            pushUndoSnapshot(interactionSnapshot);
-            hasRecordedUndoSnapshot = true;
-          }
-
-          lastStartTime = nextRange.startTime;
-          commitInfographicTimingOverride(
-            item.placementNumber!,
-            sourceStartTime,
-            sourceEndTime,
-            nextRange.startTime,
-            nextRange.endTime,
-          );
-        }
-      };
-
-      const handleMouseUpGlobal = () => {
-        document.removeEventListener('mousemove', handleMouseMove);
-        document.removeEventListener('mouseup', handleMouseUpGlobal);
-        setIsDragging(false);
-        if (onDragStateChange) {
-          onDragStateChange(false);
-        }
-        setActiveEditingItemId(null);
-
-        if (wasPlayingBeforeDragRef.current) {
-          setIsPlaying(true);
-        }
-      };
-
-      document.addEventListener('mousemove', handleMouseMove, {
-        passive: true,
-      });
-      document.addEventListener('mouseup', handleMouseUpGlobal);
-    },
-    [
-      isPlaying,
-      currentPosition,
-      onDragStateChange,
-      zoomLevel,
-      totalDuration,
-      captureSnapshot,
-      pushUndoSnapshot,
-      commitInfographicTimingOverride,
-      setIsPlaying,
     ],
   );
 
@@ -2380,16 +2081,6 @@ export default function TimelinePanel({
           toneClassName: styles.visualTone,
         }
       : null,
-    overlayItems.length > 0
-      ? {
-          key: 'overlay',
-          label: 'Overlays',
-          meta: 'Infographics',
-          icon: TrackOverlayIcon,
-          rowClassName: styles.overlayTrackLabel,
-          toneClassName: styles.overlayTone,
-        }
-      : null,
     textOverlayItems.length > 0
       ? {
           key: 'text',
@@ -2689,42 +2380,9 @@ export default function TimelinePanel({
                             left={left}
                             width={width}
                             projectDirectory={projectDirectory || null}
-                            isSelected={activeEditingItemId === item.id}
+                            isSelected={false}
                             onItemClick={handleItemClick}
-                            onInfographicDragMouseDown={
-                              handleInfographicDragMouseDown
-                            }
                             onItemContextMenu={handleTimelineItemContextMenu}
-                            isEditing={activeEditingItemId === item.id}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Overlay Track (Infographics) */}
-                {overlayItems.length > 0 && (
-                  <div className={`${styles.track} ${styles.overlayTrack}`}>
-                    <div className={styles.trackContent}>
-                      {overlayItems.map((item) => {
-                        const left = secondsToPixels(item.startTime, zoomLevel);
-                        const width = secondsToPixels(item.duration, zoomLevel);
-
-                        return (
-                          <MemoTimelineItemComponent
-                            key={item.id}
-                            item={item}
-                            left={left}
-                            width={width}
-                            projectDirectory={projectDirectory || null}
-                            isSelected={activeEditingItemId === item.id}
-                            onItemClick={handleItemClick}
-                            onInfographicDragMouseDown={
-                              handleInfographicDragMouseDown
-                            }
-                            onItemContextMenu={handleTimelineItemContextMenu}
-                            isEditing={activeEditingItemId === item.id}
                           />
                         );
                       })}
@@ -2803,14 +2461,11 @@ export default function TimelinePanel({
               x={contextMenuState.x}
               y={contextMenuState.y}
               canUndo={canUndo}
-              canGenerateWordCaptions={canGenerateWordCaptions}
-              isGeneratingWordCaptions={isGeneratingWordCaptions}
               showRegenerateShotAction={isServerTimelineShotContextTarget}
               showVideoEditActions={isPlacementVideoContextTarget}
               showDeleteAudioAction={contextMenuState.item?.type === 'audio'}
               onUndo={handleUndoFromContextMenu}
               onRegenerateShot={handleRegenerateShotFromContextMenu}
-              onGenerateWordCaptions={handleGenerateWordCaptions}
               onSplitClip={
                 isPlacementVideoContextTarget && canSplitContextTarget
                   ? handleContextSplitClip

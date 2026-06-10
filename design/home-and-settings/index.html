@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dhee Studio · Home + Settings in the Production-Slate language</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* =================================================================
+   Home + Settings re-skinned in the New Project "Production Slate"
+   language: deep warm-black canvas, Fraunces (display + prose) +
+   JetBrains Mono (labels/inputs/buttons), amber accent + red rec,
+   one editorial type scale, film grain + vignette. EXACT New Project
+   palette so it reads as the same app.
+   ================================================================= */
+:root{
+  /* New Project's exact palette */
+  --bg:#0a0908; --surface:#13110f; --surface-hi:#1a1714; --surface-2:#211c17;
+  --border:#1f1b17; --border-hi:#2a2520;
+  --fg:#f4f1ea; --fg-2:#b8b1a6; --fg-muted:#7a7570; --fg-deep:#4a453f;
+  --accent:#e8a33d; --accent-soft:rgba(232,163,61,.12); --accent-line:rgba(232,163,61,.45);
+  --rec:#e84538;
+  --ok:#7a9b82; --warn:#c79a5a; --err:#b5736f;
+  --serif:'Fraunces',Georgia,serif;
+  --mono:'JetBrains Mono','SF Mono',monospace;
+  /* tight architectural radii */
+  --r-sm:4px; --r-md:6px; --r-lg:8px; --r-full:999px;
+}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--serif);font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;overflow:hidden}
+/* ambient cinematic atmosphere */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:50;opacity:.05;mix-blend-mode:overlay;
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:49;background:radial-gradient(130% 120% at 50% 30%,transparent 55%,rgba(0,0,0,.5) 100%)}
+
+/* mockup view switch */
+.switch{position:fixed;top:14px;left:50%;transform:translateX(-50%);z-index:200;display:flex;gap:2px;background:var(--surface);border:1px solid var(--border-hi);border-radius:var(--r-md);padding:3px}
+.switch button{font-family:var(--mono);font-size:11px;letter-spacing:.08em;cursor:pointer;border:0;background:transparent;color:var(--fg-muted);padding:7px 14px;border-radius:var(--r-sm);text-transform:uppercase}
+.switch button.on{background:var(--accent-soft);color:var(--accent)}
+
+.app{position:relative;z-index:1;height:100vh;display:flex;flex-direction:column}
+.screen{display:none;flex:1;min-height:0;flex-direction:column}
+.screen.show{display:flex}
+
+/* ---- mono label / kicker ---- */
+.label{font-family:var(--mono);font-size:10px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--fg-deep)}
+.meta{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--fg-muted)}
+
+/* ---- buttons (JetBrains Mono, like New Project's ROLL/BROWSE) ---- */
+.btn{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;cursor:pointer;
+  border:1px solid var(--border-hi);background:transparent;color:var(--fg-2);padding:9px 16px;border-radius:var(--r-sm);transition:.16s;display:inline-flex;align-items:center;gap:8px}
+.btn:hover{color:var(--fg);border-color:var(--accent)}
+.btn-primary{background:var(--accent);color:#1a1206;border-color:var(--accent)}
+.btn-primary:hover{background:#f0b35e}
+.btn-rec{color:var(--fg);border-color:var(--accent)}
+.recdot{width:8px;height:8px;border-radius:50%;background:var(--rec);box-shadow:0 0 0 0 var(--rec);animation:rec 1.5s ease-in-out infinite}
+@keyframes rec{0%,100%{box-shadow:0 0 0 0 rgba(232,69,56,.55)}50%{box-shadow:0 0 0 6px rgba(232,69,56,0)}}
+
+/* ---- top bar (shared) ---- */
+.topbar{flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:16px 28px;border-bottom:1px solid var(--border)}
+.wordmark{font-family:var(--serif);font-style:italic;font-size:24px;font-variation-settings:'opsz' 40,'SOFT' 40;letter-spacing:.3px}
+.wordmark b{font-style:normal;font-family:var(--mono);font-size:9.5px;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--fg-deep);margin-left:10px}
+.topbar .sp{flex:1}
+.pill{display:inline-flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--fg-muted);
+  border:1px solid var(--border);border-radius:var(--r-full);padding:5px 10px}
+.pill .dot{width:7px;height:7px;border-radius:50%}
+.dot-ok{background:var(--ok)} .dot-warn{background:var(--warn)} .dot-off{background:var(--fg-deep)}
+
+/* =================== HOME =================== */
+.home-scroll{flex:1;overflow:auto;padding:44px 28px}
+.home-col{max-width:1040px;margin:0 auto}
+.home-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:8px}
+.home-hero h1{font-family:var(--serif);font-weight:340;font-size:52px;line-height:1.02;letter-spacing:-.02em;font-variation-settings:'opsz' 144,'SOFT' 100;margin:6px 0 0}
+.home-hero h1 em{font-style:italic;color:var(--accent)}
+.sectionline{display:flex;align-items:center;gap:14px;margin:40px 0 18px}
+.sectionline .rule{flex:1;border-top:1px solid var(--border)}
+.projgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.proj{border:1px solid var(--border);border-radius:var(--r-md);background:var(--surface);overflow:hidden;cursor:pointer;transition:.18s}
+.proj:hover{border-color:var(--border-hi);transform:translateY(-2px)}
+.proj .thumb{aspect-ratio:16/9;background:linear-gradient(135deg,#241d14,#14110d);position:relative;overflow:hidden}
+.proj .thumb::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(232,163,61,.10),transparent);animation:sh 3s linear infinite}
+.proj:nth-child(2) .thumb::after{animation-delay:.6s} .proj:nth-child(3) .thumb::after{animation-delay:1.2s}
+@keyframes sh{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
+.proj .pbody{padding:14px 16px}
+.proj h3{font-family:var(--serif);font-weight:400;font-size:22px;font-variation-settings:'opsz' 36,'SOFT' 50;margin:0 0 4px}
+.proj .pmeta{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:var(--fg-muted);display:flex;gap:10px}
+.proj .pstatus{display:inline-flex;align-items:center;gap:6px}
+.newcard{border:1px dashed var(--border-hi);border-radius:var(--r-md);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;cursor:pointer;color:var(--fg-muted);min-height:210px;transition:.18s}
+.newcard:hover{border-color:var(--accent);color:var(--fg)}
+.newcard .plus{font-family:var(--serif);font-size:40px;line-height:1;color:var(--accent)}
+.newcard span{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase}
+.home-foot{margin-top:48px;border-top:1px solid var(--border);padding-top:16px;display:flex;gap:18px}
+
+/* =================== SETTINGS =================== */
+.set-body{flex:1;display:flex;min-height:0}
+.set-rail{width:248px;flex:0 0 auto;border-right:1px solid var(--border);padding:22px 16px;display:flex;flex-direction:column;gap:4px;background:var(--bg)}
+.railhead{font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--fg-deep);margin:0 0 14px 6px}
+.launch{text-align:left;cursor:pointer;border:1px solid var(--accent-line);background:var(--accent-soft);border-radius:var(--r-sm);padding:12px 13px;margin-bottom:10px;transition:.16s}
+.launch:hover{border-color:var(--accent)}
+.launch b{display:block;font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--accent)}
+.launch span{display:block;font-family:var(--serif);font-size:13.5px;color:var(--fg-muted);margin-top:3px}
+.tab{text-align:left;cursor:pointer;border:1px solid transparent;background:transparent;border-radius:var(--r-sm);padding:10px 13px;transition:.16s}
+.tab:hover{background:rgba(255,255,255,.025)}
+.tab.on{background:var(--accent-soft);border-color:var(--accent-line)}
+.tab b{display:block;font-family:var(--mono);font-size:11.5px;font-weight:600;letter-spacing:.05em;color:var(--fg)}
+.tab span{display:block;font-family:var(--serif);font-size:13px;color:var(--fg-muted);margin-top:2px}
+.set-main{flex:1;min-width:0;overflow:auto;padding:40px 44px;background:var(--bg)}
+.set-col{max-width:560px}
+.set-main h2{font-family:var(--serif);font-weight:340;font-size:34px;font-variation-settings:'opsz' 72,'SOFT' 80;margin:0 0 6px}
+.set-main .lede{font-family:var(--serif);font-size:15px;color:var(--fg-2);margin:0 0 28px;max-width:480px}
+.seclabel{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--fg-deep);margin:26px 0 12px}
+.field{display:flex;flex-direction:column;gap:8px;margin-bottom:18px}
+.field label{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--fg-2)}
+.field label .opt{color:var(--fg-deep);text-transform:none;letter-spacing:0}
+.inp{width:100%;font-family:var(--mono);font-size:12.5px;color:var(--fg);background:var(--bg);border:1px solid var(--border-hi);border-radius:var(--r-sm);padding:11px 13px;transition:.16s}
+.inp::placeholder{color:var(--fg-deep)}
+.inp:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(232,163,61,.18)}
+.seg{display:inline-flex;gap:6px;background:var(--bg);border:1px solid var(--border);border-radius:var(--r-sm);padding:4px;margin-bottom:18px}
+.seg button{font-family:var(--mono);font-size:11.5px;letter-spacing:.04em;cursor:pointer;border:0;background:transparent;color:var(--fg-muted);padding:8px 13px;border-radius:var(--r-sm);display:flex;align-items:center;gap:7px}
+.seg button.on{background:var(--accent-soft);color:var(--accent)}
+.seg .t{font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--fg-deep)}
+.divider{border:0;border-top:1px double var(--border-hi);border-bottom:1px solid var(--border);height:4px;margin:30px 0}
+.lights{display:flex;flex-direction:column;gap:10px;margin-top:6px}
+.light{display:flex;align-items:center;gap:12px}
+.light .o{width:9px;height:9px;border-radius:50%}
+.light b{font-family:var(--serif);font-size:14px}
+.light .meta{margin-left:auto}
+
+/* type-scale reference strip (bottom of settings) */
+.typeref{margin-top:34px;border-top:1px solid var(--border);padding-top:18px;display:flex;flex-direction:column;gap:10px}
+.typerow{display:flex;align-items:baseline;gap:16px}
+.typerow .tg{font-family:var(--mono);font-size:9.5px;color:var(--fg-deep);width:150px;flex:0 0 auto;letter-spacing:.06em}
+.note{font-family:var(--mono);font-size:11px;color:var(--fg-deep);margin-top:6px}
+</style>
+</head>
+<body>
+<div class="switch">
+  <button class="on" data-s="home" onclick="show('home')">Home</button>
+  <button data-s="settings" onclick="show('settings')">Settings</button>
+</div>
+
+<div class="app">
+
+  <!-- ============ HOME ============ -->
+  <section class="screen show" id="s-home">
+    <div class="topbar">
+      <span class="wordmark">Dhee Studio</span>
+      <span class="sp"></span>
+      <span class="pill"><span class="dot dot-ok"></span>LLM · cloud</span>
+      <span class="pill"><span class="dot dot-warn"></span>ComfyUI · local</span>
+      <button class="btn btn-primary">＋ New Project</button>
+      <button class="btn">⚙</button>
+    </div>
+    <div class="home-scroll"><div class="home-col">
+      <div class="home-hero">
+        <div>
+          <div class="label">Welcome back</div>
+          <h1>Pick up where you <em>left off.</em></h1>
+        </div>
+      </div>
+
+      <div class="sectionline"><span class="label">Recent productions</span><span class="rule"></span></div>
+      <div class="projgrid">
+        <div class="proj">
+          <div class="thumb"></div>
+          <div class="pbody">
+            <h3>Eye of the Storm</h3>
+            <div class="pmeta"><span class="pstatus"><span class="recdot"></span>rendering · shot 3/8</span></div>
+          </div>
+        </div>
+        <div class="proj">
+          <div class="thumb"></div>
+          <div class="pbody">
+            <h3>Neon Envelope</h3>
+            <div class="pmeta"><span>cinematic · 60s</span><span>·</span><span>4 scenes</span></div>
+          </div>
+        </div>
+        <div class="newcard">
+          <span class="plus">＋</span>
+          <span>New Project</span>
+        </div>
+      </div>
+
+      <div class="sectionline"><span class="label">Library</span><span class="rule"></span></div>
+      <div class="projgrid">
+        <div class="proj">
+          <div class="thumb"></div>
+          <div class="pbody"><h3>The Music Box</h3><div class="pmeta"><span>anime · 30s</span><span>·</span><span>done</span></div></div>
+        </div>
+        <div class="proj">
+          <div class="thumb"></div>
+          <div class="pbody"><h3>Storm Chaser</h3><div class="pmeta"><span>cinematic · 90s</span><span>·</span><span>done</span></div></div>
+        </div>
+      </div>
+
+      <div class="home-foot"><span class="meta">Help</span><span class="meta">Docs</span><span class="meta" style="margin-left:auto">v0.4.0</span></div>
+    </div></div>
+  </section>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="screen" id="s-settings">
+    <div class="topbar">
+      <span class="wordmark">Dhee Studio <b>Settings</b></span>
+      <span class="sp"></span>
+      <button class="btn">✕ Close</button>
+    </div>
+    <div class="set-body">
+      <aside class="set-rail">
+        <div class="railhead">Configure</div>
+        <button class="launch"><b>Guided setup →</b><span>Pick a recipe, connect, verify</span></button>
+        <button class="tab on"><b>CONNECTION</b><span>Local providers or Dhee Cloud</span></button>
+        <button class="tab"><b>ACCOUNT</b><span>Sign-in and credits</span></button>
+        <button class="tab"><b>APPEARANCE</b><span>Themes and visuals</span></button>
+        <button class="tab"><b>WORKFLOWS</b><span>Custom ComfyUI workflows</span></button>
+        <button class="tab"><b>DIAGNOSTICS</b><span>Logs &amp; troubleshooting</span></button>
+      </aside>
+      <main class="set-main"><div class="set-col">
+        <div class="label">Settings · connection</div>
+        <h2>Connect the language model.</h2>
+        <p class="lede">It writes your plot, scenes, and every shot prompt.</p>
+
+        <div class="seg">
+          <button class="on">OpenRouter <span class="t">key</span></button>
+          <button>OpenAI <span class="t">key</span></button>
+          <button>Gemini <span class="t">key</span></button>
+          <button>LM Studio <span class="t">local</span></button>
+        </div>
+
+        <div class="field">
+          <label>API key</label>
+          <input class="inp" type="password" placeholder="sk-or-…" value="••••••••••••••••••" />
+        </div>
+        <div class="field">
+          <label>Model <span class="opt">· optional — sensible default used</span></label>
+          <input class="inp" placeholder="default" />
+        </div>
+        <button class="btn btn-primary">Save</button>
+
+        <hr class="divider" />
+        <div class="seclabel">ComfyUI renderer</div>
+        <div class="field">
+          <label>Server URL</label>
+          <input class="inp" value="http://127.0.0.1:8188" />
+        </div>
+        <div class="lights">
+          <div class="light"><span class="o dot-ok"></span><b>Renderer</b><span class="meta">RTX 4090 · 24 GB · 142 models</span></div>
+          <div class="light"><span class="o dot-ok"></span><b>Language model</b><span class="meta">glm-4.7-flash · verified</span></div>
+          <div class="light"><span class="o" style="background:var(--rec)"></span><b>Recording</b><span class="meta">red = live / recording only</span></div>
+        </div>
+
+        <div class="typeref">
+          <div class="seclabel" style="margin:0 0 4px">One type scale · Fraunces + JetBrains Mono</div>
+          <div class="typerow"><span class="tg">display · serif 52</span><span style="font-family:var(--serif);font-size:36px;font-variation-settings:'opsz' 144,'SOFT' 100">Eye of the Storm</span></div>
+          <div class="typerow"><span class="tg">heading · serif 30</span><span style="font-family:var(--serif);font-size:26px">Connect the model</span></div>
+          <div class="typerow"><span class="tg">prose · serif 15</span><span style="font-family:var(--serif);font-size:15px;color:var(--fg-2)">Body copy + descriptions are Fraunces.</span></div>
+          <div class="typerow"><span class="tg">label · mono 10</span><span class="label">THE STORY</span></div>
+          <div class="typerow"><span class="tg">input/btn · mono 12</span><span style="font-family:var(--mono);font-size:12px;color:var(--fg-2)">sk-or-… · Save · BROWSE</span></div>
+          <div class="note">Same combo as New Project: Fraunces for display + prose, JetBrains Mono for labels / inputs / buttons. No Inter, no Instrument Sans.</div>
+        </div>
+      </div></main>
+    </div>
+  </section>
+
+</div>
+
+<script>
+function show(s){
+  document.querySelectorAll('.screen').forEach(x=>x.classList.toggle('show',x.id==='s-'+s));
+  document.querySelectorAll('.switch button').forEach(b=>b.classList.toggle('on',b.dataset.s===s));
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,39 @@
+@import '../../../styles/tokens';
+
+.panel {
+  background: $color-bg-panel-elevated;
+  border: 1px solid $color-border-subtle;
+  border-radius: $radius-lg;
+  padding: $spacing-xl;
+  box-shadow: $shadow-md;
+}
+
+.card {
+  background: $color-bg-panel;
+  border: 1px solid $color-border-subtle;
+  border-radius: $radius-md;
+  padding: $spacing-lg;
+}
+
+.divider {
+  border: 0;
+  border-top: 1px solid $color-border-subtle;
+  margin: $spacing-xl 0;
+}
+
+/* cinematic double-line — the signature divider */
+.cinematic {
+  border: 0;
+  border-top: 1px double $color-border-strong;
+  border-bottom: 1px solid $color-border-subtle;
+  height: 4px;
+  margin: $spacing-xl 0;
+}
+
+.sectionLabel {
+  font-family: $font-family-mono;
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: $color-text-muted;
+}

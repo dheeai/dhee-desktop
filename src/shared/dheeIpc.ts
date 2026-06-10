@@ -105,6 +105,24 @@ export const dhee_CHANNELS = {
    * .dhee/events.jsonl by `projectInstanceGraph` in dhee-core.
    */
   RESOLVE_INSTANCE_GRAPH: 'dhee:resolveInstanceGraph',
+  /**
+   * List the version tray for a node instance (every node.completed
+   * folded from the event log, with the selected one flagged). Backs
+   * the Inspector modal's Versions panel.
+   */
+  LIST_VERSIONS: 'dhee:listVersions',
+  /**
+   * Select a specific version for a node instance (emits
+   * version.selected). Downstream resolution + the canvas pick it up.
+   */
+  SELECT_VERSION: 'dhee:selectVersion',
+  /**
+   * Overwrite a node instance's content with user-edited bytes (from
+   * the Inspector modal's inline editor). Marks the node user-completed
+   * and cascades downstream — same core path as the agent's
+   * dhee_write_node_content tool.
+   */
+  WRITE_NODE_CONTENT: 'dhee:writeNodeContent',
 } as const;
 
 /** The single channel for streaming events main → renderer. */
@@ -198,9 +216,13 @@ export interface HistorySnapshot {
   toolCalls: Array<{
     id: string;
     toolName: string;
-    args?: Record<string, string>;
+    args?: Record<string, unknown>;
     status: 'executing' | 'completed' | 'error';
     result?: unknown;
+    /** Flattened tool-result text, when the session recorded one. */
+    resultText?: string;
+    /** Structured tool-result `details` (cascade nodes, missing refs, …). */
+    details?: Record<string, unknown>;
     startTime: number;
     duration?: number;
     agentName?: string;
@@ -248,6 +270,17 @@ export interface RunnerCancelResponse {
   cancelled: boolean;
 }
 
+export type RunnerCurrentResourceKind = 'local_comfy' | 'local_llm';
+
+export interface RunnerCurrentResource {
+  kind: RunnerCurrentResourceKind;
+  tool?: string;
+  nodeId?: string;
+  itemId?: string;
+  resourceKey?: string;
+  startedAt: number;
+}
+
 export interface RunnerStatusResponse {
   active: boolean;
   /**
@@ -264,6 +297,7 @@ export interface RunnerStatusResponse {
   projectName?: string;
   startedAt?: number;
   sessionId?: string;
+  currentResource?: RunnerCurrentResource | null;
 }
 
 export interface ConfigureProjectRequest {
@@ -329,7 +363,14 @@ export interface CancelTaskResponse {
 }
 
 export interface RedoNodeRequest {
-  sessionId: string;
+  /**
+   * Chat session id (resolves to the focused project). Optional — pass
+   * `projectDir` instead when calling from a projectDir-native surface
+   * like the Inspector Cards view, which has no chat session.
+   */
+  sessionId?: string;
+  /** Absolute project dir. Takes precedence over sessionId when set. */
+  projectDir?: string;
   nodeId: string;
   editedPrompt?: string;
   frame?: string;
@@ -376,7 +417,14 @@ export interface DeleteSessionRequest {
 }
 
 export interface InvalidateNodesRequest {
-  sessionId: string;
+  /**
+   * Chat session id (resolves to the focused project). Optional — pass
+   * `projectDir` instead from a projectDir-native surface (Inspector
+   * Cards view) that has no chat session.
+   */
+  sessionId?: string;
+  /** Absolute project dir. Takes precedence over sessionId when set. */
+  projectDir?: string;
   nodeIds: string[];
   /**
    * Free-form origin tag forwarded to the kshana-core supervisor event.
@@ -507,7 +555,8 @@ export interface ResolveBundleRequest {
  */
 export interface BundleDisplay {
   thumbnail?: {
-    from: string;
+    /** Capability tag, or a priority list tried in order (first available wins). */
+    from: string | string[];
     pick?: 'first_completed' | 'random_completed' | 'latest_completed';
   };
   stats?: Array<{
@@ -566,6 +615,74 @@ export interface ResolveInstanceGraphResponse {
   error?: string;
 }
 
+// ── LIST_VERSIONS / SELECT_VERSION ─────────────────────────────────────
+
+export interface ListVersionsRequest {
+  projectDir: string;
+  nodeId: string;
+  itemId?: string;
+  branchId?: string;
+}
+
+export interface VersionTrayEntry {
+  versionId: string;
+  outputPath: string;
+  selected: boolean;
+  createdAt: number;
+  /** Generation tool that produced it ('llm.generate', 'comfy.image', 'user', …). */
+  tool?: string;
+}
+
+export interface ListVersionsResponse {
+  ok: boolean;
+  versions?: VersionTrayEntry[];
+  error?: string;
+}
+
+export interface SelectVersionRequest {
+  projectDir: string;
+  nodeId: string;
+  versionId: string;
+  itemId?: string;
+  branchId?: string;
+}
+
+// ── WRITE_NODE_CONTENT ─────────────────────────────────────────────────
+
+export interface WriteNodeContentRequest {
+  projectDir: string;
+  nodeId: string;
+  itemId?: string;
+  /** UTF-8 text content the user edited in the Inspector modal. */
+  content: string;
+  /** Short note recorded on the event log. */
+  reason?: string;
+  /**
+   * Required to proceed on a high-blast-radius write (e.g. a fan-out
+   * source node). Call first without confirm to get `preview`, then
+   * re-call with confirm=true to apply.
+   */
+  confirm?: boolean;
+}
+
+export interface WriteNodeContentResponse {
+  ok: boolean;
+  /**
+   * 'written' — the edit was applied. 'preview' — high blast radius;
+   * nothing written, `preview` holds the warning + `confirm` re-call
+   * is needed.
+   */
+  status?: 'written' | 'preview';
+  /** status='written' — relative path that was overwritten. */
+  outputPath?: string;
+  /** status='written' — downstream instance keys invalidated by the edit. */
+  invalidatedKeys?: string[];
+  /** status='preview' — the blast-radius warning to show the user. */
+  preview?: string;
+  /** Set when ok=false. */
+  error?: string;
+}
+
 export interface ResolveBundleResponse {
   ok: boolean;
   bundle?: {
@@ -576,6 +693,8 @@ export interface ResolveBundleResponse {
     nodes: Array<{
       id: string;
       kind: 'stage' | 'collection';
+      /** Bundle-declared human label for this stage (e.g. "Shots"); falls back to a humanized id. */
+      displayName?: string;
       displayCapability?: string;
       /**
        * Optional dot-path into the node's JSON output naming the field
@@ -583,6 +702,19 @@ export interface ResolveBundleResponse {
        * for non-json kinds. See dhee-core NodeDef.headlineField.
        */
       headlineField?: string;
+      /**
+       * Fan-out source for a `collection` node — the upstream node id whose
+       * output it iterates. With `itemKey`, lets the run cockpit compute a
+       * stable expected total (how many items WILL be produced) instead of
+       * the lazily-materialized instance count. See dhee-core NodeDef.
+       */
+      itemSource?: string;
+      /**
+       * The array field, inside `itemSource`'s JSON output, this collection
+       * fans out over (e.g. "shots" vs "scenes"). Bundle-agnostic: the
+       * cockpit reads `sourcePlan[itemKey].length` — no node names baked in.
+       */
+      itemKey?: string;
       outputs: { format: string; pattern: string };
       /**
        * Upstream dependencies — used by the Inspector Canvas to draw

@@ -1,0 +1,227 @@
+@import '../../../styles/tokens';
+
+// ON-SET activity transport — the single live indicator of "what is Dhee
+// doing right now". Sits pinned above the composer. Replaces TypingIndicator.
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: $spacing-md;
+  padding: 11px 13px;
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.18);
+  border-radius: $radius-md;
+  background:
+    linear-gradient(
+      180deg,
+      rgba(var(--color-accent-primary-rgb), 0.075),
+      rgba(var(--color-accent-primary-rgb), 0.015)
+    ),
+    $color-bg-panel-elevated;
+  box-shadow: inset 0 1px 0 rgba(var(--color-accent-primary-rgb), 0.14);
+}
+
+.dial {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: $color-accent-primary;
+}
+.spin {
+  animation: atSpin 1.05s linear infinite;
+}
+@keyframes atSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.dot {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: $color-accent-primary;
+  animation: atPulse 1.5s infinite;
+}
+@keyframes atPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(var(--color-accent-primary-rgb), 0.5);
+  }
+  70% {
+    box-shadow: 0 0 0 7px rgba(var(--color-accent-primary-rgb), 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(var(--color-accent-primary-rgb), 0);
+  }
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.line {
+  display: flex;
+  align-items: baseline;
+  gap: $spacing-sm;
+}
+.verb {
+  font-family: $font-family-mono;
+  font-size: 9.5px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: $color-accent-primary;
+  flex: none;
+}
+.object {
+  font-family: $font-ui-sans;
+  font-size: 13px;
+  color: $color-text-primary;
+  font-weight: $font-weight-medium;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.caret {
+  display: inline-block;
+  width: 7px;
+  height: 13px;
+  background: $color-accent-primary;
+  margin-left: 2px;
+  transform: translateY(2px);
+  animation: atBlink 1s step-end infinite;
+}
+@keyframes atBlink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.meter {
+  height: 4px;
+  border-radius: $radius-full;
+  background: rgba(var(--color-text-primary-rgb), 0.07);
+  overflow: hidden;
+}
+.meter > i {
+  display: block;
+  height: 100%;
+  border-radius: $radius-full;
+  background: $color-accent-primary;
+  transition: width 0.6s ease;
+}
+.meta {
+  display: flex;
+  gap: $spacing-md;
+  font-family: $font-family-mono;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: $color-text-muted;
+
+  b {
+    color: $color-text-secondary;
+    font-weight: $font-weight-medium;
+  }
+}
+
+// action buttons (stop / retry / resume)
+.action {
+  flex: none;
+  font-family: $font-family-mono;
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: $font-weight-semibold;
+  border-radius: $radius-sm;
+  padding: 6px 11px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.stop {
+  background: rgba(var(--color-error-rgb), 0.14);
+  border-color: rgba(var(--color-error-rgb), 0.4);
+  color: $color-error;
+
+  &:hover {
+    background: rgba(var(--color-error-rgb), 0.22);
+  }
+}
+.primary {
+  background: $color-accent-primary;
+  color: $color-bg-app;
+
+  &:hover {
+    background: $color-accent-primary-hover;
+  }
+}
+
+// failed
+.transport.failedVariant {
+  border-color: rgba(var(--color-error-rgb), 0.4);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(var(--color-error-rgb), 0.08),
+      rgba(var(--color-error-rgb), 0.02)
+    ),
+    $color-bg-panel-elevated;
+}
+.failedVariant .verb,
+.failedVariant .dial {
+  color: $color-error;
+}
+.classchip {
+  font-family: $font-family-mono;
+  font-size: 8.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  border-radius: $radius-full;
+  padding: 2px 8px;
+  align-self: flex-start;
+}
+.classchip.transient {
+  color: $color-accent-primary;
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.18);
+}
+.classchip.structural {
+  color: $color-error;
+  border: 1px solid rgba(var(--color-error-rgb), 0.3);
+}
+
+// paused (gate)
+.transport.pausedVariant {
+  border-color: rgba(var(--color-accent-primary-rgb), 0.3);
+}
+.pausedVariant .dial {
+  color: $color-accent-primary;
+}
+
+// done
+.transport.doneVariant {
+  border-color: rgba(var(--color-success-rgb), 0.34);
+  background:
+    linear-gradient(
+      180deg,
+      rgba(var(--color-success-rgb), 0.09),
+      rgba(var(--color-success-rgb), 0.02)
+    ),
+    $color-bg-panel-elevated;
+}
+.doneVariant .verb,
+.doneVariant .dial {
+  color: $color-success;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .dot,
+  .caret {
+    animation: none;
+  }
+}

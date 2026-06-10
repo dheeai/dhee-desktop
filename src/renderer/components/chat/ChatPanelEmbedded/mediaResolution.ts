@@ -17,7 +17,10 @@
  */
 
 export interface MaybeToolResult {
-  content?: Array<{ type?: string; text?: string }>;
+  // The main process flattens the pi result's content array to a plain
+  // string before forwarding; accept both shapes (this helper only reads
+  // file_path/details, so it's shape-agnostic about content anyway).
+  content?: string | Array<{ type?: string; text?: string }>;
   details?: { file_path?: string; asset_type?: string; created_at?: number };
   // Legacy flat shape (some old tools / pi conventions):
   file_path?: string;
@@ -90,11 +93,20 @@ export function resolveMediaSrc(
       ? trimmed
       : `${projectDirectory.replace(/\/+$/, '')}/${trimmed.replace(/^\/+/, '')}`;
 
+  // Normalize Windows separators, then give a drive-letter path (C:/…) a
+  // leading slash so the drive lands in the URL PATH, not the host.
+  // `file://C:/…` parses `C:` as the host → invalid → every asset
+  // silently fails to load on Windows ("image/video missing on disk").
+  let normalized = absolutePath.replace(/\\/g, '/');
+  if (/^[A-Za-z]:/.test(normalized)) normalized = `/${normalized}`;
+
   // Encode segment-by-segment so the path separator stays intact but
-  // every other special char (space, ?, #, %, etc.) is escaped.
-  const encoded = absolutePath
+  // every other special char (space, ?, #, %, etc.) is escaped. Leave a
+  // Windows drive-letter segment (`C:`) untouched — encoding its colon
+  // to %3A would re-break the URL.
+  const encoded = normalized
     .split('/')
-    .map((segment) => encodeURIComponent(segment))
+    .map((segment) => (/^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment)))
     .join('/');
 
   return `file://${encoded}`;

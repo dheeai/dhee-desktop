@@ -140,11 +140,13 @@ describe('dheeCoreManager.configureSessionForProject (Phase 6.3)', () => {
       projectDir: '/tmp/configured-project',
     });
     const result = await mgr.redoNode('s-cfg', 'story');
-    // We don't care if regenerateNode succeeds (it'll try to read a
-    // non-existent project.json and fail) — we DO care that the
-    // session→project lookup found '/tmp/configured-project' and not
-    // "no project focused".
-    expect(result.error).not.toMatch(/no project focused/i);
+    // We DO care that the session→project lookup found
+    // '/tmp/configured-project' — i.e. it did NOT bail with
+    // "no project focused". redoNode now invalidates (stubbed ok) then
+    // dispatches through the runner (stubbed 'started'), so it resolves
+    // ok with no error. The point is the project was found.
+    expect(result.ok).toBe(true);
+    expect(result.error ?? '').not.toMatch(/no project focused/i);
   });
 });
 

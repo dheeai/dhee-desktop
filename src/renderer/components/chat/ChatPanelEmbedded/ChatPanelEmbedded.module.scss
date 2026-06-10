@@ -18,7 +18,9 @@
   height: 100%;
   background: $color-bg-app;
   color: $color-text-primary;
-  font-family: $font-family-base;
+  /* Dense transcript stays on a clean sans (not the Fraunces body
+     default) for readability; labels/tool-calls keep their mono. */
+  font-family: var(--font-ui-sans);
   font-size: $font-size-base;
 }
 
@@ -259,6 +261,28 @@
 
 .inputWrapper {
   position: relative;
+}
+
+.singleGpuBanner {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  max-width: 100%;
+  padding: 7px 10px;
+  border: 1px solid rgba(var(--color-warning-rgb), 0.34);
+  border-radius: 8px;
+  background: rgba(var(--color-bg-panel-elevated-rgb), 0.72);
+  color: $color-text-primary;
+  font-size: $font-size-xs;
+  line-height: 1.4;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+
+  svg {
+    flex: 0 0 auto;
+    color: $color-warning;
+  }
 }
 
 .textarea {
@@ -728,9 +752,12 @@
   }
 
   .bubbleBody {
-    background: rgba(var(--color-accent-primary-rgb), 0.16);
-    border: 1px solid rgba(var(--color-accent-primary-rgb), 0.32);
-    border-radius: 10px 10px 2px 10px;
+    // Neutral dark surface + amber edge — NOT an amber fill (which read
+    // muddy/brown on the warm-black canvas). The amber border + eyebrow
+    // carry the "you" identity.
+    background: rgba(var(--color-text-primary-rgb), 0.05);
+    border: 1px solid rgba(var(--color-accent-primary-rgb), 0.4);
+    border-radius: 8px 8px 2px 8px;
     padding: 8px 12px;
     font-size: $font-size-sm;
     line-height: 1.55;
@@ -795,6 +822,27 @@
     height: 1px;
     background: $color-border-subtle;
     opacity: 0.6;
+  }
+}
+
+// In-turn assistant prose (#161): a TranscriptTurn already owns the byline
+// AND a single continuous left spine for the whole authored block, so the
+// per-message standalone chrome (own rail, inter-bubble divider, indent,
+// big margins) must be stripped — otherwise each message reads as its own
+// fragmented block. Keep only the markdown body styling below.
+.bubbleAssistant.inTurn {
+  margin: 0 0 10px;
+  padding-left: 0;
+
+  &::before {
+    display: none;
+  }
+}
+.bubbleAssistant.inTurn + .bubbleAssistant.inTurn {
+  margin-top: 0;
+
+  &::after {
+    display: none;
   }
 }
 

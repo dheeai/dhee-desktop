@@ -6,8 +6,9 @@
  * Non-blocking `dhee_start_run` ends the agent turn immediately, so the
  * agent is no longer "watching" the run. When the run finishes we tap
  * it on the shoulder with one of these messages so it can announce
- * completion or react to a failure — replacing the single-turn
- * narration the old blocking `dhee_run_bundle` gave for free.
+ * completion or react to a failure — supplying the narration a blocking
+ * run-and-wait would have given inline (there is intentionally no such
+ * blocking agent tool; start_run + this nudge is the only run path).
  *
  * Kept pure + separate so the wording + the transient/structural
  * classification are unit-testable without the Electron/runner stack.
@@ -28,6 +29,13 @@ const TRANSIENT_HINTS = [
   'etimedout',
   'fetch failed',
   'socket hang up',
+  // An empty LLM response is a model/gateway hiccup, not a content
+  // problem — treat it as transient so the agent is told to retry,
+  // not to "fix the upstream node". (llm.generate already retries it
+  // internally; this covers the case where every attempt came back
+  // empty.)
+  'empty response',
+  'no content',
 ];
 
 export function isTransientFailure(error: string | undefined): boolean {
@@ -36,11 +44,51 @@ export function isTransientFailure(error: string | undefined): boolean {
   return TRANSIENT_HINTS.some((h) => m.includes(h));
 }
 
-export function buildCompletedNudge(opts: { videoPath?: string }): string {
+export function buildCompletedNudge(opts: { videoPath?: string; projectDir?: string; nodeId?: string }): string {
   const where = opts.videoPath ? ` The final video is at ${opts.videoPath}.` : '';
+  const show =
+    opts.projectDir && opts.nodeId
+      ? ` Call dhee_show_node_output with projectDir="${opts.projectDir}" and nodeId="${opts.nodeId}" if you need to show it. Do not call dhee_describe_bundle, dhee_list_bundles, or dhee_read project.json.`
+      : '';
   return (
     `[system] The bundle run just completed in the background.${where} ` +
-    `Tell the user it's done and offer to show it. Do not start another run unless they ask.`
+    `Tell the user it's done.${show} Do not start another run unless they ask.`
+  );
+}
+
+export function buildStopAtReviewNudge(opts: { projectDir: string; stopAt: string }): string {
+  return (
+    `[system] The bounded review run just completed at stopAt='${opts.stopAt}' ` +
+    `for projectDir="${opts.projectDir}". This was a critique-review pass, ` +
+    `not permission to continue downstream. Show the regenerated '${opts.stopAt}' ` +
+    `artifact with dhee_show_node_output, ask the user if they are satisfied, ` +
+    `and do NOT call dhee_start_run again unless the user says the corrected ` +
+    `shot is good or explicitly asks to continue.`
+  );
+}
+
+/**
+ * The run didn't finish — it PAUSED on the stop-after-each-collection
+ * gate (gateAfterCollections), by design, after a collection node. This
+ * nudge makes the gate the explicit reason so the agent announces the
+ * pause + offers to resume, instead of seeing "completed" with empty
+ * downstream stages and confabulating a cause (the issue #133 bug: it
+ * blamed an unconfigured ComfyUI and offered to set it up).
+ */
+export function buildGatedNudge(opts: { gatedAfter?: string; pendingAfterGate?: string[] }): string {
+  const after = opts.gatedAfter ? ` after collection '${opts.gatedAfter}'` : '';
+  const pending = opts.pendingAfterGate ?? [];
+  const pendingLine =
+    pending.length > 0 ? ` Stages still pending behind the gate: ${pending.join(', ')}.` : '';
+  return (
+    `[system] The bundle run PAUSED${after} because the "Stop after each ` +
+    `collection" gate (gateAfterCollections) is on — this is an intentional, ` +
+    `by-design pause, NOT a failure and NOT a missing endpoint.${pendingLine} ` +
+    `The downstream stages have not run yet only because of the gate, so do ` +
+    `NOT attribute the missing output to a missing/unconfigured endpoint ` +
+    `(e.g. ComfyUI). Tell the user this batch is ready to review, then resume ` +
+    `(dhee_start_run) to continue — or, if they don't want per-collection ` +
+    `pauses, they can turn the gate off for an end-to-end run.`
   );
 }
 

@@ -15,13 +15,7 @@
  * Visual language: warm-black canvas, Fraunces display + JetBrains Mono
  * labels, single amber accent. Subtle film grain + vignette overlays.
  */
-import {
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import {
   buildDefaultWorkspaceFolder,
@@ -29,6 +23,9 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import BundleConfigurator from '../../BundleConfigurator/BundleConfigurator';
+import BundleInstall from '../../BundleConfigurator/BundleInstall';
+import WorkflowImport from '../../BundleConfigurator/WorkflowImport';
 import styles from './NewProjectScreen.module.scss';
 
 interface BundleInputOption {
@@ -48,6 +45,14 @@ interface BundleInputDecl {
   multiline?: boolean;
   control?: 'textarea' | 'text' | 'pills' | 'select' | 'number';
   options?: BundleInputOption[];
+  /**
+   * Mirror of dhee-core's BundleInputDecl.allowCustom. When true, FormRow
+   * renders an "Other…" affordance beside the presets so the user can
+   * enter a value outside `options` (free-form style → world_style, an
+   * arbitrary duration, a non-listed resolution). The custom value is
+   * sent to project.<field> verbatim.
+   */
+  allowCustom?: boolean;
   unit?: string;
 }
 
@@ -67,6 +72,12 @@ interface BundleSummary {
 interface NewProjectScreenProps {
   isOpen: boolean;
   onClose: () => void;
+  /** When false, Roll is gated — a required lane isn't configured. Defaults to ready. */
+  backendReady?: boolean;
+  /** Lanes still needing setup, shown in the gate notice. */
+  unconfiguredLanes?: Array<{ lane: string; reason: string }>;
+  /** Open Settings to connect lanes (from the gate notice). */
+  onConnectBackends?: () => void;
 }
 
 const STORY_INPUT_ID = 'story_input';
@@ -136,101 +147,36 @@ function formatSeconds(s: number): string {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
-function formatInputValue(value: unknown): string {
-  if (value === undefined || value === null) return '';
-  return String(value);
-}
-
-/* ─── FormRow: renders the right control for a BundleInputDecl ─── */
-
-function FormRow({
-  decl,
-  value,
-  onChange,
-}: {
-  decl: BundleInputDecl;
-  value: unknown;
-  onChange: (v: unknown) => void;
-}) {
-  const control = decl.control ?? (decl.options ? 'select' : 'text');
-  const label = (decl.label ?? decl.id).toString();
-  const { options } = decl;
-  let controlNode: ReactNode;
-
-  if (control === 'pills' && options) {
-    controlNode = (
-      <div className={styles.pillGroup}>
-        {options.map((opt) => {
-          const selected = value === opt.value;
-          return (
-            <button
-              key={String(opt.value)}
-              type="button"
-              onClick={() => onChange(opt.value)}
-              className={`${styles.pill} ${selected ? styles.pillSelected : ''}`}
-            >
-              {opt.label}
-            </button>
-          );
-        })}
-      </div>
-    );
-  } else if (control === 'select' && options) {
-    controlNode = (
-      <select
-        className={styles.select}
-        value={String(value ?? '')}
-        onChange={(e) => {
-          const raw = e.target.value;
-          const opt = options.find((o) => String(o.value) === raw);
-          onChange(opt ? opt.value : raw);
-        }}
-      >
-        {options.map((opt) => (
-          <option key={String(opt.value)} value={String(opt.value)}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
-    );
-  } else if (control === 'number') {
-    controlNode = (
-      <input
-        type="number"
-        className={styles.textInput}
-        style={{ maxWidth: 160 }}
-        value={formatInputValue(value)}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    );
-  } else {
-    controlNode = (
-      <input
-        type="text"
-        className={styles.textInput}
-        placeholder={decl.placeholder ?? ''}
-        value={formatInputValue(value)}
-        onChange={(e) => onChange(e.target.value)}
-      />
-    );
-  }
-
-  return (
-    <div className={styles.row}>
-      <span className={styles.rowLabel}>{label}</span>
-      <div>{controlNode}</div>
-    </div>
-  );
-}
-
 export default function NewProjectScreen({
   isOpen,
   onClose,
+  backendReady = true,
+  unconfiguredLanes = [],
+  onConnectBackends,
 }: NewProjectScreenProps) {
   const { openProject } = useWorkspace();
 
   const [bundles, setBundles] = useState<BundleSummary[]>([]);
   const [selectedBundleId, setSelectedBundleId] = useState<string | null>(null);
+  // Bundle ids previously verified "ready" on the user's ComfyUI (cached
+  // by bundle:check). Drives the picker's "✓ Ready on this ComfyUI" badge.
+  const [resolvedIds, setResolvedIds] = useState<Set<string>>(new Set());
+  const [showInstall, setShowInstall] = useState(false);
+  const [showByo, setShowByo] = useState(false);
+
+  // Re-read the bundle list (after a community install) and select the
+  // new one so the existing Compatibility section configures it.
+  const refreshAndSelect = useCallback(async (newBundleId: string) => {
+    try {
+      const list = (await window.electron.project.listBundles()) as BundleSummary[];
+      const eligible = list.filter((b) => b.pickerEligible);
+      setBundles(eligible.length > 0 ? eligible : list);
+    } catch {
+      /* keep current list */
+    }
+    setSelectedBundleId(newBundleId);
+    setShowInstall(false);
+  }, []);
   const [inputValues, setInputValues] = useState<Record<string, unknown>>({});
   const [titleOverride, setTitleOverride] = useState<string | null>(null);
   const [workspacePath, setWorkspacePath] = useState<string>('');
@@ -325,6 +271,36 @@ export default function NewProjectScreen({
     };
   }, [isOpen, isSubmitting, onClose]);
 
+  // Badge bundles already verified ready on this ComfyUI (cheap cache read).
+  useEffect(() => {
+    if (!isOpen || bundles.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      let endpoint = 'http://127.0.0.1:8188';
+      try {
+        const s = await window.electron.settings.get();
+        if (s.comfyuiMode === 'custom' && s.comfyuiUrl) endpoint = s.comfyuiUrl;
+      } catch {
+        /* default endpoint */
+      }
+      const ready = new Set<string>();
+      await Promise.all(
+        bundles.map(async (b) => {
+          try {
+            const r = await window.electron.bundleConfig.resolution(b.id, endpoint);
+            if (r && r.status === 'ready' && r.bundleVersion === b.version) ready.add(b.id);
+          } catch {
+            /* no stamp */
+          }
+        }),
+      );
+      if (!cancelled) setResolvedIds(ready);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, bundles]);
+
   const selectedBundle = useMemo(
     () => bundles.find((b) => b.id === selectedBundleId) ?? null,
     [bundles, selectedBundleId],
@@ -364,6 +340,7 @@ export default function NewProjectScreen({
     storyText.trim().length >= 8 &&
     title.trim().length > 0 &&
     workspacePath.trim().length > 0 &&
+    backendReady &&
     !isSubmitting;
 
   const handleSelectBundle = useCallback((id: string) => {
@@ -548,9 +525,44 @@ export default function NewProjectScreen({
                 {bundle.techLine ? (
                   <div className={styles.bundleSpec}>{bundle.techLine}</div>
                 ) : null}
+                {resolvedIds.has(bundle.id) ? (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 11,
+                      fontWeight: 600,
+                      color: 'var(--color-success)',
+                    }}
+                  >
+                    ✓ Ready on this ComfyUI
+                  </div>
+                ) : null}
               </button>
             );
           })}
+        </div>
+
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => setShowInstall((v) => !v)}
+            style={{
+              font: 'inherit',
+              fontSize: 12.5,
+              cursor: 'pointer',
+              color: 'var(--color-accent-primary)',
+              background: 'transparent',
+              border: 0,
+              padding: 0,
+            }}
+          >
+            {showInstall ? '× Cancel install' : '+ Install a community bundle'}
+          </button>
+          {showInstall && (
+            <div style={{ marginTop: 10 }}>
+              <BundleInstall onInstalled={(id) => void refreshAndSelect(id)} />
+            </div>
+          )}
         </div>
 
         <div
@@ -591,6 +603,56 @@ export default function NewProjectScreen({
                     onChange={(v) => handleInputChange(decl.id, v)}
                   />
                 ))}
+
+              {/* Non-story file inputs (e.g. an optional style-guide that
+                  becomes plans/world_style.md verbatim) render as their own
+                  multiline textareas — the desktop otherwise only renders
+                  project-kind FormRows + the special story textarea. */}
+              {(selectedBundle.inputs ?? [])
+                .filter((decl) => decl.kind === 'file' && decl.id !== STORY_INPUT_ID)
+                .map((decl) => (
+                  <div key={decl.id} style={{ marginTop: 20 }}>
+                    <span className={styles.rowLabel}>
+                      {(decl.label ?? decl.id).toString()}
+                    </span>
+                    <textarea
+                      className={styles.storyTextarea}
+                      style={{ minHeight: 110, marginTop: 6 }}
+                      placeholder={decl.placeholder ?? ''}
+                      value={
+                        typeof inputValues[decl.id] === 'string'
+                          ? (inputValues[decl.id] as string)
+                          : ''
+                      }
+                      onChange={(e) => handleInputChange(decl.id, e.target.value)}
+                    />
+                  </div>
+                ))}
+
+              <hr className={styles.divider} style={{ marginTop: '40px' }} />
+              <h3 className={styles.sectionLabel}>Compatibility</h3>
+              <BundleConfigurator bundleId={selectedBundle.id} />
+              <button
+                type="button"
+                onClick={() => setShowByo((v) => !v)}
+                style={{
+                  marginTop: 12,
+                  font: 'inherit',
+                  fontSize: 12.5,
+                  cursor: 'pointer',
+                  color: 'var(--color-accent-primary)',
+                  background: 'transparent',
+                  border: 0,
+                  padding: 0,
+                }}
+              >
+                {showByo ? '× Hide custom workflow' : '+ Bring your own workflow'}
+              </button>
+              {showByo && (
+                <div style={{ marginTop: 10 }}>
+                  <WorkflowImport />
+                </div>
+              )}
 
               <hr className={styles.divider} style={{ marginTop: '40px' }} />
 
@@ -637,6 +699,19 @@ export default function NewProjectScreen({
 
         <div className={styles.footer}>
           <div className={styles.error}>{error}</div>
+          {!backendReady ? (
+            <button type="button" className={styles.gate} onClick={onConnectBackends}>
+              <span className={styles.gateDot} />
+              <span>
+                Connect{' '}
+                {unconfiguredLanes.length
+                  ? unconfiguredLanes.map((l) => l.lane.toUpperCase()).join(' · ')
+                  : 'your engine'}{' '}
+                to roll
+              </span>
+              <span className={styles.gateConnect}>Connect →</span>
+            </button>
+          ) : null}
           <button
             type="button"
             className={`${styles.rollButton} ${canRoll ? styles.rollButtonReady : ''} ${isSubmitting ? styles.rollButtonLoading : ''}`}
@@ -650,6 +725,134 @@ export default function NewProjectScreen({
             <span className={styles.arrow}>→</span>
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── FormRow: renders the right control for a BundleInputDecl ─── */
+
+const CUSTOM_SENTINEL = '__custom__';
+
+export function FormRow({
+  decl,
+  value,
+  onChange,
+}: {
+  decl: BundleInputDecl;
+  value: unknown;
+  onChange: (v: unknown) => void;
+}) {
+  const control = decl.control ?? (decl.options ? 'select' : 'text');
+  const label = (decl.label ?? decl.id).toString();
+  const options = decl.options ?? [];
+  // Numeric presets (duration/resolution) → the custom input is a number.
+  const numericPresets = options.length > 0 && options.every((o) => typeof o.value === 'number');
+  const isPreset = options.some((o) => o.value === value);
+  const hasValue = value !== undefined && value !== null && value !== '';
+  const [customMode, setCustomMode] = useState(false);
+  // Show the custom box when the user opted in, OR the current value
+  // isn't one of the presets (e.g. a loaded custom value from project.json).
+  const showCustom = Boolean(decl.allowCustom) && (customMode || (hasValue && !isPreset));
+  const parseCustom = (raw: string): unknown => {
+    if (!(numericPresets || control === 'number')) return raw;
+    return raw === '' ? '' : Number(raw);
+  };
+
+  return (
+    <div className={styles.row}>
+      <span className={styles.rowLabel}>{label}</span>
+      <div>
+        {control === 'pills' && decl.options ? (
+          <div className={styles.pillGroup}>
+            {decl.options.map((opt) => {
+              const selected = !showCustom && value === opt.value;
+              return (
+                <button
+                  key={String(opt.value)}
+                  type="button"
+                  onClick={() => {
+                    setCustomMode(false);
+                    onChange(opt.value);
+                  }}
+                  className={`${styles.pill} ${selected ? styles.pillSelected : ''}`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+            {decl.allowCustom && (
+              <button
+                type="button"
+                onClick={() => setCustomMode(true)}
+                className={`${styles.pill} ${showCustom ? styles.pillSelected : ''}`}
+              >
+                Other…
+              </button>
+            )}
+            {showCustom && (
+              <input
+                type={numericPresets ? 'number' : 'text'}
+                className={styles.textInput}
+                style={{ maxWidth: 120, marginLeft: 8 }}
+                placeholder={decl.unit ?? 'custom'}
+                value={hasValue ? String(value) : ''}
+                onChange={(e) => onChange(parseCustom(e.target.value))}
+              />
+            )}
+          </div>
+        ) : control === 'select' && decl.options ? (
+          <>
+            <select
+              className={styles.select}
+              value={showCustom ? CUSTOM_SENTINEL : String(value ?? '')}
+              onChange={(e) => {
+                const raw = e.target.value;
+                if (raw === CUSTOM_SENTINEL) {
+                  setCustomMode(true);
+                  onChange('');
+                  return;
+                }
+                setCustomMode(false);
+                const opt = decl.options!.find((o) => String(o.value) === raw);
+                onChange(opt ? opt.value : raw);
+              }}
+            >
+              {decl.options.map((opt) => (
+                <option key={String(opt.value)} value={String(opt.value)}>
+                  {opt.label}
+                </option>
+              ))}
+              {decl.allowCustom && <option value={CUSTOM_SENTINEL}>Other…</option>}
+            </select>
+            {showCustom && (
+              <input
+                type="text"
+                className={styles.textInput}
+                style={{ marginTop: 6, width: '100%' }}
+                placeholder={decl.placeholder ?? 'Describe your own style…'}
+                value={hasValue ? String(value) : ''}
+                onChange={(e) => onChange(e.target.value)}
+              />
+            )}
+          </>
+        ) : control === 'number' ? (
+          <input
+            type="number"
+            className={styles.textInput}
+            style={{ maxWidth: 160 }}
+            value={value === undefined || value === null ? '' : String(value)}
+            onChange={(e) => onChange(Number(e.target.value))}
+          />
+        ) : (
+          <input
+            type="text"
+            className={styles.textInput}
+            placeholder={decl.placeholder ?? ''}
+            value={value === undefined || value === null ? '' : String(value)}
+            onChange={(e) => onChange(e.target.value)}
+          />
+        )}
       </div>
     </div>
   );

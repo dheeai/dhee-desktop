@@ -41,6 +41,8 @@ import { StageGroupLabel } from './nodes/StageGroupLabel';
 import { computeStageRows, computeInstanceLayout, forwardDependents } from './instanceLayout';
 import { CardDetailModal } from './CardDetailModal';
 import { type CardAction } from './cardDetailModel';
+import { useProject } from '../contexts/ProjectContext';
+import { toFileUrl } from '../utils/pathResolver';
 import styles from './InspectorCanvas.module.scss';
 
 /**
@@ -102,7 +104,12 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const [graph, setGraph] = useState<{ instances: InstanceGraphNode[]; edges: InstanceGraphEdge[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [hoverKey, setHoverKey] = useState<string | null>(null);
-  const [openInstance, setOpenInstance] = useState<InstanceGraphNode | null>(null);
+  // The OPEN modal is tracked by instance KEY, not a snapshot. The live
+  // instance is re-derived from the graph each refresh — so selecting a
+  // version (which swaps the instance's outputPath) reflects in the
+  // modal without re-opening it.
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const { bundle } = useProject();
   // Keep the last fetched-graph signature so the 3s poll doesn't
   // shove a fresh object reference into state when nothing actually
   // changed. Without this guard every poll triggers a re-render of
@@ -149,6 +156,21 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
     if (!hoverKey || !graph) return new Set<string>();
     return forwardDependents(graph.edges, hoverKey);
   }, [hoverKey, graph]);
+
+  // Live instance behind the open modal — re-derived from the latest
+  // graph so a version select / edit refresh updates the modal content.
+  const openInstance = useMemo<InstanceGraphNode | null>(() => {
+    if (!openKey || !graph) return null;
+    return graph.instances.find((i) => keyOf(i.nodeId, i.itemId) === openKey) ?? null;
+  }, [openKey, graph]);
+
+  // The bundle's headlineField for the open node — lets the modal's
+  // editor surface the meaningful text field (e.g. imagePrompt) instead
+  // of raw JSON.
+  const openHeadlineField = useMemo<string | undefined>(() => {
+    if (!openInstance || !bundle) return undefined;
+    return bundle.nodes.find((n) => n.id === openInstance.nodeId)?.headlineField;
+  }, [openInstance, bundle]);
 
   // Build xyflow nodes — ONLY depends on the graph projection, NOT on
   // hover. Hover state flows to cards via HoverContext so the node
@@ -264,24 +286,70 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
   const onNodeClick = useCallback(
     (_evt: unknown, node: Node) => {
       if (node.id.startsWith('__group__')) return;
-      if (!graph) return;
-      const inst = graph.instances.find((i) => keyOf(i.nodeId, i.itemId) === node.id);
-      if (inst) setOpenInstance(inst);
+      setOpenKey(node.id);
     },
-    [graph],
+    [],
   );
-  const onModalClose = useCallback(() => setOpenInstance(null), []);
-  const onModalAction = useCallback((action: CardAction, inst: InstanceGraphNode) => {
-    // Action dispatch goes via IPC in a follow-up. For now log so the
-    // wire-up is visible during dev iteration.
-    // eslint-disable-next-line no-console
-    console.log('[Inspector] action', action, 'on', keyOf(inst.nodeId, inst.itemId));
-    if (action === 'open-file' && projectDir && inst.outputPath) {
-      // open the file in the OS default viewer via webPreferences
-      // file:// access — webSecurity is disabled so this just works.
-      window.open(`file://${projectDir}/${inst.outputPath}`, '_blank');
-    }
-  }, [projectDir]);
+  const onModalClose = useCallback(() => setOpenKey(null), []);
+  const onModalAction = useCallback(
+    async (action: CardAction, inst: InstanceGraphNode) => {
+      if (!projectDir) return;
+      const key = keyOf(inst.nodeId, inst.itemId);
+
+      if (action === 'open-file') {
+        if (inst.outputPath) {
+          // webSecurity is disabled in dev → file:// opens directly.
+          // toFileUrl keeps Windows drive-letter paths valid (file:///C:/…).
+          window.open(toFileUrl(`${projectDir}/${inst.outputPath}`), '_blank');
+        }
+        return;
+      }
+
+      if (action === 'invalidate') {
+        // Mark stale → invalidate this instance AND cascade downstream.
+        // Core emits node.invalidated for the whole cascade; an
+        // immediate refresh re-reads the projection so the downstream
+        // cards flip to 'invalidated' (blank) right away instead of
+        // waiting for the 3s poll.
+        try {
+          await window.dhee.invalidateNodes({
+            projectDir,
+            nodeIds: [key],
+            source: 'inspector_mark_stale',
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[Inspector] invalidate failed', e);
+        }
+        setOpenKey(null);
+        await refresh();
+        return;
+      }
+
+      if (action === 'regenerate') {
+        // Invalidate + re-run this node (and its cascade) via the
+        // established redoNode path.
+        try {
+          await window.dhee.redoNode({
+            projectDir,
+            nodeId: inst.nodeId,
+            ...(inst.itemId ? { itemId: inst.itemId } : {}),
+          });
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error('[Inspector] regenerate failed', e);
+        }
+        setOpenKey(null);
+        await refresh();
+        return;
+      }
+
+      // 'show-versions' / 'edit' are handled inside the modal itself
+      // (they only need this instance's identity, not the graph). The
+      // modal never dispatches them up here.
+    },
+    [projectDir, refresh],
+  );
 
   if (!projectDir) {
     return (
@@ -337,8 +405,10 @@ export function InstanceCardsCanvas({ projectDir, branchId, pollMs }: InstanceCa
       <CardDetailModal
         instance={openInstance}
         projectDir={projectDir ?? null}
+        headlineField={openHeadlineField}
         onClose={onModalClose}
         onAction={onModalAction}
+        onChanged={refresh}
       />
     </div>
   );

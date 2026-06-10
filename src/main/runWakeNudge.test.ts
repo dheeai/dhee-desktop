@@ -2,6 +2,8 @@ import { describe, it, expect } from '@jest/globals';
 import {
   buildCompletedNudge,
   buildFailedNudge,
+  buildGatedNudge,
+  buildStopAtReviewNudge,
   isTransientFailure,
   extractNodeId,
 } from './runWakeNudge';
@@ -17,8 +19,14 @@ describe('isTransientFailure', () => {
   });
   it('does NOT flag structural errors', () => {
     expect(isTransientFailure('node 999 not found in workflow')).toBe(false);
-    expect(isTransientFailure('LLM returned empty response')).toBe(false);
+    expect(isTransientFailure('schema validation failed: characters[0].mood not in enum')).toBe(false);
     expect(isTransientFailure(undefined)).toBe(false);
+  });
+  it('flags an empty LLM response as transient (model hiccup, retryable)', () => {
+    expect(
+      isTransientFailure('llm.generate: all 3 attempts failed. Last error: LLM returned empty response (no content).'),
+    ).toBe(true);
+    expect(isTransientFailure('LLM returned empty response')).toBe(true);
   });
 });
 
@@ -29,8 +37,63 @@ describe('buildCompletedNudge', () => {
     expect(n).toMatch(/do not start another run/i);
     expect(n).toMatch(/^\[system\]/);
   });
+  it('when asked to show a known node, forbids bundle discovery and project.json dumps', () => {
+    const n = buildCompletedNudge({
+      projectDir: '/projects/the-exit-interview',
+      nodeId: 'final_video',
+    });
+    expect(n).toContain('dhee_show_node_output');
+    expect(n).toContain('nodeId="final_video"');
+    expect(n).toMatch(/do not call dhee_describe_bundle/i);
+    expect(n).toMatch(/dhee_read project\.json/i);
+  });
   it('works without a video path', () => {
     expect(buildCompletedNudge({})).toMatch(/completed/i);
+  });
+});
+
+describe('buildGatedNudge', () => {
+  it('frames the pause as the by-design gate, names the collection, and is a [system] message', () => {
+    const n = buildGatedNudge({ gatedAfter: 'shot_image_prompt' });
+    expect(n).toMatch(/^\[system\]/);
+    expect(n).toMatch(/paused/i);
+    expect(n).toContain('shot_image_prompt');
+    expect(n).toMatch(/gateAfterCollections|stop after each collection/i);
+    expect(n).toMatch(/by[- ]design|intentional/i);
+  });
+
+  it('explicitly steers away from the ComfyUI-misconfig confabulation and toward resume (issue #133)', () => {
+    const n = buildGatedNudge({
+      gatedAfter: 'shot_image_prompt',
+      pendingAfterGate: ['shot_image', 'final_video'],
+    });
+    expect(n).toMatch(/not a failure/i);
+    expect(n).toMatch(/ComfyUI/);
+    expect(n).toMatch(/resume/i);
+    // Lists what's still pending so the agent doesn't have to guess.
+    expect(n).toContain('shot_image');
+    expect(n).toContain('final_video');
+  });
+
+  it('tolerates a missing gatedAfter / pending list', () => {
+    const n = buildGatedNudge({});
+    expect(n).toMatch(/^\[system\]/);
+    expect(n).toMatch(/paused/i);
+    expect(n).not.toMatch(/Stages still pending/i);
+  });
+});
+
+describe('buildStopAtReviewNudge', () => {
+  it('tells the agent to show the review artifact and not continue downstream', () => {
+    const n = buildStopAtReviewNudge({
+      projectDir: '/projects/alex-and-jordan',
+      stopAt: 'shot_image',
+    });
+    expect(n).toMatch(/^\[system\]/);
+    expect(n).toContain("stopAt='shot_image'");
+    expect(n).toContain('dhee_show_node_output');
+    expect(n).toMatch(/ask the user if they are satisfied/i);
+    expect(n).toMatch(/do NOT call dhee_start_run again/i);
   });
 });
 
@@ -42,10 +105,19 @@ describe('buildFailedNudge', () => {
     expect(n).toContain('shot_image:scene_1_shot_5');
   });
   it('structural failure → frames as fix-the-upstream-node', () => {
-    const n = buildFailedNudge({ error: 'LLM returned empty response', nodeId: 'story' });
+    const n = buildFailedNudge({ error: 'schema validation failed: characters[0].mood not in enum', nodeId: 'characters_plan' });
     expect(n).toMatch(/structural/i);
     expect(n).toMatch(/dhee_critique_node|dhee_write_node_content/);
-    expect(n).toContain('story');
+    expect(n).toContain('characters_plan');
+  });
+  it('empty LLM response → transient framing (retry, not fix-node)', () => {
+    const n = buildFailedNudge({
+      error: 'llm.generate: all 3 attempts failed. Last error: LLM returned empty response (no content).',
+      nodeId: 'shot_image_prompt:scene_3_shot_18',
+    });
+    expect(n).toMatch(/transient|recovered|flaky/i);
+    expect(n).toMatch(/retry/i);
+    expect(n).not.toMatch(/structural/i);
   });
   it('tolerates missing error + nodeId', () => {
     expect(buildFailedNudge({})).toMatch(/^\[system\].*failed/i);

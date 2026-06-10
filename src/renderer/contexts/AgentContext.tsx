@@ -1,5 +1,5 @@
 /**
- * AgentContext - Allows components to trigger agent tasks (e.g. "Generate infographics")
+ * AgentContext - Allows components to trigger agent tasks (e.g. "Generate scene videos")
  * without going through the chat input. ChatPanel registers its sendMessage as the implementation.
  *
  * Also surfaces a `notifyChatReceipt(text)` channel: a one-way path to

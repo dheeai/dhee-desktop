@@ -17,9 +17,13 @@
     box-shadow $transition-fast;
 
   &:hover {
-    transform: translateY(-2px);
-    border-color: rgba(var(--color-accent-primary-rgb), 0.24);
-    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.42);
+    transform: translateY(-3px);
+    // Thick amber highlight so the hovered production pops. The 2px ring
+    // (box-shadow, not border-width) avoids any layout shift.
+    border-color: $color-accent-primary;
+    box-shadow:
+      0 0 0 2px $color-accent-primary,
+      0 16px 36px rgba(0, 0, 0, 0.55);
   }
 
   &:hover .actions,
@@ -33,7 +37,14 @@
 .media {
   position: relative;
   aspect-ratio: 16 / 9;
-  background: linear-gradient(140deg, #343434 0%, #242424 48%, #1e1e1e 100%);
+  // Token-driven so it follows the active theme (warm film-stock on the
+  // official Cinematic theme) instead of a hardcoded cool grey.
+  background: linear-gradient(
+    140deg,
+    $color-bg-panel-soft 0%,
+    $color-bg-panel-elevated 52%,
+    $color-bg-panel-inset 100%
+  );
 }
 
 .openButton {
@@ -69,7 +80,7 @@
   height: 30px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
-  background: rgba(8, 12, 19, 0.76);
+  background: rgba(var(--color-bg-app-rgb), 0.78);
   color: rgba(255, 255, 255, 0.9);
   display: inline-flex;
   align-items: center;
@@ -81,7 +92,7 @@
     transform $transition-fast;
 
   &:hover {
-    background: rgba(8, 12, 19, 0.92);
+    background: rgba(var(--color-bg-app-rgb), 0.94);
     border-color: rgba(255, 255, 255, 0.3);
     transform: translateY(-1px);
   }
@@ -98,6 +109,10 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
+  // Mute the raw still so every card reads on-theme regardless of the
+  // video's colours. The true colour brightens back in on hover.
+  filter: brightness(0.6) saturate(0.82);
+  transition: filter $transition-normal;
 }
 
 .placeholder {
@@ -107,34 +122,85 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: $spacing-sm;
-  color: rgba(255, 255, 255, 0.88);
-  font-size: $font-size-sm;
-  letter-spacing: 0.2px;
+  gap: 12px;
+  // Exposed-film-stock surface: a faint warm vignette so an unrendered
+  // production reads as an intentional, designed tile rather than a flat
+  // empty box. (Replaces the old folder icon + "Agentic Workspace" label.)
+  background:
+    radial-gradient(
+      120% 90% at 50% 38%,
+      rgba(var(--color-accent-primary-rgb), 0.06) 0%,
+      transparent 60%
+    ),
+    linear-gradient(160deg, rgba(255, 255, 255, 0.018), rgba(0, 0, 0, 0.12));
+}
+
+// Framed aperture mark — echoes the empty-state film-leader ring so a
+// preview-less card still feels part of the Cinematic studio language.
+.placeholderMark {
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  color: rgba(var(--color-accent-primary-rgb), 0.85);
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.32);
+  background: rgba(var(--color-accent-primary-rgb), 0.05);
+  box-shadow: inset 0 0 0 4px rgba(var(--color-bg-app-rgb), 0.4);
+}
+
+.placeholderLabel {
+  // Editorial mono label (matches the New Production spec lines) on the
+  // warm film-stock surface instead of a bright generic caption.
+  color: $color-text-muted;
+  font-family: $font-family-mono;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
 }
 
 .overlay {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  inset: 0;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   gap: 2px;
   padding: $spacing-md;
+  // Translucent on-theme box across the WHOLE tile (not just the bottom):
+  // unifies every card to the warm-black palette and lifts text contrast.
+  // Heavier toward the bottom where the title + specs sit.
   background: linear-gradient(
-    to top,
-    rgba(8, 12, 19, 0.93) 0%,
-    rgba(8, 12, 19, 0.82) 42%,
-    rgba(8, 12, 19, 0) 100%
+    180deg,
+    rgba(var(--color-bg-app-rgb), 0.46) 0%,
+    rgba(var(--color-bg-app-rgb), 0.66) 52%,
+    rgba(var(--color-bg-app-rgb), 0.92) 100%
+  );
+  transition: background $transition-normal;
+}
+
+// Hover reveals the real still: brighten the image, lighten the box.
+.card:hover .thumbnail {
+  filter: brightness(0.84) saturate(1);
+}
+.card:hover .overlay {
+  background: linear-gradient(
+    180deg,
+    rgba(var(--color-bg-app-rgb), 0.2) 0%,
+    rgba(var(--color-bg-app-rgb), 0.5) 55%,
+    rgba(var(--color-bg-app-rgb), 0.9) 100%
   );
 }
 
 .title {
   margin: 0;
   color: $color-text-primary;
-  font-size: $font-size-lg;
-  font-weight: $font-weight-semibold;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 400;
+  font-variation-settings: 'opsz' 36, 'SOFT' 50;
+  letter-spacing: -0.005em;
   @include truncate;
 }
 
@@ -149,7 +215,12 @@
 
 .stats {
   margin: 0;
-  font-size: $font-size-sm;
+  // Editorial spec line — mono, uppercase, letterspaced ("5 SCENES · 15 SHOTS").
+  font-family: $font-family-mono;
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   color: $color-text-secondary;
 }
 
@@ -158,4 +229,15 @@
   font-size: $font-size-xs;
   color: rgba(255, 255, 255, 0.7);
   @include truncate;
+}
+
+// Project location is hidden by default and only revealed when the card
+// is hovered/focused (mirrors how `.actions` appear on hover).
+.path {
+  display: none;
+}
+
+.card:hover .path,
+.card:focus-within .path {
+  display: inline;
 }

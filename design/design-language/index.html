@@ -1,0 +1,412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Dhee Studio · Design Language</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+/* =================================================================
+   Dhee Studio — Unified Design Language showcase (locked character)
+   Cinematic studio · Instrument Serif display · theme-accent primary
+   + amber recording semantic · 6/10/14 radii. Toggle the theme in the
+   header to prove the SAME components re-theme via tokens only.
+   ================================================================= */
+
+/* ---- DEFAULT THEME: cinematic warm (Production-Slate folded into tokens) ---- */
+:root{
+  --bg-app:#0a0908; --bg-panel:#13110f; --bg-elev:#1a1714; --bg-soft:#221d18; --bg-inset:#060504;
+  --border:#1f1b17; --border-strong:#2a2520;
+  --text:#f4f1ea; --text-2:#b8b1a6; --text-muted:#7a7570;
+  /* primary accent is PER-THEME (warm/cool tension on warm-black) */
+  --accent:#6f93b8; --accent-hover:#83a5c6; --accent-soft:rgba(111,147,184,.14); --accent-dim:rgba(111,147,184,.28);
+  /* recording/live = the amber semantic, CONSTANT across themes */
+  --recording:#e8a33d; --recording-soft:rgba(232,163,61,.14);
+  /* status palette (one set, used by graph + chat + strip) */
+  --st-completed:#7a9b82; --st-running:#c79a5a; --st-failed:#b5736f; --st-invalidated:#8a857d; --st-pending:#6a655e;
+  /* grain/vignette ambient opacities */
+  --grain:.045; --vignette:.5;
+}
+/* ---- ALT THEME: studio-neutral cool (same components, token swap) ---- */
+[data-theme="neutral"]{
+  --bg-app:#121416; --bg-panel:#181b1f; --bg-elev:#1f2329; --bg-soft:#2a2f37; --bg-inset:#0d0f12;
+  --border:#262a30; --border-strong:#323840;
+  --text:#d4d7dc; --text-2:#a9b0ba; --text-muted:#7d848e;
+  --accent:#5f88b2; --accent-hover:#6d95be; --accent-soft:rgba(95,136,178,.16); --accent-dim:rgba(95,136,178,.28);
+  --recording:#e8a33d; --recording-soft:rgba(232,163,61,.14);
+  --st-completed:#6d8f7a; --st-running:#907b58; --st-failed:#a56d6f; --st-invalidated:#a9b0ba; --st-pending:#7d848e;
+  --grain:.03; --vignette:.42;
+}
+:root{
+  --r-sm:6px; --r-md:10px; --r-lg:14px; --r-full:999px;
+  --serif:'Instrument Serif',Georgia,serif;
+  --sans:'Inter','SF Pro Display',system-ui,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',monospace;
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px; --sp-5:24px; --sp-6:32px; --sp-7:48px;
+  --sh-md:0 14px 30px rgba(0,0,0,.4); --sh-focus:0 0 0 3px var(--accent-dim);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg-app);color:var(--text);font-family:var(--sans);font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
+/* ambient cinematic texture — subtle, app-wide per the locked character */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:var(--grain);
+  background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>")}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+  background:radial-gradient(130% 120% at 50% 35%,transparent 55%,rgba(0,0,0,var(--vignette)) 100%)}
+.wrap{position:relative;z-index:1;max-width:1000px;margin:0 auto;padding:0 32px 120px}
+
+/* header */
+header{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:16px;padding:16px 32px;margin:0 -32px 0;
+  background:color-mix(in srgb,var(--bg-app) 82%,transparent);backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.wordmark{font-family:var(--serif);font-style:italic;font-size:22px;letter-spacing:.3px}
+.wordmark b{font-style:normal;font-family:var(--mono);font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:var(--text-muted);margin-left:8px;font-weight:500}
+header .sp{flex:1}
+.themeToggle{display:flex;gap:2px;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--r-sm);padding:3px}
+.themeToggle button{font:inherit;font-size:12px;cursor:pointer;border:0;background:transparent;color:var(--text-muted);padding:6px 12px;border-radius:4px}
+.themeToggle button.on{background:var(--accent-soft);color:var(--text)}
+
+/* section scaffold */
+section{padding-top:56px}
+.kicker{font-family:var(--mono);font-size:10.5px;letter-spacing:.24em;text-transform:uppercase;color:var(--accent);margin-bottom:10px}
+h2.title{font-family:var(--serif);font-weight:400;font-size:34px;line-height:1.05;margin:0 0 6px}
+.lede{color:var(--text-2);margin:0 0 28px;max-width:600px}
+h3.sub{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted);margin:28px 0 12px}
+
+/* hero */
+.hero{padding-top:48px}
+.hero h1{font-family:var(--serif);font-weight:400;font-size:64px;line-height:1.02;margin:0 0 4px;letter-spacing:.4px}
+.hero h1 em{font-style:italic;color:var(--accent)}
+.hero .rot{font-family:var(--serif);font-style:italic;color:var(--recording);display:inline-block;min-width:160px;transition:opacity .4s}
+.hero p{font-size:16px;color:var(--text-2);max-width:620px;margin:14px 0 0}
+
+/* swatches */
+.swatchGrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.swatch{border:1px solid var(--border);border-radius:var(--r-md);overflow:hidden;background:var(--bg-panel)}
+.swatch .chip{height:54px}
+.swatch .meta{padding:8px 10px;font-family:var(--mono);font-size:10.5px;color:var(--text-2)}
+.swatch .meta b{display:block;color:var(--text);font-family:var(--sans);font-size:12px;font-weight:600;margin-bottom:1px}
+
+/* type specimens */
+.spec{border-top:1px solid var(--border);padding:14px 0;display:flex;align-items:baseline;gap:18px}
+.spec .tag{font-family:var(--mono);font-size:10px;color:var(--text-muted);width:130px;flex:0 0 auto}
+.dxl{font-family:var(--serif);font-size:46px;line-height:1}
+.dl{font-family:var(--serif);font-size:30px}
+.bl{font-size:16px}.bb{font-size:14px}.bs{font-size:12px;color:var(--text-2)}
+.ml{font-family:var(--mono);font-size:12px;color:var(--text-2)}
+
+/* scale chips */
+.scaleRow{display:flex;align-items:flex-end;gap:14px;flex-wrap:wrap}
+.scaleRow .box{background:var(--accent-soft);border:1px solid var(--accent-dim);border-radius:var(--r-sm)}
+.scaleRow .rbox{background:var(--bg-soft);border:1px solid var(--border-strong)}
+.scaleRow .lab{font-family:var(--mono);font-size:10px;color:var(--text-muted);text-align:center;margin-top:6px}
+
+/* primitives gallery */
+.gallery{display:flex;flex-direction:column;gap:6px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+
+/* === PRIMITIVES (the ui/ kit) === */
+.btn{font:inherit;font-weight:600;font-size:13.5px;cursor:pointer;border-radius:var(--r-sm);padding:9px 16px;border:1px solid transparent;display:inline-flex;align-items:center;gap:8px;transition:.15s}
+.btn-sm{padding:7px 12px;font-size:12.5px}
+.btn-primary{background:var(--accent);color:#0c0e11}.btn-primary:hover{background:var(--accent-hover)}
+.btn-secondary{background:var(--bg-soft);color:var(--text-2);border-color:var(--border-strong)}.btn-secondary:hover{color:var(--text);border-color:var(--accent)}
+.btn-ghost{background:transparent;color:var(--text-2);border-color:var(--border-strong)}.btn-ghost:hover{color:var(--text);border-color:var(--accent);background:var(--accent-soft)}
+.btn-danger{background:var(--st-failed);color:#1a0f0f}
+.btn-icon{padding:0;width:32px;height:32px;justify-content:center;border-radius:var(--r-sm);background:transparent;border:1px solid var(--border-strong);color:var(--text-2)}
+.btn-pill{border-radius:var(--r-full)}
+/* recording action — amber semantic */
+.btn-rec{background:var(--recording-soft);border-color:var(--recording);color:var(--recording)}
+.recdot{width:8px;height:8px;border-radius:50%;background:var(--recording);box-shadow:0 0 0 0 var(--recording);animation:rec 1.5s ease-in-out infinite}
+@keyframes rec{0%,100%{box-shadow:0 0 0 0 rgba(232,163,61,.5)}50%{box-shadow:0 0 0 6px rgba(232,163,61,0)}}
+
+.field{display:flex;flex-direction:column;gap:7px;max-width:420px}
+.field label{font-size:12px;color:var(--text-2)}
+.inp{width:100%;font:inherit;font-size:13.5px;color:var(--text);background:var(--bg-inset);border:1px solid var(--border-strong);border-radius:var(--r-sm);padding:10px 12px;transition:.15s}
+.inp:focus{outline:none;border-color:var(--accent);box-shadow:var(--sh-focus)}
+.inp.mono{font-family:var(--mono);font-size:12.5px}
+textarea.inp{resize:vertical;min-height:80px;line-height:1.55}
+
+.seg{display:inline-flex;gap:6px;background:var(--bg-inset);border:1px solid var(--border);border-radius:var(--r-sm);padding:4px}
+.seg button{font:inherit;font-size:13px;cursor:pointer;border:0;background:transparent;color:var(--text-muted);padding:7px 14px;border-radius:var(--r-sm);display:flex;align-items:center;gap:7px}
+.seg button.on{background:var(--accent-soft);color:var(--text)}
+.seg .tag{font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--text-muted)}
+
+.panel{background:var(--bg-elev);border:1px solid var(--border);border-radius:var(--r-lg);padding:22px;box-shadow:var(--sh-md)}
+.card{background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--r-md);padding:16px}
+
+.chip{display:inline-flex;align-items:center;gap:7px;font-size:12px;font-weight:500;padding:6px 11px;border-radius:var(--r-full);border:1px solid var(--border-strong);background:var(--bg-inset)}
+.dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto}
+.dot.completed{background:var(--st-completed)}.dot.running{background:var(--st-running)}.dot.failed{background:var(--st-failed)}.dot.invalidated{background:var(--st-invalidated)}.dot.pending{background:var(--st-pending)}
+.badge{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:var(--r-sm);color:#0c0c0c}
+.badge.completed{background:var(--st-completed)}.badge.running{background:var(--st-running)}.badge.failed{background:var(--st-failed)}
+
+.divider{border:0;border-top:1px solid var(--border);margin:20px 0}
+.divider-cine{border:0;border-top:1px double var(--border-strong);border-bottom:1px solid var(--border);height:4px;margin:20px 0}
+.seclabel{font-family:var(--mono);font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--text-muted)}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--border-strong);border-top-color:var(--accent);animation:sp .7s linear infinite;display:inline-block}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* === SURFACE MOCKUPS === */
+.surfaces{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.surfaceCard{border:1px solid var(--border);border-radius:var(--r-lg);overflow:hidden;background:var(--bg-panel)}
+.surfaceCard .cap{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--text-muted);padding:10px 14px;border-bottom:1px solid var(--border);background:var(--bg-inset)}
+.surfaceCard .body{padding:18px}
+.full{grid-column:1 / -1}
+
+/* wizard surface */
+.wz h4{font-family:var(--serif);font-weight:400;font-size:26px;margin:0 0 4px}
+.wz .sub{font-size:13px;color:var(--text-muted);margin:0 0 16px}
+.wz .foot{display:flex;gap:10px;margin-top:16px}
+
+/* chat surface */
+.chat{display:flex;flex-direction:column;gap:4px;font-size:13px}
+.eyebrow{font-size:9.5px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--accent);margin-bottom:4px}
+.bubbleUser{align-self:flex-end;max-width:80%;text-align:right}
+.bubbleUser .body{display:inline-block;text-align:left;background:var(--accent-soft);border:1px solid var(--accent-dim);border-radius:10px 10px 2px 10px;padding:8px 12px;font-size:12.5px}
+.bubbleAsst{align-self:stretch;margin:10px 0 8px;padding-left:16px;position:relative}
+.bubbleAsst::before{content:"";position:absolute;left:0;top:2px;bottom:2px;width:2px;border-radius:1px;background:linear-gradient(to bottom,var(--accent) 0%,var(--accent-dim) 24px,rgba(127,127,127,.12) 100%)}
+.toolcall{margin:2px 0 2px 16px;font-family:var(--mono);font-size:10.5px;color:var(--text-muted);opacity:.7}
+.toolcall::before{content:"· "}
+.phase{display:flex;align-items:center;gap:10px;margin:12px 0 4px;padding:2px 0 2px 12px;border-left:3px solid var(--accent);font-family:var(--mono);font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--accent)}
+.runpill{align-self:flex-start;display:inline-flex;align-items:center;gap:9px;background:var(--bg-inset);border:1px solid var(--recording);border-radius:var(--r-full);padding:4px 12px;font-size:12px;color:var(--recording);margin-top:8px}
+
+/* graph node surface */
+.gnode{width:300px;border:1.5px solid var(--st-completed);border-radius:var(--r-md);background:var(--bg-elev);overflow:hidden;box-shadow:var(--sh-md)}
+.gnode.running{border-color:var(--st-running)}
+.gnode .ghead{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 12px;background:var(--accent-soft);border-bottom:1px solid var(--border)}
+.gnode .gid{font-family:var(--mono);font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--text-2)}
+.gnode .gbody{padding:14px;font-size:12.5px;color:var(--text-2);min-height:64px}
+.gnodes{display:flex;gap:16px;flex-wrap:wrap}
+
+/* bundle card surface */
+.bundle{position:relative;border:1px solid var(--border-strong);border-radius:var(--r-md);background:var(--bg-elev);padding:18px;max-width:300px}
+.bundle.sel{border-color:var(--accent)}
+.bundle.sel::before{content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 2px 2px 0;background:var(--accent)}
+.bundle h4{font-family:var(--serif);font-weight:400;font-size:22px;margin:0 0 6px}
+.bundle p{font-size:12.5px;color:var(--text-muted);margin:0 0 14px}
+
+.note{font-size:12px;color:var(--text-muted);font-family:var(--mono);margin-top:10px}
+.foot{margin-top:60px;border-top:1px solid var(--border);padding-top:20px;font-size:12px;color:var(--text-muted)}
+@media(max-width:760px){.surfaces{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <span class="wordmark">Dhee Studio <b>Design Language</b></span>
+  <span class="sp"></span>
+  <div class="themeToggle" id="themeToggle">
+    <button class="on" data-theme="cinematic" onclick="setTheme('cinematic')">Cinematic warm</button>
+    <button data-theme="neutral" onclick="setTheme('neutral')">Studio neutral</button>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="kicker">One language · every surface</div>
+    <h1>What kind of <span class="rot" id="rot">film</span>?</h1>
+    <p>The desktop, unified: warm cinematic surfaces, <em style="font-family:var(--serif);font-style:italic">Instrument Serif</em> headings, a token-driven accent with <span style="color:var(--recording)">amber reserved for live</span>, and one shared component kit. Toggle the theme above — the same components re-skin from tokens alone.</p>
+  </section>
+
+  <!-- FOUNDATIONS: COLOR -->
+  <section>
+    <div class="kicker">Foundations · 01</div>
+    <h2 class="title">Color tokens</h2>
+    <p class="lede">Every color is a token. No raw hex in components. The recording amber is a constant semantic across themes; everything else is per-theme.</p>
+    <h3 class="sub">Surfaces</h3>
+    <div class="swatchGrid">
+      <div class="swatch"><div class="chip" style="background:var(--bg-app)"></div><div class="meta"><b>bg-app</b>base canvas</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--bg-panel)"></div><div class="meta"><b>bg-panel</b>surface</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--bg-elev)"></div><div class="meta"><b>bg-elev</b>elevated</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--bg-soft)"></div><div class="meta"><b>bg-soft</b>secondary</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--bg-inset)"></div><div class="meta"><b>bg-inset</b>wells/inputs</div></div>
+    </div>
+    <h3 class="sub">Text · accent · recording</h3>
+    <div class="swatchGrid">
+      <div class="swatch"><div class="chip" style="background:var(--text)"></div><div class="meta"><b>text</b>primary</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text-2)"></div><div class="meta"><b>text-2</b>secondary</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--text-muted)"></div><div class="meta"><b>text-muted</b>hint</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--accent)"></div><div class="meta"><b>accent</b>primary (theme)</div></div>
+      <div class="swatch"><div class="chip" style="background:var(--recording)"></div><div class="meta"><b>recording</b>live · amber</div></div>
+    </div>
+    <h3 class="sub">Status palette (graph · chat · strip)</h3>
+    <div class="swatchGrid">
+      <div class="swatch"><div class="chip" style="background:var(--st-completed)"></div><div class="meta"><b>completed</b></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--st-running)"></div><div class="meta"><b>running</b></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--st-failed)"></div><div class="meta"><b>failed</b></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--st-invalidated)"></div><div class="meta"><b>invalidated</b></div></div>
+      <div class="swatch"><div class="chip" style="background:var(--st-pending)"></div><div class="meta"><b>pending</b></div></div>
+    </div>
+  </section>
+
+  <!-- FOUNDATIONS: TYPE -->
+  <section>
+    <div class="kicker">Foundations · 02</div>
+    <h2 class="title">Typography</h2>
+    <p class="lede">Instrument Serif for display, Inter for body/UI, JetBrains Mono for labels, identifiers, and code. One <code style="font-family:var(--mono)">--font-display</code> everywhere — Fraunces is dropped.</p>
+    <div class="spec"><span class="tag">display / serif 46</span><span class="dxl">Eye of the Storm</span></div>
+    <div class="spec"><span class="tag">display / serif 30</span><span class="dl">Connect the language model</span></div>
+    <div class="spec"><span class="tag">body / sans 16</span><span class="bl">It writes your plot, scenes, and every shot prompt.</span></div>
+    <div class="spec"><span class="tag">body / sans 14</span><span class="bb">Default body copy used across panels and forms.</span></div>
+    <div class="spec"><span class="tag">small / sans 12</span><span class="bs">Secondary captions and helper text.</span></div>
+    <div class="spec"><span class="tag">mono / 12</span><span class="ml">narrative_prompt_relay · 9/9 models</span></div>
+    <div class="spec"><span class="tag">section label</span><span class="seclabel">THE STORY</span></div>
+  </section>
+
+  <!-- FOUNDATIONS: SPACE + RADIUS -->
+  <section>
+    <div class="kicker">Foundations · 03</div>
+    <h2 class="title">Space &amp; radius</h2>
+    <p class="lede">4 / 8 / 12 / 16 / 24 / 32 / 48 spacing. Radius 6 / 10 / 14 (Slate's 3px is dropped — softer reads better in dense panels).</p>
+    <h3 class="sub">Spacing</h3>
+    <div class="scaleRow">
+      <div><div class="box" style="width:4px;height:32px"></div><div class="lab">4</div></div>
+      <div><div class="box" style="width:8px;height:32px"></div><div class="lab">8</div></div>
+      <div><div class="box" style="width:12px;height:32px"></div><div class="lab">12</div></div>
+      <div><div class="box" style="width:16px;height:32px"></div><div class="lab">16</div></div>
+      <div><div class="box" style="width:24px;height:32px"></div><div class="lab">24</div></div>
+      <div><div class="box" style="width:32px;height:32px"></div><div class="lab">32</div></div>
+      <div><div class="box" style="width:48px;height:32px"></div><div class="lab">48</div></div>
+    </div>
+    <h3 class="sub">Radius</h3>
+    <div class="scaleRow">
+      <div><div class="rbox" style="width:64px;height:48px;border-radius:6px"></div><div class="lab">sm · 6</div></div>
+      <div><div class="rbox" style="width:64px;height:48px;border-radius:10px"></div><div class="lab">md · 10</div></div>
+      <div><div class="rbox" style="width:64px;height:48px;border-radius:14px"></div><div class="lab">lg · 14</div></div>
+      <div><div class="rbox" style="width:64px;height:48px;border-radius:999px"></div><div class="lab">full</div></div>
+    </div>
+  </section>
+
+  <!-- PRIMITIVES -->
+  <section>
+    <div class="kicker">The kit · 04</div>
+    <h2 class="title">Primitives</h2>
+    <p class="lede">The shared <code style="font-family:var(--mono)">ui/</code> library every surface imports instead of rolling its own. One Button, one Input, one Card — re-themed by tokens.</p>
+
+    <h3 class="sub">Button — variants, sizes, recording</h3>
+    <div class="gallery">
+      <div class="row"><button class="btn btn-primary">Primary</button><button class="btn btn-secondary">Secondary</button><button class="btn btn-ghost">Ghost</button><button class="btn btn-danger">Stop</button></div>
+      <div class="row"><button class="btn btn-primary btn-sm">Small</button><button class="btn btn-icon">⚙</button><button class="btn btn-ghost btn-pill">Pill</button><button class="btn btn-rec"><span class="recdot"></span> Roll</button><span class="note">amber = recording / live only</span></div>
+    </div>
+
+    <h3 class="sub">Inputs &amp; segmented control</h3>
+    <div class="gallery">
+      <div class="row" style="align-items:flex-start;gap:24px">
+        <div class="field"><label>API key</label><input class="inp mono" placeholder="sk-or-…"></div>
+        <div class="field"><label>Endpoint</label><input class="inp mono" value="http://127.0.0.1:8188"></div>
+      </div>
+      <div class="row"><div class="seg"><button class="on">OpenRouter <span class="tag">key</span></button><button>OpenAI <span class="tag">key</span></button><button>Gemini <span class="tag">key</span></button><button>LM Studio <span class="tag">local</span></button></div></div>
+    </div>
+
+    <h3 class="sub">Surfaces · chips · status · divider · spinner</h3>
+    <div class="gallery">
+      <div class="row">
+        <span class="chip"><span class="dot completed"></span>completed</span>
+        <span class="chip"><span class="dot running"></span>running</span>
+        <span class="chip"><span class="dot failed"></span>failed</span>
+        <span class="chip"><span class="dot invalidated"></span>invalidated</span>
+        <span class="chip"><span class="dot pending"></span>pending</span>
+      </div>
+      <div class="row">
+        <span class="badge completed">ready</span><span class="badge running">running</span><span class="badge failed">failed</span>
+        <span class="spin"></span>
+      </div>
+      <div class="row" style="gap:16px;width:100%">
+        <div class="card" style="flex:1">Card · bg-panel, 1px border, radius-md</div>
+        <div class="panel" style="flex:1">Panel · bg-elev, radius-lg, shadow-md</div>
+      </div>
+      <div style="width:100%"><hr class="divider"><span class="seclabel">default divider</span><hr class="divider-cine"><span class="seclabel">cinematic double divider</span></div>
+    </div>
+  </section>
+
+  <!-- SURFACES -->
+  <section>
+    <div class="kicker">Proof · 05</div>
+    <h2 class="title">Surfaces, one language</h2>
+    <p class="lede">The same kit + tokens render each surface type. This is what we're aligning on — re-skin all of these in this language, then migrate the real screens.</p>
+
+    <div class="surfaces">
+
+      <!-- wizard -->
+      <div class="surfaceCard">
+        <div class="cap">First-run / guided setup</div>
+        <div class="body wz">
+          <h4>Connect the language model.</h4>
+          <p class="sub">It writes your plot, scenes, and every shot prompt.</p>
+          <div class="seg" style="margin-bottom:14px"><button class="on">OpenRouter <span class="tag">key</span></button><button>OpenAI</button><button>Gemini</button><button>LM&nbsp;Studio</button></div>
+          <div class="field" style="max-width:none"><label>API key</label><input class="inp mono" placeholder="sk-or-…"></div>
+          <div class="note">Verified at pre-flight.</div>
+          <div class="foot"><button class="btn btn-ghost">← Back</button><button class="btn btn-primary">Continue</button></div>
+        </div>
+      </div>
+
+      <!-- settings -->
+      <div class="surfaceCard">
+        <div class="cap">Settings · connection</div>
+        <div class="body">
+          <div class="field" style="max-width:none;margin-bottom:14px"><label>OpenRouter API key</label><input class="inp mono" placeholder="sk-or-…"></div>
+          <div class="field" style="max-width:none;margin-bottom:16px"><label>Model <span style="color:var(--text-muted)">· optional</span></label><input class="inp" placeholder="default"></div>
+          <button class="btn btn-primary">Save</button>
+        </div>
+      </div>
+
+      <!-- chat -->
+      <div class="surfaceCard full">
+        <div class="cap">Chat</div>
+        <div class="body">
+          <div class="chat">
+            <div class="phase">▸ Scene breakdown</div>
+            <div class="bubbleUser"><div class="eyebrow">You</div><div class="body">Make scene 2 rain-soaked and neon-lit.</div></div>
+            <div class="bubbleAsst"><div class="eyebrow">Dhee</div><div>Updating scene 2 — pushing the palette toward wet neon and regenerating the three downstream shot prompts.</div></div>
+            <div class="toolcall">dhee_regenerate_node scene_2.svp --cascade</div>
+            <div class="toolcall">dhee_get_status</div>
+            <div class="runpill"><span class="recdot"></span> Running · scene_2_shot_1 · 0:12</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- graph -->
+      <div class="surfaceCard full">
+        <div class="cap">Graph / inspector</div>
+        <div class="body">
+          <div class="gnodes">
+            <div class="gnode">
+              <div class="ghead"><span class="gid">shot_image</span><span class="badge completed">done</span></div>
+              <div class="gbody">scene_1_shot_2 · 1280×720 · keyframe rendered</div>
+            </div>
+            <div class="gnode running">
+              <div class="ghead"><span class="gid">shot_video</span><span class="badge running">running</span></div>
+              <div class="gbody">scene_1_shot_2 · LTX relay · 0:34 elapsed</div>
+            </div>
+            <div class="bundle sel">
+              <h4>Qwen chain · LTX</h4>
+              <p>Continuity-edited shots + LTX-2 motion.</p>
+              <button class="btn btn-rec"><span class="recdot"></span> Roll</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <div class="foot">
+    Dhee Studio design language · cinematic warm · Instrument Serif · theme-accent + amber-for-live · 6/10/14 radii.<br>
+    Toggle the theme in the header to confirm every component re-skins from tokens alone. This page is the P0 alignment artifact + regression reference.
+  </div>
+</div>
+
+<script>
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t === 'cinematic' ? '' : t);
+  document.querySelectorAll('#themeToggle button').forEach(b=>b.classList.toggle('on', b.dataset.theme===t));
+}
+// rotating headline (signature device)
+const words=['film','short','spot','scene','story','trailer'];
+let i=0;const rot=document.getElementById('rot');
+setInterval(()=>{rot.style.opacity=0;setTimeout(()=>{i=(i+1)%words.length;rot.textContent=words[i];rot.style.opacity=1;},380);},2200);
+</script>
+</body>
+</html>

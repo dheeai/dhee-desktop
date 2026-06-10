@@ -18,3 +18,29 @@ export interface ProviderDiagnosticsSnapshot {
   checkedAt: number;
   items: ProviderDiagnosticItem[];
 }
+
+/**
+ * Ad-hoc LLM config to probe WITHOUT persisting settings — the first-run
+ * setup form's in-progress values. `provider` mirrors
+ * AppSettings['llmProvider']: 'openai' (OpenAI-compatible) or 'gemini'.
+ */
+export interface LlmProbeInput {
+  provider: 'openai' | 'gemini';
+  apiKey?: string;
+  model?: string;
+  /** OpenAI-compatible endpoint (provider 'openai'); falls back to OpenAI. */
+  baseUrl?: string;
+}
+
+export interface LlmModelInfo {
+  id: string;
+  status?: string;
+}
+
+export type LlmProbeResult =
+  | { ok: true; message: string; models?: string[]; modelDetails?: LlmModelInfo[] }
+  | { ok: false; message: string; detail?: string };
+
+export type LlmWarmResult =
+  | { ok: true; message: string }
+  | { ok: false; message: string; detail?: string };

@@ -3,7 +3,7 @@
  *
  * The bug being pinned: `await session.abort()` blocks until pi's
  * current operation finishes. If that operation is an in-flight
- * dhee_run_bundle (a BackgroundTaskRunner task), abort() waits for
+ * dhee_start_run (a BackgroundTaskRunner task), abort() waits for
  * the runner task itself — meaning the agent is "stuck busy" until
  * the runner ends. With the original cancel ordering (abort first,
  * runner cancel second), Stop was effectively a no-op while a bundle

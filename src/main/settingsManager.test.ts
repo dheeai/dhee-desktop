@@ -20,22 +20,27 @@ const baseSettings = {
   comfyuiUrl: '',
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
-  llmProvider: 'lmstudio' as const,
-  lmStudioUrl: 'http://127.0.0.1:1234',
-  lmStudioModel: 'qwen3',
+  llmProvider: 'openai' as const,
   googleApiKey: '',
   geminiModel: 'gemini-2.5-flash',
   openaiApiKey: '',
   openaiBaseUrl: 'https://api.openai.com/v1',
   openaiModel: 'gpt-4o',
-  openRouterApiKey: '',
-  openRouterModel: 'z-ai/glm-4.7-flash',
 };
 
 describe('settingsManager theme normalization', () => {
-  it('defaults invalid theme ids to studio-neutral', () => {
+  it('defaults invalid theme ids to the default theme', () => {
     expect(normalizeThemeId('nordic-night')).toBe(DEFAULT_THEME_ID);
     expect(normalizeThemeId(undefined)).toBe(DEFAULT_THEME_ID);
+  });
+
+  it('accepts the cinematic theme', () => {
+    expect(normalizeThemeId('cinematic')).toBe('cinematic');
+  });
+
+  it('migrates the retired studio-neutral theme to the default (cinematic)', () => {
+    expect(DEFAULT_THEME_ID).toBe('cinematic');
+    expect(normalizeThemeId('studio-neutral')).toBe('cinematic');
   });
 
   it('preserves a valid theme and migrates missing theme ids', () => {
@@ -60,17 +65,28 @@ describe('settingsManager theme normalization', () => {
     ).toBe(DEFAULT_THEME_ID);
   });
 
-  it('preserves local backend provider settings', () => {
+  it('preserves the OpenAI-compatible endpoint settings', () => {
     const normalized = normalizeSettings({
       ...baseSettings,
-      llmProvider: 'openrouter',
-      openRouterApiKey: 'sk-or-v1-test',
-      openRouterModel: 'openrouter/model',
+      llmProvider: 'openai',
+      openaiBaseUrl: 'https://openrouter.ai/api/v1',
+      openaiApiKey: 'sk-or-v1-test',
+      openaiModel: 'openrouter/model',
     });
 
-    expect(normalized.llmProvider).toBe('openrouter');
-    expect(normalized.openRouterApiKey).toBe('sk-or-v1-test');
+    expect(normalized.llmProvider).toBe('openai');
+    expect(normalized.openaiBaseUrl).toBe('https://openrouter.ai/api/v1');
+    expect(normalized.openaiApiKey).toBe('sk-or-v1-test');
     expect('preferredLocalPort' in normalized).toBe(false);
+  });
+
+  it('collapses any non-gemini provider value to openai (OpenAI-compatible)', () => {
+    const normalized = normalizeSettings({
+      ...baseSettings,
+      // legacy/unknown provider values are no longer in the type
+      llmProvider: 'openrouter' as unknown as 'openai',
+    });
+    expect(normalized.llmProvider).toBe('openai');
   });
 
   it('preserves the Comfy Cloud API key', () => {
@@ -83,5 +99,31 @@ describe('settingsManager theme normalization', () => {
 
     expect(normalized.comfyuiUrl).toBe('https://cloud.comfy.org');
     expect(normalized.comfyCloudApiKey).toBe('cloud-test-key');
+  });
+
+  it('defaults single GPU mode off and preserves explicit opt-in', () => {
+    expect(normalizeSettings(baseSettings).singleGpuMode).toBe(false);
+    expect(
+      normalizeSettings({
+        ...baseSettings,
+        singleGpuMode: true,
+      }).singleGpuMode,
+    ).toBe(true);
+  });
+
+  it('defaults the budget cap to $5 and honors a valid override (incl. 0 = no cap)', () => {
+    expect(normalizeSettings(baseSettings).budgetCapUsd).toBe(5);
+    expect(normalizeSettings({ ...baseSettings, budgetCapUsd: 20 }).budgetCapUsd).toBe(20);
+    // 0 is a legitimate value meaning "no cap" — must be preserved, not
+    // bounced back to the default.
+    expect(normalizeSettings({ ...baseSettings, budgetCapUsd: 0 }).budgetCapUsd).toBe(0);
+  });
+
+  it('falls back to the $5 default for invalid budget-cap values', () => {
+    for (const bad of [-5, NaN, Infinity, '10', null, undefined]) {
+      expect(
+        normalizeSettings({ ...baseSettings, budgetCapUsd: bad } as never).budgetCapUsd,
+      ).toBe(5);
+    }
   });
 });

@@ -24,13 +24,14 @@
 }
 
 .panel {
-  @include panel-base;
-  @include glassmorphism(0.95);
+  /* Deep near-black canvas (New Project's surface), NOT the warm
+     elevated panel — keeps Settings crisp instead of brown/dull. */
+  background: $color-bg-app;
   position: relative;
   width: min(840px, 92vw);
   max-height: min(88vh, 900px);
   border-radius: $radius-lg;
-  border: 1px solid $color-panel-border;
+  border: 1px solid $color-border-strong;
   box-shadow: $shadow-lg;
   display: flex;
   flex-direction: column;
@@ -102,11 +103,12 @@
 
 .sidebar {
   padding: $spacing-lg;
-  border-right: 1px solid $color-panel-border;
+  border-right: 1px solid $color-border-subtle;
   display: flex;
   flex-direction: column;
   gap: $spacing-sm;
-  background: rgba(var(--color-bg-panel-soft-rgb), 0.16);
+  /* sits on the deep canvas — no warm tint */
+  background: transparent;
 }
 
 .tabButton {
@@ -142,6 +144,21 @@
 .tabLabel {
   font-size: $font-size-sm;
   font-weight: $font-weight-semibold;
+}
+
+/* Launcher — opens the full-screen guided setup directly (not a content
+   tab). Accent label + accent hover signal it's an action. */
+.tabLauncher {
+  border-color: rgba(var(--color-accent-primary-rgb), 0.28);
+
+  .tabLabel {
+    color: $color-accent-primary;
+  }
+
+  &:hover {
+    background: rgba(var(--color-accent-primary-rgb), 0.08);
+    border-color: $color-accent-primary;
+  }
 }
 
 .tabDescription {
@@ -454,6 +471,26 @@
   &:disabled {
     opacity: 0.55;
   }
+}
+
+.modelComboInput {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.modelListHint,
+.modelListError {
+  margin: 0;
+  font-size: $font-size-xs;
+  line-height: 1.4;
+}
+
+.modelListHint {
+  color: $color-text-muted;
+}
+
+.modelListError {
+  color: $color-warning;
 }
 
 .statusCard,

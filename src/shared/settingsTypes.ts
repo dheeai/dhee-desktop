@@ -6,8 +6,18 @@ export type BackendMode = 'local' | 'cloud';
  * traffic through the metered dhee proxy, or vice versa.
  */
 export type BackendLane = 'local' | 'cloud';
-export type LLMProvider = 'lmstudio' | 'gemini' | 'openai' | 'openrouter';
+/**
+ * LLM provider, unified to two transports:
+ *   - 'openai'  — any OpenAI-compatible endpoint. `openaiBaseUrl` is the
+ *                 endpoint (OpenAI, OpenRouter, or a local LM Studio /
+ *                 Ollama / llama.cpp / vLLM server); `openaiApiKey` is
+ *                 OPTIONAL (required only for non-local endpoints). The UI
+ *                 offers presets that just seed openaiBaseUrl.
+ *   - 'gemini'  — Google's native API (googleApiKey + geminiModel).
+ */
+export type LLMProvider = 'gemini' | 'openai';
 export type ThemeId =
+  | 'cinematic'
   | 'studio-neutral'
   | 'deep-forest-gold'
   | 'petroleum-clay'
@@ -74,6 +84,12 @@ export interface AppSettings {
   comfyuiMode: ComfyUIMode;
   /** URL of the ComfyUI server the user wants to use. */
   comfyuiUrl: string;
+  /**
+   * Opt-in single-GPU coordination. When enabled, chat is paused while
+   * a local ComfyUI render is actively holding the GPU so a local
+   * pi-agent LLM cannot compete for VRAM. Cloud lanes remain usable.
+   */
+  singleGpuMode: boolean;
   /** Comfy Cloud API key used when comfyuiUrl points at cloud.comfy.org. */
   comfyCloudApiKey: string;
   /**
@@ -103,24 +119,16 @@ export interface AppSettings {
   comfyuiTimeout: number;
   /** LLM provider used by the bundled local backend. */
   llmProvider: LLMProvider;
-  /** LM Studio base URL used by the bundled local backend. */
-  lmStudioUrl: string;
-  /** LM Studio model id used by the bundled local backend. */
-  lmStudioModel: string;
-  /** Google Gemini API key used by the bundled local backend. */
+  /** Google Gemini API key (provider='gemini'). */
   googleApiKey: string;
-  /** Gemini model id used by the bundled local backend. */
+  /** Gemini model id (provider='gemini'). */
   geminiModel: string;
-  /** OpenAI API key used by the bundled local backend. */
+  /** API key for the OpenAI-compatible endpoint. Optional for local URLs. */
   openaiApiKey: string;
-  /** OpenAI-compatible base URL used by the bundled local backend. */
+  /** OpenAI-compatible base URL (OpenAI / OpenRouter / local server). */
   openaiBaseUrl: string;
-  /** OpenAI model id used by the bundled local backend. */
+  /** Model id for the OpenAI-compatible endpoint. */
   openaiModel: string;
-  /** OpenRouter API key used by the bundled local backend. */
-  openRouterApiKey: string;
-  /** OpenRouter model id used by the bundled local backend. */
-  openRouterModel: string;
   /**
    * When true (default), the flat openai/gemini fields above are used for
    * every LLM call (heavy/medium/light). When false, the user supplies
@@ -164,4 +172,14 @@ export interface AppSettings {
   vlmBaseUrl: string;
   vlmApiKey: string;
   vlmModel: string;
+  /**
+   * Global default paid-spend cap (USD) stamped into each NEW project's
+   * `features.budgetCapUsd`. A safety backstop: a bundle walk halts
+   * before the next paid step once cumulative spend on a branch reaches
+   * the cap, so a runaway regeneration loop can't burn a user's credits.
+   * `0` (or negative) means "no cap". Ships at `5`. Local-only runs cost
+   * nothing and never hit it. Per-project value can later diverge by
+   * editing project.json; this is only the default for new projects.
+   */
+  budgetCapUsd: number;
 }

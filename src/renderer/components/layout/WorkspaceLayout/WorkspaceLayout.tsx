@@ -22,6 +22,7 @@ import {
 import { InspectorView } from '../../../inspector/InspectorView';
 import ChatPanel from '../../chat/ChatPanelEmbedded/ChatPanelEmbedded';
 import StatusStrip from '../StatusStrip/StatusStrip';
+import TransportBar from '../../run/TransportBar/TransportBar';
 import { OverlayProvider } from '../../../overlays/OverlayContext';
 import { OverlayHost } from '../../../overlays/OverlayHost';
 import { TimelineDataProvider } from '../../../contexts/TimelineDataContext';
@@ -96,6 +97,7 @@ export default function WorkspaceLayout() {
           projectName={displayProjectName ?? undefined}
           bundleId={bundle?.id}
         />
+        <TransportBar />
         <div className={styles.workspace}>
           <PanelGroup direction="horizontal" autoSaveId="workspace-panels-v2">
             <Panel defaultSize={70} minSize={50}>

@@ -17,6 +17,7 @@
  * automatically once `running` flips false.
  */
 import { Loader2, Play, Square } from 'lucide-react';
+import { Button } from '../../ui';
 import type { ProjectLifecycleState } from './classifyProjectState';
 
 interface ProjectRunButtonProps {
@@ -59,37 +60,17 @@ export default function ProjectRunButton({
   if (running) {
     const stopping = pendingCancel;
     return (
-      <button
-        type="button"
+      <Button
+        variant="danger"
+        size="sm"
         onClick={() => {
           if (stopping) return;
           onCancel();
         }}
         aria-label={stopping ? 'Stopping run' : 'Stop run'}
-        title={
-          stopping
-            ? 'Cancelling — finishing the current step…'
-            : 'Stop the current run'
-        }
+        title={stopping ? 'Cancelling — finishing the current step…' : 'Stop the current run'}
         disabled={stopping}
         data-tour-id="workspace-run-control"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 6,
-          padding: '5px 10px',
-          fontSize: 12,
-          fontWeight: 500,
-          fontFamily: 'inherit',
-          color: 'var(--color-bg-panel)',
-          background: stopping
-            ? 'rgba(var(--color-error-rgb), 0.7)'
-            : 'var(--color-error)',
-          border: 'none',
-          borderRadius: 6,
-          cursor: stopping ? 'progress' : 'pointer',
-          transition: 'background 120ms ease',
-        }}
       >
         {stopping ? (
           <Loader2 size={13} className="dhee-spin" />
@@ -97,37 +78,22 @@ export default function ProjectRunButton({
           <Square size={11} fill="currentColor" strokeWidth={0} />
         )}
         <span>{stopping ? 'Stopping…' : 'Stop'}</span>
-      </button>
+      </Button>
     );
   }
 
   return (
-    <button
-      type="button"
+    <Button
+      variant="primary"
+      size="sm"
       onClick={onStart}
       aria-label="Resume run"
       title="Resume the pipeline from where you left off"
       disabled={!ready}
       data-tour-id="workspace-run-control"
-      style={{
-        display: 'inline-flex',
-        alignItems: 'center',
-        gap: 6,
-        padding: '5px 10px',
-        fontSize: 12,
-        fontWeight: 500,
-        fontFamily: 'inherit',
-        color: 'var(--color-bg-panel)',
-        background: 'var(--color-accent-primary)',
-        border: 'none',
-        borderRadius: 6,
-        cursor: ready ? 'pointer' : 'not-allowed',
-        opacity: ready ? 1 : 0.5,
-        transition: 'background 120ms ease',
-      }}
     >
       <Play size={11} fill="currentColor" strokeWidth={0} />
       <span>Resume</span>
-    </button>
+    </Button>
   );
 }

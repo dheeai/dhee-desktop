@@ -77,29 +77,33 @@ async function resolveThumbnail(
   rng: () => number,
   exists: (relPath: string) => Promise<boolean>,
 ): Promise<string | null> {
-  const nodes = findByCapability(bundle, project, thumbnail.from);
-  if (nodes.length === 0) return null;
-  // Pool all completed instances across every node with that capability.
-  const completed: Array<{ itemId?: string; outputPath: string; stateKey: string }> = [];
-  for (const cn of nodes) {
-    for (const inst of cn.instances) {
-      if (inst.status !== 'completed' || !inst.outputPath) continue;
-      completed.push({
-        ...(inst.itemId !== undefined ? { itemId: inst.itemId } : {}),
-        outputPath: inst.outputPath,
-        stateKey: inst.stateKey,
-      });
+  // `from` may be a single capability or a priority list — try each in
+  // order so the tile gets imagery from the SOONEST-available source
+  // (e.g. a setting/character reference before any shot has rendered).
+  const caps = Array.isArray(thumbnail.from) ? thumbnail.from : [thumbnail.from];
+  for (const cap of caps) {
+    const nodes = findByCapability(bundle, project, cap);
+    if (nodes.length === 0) continue;
+    // Pool all completed instances across every node with that capability.
+    const completed: Array<{ itemId?: string; outputPath: string; stateKey: string }> = [];
+    for (const cn of nodes) {
+      for (const inst of cn.instances) {
+        if (inst.status !== 'completed' || !inst.outputPath) continue;
+        completed.push({
+          ...(inst.itemId !== undefined ? { itemId: inst.itemId } : {}),
+          outputPath: inst.outputPath,
+          stateKey: inst.stateKey,
+        });
+      }
     }
-  }
-  if (completed.length === 0) return null;
-
-  // Order the candidates by the pick strategy, then return the FIRST
-  // whose artifact actually exists on disk. Skipping orphaned-but-
-  // -completed instances (canonical file moved aside by a failed
-  // re-render) is what keeps the tile from showing a dead path.
-  const ordered = orderByPick(completed, thumbnail.pick ?? 'first_completed', rng);
-  for (const c of ordered) {
-    if (await exists(c.outputPath)) return c.outputPath;
+    if (completed.length === 0) continue;
+    // Order by the pick strategy and return the FIRST whose artifact
+    // actually exists on disk (skipping orphaned-but-completed instances
+    // whose canonical file was moved aside by a failed re-render).
+    const ordered = orderByPick(completed, thumbnail.pick ?? 'first_completed', rng);
+    for (const c of ordered) {
+      if (await exists(c.outputPath)) return c.outputPath;
+    }
   }
   return null;
 }
@@ -196,18 +200,22 @@ export function thumbnailFromDisplay(
 ): string | null {
   const thumbnail = bundle?.display?.thumbnail;
   if (!thumbnail) return null;
-  const nodes = findByCapability(bundle, project, thumbnail.from);
-  if (nodes.length === 0) return null;
-  const completed: Array<{ outputPath: string; stateKey: string }> = [];
-  for (const cn of nodes) {
-    for (const inst of cn.instances) {
-      if (inst.status !== 'completed' || !inst.outputPath) continue;
-      completed.push({ outputPath: inst.outputPath, stateKey: inst.stateKey });
+  const caps = Array.isArray(thumbnail.from) ? thumbnail.from : [thumbnail.from];
+  for (const cap of caps) {
+    const nodes = findByCapability(bundle, project, cap);
+    if (nodes.length === 0) continue;
+    const completed: Array<{ outputPath: string; stateKey: string }> = [];
+    for (const cn of nodes) {
+      for (const inst of cn.instances) {
+        if (inst.status !== 'completed' || !inst.outputPath) continue;
+        completed.push({ outputPath: inst.outputPath, stateKey: inst.stateKey });
+      }
     }
+    if (completed.length === 0) continue;
+    const ordered = orderByPick(completed, thumbnail.pick ?? 'first_completed', rng ?? Math.random);
+    if (ordered[0]) return ordered[0].outputPath;
   }
-  if (completed.length === 0) return null;
-  const ordered = orderByPick(completed, thumbnail.pick ?? 'first_completed', rng ?? Math.random);
-  return ordered[0]?.outputPath ?? null;
+  return null;
 }
 
 // Re-export so callers can also do their own ad-hoc lookups against

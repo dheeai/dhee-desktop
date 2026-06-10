@@ -165,4 +165,30 @@ describe('resolveMediaSrc', () => {
     expect(resolveMediaSrc('', null)).toBe('');
     expect(resolveMediaSrc('   ', null)).toBe('');
   });
+
+  // Windows: a drive-letter project dir must yield file:///C:/… (drive in
+  // the PATH). The old builder produced file://C%3A/… (colon encoded,
+  // drive in the host) → every graph thumbnail showed "image missing on
+  // disk" while the detail view (different code path) worked.
+  it('19. Windows relative path under a drive-letter projectDirectory', () => {
+    const r = resolveMediaSrc(
+      'assets/images/shots/scene_2_shot_2.png',
+      'C:/Users/user/dhee-studios',
+    );
+    expect(r).toBe(
+      'file:///C:/Users/user/dhee-studios/assets/images/shots/scene_2_shot_2.png',
+    );
+    expect(r.startsWith('file://C')).toBe(false); // drive not in the host
+    expect(r).not.toContain('C%3A'); // colon not encoded
+  });
+
+  it('20. Windows absolute drive-letter path with spaces', () => {
+    const r = resolveMediaSrc('C:/Users/user/My Project/assets/a.png', null);
+    expect(r).toBe('file:///C:/Users/user/My%20Project/assets/a.png');
+  });
+
+  it('21. Windows backslash separators are normalized', () => {
+    const r = resolveMediaSrc('assets\\images\\a.png', 'C:\\Users\\user\\studio');
+    expect(r).toBe('file:///C:/Users/user/studio/assets/images/a.png');
+  });
 });

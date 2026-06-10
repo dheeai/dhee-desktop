@@ -1,0 +1,350 @@
+@import '../../styles/tokens';
+@import '../../styles/mixins';
+
+// FirstRunSetup — full-screen first-run flow in the Cinematic studio
+// language (warm-black film stock, Fraunces display, amber accents, grain
+// + vignette atmosphere) so onboarding feels like the same studio as the
+// landing and production views.
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  overflow: auto;
+  // Warm-black with a soft amber key-light from the top-left, echoing the
+  // landing container's atmosphere.
+  background:
+    radial-gradient(
+      90% 70% at 18% -10%,
+      rgba(var(--color-accent-primary-rgb), 0.1) 0%,
+      transparent 55%
+    ),
+    var(--color-bg-app);
+}
+
+// Film-grain + vignette atmosphere (mirrors the landing). Pointer-events
+// off; the frame sits above them.
+.grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  opacity: 0.04;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.vignette {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(
+    125% 120% at 50% 28%,
+    transparent 50%,
+    rgba(0, 0, 0, 0.45) 100%
+  );
+}
+
+.frame {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  max-width: 880px;
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text-primary);
+  padding: 0 24px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 24px 4px 16px;
+}
+
+.wordmark {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 21px;
+  letter-spacing: -0.01em;
+  color: var(--color-text-primary);
+}
+
+.kicker {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--color-accent-primary);
+  padding-left: 14px;
+  border-left: 1px solid var(--color-border-subtle);
+}
+
+.spacer {
+  flex: 1;
+}
+
+.skip {
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  color: var(--color-text-muted);
+  background: transparent;
+  border: 0;
+  padding: 6px 4px;
+  transition: color $transition-fast;
+
+  &:hover {
+    color: var(--color-text-secondary);
+  }
+}
+
+// Film-leader progress: a mono "01 / 04" counter + a thin amber-filled
+// track.
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 4px 4px 0;
+}
+.progressCount {
+  font-family: var(--font-mono, monospace);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  color: var(--color-accent-primary);
+  font-variant-numeric: tabular-nums;
+}
+.progressTotal {
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+.progressTrack {
+  flex: 1;
+  height: 2px;
+  background: var(--color-border-subtle);
+  overflow: hidden;
+
+  i {
+    display: block;
+    height: 100%;
+    background: linear-gradient(
+      90deg,
+      rgba(var(--color-accent-primary-rgb), 0.5),
+      var(--color-accent-primary)
+    );
+    transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+.body {
+  flex: 1;
+  padding: 44px 4px 36px;
+}
+
+.title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 44px;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+  color: var(--color-text-primary);
+}
+
+.lede {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--color-text-secondary);
+  margin: 0 0 34px;
+  max-width: 560px;
+}
+
+// Recipe cards — warm film-stock tiles, amber lift on hover, selected
+// state with an amber ring.
+.recipes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.recipe {
+  position: relative;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 20px;
+  border-radius: $radius-xl;
+  border: 1px solid var(--color-border-subtle);
+  background:
+    radial-gradient(
+      120% 80% at 0% 0%,
+      rgba(var(--color-accent-primary-rgb), 0.05),
+      transparent 60%
+    ),
+    var(--color-bg-panel-elevated);
+  transition:
+    border-color $transition-fast,
+    transform $transition-fast,
+    box-shadow $transition-fast;
+
+  &:hover {
+    border-color: rgba(var(--color-accent-primary-rgb), 0.5);
+    transform: translateY(-3px);
+    box-shadow: 0 22px 48px -28px #000;
+  }
+}
+.recipeSel {
+  border-color: var(--color-accent-primary);
+  box-shadow: 0 0 0 1px var(--color-accent-primary), 0 22px 48px -28px #000;
+}
+.recipeIcon {
+  color: var(--color-accent-primary);
+}
+.recipeTitle {
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--color-text-primary);
+}
+.recipeBlurb {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+  min-height: 50px;
+}
+.recipeEta {
+  font-family: var(--font-mono, monospace);
+  font-size: 10.5px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-accent-primary);
+  border-top: 1px solid var(--color-border-subtle);
+  padding-top: 12px;
+}
+
+// Config panel — warm elevated surface.
+.panel {
+  background: var(--color-bg-panel-elevated);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: $radius-xl;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 580px;
+}
+
+.modelSelect {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--color-text-primary);
+  background: var(--color-bg-panel-inset);
+  border: 1px solid var(--color-border-strong);
+  border-radius: $radius-lg;
+  padding: 10px 12px;
+  cursor: pointer;
+
+  &:focus {
+    outline: none;
+    border-color: var(--color-accent-primary);
+    box-shadow: var(--shadow-focus);
+  }
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.acct {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--color-bg-app);
+  background: var(--color-accent-primary);
+}
+
+.muted {
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+
+  code {
+    font-family: var(--font-mono, monospace);
+    font-size: 11px;
+    background: var(--color-bg-panel-inset);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: var(--color-accent-primary);
+  }
+}
+
+.probeOk {
+  font-family: var(--font-mono, monospace);
+  font-size: 12.5px;
+  color: var(--color-success);
+}
+.probeErr {
+  font-size: 12.5px;
+  color: var(--color-error);
+  line-height: 1.55;
+}
+
+// Pre-flight lane checks.
+.lightRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border-subtle);
+
+  &:last-child {
+    border-bottom: 0;
+  }
+}
+.dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+  flex: 0 0 auto;
+}
+.ready {
+  background: var(--color-success);
+  box-shadow: 0 0 10px var(--color-success);
+}
+.warning {
+  background: var(--color-warning);
+}
+.error {
+  background: var(--color-error);
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 4px 28px;
+  border-top: 1px solid var(--color-border-subtle);
+}

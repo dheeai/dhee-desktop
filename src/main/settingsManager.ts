@@ -17,13 +17,12 @@ import {
 
 const FIXED_COMFYUI_TIMEOUT_SECONDS = 1800;
 const LEGACY_LOCAL_COMFYUI_URL = 'http://localhost:8000';
-const DEFAULT_THEME_ID: ThemeId = 'studio-neutral';
-const DEFAULT_LM_STUDIO_URL = 'http://127.0.0.1:1234';
-const DEFAULT_LM_STUDIO_MODEL = 'qwen3';
+const DEFAULT_THEME_ID: ThemeId = 'cinematic';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o';
-const DEFAULT_OPENROUTER_MODEL = 'z-ai/glm-4.7-flash';
+/** Ships protected: $5 default paid-spend cap stamped into new projects. */
+const DEFAULT_BUDGET_CAP_USD = 5;
 
 const DEFAULT_TIER_CONFIG: LLMTierConfig = {
   provider: 'openai',
@@ -41,18 +40,15 @@ const defaults: AppSettings = {
   vlmBackend: 'local',
   comfyuiMode: 'inherit',
   comfyuiUrl: '',
+  singleGpuMode: false,
   comfyCloudApiKey: '',
   comfyuiTimeout: FIXED_COMFYUI_TIMEOUT_SECONDS,
-  llmProvider: 'lmstudio',
-  lmStudioUrl: DEFAULT_LM_STUDIO_URL,
-  lmStudioModel: DEFAULT_LM_STUDIO_MODEL,
+  llmProvider: 'openai',
   googleApiKey: '',
   geminiModel: DEFAULT_GEMINI_MODEL,
   openaiApiKey: '',
   openaiBaseUrl: DEFAULT_OPENAI_BASE_URL,
   openaiModel: DEFAULT_OPENAI_MODEL,
-  openRouterApiKey: '',
-  openRouterModel: DEFAULT_OPENROUTER_MODEL,
   themeId: DEFAULT_THEME_ID,
   piOversight: true,
   vlmJudge: true,
@@ -69,6 +65,7 @@ const defaults: AppSettings = {
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...DEFAULT_TIER_CONFIG },
   llmTierLight: { ...DEFAULT_TIER_CONFIG },
+  budgetCapUsd: DEFAULT_BUDGET_CAP_USD,
 };
 
 const store = new Store<AppSettings>({
@@ -101,8 +98,11 @@ function normalizeComfyUIUrl(value: unknown): string {
 }
 
 function normalizeThemeId(value: unknown): ThemeId {
+  // 'studio-neutral' was the legacy cool default; it's retired in favor
+  // of the official editorial 'cinematic' look, so a persisted
+  // 'studio-neutral' falls through to DEFAULT_THEME_ID (cinematic).
   if (
-    value === 'studio-neutral' ||
+    value === 'cinematic' ||
     value === 'deep-forest-gold' ||
     value === 'petroleum-clay' ||
     value === 'paper-light' ||
@@ -114,15 +114,9 @@ function normalizeThemeId(value: unknown): ThemeId {
 }
 
 function normalizeLLMProvider(value: unknown): LLMProvider {
-  switch (value) {
-    case 'gemini':
-    case 'openai':
-    case 'openrouter':
-    case 'lmstudio':
-      return value;
-    default:
-      return 'lmstudio';
-  }
+  // Unified to 'gemini' | 'openai' (OpenAI-compatible). Anything else
+  // (incl. legacy/garbage) is an OpenAI-compatible endpoint.
+  return value === 'gemini' ? 'gemini' : 'openai';
 }
 
 function normalizeTierConfig(value: unknown): LLMTierConfig {
@@ -172,14 +166,11 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
       ? 'cloud'
       : 'local';
   const comfyCloudApiKey = normalizeString(value?.comfyCloudApiKey);
+  const singleGpuMode =
+    (value as { singleGpuMode?: unknown } | null | undefined)?.singleGpuMode === true;
   const explicitMode = normalizeComfyUIMode(value?.comfyuiMode);
   const themeId = normalizeThemeId(value?.themeId);
   const llmProvider = normalizeLLMProvider(value?.llmProvider);
-  const lmStudioUrl = normalizeString(value?.lmStudioUrl, DEFAULT_LM_STUDIO_URL);
-  const lmStudioModel = normalizeString(
-    value?.lmStudioModel,
-    DEFAULT_LM_STUDIO_MODEL,
-  );
   const googleApiKey = normalizeString(value?.googleApiKey);
   const geminiModel = normalizeString(value?.geminiModel, DEFAULT_GEMINI_MODEL);
   const openaiApiKey = normalizeString(value?.openaiApiKey);
@@ -188,11 +179,6 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     DEFAULT_OPENAI_BASE_URL,
   );
   const openaiModel = normalizeString(value?.openaiModel, DEFAULT_OPENAI_MODEL);
-  const openRouterApiKey = normalizeString(value?.openRouterApiKey);
-  const openRouterModel = normalizeString(
-    value?.openRouterModel,
-    DEFAULT_OPENROUTER_MODEL,
-  );
   const projectDir = typeof value?.projectDir === 'string' && value.projectDir.trim().length > 0
     ? value.projectDir
     : undefined;
@@ -215,6 +201,16 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
       : true;
   const llmTierMedium = normalizeTierConfig(value?.llmTierMedium);
   const llmTierLight = normalizeTierConfig(value?.llmTierLight);
+
+  // Budget cap (USD) stamped into new projects. A finite number ≥ 0 is
+  // honored (0 = no cap); anything else (missing, negative, non-finite,
+  // non-number) falls back to the $5 default so a corrupt/legacy blob
+  // still ships protected.
+  const rawBudgetCap = (value as { budgetCapUsd?: unknown } | null | undefined)?.budgetCapUsd;
+  const budgetCapUsd =
+    typeof rawBudgetCap === 'number' && Number.isFinite(rawBudgetCap) && rawBudgetCap >= 0
+      ? rawBudgetCap
+      : DEFAULT_BUDGET_CAP_USD;
 
   // Backward compatibility:
   // - Missing mode + empty URL => inherit
@@ -251,19 +247,16 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     vlmBackend,
     comfyuiMode: normalizedMode,
     comfyuiUrl: normalizedMode === 'custom' ? comfyuiUrl : '',
+    singleGpuMode,
     comfyCloudApiKey,
     comfyEndpoints,
     comfyuiTimeout: FIXED_COMFYUI_TIMEOUT_SECONDS,
     llmProvider,
-    lmStudioUrl,
-    lmStudioModel,
     googleApiKey,
     geminiModel,
     openaiApiKey,
     openaiBaseUrl,
     openaiModel,
-    openRouterApiKey,
-    openRouterModel,
     themeId,
     piOversight,
     vlmJudge,
@@ -274,6 +267,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     llmUseSameForAllTiers,
     llmTierMedium,
     llmTierLight,
+    budgetCapUsd,
   };
 
   if (projectDir) {

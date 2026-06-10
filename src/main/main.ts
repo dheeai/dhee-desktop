@@ -1,5 +1,4 @@
 /* eslint global-require: off, no-console: off, promise/always-return: off */
-import './utils/bootstrapRemotionRuntime';
 
 /**
  * This module executes inside of electron's main process. You can start
@@ -61,7 +60,9 @@ import {
   completeOnboarding,
   getOnboardingState,
 } from './onboardingManager';
-import { runProviderDiagnostics } from './providerDiagnostics';
+import { runProviderDiagnostics, probeLlm, warmLlmModel } from './providerDiagnostics';
+import type { LlmProbeInput } from '../shared/providerDiagnosticsTypes';
+import { loadLocalLlmModelForSingleGpu } from './singleGpuCoordinator';
 import { AppSettings, getSettings, updateSettings } from './settingsManager';
 import {
   captureDesktopAuthStarted,
@@ -70,6 +71,7 @@ import {
   resetDesktopAnalyticsIdentity,
   startDesktopAnalytics,
   stopDesktopAnalytics,
+  syncCloudUsageAnalytics,
 } from './analytics';
 import {
   applyRuntimeAnalyticsConfig as applyRuntimeAnalyticsConfigFromFile,
@@ -77,21 +79,24 @@ import {
   type RuntimeConfigSource,
 } from './cloudRuntimeConfig';
 import fileSystemManager from './fileSystemManager';
-import { remotionManager } from './remotionManager';
-import { generateWordCaptions } from './services/wordCaptionService';
 import {
   defaultUserBundlesDir,
   installDheeBundleFromNpm,
 } from './services/npmBundleInstaller';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
-import type {
-  RemotionTimelineItem,
-  ParsedInfographicPlacement,
-  RemotionServerRenderRequest,
-  RemotionServerRenderResult,
-  RemotionServerRenderProgress,
-} from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
+import type {
+  EnrichedBundleFit,
+  ComfyProbeResult,
+  BundleResolution,
+  ResolvePatch,
+  BundleInstallSource,
+  BundleInstallResult,
+  ApiWorkflowValidation,
+  ParameterMapping,
+} from '../shared/bundleConfigTypes';
+import { buildProbeResult } from './comfyProbe';
+import { readFileSync as readFileSyncNode } from 'node:fs';
 import * as desktopLogger from './services/DesktopLogger';
 import { exportLogsZip, getLogsDirAbs } from './services/logsExport';
 import { exportChatJsonWithDialog } from './services/chatExportService';
@@ -99,7 +104,6 @@ import {
   generateCapcutProject,
   type ExportTimelineItem,
   type ExportOverlayItem,
-  type ExportTextOverlayCue,
   type ExportPromptOverlayCue,
 } from './exporters/capcutGenerator';
 import {
@@ -215,6 +219,29 @@ async function getCloudAuthRuntime(settings: AppSettings) {
     websiteUrl: await resolvedheeWebsiteUrl(),
     desktopToken: account.token,
   };
+}
+
+/**
+ * Identity for per-user cloud LLM usage analytics (issue #102). Present
+ * only when the LLM lane is cloud-billed — `llmBackend === 'cloud'` AND a
+ * valid cloud account is signed in. Local / BYO-key accounts return
+ * `cloudLlmBilled: false`, so their LLM usage is never forwarded. (Gated
+ * on the LLM lane specifically: if a user runs LLM locally but ComfyUI on
+ * cloud, their LLM tokens aren't cloud-billed, so we don't forward them.)
+ */
+function cloudLlmUsageIdentity(settings: AppSettings): {
+  cloudLlmBilled: boolean;
+  userId?: string;
+} {
+  const account = getAccount();
+  const billed =
+    settings.llmBackend === 'cloud' &&
+    !!account?.token &&
+    !!parseDesktopAuthToken(account.token) &&
+    !!account.userId;
+  return billed && account
+    ? { cloudLlmBilled: true, userId: account.userId }
+    : { cloudLlmBilled: false };
 }
 
 function broadcastAccountChanged(): void {
@@ -368,6 +395,9 @@ ipcMain.handle(
         updated,
         await getCloudAuthRuntime(updated),
       );
+      // Backend may have toggled cloud↔local — re-sync cloud usage
+      // analytics so it follows the LLM lane.
+      syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(updated));
       if (mainWindow) {
         registerdheeIpcBridge(dheeCoreManager, mainWindow);
       }
@@ -408,6 +438,36 @@ ipcMain.handle(
 ipcMain.handle('provider-diagnostics:run', async () => {
   return runProviderDiagnostics(getSettings(), getAccount());
 });
+
+ipcMain.handle(
+  'provider-diagnostics:probe-llm',
+  async (_event, input: LlmProbeInput) => {
+    // Fall back to the saved base URL when the form didn't supply one.
+    const settings = getSettings();
+    return probeLlm({
+      ...input,
+      baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
+    });
+  },
+);
+
+ipcMain.handle(
+  'provider-diagnostics:warm-llm-model',
+  async (_event, input: LlmProbeInput) => {
+    const settings = getSettings();
+    if (settings.singleGpuMode === true && input.model?.trim()) {
+      return loadLocalLlmModelForSingleGpu(settings, {
+        model: input.model,
+        baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
+        apiKey: input.apiKey ?? settings.openaiApiKey,
+      });
+    }
+    return warmLlmModel({
+      ...input,
+      baseUrl: input.baseUrl ?? settings.openaiBaseUrl,
+    });
+  },
+);
 
 // Project / File System IPC handlers
 // New-Project default-workspace handler.
@@ -637,29 +697,6 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
-  'project:generate-word-captions',
-  async (
-    _event,
-    projectDirectory: string,
-    audioPath?: string,
-  ): Promise<{
-    success: boolean;
-    outputPath?: string;
-    words?: unknown[];
-    error?: string;
-  }> => {
-    const result = await generateWordCaptions(projectDirectory, audioPath);
-    if (result.success && result.outputPath) {
-      fileSystemManager.emit('file-change', {
-        type: 'change',
-        path: result.outputPath,
-      });
-    }
-    return result;
-  },
-);
-
-ipcMain.handle(
   'project:read-tree',
   async (_event, dirPath: string, depth?: number) => {
     // Small TTL cache + in-flight de-dupe to reduce IPC churn.
@@ -720,15 +757,6 @@ ipcMain.handle(
   'project:watch-image-placements',
   async (_event, imagePlacementsDir: string) => {
     await fileSystemManager.watchImagePlacements(imagePlacementsDir);
-  },
-);
-
-ipcMain.handle(
-  'project:watch-infographic-placements',
-  async (_event, infographicPlacementsDir: string) => {
-    await fileSystemManager.watchInfographicPlacements(
-      infographicPlacementsDir,
-    );
   },
 );
 
@@ -1553,6 +1581,7 @@ type ProjectInitModule = {
     bundleSource?: string;
     description?: string;
     inputs?: Record<string, unknown>;
+    budgetCapUsd?: number;
   }) =>
     | { ok: true; projectDir: string }
     | { ok: false; error: string };
@@ -1638,10 +1667,225 @@ ipcMain.handle(
       // dheeCoreManager.ts's `loadDagModule`.
       const dagModulePath = 'dhee-core/dag';
       const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
-      return mod.initializeProject(payload);
+      // Stamp the global budget cap into the new project's
+      // features.budgetCapUsd (#1). The renderer doesn't supply it — the
+      // main process owns the global default from Settings so every new
+      // project ships protected. A `0` setting means "no cap": pass
+      // undefined so initializeProject leaves the project uncapped.
+      const cap = getSettings().budgetCapUsd;
+      const enriched =
+        typeof cap === 'number' && cap > 0 ? { ...payload, budgetCapUsd: cap } : payload;
+      return mod.initializeProject(enriched);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, error: message };
+    }
+  },
+);
+
+/**
+ * Bundle Configurator IPC (issue: first-run setup + bundle config).
+ *
+ * comfy:probe   — is this ComfyUI reachable, and what's on it (GPU/VRAM,
+ *                 model count, node-class count)? Read-only; never
+ *                 restarts the embedded engine.
+ * bundle:check  — for a bundle + endpoint, what models / custom nodes
+ *                 are missing? Wraps dhee-core checkBundle + enriches
+ *                 with the bundle's requirements manifest. Read-only.
+ *
+ * Both mirror the bundle:list dynamic-import pattern (dhee-core ships
+ * dist without .d.ts, so the module is imported through a path variable
+ * and cast to a hand-declared shape).
+ */
+type BundleCheckModule = {
+  parseBundleSource: (uri: string) => unknown;
+  resolveBundleDir: (source: unknown) => string;
+  checkBundle: (opts: {
+    bundleDir: string;
+    endpoint: string;
+    aliasesDir?: string;
+    fetchObjectInfo: (url: string) => Promise<Record<string, unknown>>;
+  }) => Promise<EnrichedBundleFit>;
+  loadBundleRequirements: (bundleDir: string) => unknown;
+  enrichBundleFit: (fit: unknown, req: unknown) => EnrichedBundleFit;
+  writeAliases: (aliasesDir: string, endpoint: string, patch: ResolvePatch) => void;
+  readBundleResolution: (aliasesDir: string, endpoint: string, bundleId: string) => BundleResolution | null;
+  writeBundleResolution: (aliasesDir: string, resolution: BundleResolution) => void;
+  installBundle: (source: BundleInstallSource, opts?: { force?: boolean }) => Promise<BundleInstallResult>;
+  validateApiWorkflow: (json: unknown) => ApiWorkflowValidation;
+  suggestParameterMappings: (workflow: unknown) => ParameterMapping[];
+};
+
+/** The alias/resolution store the agent's dhee_apply_workflow_aliases tool also uses. */
+function workflowAliasesDir(): string {
+  const env = process.env['DHEE_WORKFLOW_ALIASES_DIR']?.trim();
+  const dir = env && env.length > 0 ? env : path.join(app.getPath('home'), '.dhee', 'workflow-aliases');
+  // Pin the resolved dir into the env so the in-process dhee-core runners read
+  // exactly where the UI/agent write. Without this, the runners fell back to
+  // their own home resolution — and on Windows `process.env.HOME` is unset, so
+  // the runner looked in a cwd-relative folder while the UI saved under
+  // C:\Users\<user>\.dhee\workflow-aliases, silently dropping model aliases.
+  if (!env) process.env['DHEE_WORKFLOW_ALIASES_DIR'] = dir;
+  return dir;
+}
+
+function readBundleVersion(bundleDir: string): string {
+  try {
+    const raw = readFileSyncNode(path.join(bundleDir, 'bundle.json'), 'utf8');
+    const v = (JSON.parse(raw) as { version?: string }).version;
+    return typeof v === 'string' ? v : '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
+async function fetchJsonWithTimeout(url: string, timeoutMs: number): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    if (!resp.ok) throw new Error(`${url} returned ${resp.status}`);
+    return (await resp.json()) as Record<string, unknown>;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+ipcMain.handle(
+  'comfy:probe',
+  async (_event, payload: { url: string }): Promise<ComfyProbeResult> => {
+    const base = (payload?.url ?? '').trim().replace(/\/$/, '');
+    if (!base) return { ok: false, error: 'No ComfyUI URL provided' };
+    try {
+      const stats = await fetchJsonWithTimeout(`${base}/system_stats`, 3500);
+      const info = await fetchJsonWithTimeout(`${base}/object_info`, 8000);
+      return buildProbeResult(stats, info);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:check',
+  async (
+    _event,
+    payload: { bundleId: string; endpoint: string },
+  ): Promise<EnrichedBundleFit | { error: string }> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      // built-in: and user: both resolve through the same search chain,
+      // so built-in:<id> finds community-installed bundles too.
+      const source = mod.parseBundleSource(`built-in:${payload.bundleId}`);
+      const resolved = mod.resolveBundleDir(source);
+      // resolveBundleDir may return a single-file (legacy) bundle; the
+      // dir is its parent in that case.
+      const bundleDir = resolved.endsWith('.json') ? path.dirname(resolved) : resolved;
+      const aliasesDir = workflowAliasesDir();
+      const fit = await mod.checkBundle({
+        bundleDir,
+        endpoint: payload.endpoint,
+        aliasesDir,
+        fetchObjectInfo: (url: string) => fetchJsonWithTimeout(`${url.replace(/\/$/, '')}/object_info`, 8000),
+      });
+      const requirements = mod.loadBundleRequirements(bundleDir);
+      const enriched = mod.enrichBundleFit(fit, requirements);
+      // Cache the verdict so the picker can badge "configured" without
+      // re-probing. Reachable results only (don't cache transient down).
+      if (enriched.status !== 'unreachable') {
+        mod.writeBundleResolution(aliasesDir, {
+          bundleId: payload.bundleId,
+          bundleVersion: readBundleVersion(bundleDir),
+          endpoint: payload.endpoint,
+          status: enriched.status,
+          modelsMissing: enriched.modelsMissing,
+          nodesMissing: enriched.nodesMissing,
+          resolvedAt: Date.now(),
+        });
+      }
+      return enriched;
+    } catch (err) {
+      return { error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:resolve',
+  async (
+    _event,
+    payload: { endpoint: string; patch: ResolvePatch },
+  ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      mod.writeAliases(workflowAliasesDir(), payload.endpoint, payload.patch);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:resolution',
+  async (
+    _event,
+    payload: { bundleId: string; endpoint: string },
+  ): Promise<BundleResolution | null> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      return mod.readBundleResolution(workflowAliasesDir(), payload.endpoint, payload.bundleId);
+    } catch {
+      return null;
+    }
+  },
+);
+
+ipcMain.handle(
+  'bundle:install',
+  async (_event, payload: { source: BundleInstallSource }): Promise<BundleInstallResult> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      return await mod.installBundle(payload.source);
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  },
+);
+
+ipcMain.handle(
+  'workflow:validate',
+  async (_event, payload: { json: string }): Promise<ApiWorkflowValidation> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(payload.json);
+      } catch {
+        return { ok: false, reason: 'invalid' };
+      }
+      return mod.validateApiWorkflow(parsed);
+    } catch {
+      return { ok: false, reason: 'invalid' };
+    }
+  },
+);
+
+ipcMain.handle(
+  'workflow:suggest-map',
+  async (_event, payload: { json: string }): Promise<ParameterMapping[]> => {
+    try {
+      const dagModulePath = 'dhee-core/dag';
+      const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as BundleCheckModule;
+      const parsed = JSON.parse(payload.json);
+      return mod.suggestParameterMappings(parsed);
+    } catch {
+      return [];
     }
   },
 );
@@ -1879,7 +2123,6 @@ ipcMain.handle(
     projectDirectory: string,
     audioPath?: string,
     overlayItems?: ExportOverlayItem[],
-    textOverlayCues?: ExportTextOverlayCue[],
     promptOverlayCues?: ExportPromptOverlayCue[],
   ): Promise<{
     success: boolean;
@@ -1897,7 +2140,7 @@ ipcMain.handle(
         projectDirectory,
         audioPath,
         overlayItems,
-        textOverlayCues,
+        undefined,
         promptOverlayCues,
       );
 
@@ -1949,22 +2192,6 @@ interface OverlayItem {
   endTime: number;
 }
 
-interface TextOverlayWord {
-  text: string;
-  startTime: number;
-  endTime: number;
-  charStart: number;
-  charEnd: number;
-}
-
-interface TextOverlayCue {
-  id: string;
-  startTime: number;
-  endTime: number;
-  text: string;
-  words: TextOverlayWord[];
-}
-
 interface RenderResolution {
   width: number;
   height: number;
@@ -1986,44 +2213,6 @@ const SYSTEM_FONT_CANDIDATES =
           '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
           '/usr/share/fonts/dejavu/DejaVuSans.ttf',
         ];
-
-function formatAssTimestamp(seconds: number): string {
-  const totalCentiseconds = Math.max(0, Math.round(seconds * 100));
-  const centiseconds = totalCentiseconds % 100;
-  const totalSeconds = Math.floor(totalCentiseconds / 100);
-  const secs = totalSeconds % 60;
-  const totalMinutes = Math.floor(totalSeconds / 60);
-  const mins = totalMinutes % 60;
-  const hours = Math.floor(totalMinutes / 60);
-  return `${hours}:${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(centiseconds).padStart(2, '0')}`;
-}
-
-function escapeAssText(input: string): string {
-  return input
-    .replace(/\\/g, '\\\\')
-    .replace(/{/g, '(')
-    .replace(/}/g, ')')
-    .replace(/\r?\n/g, ' ')
-    .trim();
-}
-
-function buildAssDialogueText(cue: TextOverlayCue): string {
-  if (cue.words.length === 0) {
-    return escapeAssText(cue.text);
-  }
-
-  const segments: string[] = [];
-  cue.words.forEach((word, index) => {
-    const safeText = escapeAssText(word.text);
-    const durationCentiseconds = Math.max(
-      1,
-      Math.round((word.endTime - word.startTime) * 100),
-    );
-    const suffix = index < cue.words.length - 1 ? ' ' : '';
-    segments.push(`{\\k${durationCentiseconds}}${safeText}${suffix}`);
-  });
-  return segments.join('');
-}
 
 async function findAvailableSystemFont(): Promise<string | null> {
   for (const candidate of SYSTEM_FONT_CANDIDATES) {
@@ -2141,42 +2330,6 @@ async function getProjectRenderResolution(
   }
 
   return fallback;
-}
-
-function buildAssFromTextOverlayCues(
-  cues: TextOverlayCue[],
-  resolution: RenderResolution = { width: 1920, height: 1080 },
-): string {
-  const header = [
-    '[Script Info]',
-    'ScriptType: v4.00+',
-    `PlayResX: ${resolution.width}`,
-    `PlayResY: ${resolution.height}`,
-    'WrapStyle: 2',
-    'ScaledBorderAndShadow: yes',
-    '',
-    '[V4+ Styles]',
-    'Format: Name,Fontname,Fontsize,PrimaryColour,SecondaryColour,OutlineColour,BackColour,Bold,Italic,Underline,StrikeOut,ScaleX,ScaleY,Spacing,Angle,BorderStyle,Outline,Shadow,Alignment,MarginL,MarginR,MarginV,Encoding',
-    'Style: WordSync,Arial,42,&H00FFFFFF,&H00FFD700,&H00000000,&HA0000000,1,0,0,0,100,100,0,0,3,2,0,2,80,80,60,1',
-    '',
-    '[Events]',
-    'Format: Layer,Start,End,Style,Name,MarginL,MarginR,MarginV,Effect,Text',
-  ];
-
-  const events = cues
-    .filter(
-      (cue) => Number.isFinite(cue.startTime) && Number.isFinite(cue.endTime),
-    )
-    .filter((cue) => cue.endTime > cue.startTime)
-    .sort((a, b) => a.startTime - b.startTime)
-    .map((cue) => {
-      const start = formatAssTimestamp(cue.startTime);
-      const end = formatAssTimestamp(cue.endTime);
-      const text = buildAssDialogueText(cue);
-      return `Dialogue: 0,${start},${end},WordSync,,0,0,0,,${text}`;
-    });
-
-  return [...header, ...events, ''].join('\n');
 }
 
 async function burnWordCaptionsIntoVideo(
@@ -2357,7 +2510,6 @@ ipcMain.handle(
     projectDirectory: string,
     audioPath?: string,
     overlayItems?: OverlayItem[],
-    textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
     exportOptions?: ExportRenderOptions,
   ): Promise<{
@@ -3062,36 +3214,6 @@ ipcMain.handle(
 
       let finalOutputPath = overlayedOutputPath;
 
-      if (textOverlayCues && textOverlayCues.length > 0) {
-        const assPath = path.join(tempDir, 'word-captions.ass');
-        const captionedOutputPath = path.join(
-          tempDir,
-          'composed-video-captions.mp4',
-        );
-        const assContent = buildAssFromTextOverlayCues(
-          textOverlayCues,
-          renderResolution,
-        );
-        await fs.writeFile(assPath, assContent, 'utf-8');
-        cleanupFiles.push(assPath);
-
-        try {
-          await burnWordCaptionsIntoVideo(
-            overlayedOutputPath,
-            assPath,
-            captionedOutputPath,
-          );
-          cleanupFiles.push(captionedOutputPath);
-          finalOutputPath = captionedOutputPath;
-        } catch (error) {
-          console.warn(
-            `[VideoComposition] Word caption burn failed, proceeding without captions: ${
-              error instanceof Error ? error.message : 'Unknown error'
-            }`,
-          );
-        }
-      }
-
       const watermarkedOutputPath = path.join(
         tempDir,
         'composed-video-watermarked.mp4',
@@ -3163,62 +3285,6 @@ fileSystemManager.on('file-change', (event: FileChangeEvent) => {
       path: normalizedPath,
       at: Date.now(),
     });
-  }
-});
-
-// Remotion IPC handlers
-ipcMain.handle(
-  'remotion:render-infographics',
-  async (
-    _event,
-    projectDirectory: string,
-    timelineItems: RemotionTimelineItem[],
-    infographicPlacements: ParsedInfographicPlacement[],
-  ) => {
-    return remotionManager.startRender(
-      projectDirectory,
-      timelineItems,
-      infographicPlacements,
-    );
-  },
-);
-
-ipcMain.handle('remotion:cancel-job', async (_event, jobId: string) => {
-  remotionManager.cancelJob(jobId);
-});
-
-ipcMain.handle('remotion:get-job', async (_event, jobId: string) => {
-  return remotionManager.getJob(jobId);
-});
-
-ipcMain.handle(
-  'remotion:render-from-server-request',
-  async (
-    _event,
-    projectDirectory: string,
-    request: RemotionServerRenderRequest,
-  ): Promise<RemotionServerRenderResult> => {
-    return remotionManager.renderFromServerRequest(
-      projectDirectory,
-      request,
-      (progress: RemotionServerRenderProgress) => {
-        if (mainWindow) {
-          mainWindow.webContents.send('remotion:server-progress', progress);
-        }
-      },
-    );
-  },
-);
-
-remotionManager.on('progress', (progress) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('remotion:progress', progress);
-  }
-});
-
-remotionManager.on('job-complete', (job) => {
-  if (mainWindow) {
-    mainWindow.webContents.send('remotion:job-complete', job);
   }
 });
 
@@ -3683,6 +3749,9 @@ const bootstrapBackend = async () => {
       manager: dheeCoreManager,
       account: getAccount(),
     });
+    // Forward per-user LLM usage to PostHog when this launch is a
+    // cloud-billed account; no-op (and tears down) for local accounts.
+    syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(getSettings()));
     if (mainWindow) {
       registerdheeIpcBridge(dheeCoreManager, mainWindow);
       log.info('[EmbeddedDhee] IPC bridge registered');
@@ -3742,6 +3811,9 @@ async function restartEmbeddedAfterAccountChange(
       settings,
       await getCloudAuthRuntime(settings),
     );
+    // Account changed (sign-in / sign-out) — re-sync cloud usage analytics
+    // to the new account + backend.
+    syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(settings));
     if (mainWindow) {
       registerdheeIpcBridge(dheeCoreManager, mainWindow);
     }
@@ -3989,11 +4061,6 @@ app
   .then(async () => {
     // Initialize logger for this session
     desktopLogger.initUILog();
-
-    // Clean up stale Remotion temp jobs from previous sessions
-    remotionManager.cleanupOnStartup().catch((err) => {
-      log.warn('[RemotionManager] Startup cleanup error:', err);
-    });
 
     // Create window first so UI appears immediately
     await createWindow();

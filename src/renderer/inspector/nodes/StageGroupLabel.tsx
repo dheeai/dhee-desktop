@@ -17,7 +17,7 @@ export function StageGroupLabel({ data }: { data: StageGroupLabelData }) {
       style={{
         width: data.width,
         height: data.height,
-        background: 'rgba(95, 136, 178, 0.04)',
+        background: 'rgba(var(--color-accent-primary-rgb), 0.04)',
         border: '1px dashed rgba(168, 156, 139, 0.16)',
         borderRadius: 14,
         pointerEvents: 'none',

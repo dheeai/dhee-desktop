@@ -31,11 +31,13 @@ jest.mock('../../../contexts/WorkspaceContext', () => ({
 // saveConnectionSettings stub records writes so the toggle-click
 // tests can assert on them.
 let mockSavedConnectionSettings: Array<Record<string, unknown>> = [];
+let mockSingleGpuMode = false;
 jest.mock('../../../contexts/AppSettingsContext', () => ({
   useAppSettings: () => ({
     settings: {
       piOversight: true,
       vlmJudge: true,
+      singleGpuMode: mockSingleGpuMode,
     },
     saveConnectionSettings: jest.fn(async (patch: Record<string, unknown>) => {
       mockSavedConnectionSettings.push(patch);
@@ -121,6 +123,7 @@ function publishEvent(eventName: dheeEventName, data: unknown): void {
 beforeEach(() => {
   mockWorkspaceProjectName = null;
   mockSavedConnectionSettings = [];
+  mockSingleGpuMode = false;
   mockState = {
     runTaskCalls: [],
     chatPromptCalls: [],
@@ -445,6 +448,36 @@ describe('ChatPanelEmbedded', () => {
     expect(mockState.cancelCalls).toHaveLength(0);
   });
 
+  it('single GPU mode pauses chat while a local ComfyUI render is active', async () => {
+    mockSingleGpuMode = true;
+    (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
+      jest.fn(async () => ({
+        active: true,
+        projectName: 'p',
+        currentResource: {
+          kind: 'local_comfy',
+          tool: 'comfy.tti',
+          nodeId: 'shot_image',
+          startedAt: Date.now(),
+        },
+      }));
+
+    renderPanel();
+    await waitFor(() =>
+      expect(screen.getByText(/Single GPU mode: chat is paused/i)).toBeInTheDocument(),
+    );
+    const input = screen.getByRole('textbox') as HTMLTextAreaElement;
+    expect(input).toBeDisabled();
+
+    fireEvent.change(input, { target: { value: 'how many shots are there?' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    expect(mockState.chatPromptCalls).toHaveLength(0);
+    expect(mockState.cancelCalls).toHaveLength(0);
+  });
+
   it('typing while the AGENT is mid-turn DOES cancel that turn (interject), preserving the old contract', async () => {
     let resolveFirst: () => void = () => {};
     const firstFinished = new Promise<void>((resolve) => {
@@ -497,7 +530,9 @@ describe('ChatPanelEmbedded', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/dhee_run_to/i)).toBeInTheDocument();
+      // The raw dhee_* name is no longer surfaced (issue #161) — the card
+      // shows a humanized title instead.
+      expect(screen.getByText('Run to')).toBeInTheDocument();
     });
   });
 
@@ -1006,14 +1041,12 @@ describe('ChatPanelEmbedded', () => {
       });
     });
 
-    // Polished tool card: status is carried by data-status on both
-    // the card wrapper and the leading dot (the dot pulses while
-    // running). Assert the data attribute, not legacy glyph text —
-    // the visual is a styled dot, not a unicode character.
+    // First-class ToolCard: status is carried by data-status on the card
+    // wrapper; the title is humanized (no raw dhee_* name surfaced).
     await waitFor(() => {
-      const card = container.querySelector('[class*="toolCard"]');
+      const card = container.querySelector('[data-archetype]');
       expect(card?.getAttribute('data-status')).toBe('in_progress');
-      expect(card?.textContent).toContain('dhee_list_items');
+      expect(card?.textContent).toContain('List items');
     });
 
     act(() => {
@@ -1026,7 +1059,7 @@ describe('ChatPanelEmbedded', () => {
     });
 
     await waitFor(() => {
-      const card = container.querySelector('[class*="toolCard"]');
+      const card = container.querySelector('[data-archetype]');
       expect(card?.getAttribute('data-status')).toBe('completed');
     });
   });
@@ -1122,8 +1155,9 @@ describe('ChatPanelEmbedded', () => {
 
     await new Promise((r) => setTimeout(r, 0));
 
-    // The bash tool card itself appears (compact one-liner).
-    expect(container.textContent).toContain('bash');
+    // The bash tool card itself appears (humanized title — the raw tool
+    // name is no longer surfaced).
+    expect(container.textContent).toContain('Bash');
     // But NO progress rows — the bash output is dropped.
     expect(
       container.querySelectorAll('[aria-label="Run progress"]').length,
@@ -1276,7 +1310,7 @@ describe('ChatPanelEmbedded', () => {
   // parallel. Resume/Stop in the header target the background
   // session; the inline send button stays Send-only.
 
-  it('clicking Resume drives the pi-agent via chatPrompt (Phase 6.5c.c) — agent then calls dhee_run_bundle which dispatches via BackgroundTaskRunner', async () => {
+  it('clicking Resume drives the pi-agent via chatPrompt — agent then calls dhee_start_run which dispatches via BackgroundTaskRunner', async () => {
     // Architecture: dhee_run_to was previously dispatched on a
     // dedicated bg session; now dhee-core's runner singleton
     // handles detached execution, so the chat panel can fire from
@@ -1315,16 +1349,15 @@ describe('ChatPanelEmbedded', () => {
       fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
     });
 
-    // Phase 6.5c.c: Resume routes through chatPrompt instead of
-    // runTask, so the pi-agent owns bundle dispatch. The agent
-    // (post-Phase-6.5c.c) calls dhee_run_bundle which goes via
-    // BackgroundTaskRunner — but at this layer we only assert that
-    // the chatPrompt message names dhee_run_bundle so the agent
-    // knows which tool to invoke.
+    // Resume routes through chatPrompt instead of runTask, so the
+    // pi-agent owns bundle dispatch. The agent calls dhee_start_run
+    // (non-blocking) which goes via BackgroundTaskRunner — but at this
+    // layer we only assert that the chatPrompt message names
+    // dhee_start_run so the agent knows which tool to invoke.
     expect(mockState.chatPromptCalls.length).toBeGreaterThanOrEqual(1);
     const last = mockState.chatPromptCalls[mockState.chatPromptCalls.length - 1];
     expect(last?.sessionId).toBe('s-1');
-    expect(last?.message).toMatch(/dhee_run_bundle/);
+    expect(last?.message).toMatch(/dhee_start_run/);
   });
 
   it('clicking Resume kicks off a dhee_run_to task, then Stop appears once runnerStatus reports active', async () => {
@@ -1680,6 +1713,83 @@ describe('ChatPanelEmbedded', () => {
       expect(
         screen.getByText('Sure — kicking off scene 1.'),
       ).toBeInTheDocument();
+    });
+  });
+
+  // ── dhee_ask_question picker (production content shape) ──────────
+  // The main process flattens the pi tool result's `content` array to a
+  // plain STRING before forwarding (dheeCoreManager tool_execution_end
+  // mapping). A picker parser that only accepts the array shape silently
+  // skips — the field bug where the agent's question rendered as a plain
+  // tool card with no clickable options. These pin the string shape
+  // end-to-end (and keep the legacy array shape working).
+  describe('dhee_ask_question renders a clickable picker', () => {
+    const QUESTION_PAYLOAD = {
+      kind: 'question_choices',
+      question: 'Add Chitra the leopard?',
+      options: [
+        { id: 'yes', label: 'Yes, add Chitra', description: 'Regenerate everything' },
+        { id: 'skip', label: 'Skip for now' },
+      ],
+      multiSelect: false,
+      _agentDirective: 'QUESTION POSTED. END YOUR TURN NOW.',
+    };
+
+    async function mountAndAskQuestion(content: unknown) {
+      renderPanel();
+      await waitFor(() => screen.getByRole('textbox'));
+      await waitFor(() => {
+        expect(mockState.listeners.some((l) => l.active)).toBe(true);
+      });
+      act(() => {
+        publishEvent('tool_call', {
+          toolCallId: 'tc-ask',
+          toolName: 'dhee_ask_question',
+          arguments: { question: 'Add Chitra the leopard?' },
+          status: 'in_progress',
+        });
+        publishEvent('tool_result', {
+          toolCallId: 'tc-ask',
+          toolName: 'dhee_ask_question',
+          isError: false,
+          result: { content },
+        });
+      });
+    }
+
+    it('renders the question + option buttons when content is a STRING (real production shape)', async () => {
+      await mountAndAskQuestion(JSON.stringify(QUESTION_PAYLOAD));
+      await waitFor(() => {
+        expect(screen.getByText('Add Chitra the leopard?')).toBeInTheDocument();
+      });
+      expect(
+        screen.getByRole('button', { name: /Yes, add Chitra/i }),
+      ).toBeInTheDocument();
+      expect(
+        screen.getByRole('button', { name: /Skip for now/i }),
+      ).toBeInTheDocument();
+    });
+
+    it('still renders the picker when content is the legacy ARRAY shape (back-compat)', async () => {
+      await mountAndAskQuestion([{ type: 'text', text: JSON.stringify(QUESTION_PAYLOAD) }]);
+      await waitFor(() => {
+        expect(
+          screen.getByRole('button', { name: /Yes, add Chitra/i }),
+        ).toBeInTheDocument();
+      });
+    });
+
+    it('clicking a single-select option submits its label via chatPrompt', async () => {
+      await mountAndAskQuestion(JSON.stringify(QUESTION_PAYLOAD));
+      const yesBtn = await screen.findByRole('button', { name: /Yes, add Chitra/i });
+      await act(async () => {
+        fireEvent.click(yesBtn);
+      });
+      await waitFor(() => {
+        expect(
+          mockState.chatPromptCalls.some((c) => /Yes, add Chitra/i.test(c.message)),
+        ).toBe(true);
+      });
     });
   });
 });

@@ -10,6 +10,8 @@ import {
   FolderOpen as _FolderOpen,
   Plus as _Plus,
   Settings as _Settings,
+  Pencil as _Pencil,
+  Trash2 as _Trash2,
 } from 'lucide-react';
 import dheeLogoUrl from '../../../../../assets/icon.svg';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
@@ -21,13 +23,14 @@ import {
   useOptionalFirstRunTour,
   type FirstRunTourLandingAction,
 } from '../../../contexts/FirstRunTourContext';
+import { useFirstRunSetup } from '../../../contexts/FirstRunSetupContext';
 import SettingsPanel from '../../SettingsPanel';
 import type { LandingProjectCard } from '../ProjectCard/ProjectCard';
 import NewProjectScreen from '../NewProjectScreen/NewProjectScreen';
 import ProjectCard from '../ProjectCard/ProjectCard';
 import DeleteProjectDialog from '../ProjectActionDialog/DeleteProjectDialog';
 import RenameProjectDialog from '../ProjectActionDialog/RenameProjectDialog';
-import { getProjectNameFromPath, sortRecentProjects } from '../projectDisplay';
+import { getProjectNameFromPath, sortRecentProjects, toFileUrl } from '../projectDisplay';
 import styles from './LandingScreen.module.scss';
 import type { BackendProjectFile } from '../../../services/project/backendProjectAdapter';
 import {
@@ -43,12 +46,15 @@ import { getBackendConfigStatus } from './backendConfigStatus';
 import { BackendNotReadyBanner } from './BackendNotReadyBanner';
 import type { RecentProject } from '../../../../shared/fileSystemTypes';
 import type { AccountInfo } from '../../../../shared/settingsTypes';
+import type { ProviderDiagnosticsSnapshot } from '../../../../shared/providerDiagnosticsTypes';
 
 type LucideFC = FC<SVGProps<SVGSVGElement> & { size?: number | string }>;
 
 const FolderOpen = _FolderOpen as unknown as LucideFC;
 const Plus = _Plus as unknown as LucideFC;
 const Settings = _Settings as unknown as LucideFC;
+const Pencil = _Pencil as unknown as LucideFC;
+const Trash2 = _Trash2 as unknown as LucideFC;
 
 const THUMBNAIL_CANDIDATES = [
   '.dhee/ui/thumbnail.jpg',
@@ -114,39 +120,40 @@ function getAmbientStatus(
   return null;
 }
 
-interface LaneBadge {
-  /** Short label rendered in the pill — keep ≤6 chars to fit the sidebar. */
-  label: string;
-  /** Class name for the pill. */
-  className: string;
+// Live reachability of a lane, derived from the provider-diagnostics
+// poll. `checking` = no result yet; `off` = lane intentionally disabled
+// (e.g. VLM judge turned off) → calm grey, not an alarming red.
+type LaneHealth = 'reachable' | 'unreachable' | 'off' | 'checking';
+
+function laneHealth(
+  diag: ProviderDiagnosticsSnapshot | null,
+  id: 'llm' | 'comfyui' | 'vlm',
+): LaneHealth {
+  if (!diag) return 'checking';
+  const item = diag.items.find((i) => i.id === id);
+  if (!item) return 'checking';
+  if (item.status === 'ready') return 'reachable';
+  if (item.status === 'unknown') return 'off';
+  // 'warning' (configured but unverified / needs sign-in) and 'error'
+  // both mean "not currently reachable" → blinking red.
+  return 'unreachable';
 }
 
-function getLaneBadges(
-  llmBackend: string | undefined,
-  comfyBackend: string | undefined,
-  vlmBackend: string | undefined,
-  account: AccountInfo | null,
+function laneHealthDotClass(
+  health: LaneHealth,
   classes: Record<string, string>,
-): { llm: LaneBadge; comfy: LaneBadge; vlm: LaneBadge } {
-  // Cloud only counts as cloud when the user is signed in. A persisted
-  // 'cloud' value with no account is effectively local at runtime.
-  const llmIsCloud = llmBackend === 'cloud' && !!account;
-  const comfyIsCloud = comfyBackend === 'cloud' && !!account;
-  const vlmIsCloud = vlmBackend === 'cloud' && !!account;
-  return {
-    llm: {
-      label: llmIsCloud ? 'LLM ☁' : 'LLM 🖥',
-      className: llmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
-    },
-    comfy: {
-      label: comfyIsCloud ? 'Comfy ☁' : 'Comfy 🖥',
-      className: comfyIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
-    },
-    vlm: {
-      label: vlmIsCloud ? 'VLM ☁' : 'VLM 🖥',
-      className: vlmIsCloud ? classes.modeBadgeCloud : classes.modeBadgeLocal,
-    },
-  };
+): string {
+  switch (health) {
+    case 'reachable':
+      return classes.statusDotReachable;
+    case 'unreachable':
+      return classes.statusDotUnreachable;
+    case 'off':
+      return classes.statusDotLocal;
+    case 'checking':
+    default:
+      return classes.statusDotChecking;
+  }
 }
 
 function joinPath(basePath: string, segment: string): string {
@@ -331,10 +338,16 @@ async function loadSingleProjectMetadata(
 }
 
 export default function LandingScreen() {
-  const { recentProjects, openProject, isLoading, refreshRecentProjects } =
-    useWorkspace();
+  const {
+    recentProjects,
+    recentProjectsLoaded,
+    openProject,
+    isLoading,
+    refreshRecentProjects,
+  } = useWorkspace();
   const { isLoading: isProjectLoading } = useProject();
   const firstRunTour = useOptionalFirstRunTour();
+  const { pendingNewProject, clearPendingNewProject } = useFirstRunSetup();
   const {
     themeId,
     settings,
@@ -350,7 +363,7 @@ export default function LandingScreen() {
   // view targeting a specific tab. Our SettingsPanel (branch-of-truth)
   // doesn't accept an initialTab prop, so the tab hint is recorded
   // here and consumed when SettingsPanel adds that surface back.
-  const [, setSettingsInitialTab] = useState<SettingsTabTarget>('appearance');
+  const [, setSettingsInitialTab] = useState<SettingsTabTarget>('connection');
   const [appVersion, setAppVersion] = useState<string>(FALLBACK_APP_VERSION);
   const [account, setAccount] = useState<AccountInfo | null>(null);
   const [authStatus, setAuthStatus] = useState<AccountAuthStatus>('idle');
@@ -358,6 +371,15 @@ export default function LandingScreen() {
     Record<string, ProjectMetadata>
   >({});
   const [isNewProjectDialogOpen, setIsNewProjectDialogOpen] = useState(false);
+
+  // First-run finished with "Create your first project" → open the New
+  // Production flow directly instead of dead-ending on the empty grid.
+  useEffect(() => {
+    if (pendingNewProject) {
+      setIsNewProjectDialogOpen(true);
+      clearPendingNewProject();
+    }
+  }, [pendingNewProject, clearPendingNewProject]);
   const [renameTarget, setRenameTarget] = useState<PendingProjectAction | null>(
     null,
   );
@@ -368,6 +390,32 @@ export default function LandingScreen() {
     null,
   );
   const [isProjectActionPending, setIsProjectActionPending] = useState(false);
+  const [diag, setDiag] = useState<ProviderDiagnosticsSnapshot | null>(null);
+
+  // Live reachability: probe LLM / ComfyUI / VLM on load and every 60s so
+  // the header dots reflect actual connectivity — steady green when
+  // reachable, blinking red when not. Re-probes immediately on sign-in
+  // (account change); config edits surface on the next minute tick.
+  useEffect(() => {
+    let active = true;
+    const probe = () => {
+      const pending = window.electron.providerDiagnostics?.run?.();
+      if (!pending) return;
+      void pending
+        .then((snap) => {
+          if (active) setDiag(snap);
+        })
+        .catch(() => {
+          if (active) setDiag(null);
+        });
+    };
+    probe();
+    const timer = setInterval(probe, 60_000);
+    return () => {
+      active = false;
+      clearInterval(timer);
+    };
+  }, [account]);
 
   useEffect(() => {
     let isActive = true;
@@ -466,6 +514,17 @@ export default function LandingScreen() {
         };
       }),
     [metadataByPath, recentProjects],
+  );
+  // Featured "Continue" banner: the ACTUAL most-recent production (what
+  // you were last working on — the practical one to resume), thumbnail or
+  // not. When it has no still we drop the scrim and show the warm on-theme
+  // base so it still reads as a designed banner.
+  const featuredProject = useMemo(() => projectCards[0] ?? null, [projectCards]);
+  // The featured/hero production is lifted out of the grid so it never
+  // shows twice — once in the banner and again in the list below.
+  const gridProjects = useMemo(
+    () => (featuredProject ? projectCards.slice(1) : projectCards),
+    [featuredProject, projectCards],
   );
   // Pagination removed (UX-10): the responsive .projectsGrid + scroll
   // already handles any number of project cards. 9-per-page was a
@@ -631,17 +690,12 @@ export default function LandingScreen() {
   }, [deleteTarget, refreshRecentProjects]);
 
   const ambientStatus = getAmbientStatus(authStatus, styles);
-  const laneBadges = getLaneBadges(
-    settings?.llmBackend,
-    settings?.comfyBackend,
-    settings?.vlmBackend,
-    account,
-    styles,
-  );
   const backendStatus = getBackendConfigStatus(settings, account);
 
   return (
     <div className={styles.container}>
+      <div className={styles.grain} aria-hidden="true" />
+      <div className={styles.vignette} aria-hidden="true" />
       <header className={styles.topBar}>
         <div className={styles.topBarBrand}>
           <img
@@ -676,29 +730,17 @@ export default function LandingScreen() {
               }
             >
               <span
-                className={`${styles.statusDot} ${
-                  backendStatus.llm.configured
-                    ? laneBadges.llm.className
-                    : styles.statusDotError
-                }`}
+                className={`${styles.statusDot} ${laneHealthDotClass(laneHealth(diag, 'llm'), styles)}`}
               />
               <span className={styles.statusLaneLabel}>LLM</span>
               <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.statusDot} ${
-                  backendStatus.comfy.configured
-                    ? laneBadges.comfy.className
-                    : styles.statusDotError
-                }`}
+                className={`${styles.statusDot} ${laneHealthDotClass(laneHealth(diag, 'comfyui'), styles)}`}
               />
               <span className={styles.statusLaneLabel}>Comfy</span>
               <span className={styles.statusSep}>·</span>
               <span
-                className={`${styles.statusDot} ${
-                  backendStatus.vlm.configured
-                    ? laneBadges.vlm.className
-                    : styles.statusDotError
-                }`}
+                className={`${styles.statusDot} ${laneHealthDotClass(laneHealth(diag, 'vlm'), styles)}`}
               />
               <span className={styles.statusLaneLabel}>VLM</span>
             </span>
@@ -735,7 +777,7 @@ export default function LandingScreen() {
                 setActiveView('projects');
                 return;
               }
-              openSettingsTab('appearance');
+              openSettingsTab('connection');
             }}
             aria-pressed={activeView === 'settings'}
             aria-label="Settings"
@@ -776,28 +818,88 @@ export default function LandingScreen() {
             />
 
             <section className={styles.projectsSection}>
-              <div className={styles.projectsHeader}>
-                <h2 className={styles.projectsTitle}>
-                  Projects
-                  {projectCards.length > 0 ? (
-                    <span className={styles.projectsCount}>
-                      {projectCards.length}
-                    </span>
+              {featuredProject ? (
+                // Hero is a div (not a button) so the rename/delete actions
+                // can live inside it without nesting buttons. A full-cover
+                // transparent button captures the "resume" click; the action
+                // cluster sits above it and reveals on hover, exactly like a
+                // ProjectCard — so the lifted-out hero production keeps its
+                // management affordances.
+                <div className={styles.featured}>
+                  <span
+                    className={styles.featuredBg}
+                    style={
+                      featuredProject.thumbnailPath
+                        ? { backgroundImage: `url("${toFileUrl(featuredProject.thumbnailPath)}")` }
+                        : undefined
+                    }
+                  />
+                  {featuredProject.thumbnailPath ? (
+                    <span className={styles.featuredScrim} />
                   ) : null}
-                </h2>
+                  <span className={styles.featuredMeta}>
+                    <span className={styles.featuredKick}>Continue · last production</span>
+                    <span className={styles.featuredTitle}>{featuredProject.name}</span>
+                    <span className={styles.featuredPlay}>
+                      <span className={styles.featuredTri} />
+                      Resume
+                    </span>
+                  </span>
+                  <button
+                    type="button"
+                    className={styles.featuredResume}
+                    onClick={() => handleSelectRecent(featuredProject.path)}
+                    aria-label={`Resume ${featuredProject.name}`}
+                  />
+                  <div className={styles.featuredActions}>
+                    <button
+                      type="button"
+                      className={styles.featuredActionBtn}
+                      aria-label={`Rename ${featuredProject.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleRenameRequest(featuredProject);
+                      }}
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={`${styles.featuredActionBtn} ${styles.featuredActionDanger}`}
+                      aria-label={`Delete ${featuredProject.name}`}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDeleteRequest(featuredProject);
+                      }}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+              <div className={styles.projectsHeader}>
+                <span className={styles.projectsKicker}>Productions</span>
+                <h2 className={styles.projectsTitle}>Your Studio</h2>
+                <span className={styles.projectsRule} />
+                {projectCards.length > 0 ? (
+                  <span className={styles.projectsCount}>{projectCards.length}</span>
+                ) : null}
               </div>
 
-              {projectCards.length === 0 ? (
+              {!recentProjectsLoaded ? (
+                // Recents still loading — render nothing in this slot so
+                // the "Roll your first production" empty state never
+                // flashes before we know whether the studio is actually
+                // empty. (Fixes the boot flash of the first-run CTA for
+                // users who have projects.)
+                null
+              ) : projectCards.length === 0 ? (
                 <div className={styles.emptyState}>
-                  <img
-                    src={dheeLogoUrl}
-                    alt=""
-                    aria-hidden="true"
-                    className={styles.emptyStateLogo}
-                    draggable={false}
-                  />
+                  <div className={styles.emptyStateLeader} aria-hidden="true">
+                    <span>00</span>
+                  </div>
                   <h3 className={styles.emptyStateTitle}>
-                    Start your first project
+                    Roll your first production
                   </h3>
                   <p className={styles.emptyStateMessage}>
                     Drop a story, an idea, or a script. Dhee will break it into
@@ -830,7 +932,7 @@ export default function LandingScreen() {
                 // space the user explicitly noticed (1-9 of 15 with
                 // empty rows below).
                 <div className={styles.projectsGrid}>
-                  {projectCards.map((project) => (
+                  {gridProjects.map((project) => (
                     <ProjectCard
                       key={project.path}
                       project={project}
@@ -873,6 +975,13 @@ export default function LandingScreen() {
       <NewProjectScreen
         isOpen={isNewProjectDialogOpen}
         onClose={() => setIsNewProjectDialogOpen(false)}
+        backendReady={backendStatus.allConfigured}
+        unconfiguredLanes={backendStatus.unconfiguredLanes}
+        onConnectBackends={() => {
+          clearError();
+          setIsNewProjectDialogOpen(false);
+          setActiveView('settings');
+        }}
       />
       <RenameProjectDialog
         isOpen={renameTarget !== null}

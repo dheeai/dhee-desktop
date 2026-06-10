@@ -7,21 +7,27 @@ import type {
   RecentProject,
   FileChangeEvent,
 } from '../shared/fileSystemTypes';
-import type {
-  RemotionJob,
-  RemotionProgress,
-  RemotionTimelineItem,
-  ParsedInfographicPlacement,
-  RemotionServerRenderRequest,
-  RemotionServerRenderResult,
-  RemotionServerRenderProgress,
-} from '../shared/remotionTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import type {
   CompleteOnboardingRequest,
   OnboardingState,
 } from '../shared/onboardingTypes';
-import type { ProviderDiagnosticsSnapshot } from '../shared/providerDiagnosticsTypes';
+import type {
+  LlmProbeInput,
+  LlmProbeResult,
+  LlmWarmResult,
+  ProviderDiagnosticsSnapshot,
+} from '../shared/providerDiagnosticsTypes';
+import type {
+  ComfyProbeResult,
+  EnrichedBundleFit,
+  ResolvePatch,
+  BundleResolution,
+  BundleInstallSource,
+  BundleInstallResult,
+  ApiWorkflowValidation,
+  ParameterMapping,
+} from '../shared/bundleConfigTypes';
 
 // ─── dhee bridge — typed access to the embedded dhee-ink ──────────
 // Replaces the old WebSocket-based protocol (renderer → backend) with a
@@ -66,34 +72,16 @@ import {
   type ResolveBundleResponse,
   type ResolveInstanceGraphRequest,
   type ResolveInstanceGraphResponse,
+  type ListVersionsRequest,
+  type ListVersionsResponse,
+  type SelectVersionRequest,
+  type WriteNodeContentRequest,
+  type WriteNodeContentResponse,
   type ClearChatHistoryRequest,
   type ClearChatHistoryResponse,
   type GetHistoryRequest,
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
-
-interface WordTimestamp {
-  text: string;
-  startTime: number;
-  endTime: number;
-  confidence?: number;
-}
-
-interface TextOverlayWord {
-  text: string;
-  startTime: number;
-  endTime: number;
-  charStart: number;
-  charEnd: number;
-}
-
-interface TextOverlayCue {
-  id: string;
-  startTime: number;
-  endTime: number;
-  text: string;
-  words: TextOverlayWord[];
-}
 
 interface PromptOverlayCue {
   id: string;
@@ -160,6 +148,12 @@ const providerDiagnosticsBridge = {
   run(): Promise<ProviderDiagnosticsSnapshot> {
     return ipcRenderer.invoke('provider-diagnostics:run');
   },
+  probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
+    return ipcRenderer.invoke('provider-diagnostics:probe-llm', input);
+  },
+  warmLlmModel(input: LlmProbeInput): Promise<LlmWarmResult> {
+    return ipcRenderer.invoke('provider-diagnostics:warm-llm-model', input);
+  },
 };
 
 const projectBridge = {
@@ -210,21 +204,6 @@ const projectBridge = {
     options?: { sampleCount?: number },
   ): Promise<{ peaks: number[]; duration: number }> {
     return ipcRenderer.invoke('project:get-audio-waveform', audioPath, options);
-  },
-  generateWordCaptions(
-    projectDirectory: string,
-    audioPath?: string,
-  ): Promise<{
-    success: boolean;
-    outputPath?: string;
-    words?: WordTimestamp[];
-    error?: string;
-  }> {
-    return ipcRenderer.invoke(
-      'project:generate-word-captions',
-      projectDirectory,
-      audioPath,
-    );
   },
   // extractYoutubeAudio removed - can be re-added later if needed
   readTree(dirPath: string, depth?: number): Promise<FileNode> {
@@ -406,12 +385,6 @@ const projectBridge = {
       imagePlacementsDir,
     );
   },
-  watchInfographicPlacements(infographicPlacementsDir: string): Promise<void> {
-    return ipcRenderer.invoke(
-      'project:watch-infographic-placements',
-      infographicPlacementsDir,
-    );
-  },
   refreshAssets(
     projectDirectory: string,
   ): Promise<{ success: boolean; error?: string }> {
@@ -462,7 +435,6 @@ const projectBridge = {
       startTime: number;
       endTime: number;
     }>,
-    textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
     exportOptions?: {
       aspectRatio: '16:9' | '9:16';
@@ -480,7 +452,6 @@ const projectBridge = {
       projectDirectory,
       audioPath,
       overlayItems,
-      textOverlayCues,
       promptOverlayCues,
       exportOptions,
     );
@@ -504,7 +475,6 @@ const projectBridge = {
       endTime: number;
       label?: string;
     }>,
-    textOverlayCues?: TextOverlayCue[],
     promptOverlayCues?: PromptOverlayCue[],
   ): Promise<{ success: boolean; outputPath?: string; error?: string }> {
     return ipcRenderer.invoke(
@@ -513,7 +483,6 @@ const projectBridge = {
       projectDirectory,
       audioPath,
       overlayItems,
-      textOverlayCues,
       promptOverlayCues,
     );
   },
@@ -540,75 +509,6 @@ const projectBridge = {
     return () => {
       ipcRenderer.removeListener('project:manifest-written', subscription);
     };
-  },
-};
-
-const remotionBridge = {
-  renderInfographics(
-    projectDirectory: string,
-    timelineItems: RemotionTimelineItem[],
-    infographicPlacements: ParsedInfographicPlacement[],
-  ): Promise<{ jobId: string; error?: string }> {
-    return ipcRenderer.invoke(
-      'remotion:render-infographics',
-      projectDirectory,
-      timelineItems,
-      infographicPlacements,
-    );
-  },
-  cancelJob(jobId: string): Promise<void> {
-    return ipcRenderer.invoke('remotion:cancel-job', jobId);
-  },
-  getJob(jobId: string): Promise<RemotionJob | null> {
-    return ipcRenderer.invoke('remotion:get-job', jobId);
-  },
-  async renderFromServerRequest(
-    projectDirectory: string,
-    request: RemotionServerRenderRequest,
-    onProgress?: (progress: RemotionServerRenderProgress) => void,
-  ): Promise<RemotionServerRenderResult> {
-    const subscription = (
-      _event: IpcRendererEvent,
-      progress: RemotionServerRenderProgress,
-    ) => {
-      if (!onProgress) {
-        return;
-      }
-      if (progress.requestId !== request.requestId) {
-        return;
-      }
-      onProgress(progress);
-    };
-    if (onProgress) {
-      ipcRenderer.on('remotion:server-progress', subscription);
-    }
-
-    try {
-      return await ipcRenderer.invoke(
-        'remotion:render-from-server-request',
-        projectDirectory,
-        request,
-      );
-    } finally {
-      if (onProgress) {
-        ipcRenderer.removeListener('remotion:server-progress', subscription);
-      }
-    }
-  },
-  onProgress(callback: (progress: RemotionProgress) => void) {
-    const subscription = (
-      _event: IpcRendererEvent,
-      progress: RemotionProgress,
-    ) => callback(progress);
-    ipcRenderer.on('remotion:progress', subscription);
-    return () => ipcRenderer.removeListener('remotion:progress', subscription);
-  },
-  onJobComplete(callback: (job: RemotionJob) => void) {
-    const subscription = (_event: IpcRendererEvent, job: RemotionJob) =>
-      callback(job);
-    ipcRenderer.on('remotion:job-complete', subscription);
-    return () =>
-      ipcRenderer.removeListener('remotion:job-complete', subscription);
   },
 };
 
@@ -882,6 +782,23 @@ const dheeBridge = {
   resolveInstanceGraph(req: ResolveInstanceGraphRequest): Promise<ResolveInstanceGraphResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RESOLVE_INSTANCE_GRAPH, req);
   },
+  /** Version tray for a node instance (Inspector modal Versions panel). */
+  listVersions(req: ListVersionsRequest): Promise<ListVersionsResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.LIST_VERSIONS, req);
+  },
+  /** Select a version for a node instance (emits version.selected). */
+  selectVersion(req: SelectVersionRequest): Promise<OkResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.SELECT_VERSION, req);
+  },
+  /**
+   * Save user-edited content for a node instance (Inspector modal
+   * inline editor). Marks the node user-completed + cascades downstream
+   * via dhee-core's writeNodeContent. Returns status='preview' (no
+   * write) for high-blast-radius edits unless confirm=true.
+   */
+  writeNodeContent(req: WriteNodeContentRequest): Promise<WriteNodeContentResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.WRITE_NODE_CONTENT, req);
+  },
   /**
    * Subscribe to streaming events from the embedded ConversationManager.
    * Filter by eventName ('tool_call', 'media_generated', etc) — handlers
@@ -927,6 +844,41 @@ const logsBridge = {
   },
 };
 
+/**
+ * Bundle Configurator bridge — probe a ComfyUI endpoint and check a
+ * bundle's model/custom-node fit against it (read-only). Mutating
+ * resolve actions are added in a later milestone.
+ */
+const bundleConfigBridge = {
+  probeComfy(url: string): Promise<ComfyProbeResult> {
+    return ipcRenderer.invoke('comfy:probe', { url });
+  },
+  check(
+    bundleId: string,
+    endpoint: string,
+  ): Promise<EnrichedBundleFit | { error: string }> {
+    return ipcRenderer.invoke('bundle:check', { bundleId, endpoint });
+  },
+  resolve(
+    endpoint: string,
+    patch: ResolvePatch,
+  ): Promise<{ ok: true } | { ok: false; error: string }> {
+    return ipcRenderer.invoke('bundle:resolve', { endpoint, patch });
+  },
+  resolution(bundleId: string, endpoint: string): Promise<BundleResolution | null> {
+    return ipcRenderer.invoke('bundle:resolution', { bundleId, endpoint });
+  },
+  install(source: BundleInstallSource): Promise<BundleInstallResult> {
+    return ipcRenderer.invoke('bundle:install', { source });
+  },
+  validateWorkflow(json: string): Promise<ApiWorkflowValidation> {
+    return ipcRenderer.invoke('workflow:validate', { json });
+  },
+  suggestMap(json: string): Promise<ParameterMapping[]> {
+    return ipcRenderer.invoke('workflow:suggest-map', { json });
+  },
+};
+
 const electronHandler = {
   ipcRenderer: {
     sendMessage(channel: Channels, ...args: unknown[]) {
@@ -949,7 +901,7 @@ const electronHandler = {
   onboarding: onboardingBridge,
   providerDiagnostics: providerDiagnosticsBridge,
   project: projectBridge,
-  remotion: remotionBridge,
+  bundleConfig: bundleConfigBridge,
   logger: loggerBridge,
   logs: logsBridge,
   updates: updateBridge,

@@ -43,6 +43,11 @@ import {
   type ResolveBundleResponse,
   type ResolveInstanceGraphRequest,
   type ResolveInstanceGraphResponse,
+  type ListVersionsRequest,
+  type ListVersionsResponse,
+  type SelectVersionRequest,
+  type WriteNodeContentRequest,
+  type WriteNodeContentResponse,
   type ListWorkflowsRequest,
   type ListWorkflowsResponse,
   type GetWorkflowRequest,
@@ -221,6 +226,7 @@ export function registerdheeIpcBridge(
         ...(req.frame ? { frame: req.frame } : {}),
         ...(req.scope ? { scope: req.scope } : {}),
         ...(req.itemId ? { itemId: req.itemId } : {}),
+        ...(req.projectDir ? { projectDir: req.projectDir } : {}),
       });
       return result.ok ? { ok: true } : { ok: false, ...(result.error ? { error: result.error } : {}) };
     },
@@ -289,6 +295,7 @@ export function registerdheeIpcBridge(
           req.sessionId,
           req.nodeIds,
           req.source,
+          req.projectDir,
         );
         return {
           ok: true,
@@ -413,8 +420,11 @@ export function registerdheeIpcBridge(
           nodes: Array<{
             id: string;
             kind: 'stage' | 'collection';
+            displayName?: string;
             displayCapability?: string;
             headlineField?: string;
+            itemSource?: string;
+            itemKey?: string;
             outputs: { format: string; pattern: string };
             inputs?: Array<{ from: string }>;
           }>;
@@ -437,8 +447,15 @@ export function registerdheeIpcBridge(
             nodes: bundle.nodes.map((n) => ({
               id: n.id,
               kind: n.kind,
+              ...(n.displayName ? { displayName: n.displayName } : {}),
               ...(n.displayCapability ? { displayCapability: n.displayCapability } : {}),
               ...(n.headlineField ? { headlineField: n.headlineField } : {}),
+              // Fan-out metadata — lets the run cockpit compute a stable
+              // expected total for collection stages (how many items the
+              // source will produce) instead of the lazily-materialized
+              // count. Bundle-agnostic: just itemSource + itemKey.
+              ...(n.itemSource ? { itemSource: n.itemSource } : {}),
+              ...(n.itemKey ? { itemKey: n.itemKey } : {}),
               outputs: { format: n.outputs.format, pattern: n.outputs.pattern },
               inputs: (n.inputs ?? []).map((i) => ({ from: i.from })),
             })),
@@ -480,6 +497,126 @@ export function registerdheeIpcBridge(
             instances: graph.instances as unknown as NonNullable<ResolveInstanceGraphResponse['graph']>['instances'],
             edges: graph.edges as unknown as NonNullable<ResolveInstanceGraphResponse['graph']>['edges'],
           },
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // ── LIST_VERSIONS ────────────────────────────────────────────────────
+  // Folds .dhee/events.jsonl → the version tray for one instance via
+  // dhee-core's listVersions. projectDir-native (like the graph).
+  ipcMain.handle(
+    dhee_CHANNELS.LIST_VERSIONS,
+    async (_event, req: ListVersionsRequest): Promise<ListVersionsResponse> => {
+      try {
+        const dagMod = (await import(/* webpackIgnore: true */ 'dhee-core/dag')) as {
+          openEventLog: (projectDir: string) => { read: (opts?: { branchId?: string }) => Iterable<unknown> };
+          listVersions: (
+            events: Iterable<unknown>,
+            nodeId: string,
+            itemId?: string,
+            opts?: { branchId?: string },
+          ) => Array<{ versionId: string; outputPath: string; selected: boolean; createdAt: number; generation?: { tool?: string } }>;
+        };
+        const log = dagMod.openEventLog(req.projectDir);
+        const events = [...log.read()];
+        const tray = dagMod.listVersions(
+          events,
+          req.nodeId,
+          req.itemId,
+          req.branchId ? { branchId: req.branchId } : {},
+        );
+        return {
+          ok: true,
+          versions: tray.map((v) => ({
+            versionId: v.versionId,
+            outputPath: v.outputPath,
+            selected: v.selected,
+            createdAt: v.createdAt,
+            ...(v.generation?.tool ? { tool: v.generation.tool } : {}),
+          })),
+        };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // ── SELECT_VERSION ───────────────────────────────────────────────────
+  // Emits a version.selected event via the projection engine; the
+  // canvas + downstream resolution pick up the chosen version.
+  ipcMain.handle(
+    dhee_CHANNELS.SELECT_VERSION,
+    async (_event, req: SelectVersionRequest): Promise<OkResponse> => {
+      try {
+        const dagMod = (await import(/* webpackIgnore: true */ 'dhee-core/dag')) as {
+          openProjectionEngine: (projectDir: string) => {
+            appendAndProject: (input: {
+              kind: string;
+              actor: string;
+              branchId: string;
+              payload: Record<string, unknown>;
+            }) => unknown;
+          };
+        };
+        const eng = dagMod.openProjectionEngine(req.projectDir);
+        eng.appendAndProject({
+          kind: 'version.selected',
+          actor: 'desktop',
+          branchId: req.branchId ?? 'main',
+          payload: {
+            nodeId: req.nodeId,
+            versionId: req.versionId,
+            ...(req.itemId ? { itemId: req.itemId } : {}),
+          },
+        });
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    },
+  );
+
+  // ── WRITE_NODE_CONTENT ───────────────────────────────────────────────
+  // The Inspector modal's inline editor saves edited text here. Routes
+  // through dhee-core's writeNodeContent — the SAME core the agent's
+  // dhee_write_node_content tool uses — so the edit preserves the prior
+  // version, marks the node user-completed, and cascades downstream
+  // with per-instance precision (no sibling-shot wipe).
+  ipcMain.handle(
+    dhee_CHANNELS.WRITE_NODE_CONTENT,
+    async (_event, req: WriteNodeContentRequest): Promise<WriteNodeContentResponse> => {
+      try {
+        const dagMod = (await import(/* webpackIgnore: true */ 'dhee-core/dag')) as unknown as {
+          writeNodeContent: (input: {
+            projectDir: string;
+            nodeId: string;
+            itemId?: string;
+            content: Buffer;
+            reason?: string;
+            confirm?: boolean;
+          }) =>
+            | { ok: false; error: string }
+            | { ok: true; status: 'preview'; preview: string }
+            | { ok: true; status: 'written'; outputPath: string; invalidatedKeys: string[] };
+        };
+        const r = dagMod.writeNodeContent({
+          projectDir: req.projectDir,
+          nodeId: req.nodeId,
+          content: Buffer.from(req.content, 'utf8'),
+          ...(req.itemId !== undefined ? { itemId: req.itemId } : {}),
+          ...(req.reason !== undefined ? { reason: req.reason } : {}),
+          ...(req.confirm !== undefined ? { confirm: req.confirm } : {}),
+        });
+        if (!r.ok) return { ok: false, error: r.error };
+        if (r.status === 'preview') return { ok: true, status: 'preview', preview: r.preview };
+        return {
+          ok: true,
+          status: 'written',
+          outputPath: r.outputPath,
+          invalidatedKeys: r.invalidatedKeys,
         };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };

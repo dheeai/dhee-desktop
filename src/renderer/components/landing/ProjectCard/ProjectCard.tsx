@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { FolderOpen, Pencil, Trash2 } from 'lucide-react';
+import { Aperture, Pencil, Trash2 } from 'lucide-react';
 import { formatRelativeTime, shortenPath, toFileUrl } from '../projectDisplay';
 import styles from './ProjectCard.module.scss';
 
@@ -84,9 +84,11 @@ export default function ProjectCard({
             onError={() => setImageFailed(true)}
           />
         ) : (
-          <div className={styles.placeholder}>
-            <FolderOpen size={22} />
-            <span>Agentic Workspace</span>
+          <div className={styles.placeholder} aria-hidden="true">
+            <span className={styles.placeholderMark}>
+              <Aperture size={20} strokeWidth={1.5} />
+            </span>
+            <span className={styles.placeholderLabel}>No preview yet</span>
           </div>
         )}
         <button
@@ -102,7 +104,9 @@ export default function ProjectCard({
             )}
             {stats && <p className={styles.stats}>{stats}</p>}
             <p className={styles.meta}>
-              {shortenPath(project.path)} ·{' '}
+              <span className={styles.path}>
+                {shortenPath(project.path)} ·{' '}
+              </span>
               {formatRelativeTime(project.lastOpened)}
             </p>
           </div>

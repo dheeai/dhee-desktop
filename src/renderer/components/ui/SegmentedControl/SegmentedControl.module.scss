@@ -1,0 +1,42 @@
+@import '../../../styles/tokens';
+
+.seg {
+  display: inline-flex;
+  gap: $spacing-sm;
+  background: $color-bg-panel-inset;
+  border: 1px solid $color-border-subtle;
+  border-radius: $radius-sm;
+  padding: $spacing-xs;
+}
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: $color-text-muted;
+  padding: 7px $spacing-md;
+  border-radius: $radius-sm;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: background-color $transition-fast, color $transition-fast;
+
+  &:hover {
+    color: $color-text-secondary;
+  }
+}
+
+.on {
+  background: $color-accent-primary-soft;
+  color: $color-text-primary;
+}
+
+.tag {
+  font-family: $font-family-mono;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: $color-text-muted;
+}
