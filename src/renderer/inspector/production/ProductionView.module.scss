@@ -24,6 +24,9 @@
   align-items: center;
   gap: 14px;
   padding: 11px 24px;
+  /* Reserve clearance for the parent InspectorView's floating mode tabs
+     (Production / Cards / Graph), which are position:absolute top/right. */
+  padding-right: 216px;
   background: linear-gradient(180deg, rgba(var(--color-bg-panel-rgb), 0.97), rgba(var(--color-bg-panel-rgb), 0.72));
   backdrop-filter: blur(7px);
   border-bottom: 1px solid $color-border-subtle;
@@ -271,3 +274,126 @@
 }
 .docLoading, .docError { font-family: $font-family-mono; font-size: 11px; letter-spacing: 0.04em; color: $color-text-muted; padding: 10px 0; }
 .docError { color: $color-error; }
+
+/* ============================ stage pill bar ============================ */
+/* Every stage gets a pill carrying its OWN live status. The running stage
+   radiates (indicate-only). Clicking scrolls to the stage's section. */
+.pillbar { display: flex; align-items: stretch; gap: 9px; flex: 1; overflow-x: auto; scrollbar-width: thin; }
+.pillbar::-webkit-scrollbar { height: 5px; }
+.pill {
+  position: relative; flex: 0 0 auto; min-width: 112px;
+  display: grid; grid-template-columns: 8px 1fr; gap: 9px; align-items: center;
+  border: 1px solid $color-border-subtle; border-radius: $radius-md; padding: 7px 11px 7px 10px;
+  color: $color-text-muted; background: $color-bg-panel-inset; cursor: pointer; text-align: left;
+  transition: border-color 0.15s ease, color 0.15s ease, background 0.15s ease;
+}
+.pill:hover { border-color: $color-border-strong; color: $color-text-secondary; }
+.pillDot { width: 8px; height: 8px; border-radius: 50%; background: $color-text-muted; opacity: 0.4; transition: 0.2s ease; }
+.pillText { min-width: 0; }
+.pillName { display: block; font-size: 11px; font-weight: 700; line-height: 1.05; white-space: nowrap; }
+.pillCount { display: flex; gap: 6px; align-items: baseline; margin-top: 4px; font-family: $font-family-mono; white-space: nowrap; }
+.pillCount strong { color: $color-text-secondary; font-size: 12px; font-weight: 600; }
+.pillCount span { color: $color-text-muted; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; }
+.pillDone { color: $color-text-primary; }
+.pillDone .pillDot { background: $color-success; opacity: 1; box-shadow: 0 0 7px rgba(var(--color-success-rgb), 0.5); }
+.pillRunning {
+  color: $color-accent-primary; border-color: rgba(var(--color-accent-primary-rgb), 0.7);
+  background: $color-accent-primary-soft; box-shadow: 0 0 22px rgba(var(--color-accent-primary-rgb), 0.12);
+}
+.pillRunning .pillDot { background: $color-accent-primary; opacity: 1; box-shadow: 0 0 10px rgba(var(--color-accent-primary-rgb), 0.5); }
+.pillRunning .pillCount strong { color: $color-accent-primary; }
+.pillRunning::after {
+  content: ''; position: absolute; inset: -5px; border: 1px solid rgba(var(--color-accent-primary-rgb), 0.45);
+  border-radius: 11px; animation: radiate 1.8s ease-out infinite; pointer-events: none;
+}
+.pillViewing:not(.pillRunning) { border-color: rgba(var(--color-accent-cyan-rgb), 0.55); color: $color-text-primary; }
+.pillViewing:not(.pillRunning) .pillDot { box-shadow: 0 0 0 3px rgba(var(--color-accent-cyan-rgb), 0.18); opacity: 1; }
+@keyframes radiate { 0% { opacity: 0.85; transform: scale(0.98); } 78% { opacity: 0; transform: scale(1.12); } 100% { opacity: 0; transform: scale(1.12); } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(var(--color-accent-primary-rgb), 0.55); } 70% { box-shadow: 0 0 0 7px rgba(var(--color-accent-primary-rgb), 0); } 100% { box-shadow: 0 0 0 0 rgba(var(--color-accent-primary-rgb), 0); } }
+
+/* scroll anchor offset under the sticky pill bar */
+.docSection { scroll-margin-top: 64px; margin-bottom: 14px; }
+
+/* ============================ shot sheets ============================ */
+.sheetIntro {
+  margin: 0 0 14px; padding: 11px 14px; border: 1px solid $color-border-subtle; border-radius: $radius-md;
+  background: $color-bg-panel; color: $color-text-muted; font-size: 12.5px; line-height: 1.5;
+}
+.shotList { display: grid; gap: 12px; }
+.shotSheet { border: 1px solid $color-border-subtle; border-radius: $radius-lg; background: $color-bg-panel; overflow: hidden; transition: border-color 0.18s ease, box-shadow 0.18s ease; }
+.shotSheet:hover { border-color: $color-border-strong; }
+.shotSheetRunning { border-color: rgba(var(--color-accent-primary-rgb), 0.6); box-shadow: 0 0 0 1px rgba(var(--color-accent-primary-rgb), 0.16), 0 18px 44px -22px rgba(var(--color-accent-primary-rgb), 0.4); }
+
+.sheetHead { width: 100%; display: grid; grid-template-columns: 54px 1fr auto; gap: 14px; align-items: center; padding: 12px 15px; cursor: pointer; background: none; border: none; color: inherit; text-align: left; }
+.sheetThumb { width: 54px; height: 34px; border-radius: $radius-sm; overflow: hidden; background: $color-bg-panel-inset; border: 1px solid $color-border-strong; flex: none; }
+.sheetThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sheetThumbPh { display: block; width: 100%; height: 100%; background: repeating-linear-gradient(45deg, rgba(var(--color-accent-primary-rgb), 0.08) 0 6px, transparent 6px 13px), $color-bg-panel-inset; }
+.sheetId { min-width: 0; }
+.sheetSlug { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: $color-accent-primary; }
+.sheetCount { display: block; margin-top: 3px; color: $color-text-secondary; font-size: 13.5px; font-weight: 600; }
+.sheetRight { display: flex; align-items: center; gap: 12px; }
+.statusChip { display: inline-flex; align-items: center; gap: 6px; font-family: $font-family-mono; font-size: 9.5px; letter-spacing: 0.12em; text-transform: uppercase; padding: 4px 9px; border-radius: $radius-full; border: 1px solid $color-border-strong; color: $color-text-muted; white-space: nowrap; }
+.statusChip .cd { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.shotDone { color: $color-success; border-color: rgba(var(--color-success-rgb), 0.4); }
+.shotRunning { color: $color-accent-primary; border-color: rgba(var(--color-accent-primary-rgb), 0.4); background: $color-accent-primary-soft; }
+.shotRunning .cd { animation: pulse 1.4s infinite; }
+.shotQueued { color: $color-text-muted; }
+.chev { width: 9px; height: 9px; border-right: 1.5px solid $color-text-muted; border-bottom: 1.5px solid $color-text-muted; transform: rotate(45deg); transition: transform 0.22s ease; }
+.shotOpen .chev { transform: rotate(-135deg); }
+
+.sheetBody { border-top: 1px solid $color-border-subtle; animation: rise 0.3s ease both; }
+
+/* a lane: rail label on the left, content (media or readable text) on the right */
+.lane { display: grid; grid-template-columns: 132px 1fr; gap: 0; border-bottom: 1px solid $color-border-subtle; }
+.lane:last-of-type { border-bottom: 0; }
+.laneRail {
+  padding: 16px 14px; border-right: 1px solid $color-border-subtle; background: rgba(var(--color-text-muted-rgb), 0.025);
+  font-family: $font-family-mono; font-size: 9.5px; letter-spacing: 0.14em; text-transform: uppercase; color: $color-accent-primary;
+  line-height: 1.5;
+}
+.laneBody { padding: 16px 18px; min-width: 0; }
+.laneMedia { position: relative; aspect-ratio: 16 / 9; max-width: 360px; border-radius: $radius-sm; overflow: hidden; background: $color-bg-panel-inset; border: 1px solid $color-border-strong; }
+.laneImg, .laneVideo { width: 100%; height: 100%; object-fit: cover; display: block; }
+.lanePlaceholder { display: grid; place-items: center; background: repeating-linear-gradient(45deg, rgba(var(--color-accent-primary-rgb), 0.07) 0 8px, transparent 8px 18px), $color-bg-panel-inset; }
+.laneLive::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(var(--color-accent-primary-rgb), 0.28) 50%, transparent 70%); background-size: 220% 100%; animation: shimmer 1.4s linear infinite; }
+.phTag { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.1em; color: $color-accent-primary; border: 1px solid rgba(var(--color-accent-primary-rgb), 0.22); border-radius: $radius-sm; padding: 6px 10px; background: rgba(0, 0, 0, 0.4); }
+.lanePending { font-family: $font-family-base; font-style: italic; color: $color-text-muted; font-size: 14px; }
+
+.sheetActions { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 15px; background: rgba(var(--color-text-muted-rgb), 0.015); }
+.act {
+  display: inline-flex; align-items: center; gap: 7px; height: 30px; padding: 0 12px; border-radius: $radius-sm; cursor: pointer;
+  border: 1px solid $color-border-strong; background: $color-bg-panel-inset; color: $color-text-secondary; font-size: 11.5px;
+  font-family: $font-family-mono; letter-spacing: 0.02em;
+}
+.act:hover { border-color: $color-accent-primary; color: $color-accent-primary; }
+
+/* ============================ readable artifact ============================ */
+.readable { min-width: 0; }
+.readableLabel { font-family: $font-family-mono; font-size: 9.5px; letter-spacing: 0.2em; text-transform: uppercase; color: $color-accent-primary; margin-bottom: 9px; }
+.readableHeadline { margin: 0; font-family: $font-family-base; font-size: 15.5px; line-height: 1.62; color: $color-text-secondary; }
+.fieldGrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 9px; margin-top: 13px; }
+.field { border: 1px solid $color-border-subtle; border-radius: $radius-sm; padding: 8px 9px; color: $color-text-muted; font-size: 12px; }
+.field b { display: block; margin-bottom: 3px; font-family: $font-family-mono; font-size: 9px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: $color-text-muted; }
+.field span { color: $color-text-secondary; }
+.fieldVal { color: $color-text-secondary; }
+/* a field whose value is structured (list of objects) spans the full grid */
+.fieldWide { grid-column: 1 / -1; border: 1px solid $color-border-subtle; border-radius: $radius-sm; padding: 8px 9px; color: $color-text-muted; font-size: 12px; }
+.fieldWide > b { display: block; margin-bottom: 7px; font-family: $font-family-mono; font-size: 9px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; color: $color-text-muted; }
+/* chips for arrays of scalars */
+.chipRow { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.chip { font-family: $font-family-mono; font-size: 10px; color: $color-text-secondary; background: rgba(var(--color-text-muted-rgb), 0.08); border: 1px solid $color-border-subtle; border-radius: $radius-full; padding: 2px 8px; }
+.moreNote { font-family: $font-family-mono; font-size: 9.5px; color: $color-text-muted; align-self: center; }
+/* readable sub-cards for arrays of objects (cast/scene/location breakdowns) */
+.subList { display: grid; gap: 8px; }
+.subCard { border: 1px solid $color-border-subtle; border-radius: $radius-sm; padding: 9px 11px; background: rgba(var(--color-text-muted-rgb), 0.02); }
+.subCardTitle { font-family: $font-family-base; font-size: 13.5px; font-weight: 600; color: $color-text-primary; margin-bottom: 7px; }
+/* per-item label inside a text/json collection doc (e.g. each character prompt) */
+.docItemLabel { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: $color-accent-primary; margin-bottom: 8px; }
+.scriptDoc .scriptDocBody + .scriptDocBody { margin-top: 12px; }
+
+.rawBlock { margin-top: 14px; border: 1px solid $color-border-subtle; border-radius: $radius-sm; overflow: hidden; }
+.rawBlock > summary { padding: 8px 11px; color: $color-text-muted; cursor: pointer; font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; list-style: none; }
+.rawBlock > summary::-webkit-details-marker { display: none; }
+.rawBlock > summary::before { content: '▸ '; }
+.rawBlock[open] > summary::before { content: '▾ '; }
+.rawBlock .jsonBlock { border-radius: 0; border-top: 1px solid $color-border-subtle; }

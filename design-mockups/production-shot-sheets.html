@@ -1,0 +1,920 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dhee — Production View · Shot Sheets</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,650;1,9..144,400;1,9..144,500&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ===================================================================
+     DHEE — PRODUCTION VIEW · SHOT SHEETS
+     Two problems this mockup answers:
+       1) PERMANENT HOME for image prompts + motion directives.
+          Every shot is one persistent "shot sheet": frame + image
+          prompt + clip + motion directive, stacked together, always
+          readable — mid-run, after the run, days later. No modal-fishing.
+       2) INDICATE-ONLY live follow. The running stage always lights up
+          (radiating pill + "currently producing" + "latest added"),
+          but the view NEVER moves on its own. The user clicks to follow.
+     Cinematic theme: Fraunces editorial serif + IBM Plex, warm amber on
+     near-black, grain, film-strip + sprocket motifs. Bundle-agnostic in
+     spirit: sections derive from stages; labels from stage + format.
+     =================================================================== */
+  :root {
+    --bg:#080604; --bg-2:#0f0a07; --panel:#160f0a; --panel-2:#1d140d;
+    --card:#1a120c; --inset:#0c0805; --paper:#1a1108;
+    --line:rgba(255,242,226,.07); --line-2:rgba(255,242,226,.12); --line-3:rgba(255,242,226,.2);
+    --hair-amber:rgba(242,166,46,.22);
+    --text:#efe6d9; --muted:#ad9c86; --faint:#6a5b49; --ghost:#4a3f33;
+    --amber:#f2a62e; --amber-2:#ffd37a; --amber-soft:rgba(242,166,46,.12); --amber-glow:rgba(242,166,46,.42);
+    --green:#82b482; --teal:#68c7b9; --red:#d86a55;
+    --ink:#060403;
+    --r-sm:5px; --r-md:8px; --r-lg:12px; --r-xl:16px; --r-pill:999px;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+    --mono:"IBM Plex Mono",monospace;
+    --serif:"Fraunces",Georgia,serif;
+    --top-h:122px;
+  }
+
+  * { box-sizing:border-box; }
+  html { scroll-behavior:smooth; background:var(--bg); }
+  body {
+    margin:0; min-height:100vh; color:var(--text);
+    font-family:var(--sans); font-size:14px; line-height:1.5; letter-spacing:0;
+    -webkit-font-smoothing:antialiased;
+    background:
+      radial-gradient(960px 380px at 50% -90px, rgba(242,166,46,.11), transparent 62%),
+      linear-gradient(180deg,#0d0906 0,#080604 280px,#070504 100%);
+  }
+  /* film grain */
+  body::after {
+    content:""; position:fixed; inset:0; z-index:60; pointer-events:none; opacity:.06;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.74' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.7'/%3E%3C/svg%3E");
+    mix-blend-mode:overlay;
+  }
+  ::-webkit-scrollbar { width:11px; height:7px; }
+  ::-webkit-scrollbar-thumb { background:rgba(255,242,226,.12); border-radius:99px; border:3px solid var(--bg); }
+  ::-webkit-scrollbar-track { background:transparent; }
+  button { font:inherit; color:inherit; }
+
+  /* ========================== TOP STATUS BAR ========================== */
+  .app-top {
+    position:sticky; top:0; z-index:30;
+    border-bottom:1px solid var(--line);
+    background:rgba(11,7,4,.94); backdrop-filter:blur(16px);
+    box-shadow:0 16px 38px rgba(0,0,0,.4);
+  }
+  .status-row {
+    height:62px; display:grid;
+    grid-template-columns:minmax(220px,290px) minmax(280px,1fr) auto;
+    gap:22px; align-items:center; padding:0 22px;
+    border-bottom:1px solid rgba(255,242,226,.05);
+  }
+  .brand-block { min-width:0; display:grid; grid-template-columns:36px 1fr; gap:12px; align-items:center; }
+  .run-orb {
+    width:34px; height:34px; border-radius:50%; display:grid; place-items:center;
+    border:1.5px solid var(--line-2); box-shadow:inset 0 0 0 6px rgba(255,255,255,.015);
+  }
+  .run-orb::before {
+    content:""; width:11px; height:11px; border-radius:50%; background:var(--ghost); transition:.3s;
+  }
+  .running .run-orb { border-color:rgba(242,166,46,.42); }
+  .running .run-orb::before { background:var(--red); box-shadow:0 0 0 4px rgba(216,106,85,.14),0 0 16px rgba(216,106,85,.55); animation:pulse 1.6s infinite; }
+  .brand-name { font-family:var(--serif); font-size:23px; font-weight:650; letter-spacing:-.01em; line-height:1; }
+  .brand-line { min-width:0; }
+  .brand-kicker { font-family:var(--mono); font-size:9.5px; letter-spacing:.3em; text-transform:uppercase; color:var(--faint); transition:.3s; }
+  .running .brand-kicker { color:var(--amber); }
+  .current-task { margin-top:2px; min-width:0; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .current-task b { color:var(--text); font-weight:600; }
+
+  .stage-readout { min-width:0; }
+  .readout-head { display:grid; grid-template-columns:auto auto 1fr; gap:9px; align-items:baseline; margin-bottom:5px; }
+  .readout-number { font-family:var(--serif); font-size:27px; font-weight:500; line-height:1; color:var(--text); }
+  .readout-total { font-family:var(--mono); font-size:12px; color:var(--faint); }
+  .readout-label { min-width:0; font-family:var(--mono); font-size:9.5px; letter-spacing:.26em; text-transform:uppercase; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .bar { height:5px; border-radius:var(--r-pill); background:rgba(255,255,255,.06); overflow:hidden; position:relative; }
+  .bar > i { display:block; height:100%; border-radius:inherit; width:35%; background:linear-gradient(90deg,var(--teal),var(--amber)); box-shadow:0 0 8px var(--amber-glow); transition:width .6s; }
+  .running .bar::after { content:""; position:absolute; inset:0; background:linear-gradient(90deg,transparent,rgba(255,255,255,.16),transparent); transform:translateX(-100%); animation:sheen 2.4s ease-in-out infinite; }
+
+  .run-meta { display:flex; align-items:center; gap:14px; justify-content:flex-end; font-family:var(--mono); font-size:11px; color:var(--muted); }
+  .run-meta .ovr b { color:var(--text); }
+  .build-chip { color:var(--amber-2); border:1px solid var(--hair-amber); border-radius:var(--r-pill); padding:3px 10px; background:var(--amber-soft); }
+  .clock { color:var(--text); font-size:15px; }
+  .stop { display:inline-flex; align-items:center; gap:7px; height:31px; padding:0 13px; border-radius:var(--r-sm); cursor:pointer;
+    font-family:var(--mono); font-size:10.5px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+    color:#f4ddd0; background:rgba(216,106,85,.2); border:1px solid rgba(216,106,85,.5); }
+  .stop .sq { width:8px; height:8px; background:currentColor; border-radius:1.5px; }
+  .view-tabs { display:flex; gap:3px; padding:3px; border:1px solid var(--line); border-radius:var(--r-md); background:var(--inset); }
+  .view-tabs button { border:0; border-radius:var(--r-sm); padding:6px 11px; color:var(--muted); background:transparent; cursor:pointer; font-size:12.5px; }
+  .view-tabs button.on { color:var(--ink); background:var(--amber); font-weight:700; }
+
+  /* ===================== STAGE PILL BAR (permanent TOC + live) ===================== */
+  .stage-nav { display:flex; align-items:stretch; gap:9px; padding:9px 20px; overflow-x:auto; scrollbar-width:thin; }
+  .stage-nav::-webkit-scrollbar { height:5px; }
+  .stage-pill {
+    position:relative; flex:0 0 auto; min-width:116px;
+    display:grid; grid-template-columns:9px 1fr; gap:9px; align-items:center;
+    border:1px solid var(--line); border-radius:var(--r-md); padding:7px 11px 7px 10px;
+    color:var(--muted); background:#0e0a07; cursor:pointer; text-align:left; transition:border-color .15s,color .15s,background .15s;
+  }
+  .stage-pill:hover { border-color:var(--line-2); color:var(--text); }
+  .pdot { width:8px; height:8px; border-radius:50%; background:var(--ghost); transition:.2s; }
+  .stage-pill.done { color:var(--text); }
+  .stage-pill.done .pdot { background:var(--green); box-shadow:0 0 7px rgba(130,180,130,.5); }
+  .pill-name { font-size:11px; font-weight:700; line-height:1.05; white-space:nowrap; }
+  .pill-count { display:flex; gap:6px; align-items:baseline; margin-top:5px; font-family:var(--mono); white-space:nowrap; }
+  .pill-count strong { color:var(--text); font-size:12.5px; font-weight:600; }
+  .pill-count span { color:var(--faint); font-size:9px; letter-spacing:.06em; text-transform:uppercase; }
+  /* RUNNING — radiates. The one unmistakable "this is happening now" cue. */
+  .stage-pill.running { color:var(--amber-2); border-color:rgba(242,166,46,.7); background:#1e1308; box-shadow:0 0 22px rgba(242,166,46,.12); }
+  .stage-pill.running .pdot { background:var(--amber); box-shadow:0 0 10px var(--amber-glow); }
+  .stage-pill.running .pill-count strong { color:var(--amber-2); }
+  .stage-pill.running::after { content:""; position:absolute; inset:-5px; border:1px solid rgba(242,166,46,.45); border-radius:11px; animation:radiate 1.8s ease-out infinite; pointer-events:none; }
+  /* VIEWING — where the user currently is (distinct from running). Teal underline. */
+  .stage-pill.viewing:not(.running) { border-color:rgba(104,199,185,.55); color:var(--text); }
+  .stage-pill.viewing:not(.running) .pdot { box-shadow:0 0 0 3px rgba(104,199,185,.18); }
+  .stage-pill.failed .pdot { background:var(--red); }
+
+  /* =================== LATEST STRIP (live, never moves view) =================== */
+  .latest-strip {
+    position:sticky; top:var(--top-h); z-index:22;
+    display:grid; grid-template-columns:1fr auto; gap:16px; align-items:center;
+    padding:9px 24px; border-bottom:1px solid rgba(255,242,226,.06);
+    background:linear-gradient(90deg,rgba(242,166,46,.085),rgba(104,199,185,.03),transparent), rgba(15,10,7,.93);
+    backdrop-filter:blur(14px);
+  }
+  .latest-left { display:flex; gap:11px; align-items:center; min-width:0; }
+  .pulse-dot { width:8px; height:8px; border-radius:50%; flex:none; background:var(--amber); box-shadow:0 0 0 0 rgba(242,166,46,.6); animation:pulse 1.8s infinite; }
+  .latest-text { min-width:0; color:var(--muted); font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .latest-text b { color:var(--text); font-weight:600; }
+  .latest-kind { font-family:var(--mono); font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--amber); margin-right:9px; }
+  .jump { display:inline-flex; align-items:center; gap:7px; height:29px; padding:0 13px; border-radius:var(--r-sm); cursor:pointer; white-space:nowrap;
+    color:var(--ink); background:var(--amber); border:1px solid rgba(242,166,46,.5); font-weight:700; font-size:12px; }
+  .jump:hover { background:var(--amber-2); }
+  .jump .ar { width:7px; height:7px; border-top:1.5px solid currentColor; border-right:1.5px solid currentColor; transform:rotate(45deg); }
+  body:not(.running) .latest-strip { display:none; }
+
+  /* ===================== WORKSPACE: doc (left) + chat (right) ===================== */
+  /* The Dhee chat is the primary surface and stays docked on the right.
+     The production document scrolls in the left column; chat is pinned. */
+  .workspace { display:grid; grid-template-columns:minmax(0,1fr) 372px; align-items:start; }
+  .canvas { min-width:0; }
+  .chat {
+    position:sticky; top:var(--top-h); height:calc(100vh - var(--top-h));
+    display:flex; flex-direction:column; min-height:0;
+    border-left:1px solid var(--line); background:var(--bg-2);
+  }
+  .chead { display:flex; align-items:center; gap:9px; padding:13px 16px; border-bottom:1px solid var(--line); }
+  .chead .who { font-family:var(--serif); font-style:italic; font-size:17px; color:var(--text); }
+  .chead .cst { margin-left:auto; display:flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); }
+  .running .chead .cst { color:var(--amber); }
+  .running .chead .cst .pd { width:6px; height:6px; border-radius:50%; background:var(--amber); animation:pulse 1.5s infinite; }
+  .clog { flex:1; min-height:0; overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:14px; }
+  .msg { display:flex; flex-direction:column; gap:5px; }
+  .msg .from { font-family:var(--mono); font-size:9px; letter-spacing:.2em; text-transform:uppercase; color:var(--faint); }
+  .bubble { border-radius:var(--r-md); padding:9px 12px; font-size:13px; line-height:1.55; color:var(--muted); border:1px solid var(--line); background:var(--panel); }
+  .msg.user { align-items:flex-end; }
+  .msg.user .from { color:var(--amber); }
+  .msg.user .bubble { background:var(--amber-soft); border-color:var(--hair-amber); color:var(--text); max-width:88%; }
+  .msg .bubble b { color:var(--text); }
+  .composer { border-top:1px solid var(--line); padding:12px; display:flex; gap:9px; align-items:center; }
+  .composer .ipt { flex:1; background:var(--inset); border:1px solid var(--line); border-radius:var(--r-md); padding:9px 12px; color:var(--faint); font-size:13px; }
+  .composer .send { width:34px; height:34px; flex:none; border-radius:var(--r-md); background:var(--amber-soft); border:1px solid var(--hair-amber); color:var(--amber); display:grid; place-items:center; cursor:pointer; }
+  .composer .send .ar { width:8px; height:8px; border-top:1.6px solid currentColor; border-right:1.6px solid currentColor; transform:rotate(45deg); margin-left:-2px; }
+
+  /* ============================== DOCUMENT ============================== */
+  .doc { max-width:920px; margin:0 auto; padding:26px 34px 120px; }
+  .production-section { scroll-margin-top:calc(var(--top-h) + 60px); margin-bottom:42px; }
+
+  .section-head { display:grid; grid-template-columns:auto 1fr auto; gap:16px; align-items:baseline; margin:0 0 18px; }
+  .section-no { font-family:var(--mono); font-size:9.5px; letter-spacing:.24em; text-transform:uppercase; color:var(--faint); }
+  .section-head h2 { margin:0; display:flex; gap:13px; align-items:baseline; font-family:var(--serif); font-size:23px; font-weight:600; color:var(--text); letter-spacing:-.01em; }
+  .section-head h2::after { content:""; height:1px; flex:1; background:linear-gradient(90deg,var(--line-2),transparent); transform:translateY(-5px); }
+  .section-format { font-family:var(--mono); font-size:9.5px; letter-spacing:.18em; text-transform:uppercase; color:var(--muted); white-space:nowrap; }
+  .count-badge { display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line-2); border-radius:var(--r-pill); padding:3px 10px; font-family:var(--mono); font-size:11px; color:var(--amber-2); background:var(--amber-soft); white-space:nowrap; }
+
+  /* prose / summary blocks (story, essence, cast …) */
+  .prose-card { border:1px solid var(--line); border-radius:var(--r-lg); background:linear-gradient(180deg,var(--paper),#130d07); padding:32px 38px; box-shadow:0 30px 64px -36px rgba(0,0,0,.85); position:relative; }
+  .prose-card::before { content:""; position:absolute; top:22px; bottom:22px; left:24px; width:1px; background:repeating-linear-gradient(180deg,var(--line-2),var(--line-2) 4px,transparent 4px,transparent 8px); }
+  .prose-card .plabel { font-family:var(--mono); font-size:9.5px; letter-spacing:.26em; text-transform:uppercase; color:var(--amber); }
+  .prose-card p { margin:14px 0 0; color:#dccfbe; font-family:var(--serif); font-size:18px; line-height:1.74; }
+  .prose-card p + p { margin-top:16px; }
+  .prose-card p:first-of-type::first-letter { float:left; margin:9px 11px 0 0; color:var(--amber); font-family:var(--serif); font-weight:600; font-size:58px; line-height:.72; }
+
+  .summary-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
+  .summary-card { border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); padding:15px; }
+  .summary-label { font-family:var(--mono); font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+  .summary-value { margin-top:8px; color:var(--text); font-weight:700; }
+  .summary-card p { margin:7px 0 0; color:var(--muted); font-size:13px; }
+
+  /* =============================== SHOT SHEETS =============================== */
+  /* THE permanent home. Each shot = frame + image prompt + clip + motion
+     directive, stacked together. Collapsed by default for queued; the done
+     ones can be opened and STAY open. Nothing is hidden behind a modal. */
+  .sheet-intro { display:grid; grid-template-columns:1fr auto; gap:14px; align-items:center; margin:0 0 16px; padding:11px 14px;
+    border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); color:var(--muted); font-size:12.5px; }
+  .sheet-intro .controls { display:flex; gap:6px; }
+  .mini-btn { border:1px solid var(--line); border-radius:var(--r-sm); background:var(--inset); color:var(--muted); padding:5px 10px; cursor:pointer; font-family:var(--mono); font-size:10.5px; letter-spacing:.04em; }
+  .mini-btn:hover { color:var(--text); border-color:var(--line-2); }
+
+  .shot-list { display:grid; gap:13px; }
+  .shot-sheet { border:1px solid var(--line); border-radius:var(--r-lg); background:var(--card); overflow:hidden; transition:border-color .18s,box-shadow .18s; }
+  .shot-sheet:hover { border-color:var(--line-2); }
+  .shot-sheet.running { border-color:rgba(242,166,46,.6); box-shadow:0 0 0 1px rgba(242,166,46,.16),0 18px 44px -22px var(--amber-glow); }
+
+  /* header (always visible — the spine of the binder page) */
+  .sheet-head { display:grid; grid-template-columns:54px 1fr auto; gap:14px; align-items:center; padding:12px 15px; cursor:pointer; }
+  .sheet-thumb { width:54px; height:34px; border-radius:var(--r-sm); overflow:hidden; background:var(--inset); border:1px solid var(--line-2); position:relative; flex:none; }
+  .sheet-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .sheet-thumb.placeholder { background:repeating-linear-gradient(45deg,rgba(242,166,46,.08) 0 6px,transparent 6px 13px),var(--inset); }
+  .sheet-id { min-width:0; }
+  .sheet-slug { font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--amber); }
+  .sheet-title { margin-top:3px; color:var(--text); font-weight:600; font-size:14.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .sheet-right { display:flex; align-items:center; gap:12px; }
+  .status-chip { display:inline-flex; align-items:center; gap:6px; font-family:var(--mono); font-size:9.5px; letter-spacing:.12em; text-transform:uppercase; padding:4px 9px; border-radius:var(--r-pill); border:1px solid var(--line-2); color:var(--muted); white-space:nowrap; }
+  .status-chip .cd { width:6px; height:6px; border-radius:50%; background:currentColor; }
+  .status-chip.done { color:var(--green); border-color:rgba(130,180,130,.4); }
+  .status-chip.running { color:var(--amber-2); border-color:var(--hair-amber); background:var(--amber-soft); }
+  .status-chip.running .cd { animation:pulse 1.4s infinite; }
+  .status-chip.queued { color:var(--faint); }
+  .chev { width:9px; height:9px; border-right:1.5px solid var(--muted); border-bottom:1.5px solid var(--muted); transform:rotate(45deg); transition:transform .22s; }
+  .shot-sheet.open .chev { transform:rotate(-135deg); }
+
+  /* body — only when open */
+  .sheet-body { display:none; border-top:1px solid var(--line); }
+  .shot-sheet.open .sheet-body { display:block; animation:reveal .3s ease both; }
+  @keyframes reveal { from { opacity:0; transform:translateY(-4px); } to { opacity:1; transform:none; } }
+
+  /* a "lane": media on the left, the artifact text on the right */
+  .lane { display:grid; grid-template-columns:300px 1fr; gap:0; border-bottom:1px solid var(--line); }
+  .lane:last-of-type { border-bottom:0; }
+  .lane-media { position:relative; aspect-ratio:16/9; background:var(--inset); border-right:1px solid var(--line); overflow:hidden; }
+  .lane-media img, .lane-media video { width:100%; height:100%; object-fit:cover; display:block; }
+  .lane-media.placeholder { display:grid; place-items:center; background:repeating-linear-gradient(45deg,rgba(242,166,46,.07) 0 8px,transparent 8px 18px),var(--inset); }
+  .lane-media .ph-tag { font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; color:var(--amber); border:1px solid var(--hair-amber); border-radius:var(--r-sm); padding:6px 10px; background:rgba(0,0,0,.5); }
+  .lane-media .mtag { position:absolute; top:8px; left:8px; font-family:var(--mono); font-size:8.5px; letter-spacing:.1em; text-transform:uppercase; color:rgba(255,255,255,.78); background:rgba(0,0,0,.55); padding:2px 7px; border-radius:3px; }
+  .lane-media .play { position:absolute; inset:0; margin:auto; width:42px; height:42px; border-radius:50%; background:rgba(10,7,4,.5); border:1.5px solid rgba(255,255,255,.6); display:grid; place-items:center; pointer-events:none; }
+  .lane-media .play::after { content:""; margin-left:3px; border-left:13px solid #fff; border-top:8px solid transparent; border-bottom:8px solid transparent; }
+  /* running media shimmer (in place — does NOT move the view) */
+  .lane-media.live::after { content:""; position:absolute; inset:0; background:linear-gradient(115deg,transparent 30%,rgba(242,166,46,.28) 50%,transparent 70%); background-size:220% 100%; animation:shimmer 1.4s linear infinite; }
+
+  .lane-text { padding:18px 22px; min-width:0; }
+  .artifact-label { display:flex; align-items:center; gap:9px; font-family:var(--mono); font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--amber); }
+  .artifact-label .ico { width:13px; height:13px; opacity:.9; }
+  .artifact-prose { margin:11px 0 0; color:#d9ccbb; font-family:var(--serif); font-size:16px; line-height:1.66; }
+  .artifact-prose.streaming::after { content:""; display:inline-block; width:2px; height:1.05em; background:var(--amber); margin-left:3px; transform:translateY(3px); animation:blink 1s steps(2) infinite; }
+  .tagrow { display:flex; flex-wrap:wrap; gap:6px; margin-top:13px; }
+  .tag { border:1px solid var(--line-2); border-radius:var(--r-pill); padding:3px 9px; font-family:var(--mono); font-size:9.5px; letter-spacing:.04em; color:var(--muted); white-space:nowrap; }
+  .tag.hot { color:var(--ink); background:var(--amber); border-color:var(--amber); }
+  .tag.ref { color:var(--teal); border-color:rgba(104,199,185,.4); }
+  .empty-line { margin-top:11px; font-family:var(--serif); font-style:italic; color:var(--muted); font-size:15px; }
+  /* strategy chip in the shot-sheet header slug */
+  .sheet-slug .strat { margin-left:9px; padding:1px 7px; border:1px solid var(--line-2); border-radius:var(--r-pill); color:var(--teal); font-size:8.5px; letter-spacing:.1em; }
+  /* explicit "no last frame" affordance — absence is catered for, not missing */
+  .lane-note { display:flex; gap:9px; align-items:flex-start; padding:11px 22px; color:var(--muted); font-size:12.5px; border-bottom:1px solid var(--line); background:rgba(104,199,185,.035); }
+  .lane-note:last-of-type { border-bottom:0; }
+  .lane-note b { color:var(--text); font-weight:600; }
+  .lane-note svg { color:var(--teal); }
+
+  /* actions + raw json (the engineer's escape hatch — collapsed) */
+  .sheet-actions { display:flex; align-items:center; gap:8px; padding:12px 15px; background:rgba(255,255,255,.012); }
+  .act { display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 13px; border-radius:var(--r-sm); cursor:pointer;
+    border:1px solid var(--line-2); background:var(--inset); color:var(--text); font-size:12px; }
+  .act:hover { border-color:var(--amber); color:var(--amber-2); }
+  .act.ghost { color:var(--muted); border-color:var(--line); }
+  .act .ai { font-family:var(--mono); font-size:13px; line-height:1; }
+  .sheet-actions .spacer { flex:1; }
+  details.raw { border-top:1px solid var(--line); }
+  details.raw summary { padding:9px 15px; color:var(--faint); cursor:pointer; font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; list-style:none; }
+  details.raw summary::-webkit-details-marker { display:none; }
+  details.raw summary::before { content:"▸ "; color:var(--ghost); }
+  details.raw[open] summary::before { content:"▾ "; }
+  details.raw pre { margin:0; padding:13px 15px; border-top:1px solid var(--line); background:#070504; color:var(--muted); font-family:var(--mono); font-size:11px; line-height:1.6; white-space:pre-wrap; overflow:auto; max-height:280px; }
+  /* standalone "inspect source" disclosure under a readable section */
+  details.raw.block { margin-top:12px; border:1px solid var(--line); border-radius:var(--r-md); }
+  details.raw.block summary::before { content:"▸ "; }
+  details.raw.block[open] summary::before { content:"▾ "; }
+  /* tiny note that every section carries a readable projection */
+  .projection-note { display:flex; align-items:center; gap:8px; margin:0 0 14px; font-family:var(--mono); font-size:10px; letter-spacing:.08em; color:var(--faint); }
+  .projection-note .badge { color:var(--teal); border:1px solid rgba(104,199,185,.35); border-radius:var(--r-pill); padding:2px 8px; background:rgba(104,199,185,.06); }
+  /* location card (settings.json → readable) */
+  .location-card { display:grid; grid-template-columns:240px 1fr; border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel); overflow:hidden; }
+  .location-thumb { min-height:180px; background:var(--inset); position:relative; }
+  .location-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+  .location-body { padding:16px 18px; }
+  .location-body h3 { margin:0; font-family:var(--serif); font-size:18px; color:var(--text); }
+  .location-body p { margin:8px 0 0; color:var(--muted); font-size:13px; }
+  .field-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:9px; margin-top:13px; }
+  .field { border:1px solid var(--line); border-radius:var(--r-sm); padding:8px 9px; color:var(--muted); font-size:12px; }
+  .field b { display:block; margin-bottom:3px; font-family:var(--mono); font-size:9px; font-weight:500; letter-spacing:.06em; text-transform:uppercase; color:var(--faint); }
+
+  /* clips strip / final (brief) */
+  .clip-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(232px,1fr)); gap:13px; }
+  .clip-card { border:1px solid var(--line); border-radius:var(--r-md); background:#0f0b08; overflow:hidden; }
+  .clip-card .cm { aspect-ratio:16/9; background:var(--inset); position:relative; }
+  .clip-card .cm.placeholder { display:grid; place-items:center; background:repeating-linear-gradient(45deg,rgba(242,166,46,.07) 0 8px,transparent 8px 18px),var(--inset); color:var(--amber); font-family:var(--mono); font-size:10.5px; }
+  .clip-card .cb { padding:11px 13px; }
+  .clip-card .cb h4 { margin:0; font-size:13.5px; color:var(--text); }
+  .clip-card .cb p { margin:6px 0 0; color:var(--muted); font-size:12px; }
+
+  /* ----- keyframes ----- */
+  @keyframes pulse { 0% { box-shadow:0 0 0 0 rgba(242,166,46,.55); } 70% { box-shadow:0 0 0 8px rgba(242,166,46,0); } 100% { box-shadow:0 0 0 0 rgba(242,166,46,0); } }
+  @keyframes radiate { 0% { opacity:.85; transform:scale(.98); } 78% { opacity:0; transform:scale(1.12); } 100% { opacity:0; transform:scale(1.12); } }
+  @keyframes sheen { 0% { transform:translateX(-100%); } 60%,100% { transform:translateX(260%); } }
+  @keyframes shimmer { 0% { background-position:120% 0; } 100% { background-position:-120% 0; } }
+  @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+  /* ----- demo controls ----- */
+  .demo { position:fixed; right:16px; bottom:14px; z-index:90; display:flex; border:1px solid var(--hair-amber); border-radius:var(--r-pill); overflow:hidden; font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; background:var(--panel-2); box-shadow:0 14px 34px -12px rgba(0,0,0,.9); }
+  .demo button { padding:8px 12px; background:none; border:none; border-left:1px solid var(--line); color:var(--muted); cursor:pointer; }
+  .demo button:first-child { border-left:none; }
+  .demo button.on { background:var(--amber); color:var(--ink); font-weight:700; }
+  .demo-hint { position:fixed; right:16px; bottom:52px; z-index:90; font-family:var(--mono); font-size:9px; letter-spacing:.08em; color:var(--ghost); }
+
+  @media (max-width:1120px) {
+    .workspace { grid-template-columns:minmax(0,1fr) 320px; }
+  }
+  @media (max-width:980px) {
+    :root { --top-h:188px; }
+    .status-row { height:auto; grid-template-columns:1fr; gap:10px; padding:12px; }
+    .run-meta { justify-content:space-between; flex-wrap:wrap; }
+    .workspace { grid-template-columns:1fr; }
+    .chat { position:static; height:auto; max-height:440px; border-left:0; border-top:1px solid var(--line); order:-1; }
+    .doc { padding:22px 14px 90px; }
+    .lane { grid-template-columns:1fr; }
+    .lane-media { border-right:0; border-bottom:1px solid var(--line); }
+    .summary-grid, .field-grid { grid-template-columns:1fr; }
+    .location-card { grid-template-columns:1fr; }
+  }
+</style>
+</head>
+<body class="running">
+
+<header class="app-top">
+  <div class="status-row">
+    <div class="brand-block">
+      <div class="run-orb" aria-hidden="true"></div>
+      <div class="brand-line">
+        <div style="display:flex;align-items:baseline;gap:9px;">
+          <span class="brand-name">dhee</span>
+          <span class="brand-kicker" id="phaseKicker">Rendering</span>
+        </div>
+        <div class="current-task">Now producing: <b id="nowTask">Motion Directive · Scene 1 · Shot 7</b></div>
+      </div>
+    </div>
+
+    <div class="stage-readout">
+      <div class="readout-head">
+        <span class="readout-number" id="roNum">7</span>
+        <span class="readout-total" id="roTotal">/ 20</span>
+        <span class="readout-label" id="roLabel">Shot Motion Directives</span>
+      </div>
+      <div class="bar"><i id="roBar" style="width:35%"></i></div>
+    </div>
+
+    <div class="run-meta">
+      <span class="ovr"><b id="ovrPct">63%</b> overall</span>
+      <span class="build-chip" id="buildChip">18 to build</span>
+      <span class="clock" id="clock">01:25</span>
+      <button class="stop"><span class="sq"></span>Stop</button>
+      <div class="view-tabs"><button class="on">Production</button><button>Cards</button><button>Graph</button></div>
+    </div>
+  </div>
+
+  <nav class="stage-nav" id="stageNav" aria-label="Production stages">
+    <button class="stage-pill done" data-target="story"><span class="pdot"></span><span><span class="pill-name">Story</span><span class="pill-count"><strong>1/1</strong><span>done</span></span></span></button>
+    <button class="stage-pill done" data-target="essence"><span class="pdot"></span><span><span class="pill-name">Essence</span><span class="pill-count"><strong>1/1</strong><span>done</span></span></span></button>
+    <button class="stage-pill done" data-target="world"><span class="pdot"></span><span><span class="pill-name">World &amp; Style</span><span class="pill-count"><strong>1/1</strong><span>done</span></span></span></button>
+    <button class="stage-pill done" data-target="cast"><span class="pdot"></span><span><span class="pill-name">Cast</span><span class="pill-count"><strong>3/3</strong><span>done</span></span></span></button>
+    <button class="stage-pill done" data-target="locations"><span class="pdot"></span><span><span class="pill-name">Locations</span><span class="pill-count"><strong>1/1</strong><span>done</span></span></span></button>
+    <button class="stage-pill done" data-target="scenes"><span class="pdot"></span><span><span class="pill-name">Scenes</span><span class="pill-count"><strong>1/1</strong><span>done</span></span></span></button>
+    <button class="stage-pill done" data-target="shots"><span class="pdot"></span><span><span class="pill-name">Shot Prompts</span><span class="pill-count"><strong>20/20</strong><span>done</span></span></span></button>
+    <button class="stage-pill running" data-target="shots" data-stage="motion"><span class="pdot"></span><span><span class="pill-name">Motion Directives</span><span class="pill-count"><strong>7/20</strong><span>running</span></span></span></button>
+    <button class="stage-pill" data-target="clips" data-stage="clips"><span class="pdot"></span><span><span class="pill-name">Clips</span><span class="pill-count"><strong>0/20</strong><span>queued</span></span></span></button>
+    <button class="stage-pill" data-target="final" data-stage="final"><span class="pdot"></span><span><span class="pill-name">Final Cut</span><span class="pill-count"><strong>0/1</strong><span>queued</span></span></span></button>
+  </nav>
+</header>
+
+<div class="workspace">
+<main class="canvas">
+<div class="latest-strip">
+  <div class="latest-left">
+    <span class="pulse-dot" aria-hidden="true"></span>
+    <span class="latest-text"><span class="latest-kind" id="latestKind">Motion directive</span><b id="latestTitle">Scene 1 · Shot 7</b> <span id="latestDesc">— camera push-in, steam curls, the clock blinks back to 2:14.</span></span>
+  </div>
+  <button class="jump" id="jumpLive">Jump to live<span class="ar"></span></button>
+</div>
+
+<div class="doc">
+
+  <!-- ===== STORY ===== -->
+  <section class="production-section" id="story" data-title="Story">
+    <div class="section-head"><span class="section-no">No.01</span><h2>Story <span class="count-badge">1/1</span></h2><span class="section-format">Markdown</span></div>
+    <div class="projection-note"><span class="badge">readable by default</span> story.md is rendered as prose — the raw source is one click away, never the default.</div>
+    <article class="prose-card">
+      <div class="plabel">Story · Draft 1</div>
+      <p>The clock blinked from 2:14 to 2:14 again. Alex stopped smiling. Across the small table the coffee kept its steam, the barista repeated the same easy turn, and the café folded quietly back onto itself.</p>
+      <p>Jordan thinks Alex is overreacting — until the red-shirt customer stirs the same cup the same way, and the loop becomes a deadline for saying the one thing neither of them has dared to say.</p>
+    </article>
+    <details class="raw block"><summary>View Markdown source</summary><pre># Alex And Jordan
+
+The clock blinked from 2:14 to 2:14 again. Alex stopped smiling...
+
+Jordan thinks Alex is overreacting — until the red-shirt customer
+stirs the same cup the same way...</pre></details>
+  </section>
+
+  <!-- ===== ESSENCE ===== -->
+  <section class="production-section" id="essence" data-title="Essence">
+    <div class="section-head"><span class="section-no">No.02</span><h2>Essence <span class="count-badge">1/1</span></h2><span class="section-format">JSON</span></div>
+    <div class="projection-note"><span class="badge">readable by default</span> essence.json is projected into named fields — raw JSON behind Inspect, never dumped on screen.</div>
+    <div class="summary-grid">
+      <article class="summary-card"><div class="summary-label">Premise</div><div class="summary-value">Café time loop</div><p>Two people realize a casual coffee has become the reset trigger.</p></article>
+      <article class="summary-card"><div class="summary-label">Emotional engine</div><div class="summary-value">Say it before reset</div><p>The loop forces a confession that keeps getting erased.</p></article>
+      <article class="summary-card"><div class="summary-label">Visual motif</div><div class="summary-value">Clock · cup · steam</div><p>Small repeated objects prove the impossible without exposition.</p></article>
+    </div>
+    <details class="raw block"><summary>Inspect JSON</summary><pre>{
+  "premise": "A café time loop where finishing the coffee resets the day",
+  "emotionalEngine": "Say the unspoken thing before the next reset",
+  "visualMotif": ["wall clock at 2:14", "untouched coffee cup", "rising steam"],
+  "tone": "intimate, warm, quietly uncanny"
+}</pre></details>
+  </section>
+
+  <!-- ===== WORLD & STYLE ===== -->
+  <section class="production-section" id="world" data-title="World &amp; Style">
+    <div class="section-head"><span class="section-no">No.03</span><h2>World &amp; Style <span class="count-badge">1/1</span></h2><span class="section-format">Readable</span></div>
+    <div class="summary-grid">
+      <article class="summary-card"><div class="summary-label">Look</div><div class="summary-value">Warm naturalism</div><p>Muted amber café light, tactile surfaces, shallow focus on hands and faces.</p></article>
+      <article class="summary-card"><div class="summary-label">Camera</div><div class="summary-value">Close, controlled</div><p>Static two-shots and slow push-ins keep the loop intimate.</p></article>
+      <article class="summary-card"><div class="summary-label">Continuity</div><div class="summary-value">Objects must repeat</div><p>Clock, cups, steam, and the red-shirt customer stay consistent.</p></article>
+    </div>
+  </section>
+
+  <!-- ===== CAST + SCENES condensed for the mockup ===== -->
+  <section class="production-section" id="cast" data-title="Cast">
+    <div class="section-head"><span class="section-no">No.04</span><h2>Cast <span class="count-badge">3/3</span></h2><span class="section-format">JSON</span></div>
+    <div class="projection-note"><span class="badge">readable by default</span> each character.json → an identity card. Reference portraits would render here when the cast is visual.</div>
+    <div class="summary-grid">
+      <article class="summary-card"><div class="summary-label">Alex</div><div class="summary-value">First to notice</div><p>Observant, restless, leaning forward, trying to make Jordan see the pattern.</p></article>
+      <article class="summary-card"><div class="summary-label">Jordan</div><div class="summary-value">Skeptical, then present</div><p>Starts amused, becomes unsettled when the clock proves Alex right.</p></article>
+      <article class="summary-card"><div class="summary-label">Barista</div><div class="summary-value">Loop marker</div><p>The repeating gesture and coffee stir become visual proof of the loop.</p></article>
+    </div>
+    <details class="raw block"><summary>Inspect JSON</summary><pre>{
+  "characters": [
+    { "id": "alex", "role": "lead", "wardrobe": "worn denim jacket", "continuity": "left-handed, fidgets with spoon" },
+    { "id": "jordan", "role": "lead", "wardrobe": "olive sweater" },
+    { "id": "barista", "role": "background", "note": "loop marker — identical stir each cycle" }
+  ]
+}</pre></details>
+  </section>
+
+  <section class="production-section" id="locations" data-title="Locations">
+    <div class="section-head"><span class="section-no">No.05</span><h2>Locations <span class="count-badge">1/1</span></h2><span class="section-format">JSON</span></div>
+    <div class="projection-note"><span class="badge">readable by default</span> settings.json becomes a location card with its reference frame and key fields — this is the one most often dumped raw today.</div>
+    <article class="location-card">
+      <div class="location-thumb"><img src="../../Chhaya.V3/assets/images/s1shot1_first_frame_klein_CfkNri.png" alt="Café reference" onerror="this.parentElement.style.background='var(--inset)';this.remove();"></div>
+      <div class="location-body">
+        <h3>Independent café interior</h3>
+        <p>A compact, lived-in café — mismatched bistro chairs, chalkboard menu, warm pendant fixtures, a visible wall clock. The default end-user view of the settings record.</p>
+        <div class="field-grid">
+          <div class="field"><b>Scale</b>~12 × 15 ft</div>
+          <div class="field"><b>Lighting</b>Amber practicals, soft window light, steam haze</div>
+          <div class="field"><b>Key props</b>Clock, porcelain mugs, barista counter</div>
+          <div class="field"><b>Continuity</b>Red-shirt customer, repeated stir</div>
+        </div>
+      </div>
+    </article>
+    <details class="raw block"><summary>Inspect JSON</summary><pre>{
+  "settings": [{
+    "id": "coffee_shop_interior",
+    "name": "Independent Coffee Shop Interior",
+    "description": "A compact, intimate independent coffee shop interior spanning roughly twelve by fifteen feet...",
+    "props": ["retro digital clock", "porcelain mugs", "chalkboard menu"],
+    "lighting": "warm amber practicals with soft window light"
+  }]
+}</pre></details>
+  </section>
+
+  <section class="production-section" id="scenes" data-title="Scenes">
+    <div class="section-head"><span class="section-no">No.06</span><h2>Scenes <span class="count-badge">1/1</span></h2><span class="section-format">JSON</span></div>
+    <div class="projection-note"><span class="badge">readable by default</span> scene-plan.json → scene cards with beats &amp; shot ranges. Raw JSON stays behind Inspect.</div>
+    <div class="summary-grid">
+      <article class="summary-card"><div class="summary-label">Scene 1 · Shots 1–4</div><div class="summary-value">Establish the café</div><p>Table, clock, barista repeat — the world before anything is wrong.</p></article>
+      <article class="summary-card"><div class="summary-label">Scene 1 · Shots 5–12</div><div class="summary-value">Confirm the loop</div><p>Jordan tests the rules; the coffee becomes the trigger.</p></article>
+      <article class="summary-card"><div class="summary-label">Scene 1 · Shots 13–20</div><div class="summary-value">Confession, cut to black</div><p>Say the real thing before the reset; refuse the cup.</p></article>
+    </div>
+    <details class="raw block"><summary>Inspect JSON</summary><pre>{
+  "scenes": [{ "id": "scene_1", "title": "The Coffee Loop", "durationSec": 60 }],
+  "shots": [
+    { "shotNumber": 1, "purpose": "set_the_world", "durationSec": 6 },
+    { "shotNumber": 20, "purpose": "punctuate", "durationSec": 4 }
+  ]
+}</pre></details>
+  </section>
+
+  <!-- ============================ SHOTS — the permanent home ============================ -->
+  <section class="production-section" id="shots" data-title="Shots">
+    <div class="section-head">
+      <span class="section-no">No.07</span>
+      <h2>Shots <span class="count-badge" id="shotsBadge">20 shots · prompts 20/20 · motion 7/20</span></h2>
+      <span class="section-format">Shot sheets</span>
+    </div>
+    <div class="sheet-intro">
+      <span>Each shot keeps its <b>image prompt</b>, generated <b>frame</b>, <b>motion directive</b>, and rendered <b>clip</b> together — permanently. Open one to read everything about that shot.</span>
+      <span class="controls"><button class="mini-btn" id="expandAll">Expand all</button><button class="mini-btn" id="collapseAll">Collapse all</button></span>
+    </div>
+    <div class="shot-list" id="shotList"><!-- shot sheets injected --></div>
+  </section>
+
+  <!-- ===== CLIPS ===== -->
+  <section class="production-section" id="clips" data-title="Clips">
+    <div class="section-head"><span class="section-no">No.08</span><h2>Clips <span class="count-badge" id="clipsBadge">0/20 queued</span></h2><span class="section-format">Video bin</span></div>
+    <div class="clip-grid" id="clipGrid"><!-- clips injected --></div>
+  </section>
+
+  <!-- ===== FINAL ===== -->
+  <section class="production-section" id="final" data-title="Final Cut">
+    <div class="section-head"><span class="section-no">No.09</span><h2>Final Cut <span class="count-badge">0/1 queued</span></h2><span class="section-format">Assembly</span></div>
+    <div class="summary-grid">
+      <article class="summary-card"><div class="summary-label">Awaiting</div><div class="summary-value">All clips rendered</div><p>The final cut assembles once every shot has a clip. 0 of 20 ready.</p></article>
+      <article class="summary-card"><div class="summary-label">Output</div><div class="summary-value">1080p · ~0:60</div><p>The finished MP4 plays here, in place, when assembly completes.</p></article>
+      <article class="summary-card"><div class="summary-label">Then</div><div class="summary-value">Timeline &amp; export</div><p>Trim, reorder, and export — handled in the Timeline view.</p></article>
+    </div>
+  </section>
+</div><!-- /doc -->
+</main>
+
+<aside class="chat">
+  <div class="chead"><span class="who">Dhee</span><span class="cst"><span class="pd"></span><span id="chatState">Supervising run</span></span></div>
+  <div class="clog" id="clog">
+    <div class="msg user"><span class="from">You</span><div class="bubble">A café time loop — two people realize finishing the coffee resets the day. Make it intimate and a little uncanny.</div></div>
+    <div class="msg"><span class="from">Dhee</span><div class="bubble">Locked the story, cast, and a 20-shot plan. Writing image prompts now — open any shot on the left to read its prompt and frames as they land.</div></div>
+    <div class="msg"><span class="from">Dhee</span><div class="bubble" id="chatLive">All 20 image prompts are in. Now writing <b>motion directives</b> — 7 of 20 done. The running stage is lit in the bar above; nothing jumps unless you click.</div></div>
+  </div>
+  <div class="composer"><div class="ipt">Direct the production…</div><button class="send" aria-label="Send"><span class="ar"></span></button></div>
+</aside>
+</div><!-- /workspace -->
+
+<div class="demo-hint">mockup — walk the run, watch the pill light up ↓</div>
+<div class="demo" id="demo">
+  <button data-stage="shots">Prompts</button>
+  <button data-stage="motion" class="on">Motion</button>
+  <button data-stage="clips">Clips</button>
+  <button data-stage="finished">Finished</button>
+</div>
+
+<script>
+  // ---- real media (relative to docs/mockups/) ----
+  const FRAME = n => `../../Chhaya.V3/assets/images/s1shot${n}_first_frame_klein_${{1:'CfkNri',2:'w1RgD3',3:'_75ZhI',4:'TOTw8e',5:'lf4UU2',6:'6f39yn',7:'l6wabO',8:'AgXywH'}[n]}.png`;
+  const LFRAME = n => `../../Chhaya.V3/assets/images/s1shot${n}_last_frame_klein_${{1:'uFQ4Cl',2:'gYZLhb',3:'v_T_OW',4:'EKbA7Q',5:'qVKlg-',6:'rbDXPN'}[n]}.png`;
+  const CLIP = n => `../../Chhaya.V3/assets/videos/shots/s1shot${n}_ltx23_${{1:'1ZdfuQ',2:'4bx7gh',3:'HrmDe1',4:'hkQKrl',5:'RH1baQ',6:'scddKf'}[n]}.mp4`;
+
+  // ---- shot model ----
+  // A shot has 1..2 FRAMES. Single-frame shots (image→video) have only a
+  // first frame. FLFV shots (first-last-frame→video) carry BOTH, each with
+  // its OWN image prompt. The last frame may be present, absent (single), or
+  // still generating. The motion directive bridges first→last.
+  // frame state: 'done' | 'running' | 'queued' | 'na' (this strategy has none)
+  const SHOTS = [
+    { n:1, title:'Wide establishing — the café at 2:14', strategy:'flfv', clip:1,
+      frames:[
+        { kind:'first', n:1, state:'done', prompt:'Wide establishing frame of a warm independent café. Alex and Jordan seated across a small bistro table, coffee cups steaming between them. A retro digital wall clock reads 2:14. Red-shirt customer at the counter, soft amber pendant light.', tags:['image_text_to_image',['2 refs','ref']] },
+        { kind:'last',  n:1, state:'done', prompt:'Same café, same framing, but the clock has snapped back to 2:14 and the steam has reset to full. Alex’s posture a fraction more tense — the only tell that the loop has turned over.', tags:['image_edit',['from first','ref']] },
+      ],
+      motion:'Slow establishing drift from the clock down to the table while the room resets between the two key frames. Café ambience steady, steam rising. Hold the composition.',
+      motionTags:['6s','flfv','first→last'] },
+    { n:2, title:'Alex notices the repeat', strategy:'single', clip:2,
+      frames:[
+        { kind:'first', n:2, state:'done', prompt:'Medium close-up of Alex mid-sentence, leaning forward, eyes flicking toward the counter. Jordan soft in the background, faintly amused. Warm café light, the clock just out of focus behind them.', tags:['image_text_to_image',['1 ref','ref']] },
+        // single-frame: NO last frame for this strategy
+      ],
+      motion:'Subtle push-in as Alex lowers their voice and tips their head toward the counter. Jordan stays loose, not yet convinced.',
+      motionTags:['7s','single','push-in'] },
+    { n:3, title:'Jordan checks the clock', strategy:'flfv', clip:3,
+      frames:[
+        { kind:'first', n:3, state:'done', prompt:'Reaction close-up on Jordan, the coffee cup held but not lifted, clock softened behind still reading 2:14. Catchlight in the eyes, steam crossing the lower frame.', tags:['image_text_to_image',['2 refs','ref']] },
+        { kind:'last',  n:3, state:'done', prompt:'Same close-up, Jordan’s smile now gone, jaw set. The clock behind has ticked and reset; a faint blur of the second hand snapping backward.', tags:['image_edit',['from first','ref']] },
+      ],
+      motion:'Hold on Jordan as the smile fades across the two frames. A faint mechanical tick; the clock blinks back. Almost no camera move — let the face do the work.',
+      motionTags:['5s','flfv','locked'] },
+    { n:4, title:'The cup, untouched', strategy:'single', clip:4,
+      frames:[
+        { kind:'first', n:4, state:'done', prompt:'Insert close-up of the coffee cup and saucer, steam curling, a spoon resting. The red-shirt customer reflected faintly in a chrome napkin holder. Tactile, warm, intimate.', tags:['image_text_to_image'] },
+      ],
+      motion:'Macro hold on the cup; steam drifts. The reflection repeats the same stir. The trigger object, made unmistakable.',
+      motionTags:['6s','single','macro'] },
+    { n:5, title:'Jordan tests the rule', strategy:'flfv', clip:5,
+      frames:[
+        { kind:'first', n:5, state:'done', prompt:'Two-shot, Jordan’s hand resting near the cup, Alex watching. The café behind softer than before, the clock a warm smear of light.', tags:['image_text_to_image',['2 refs','ref']] },
+        { kind:'last',  n:5, state:'done', prompt:'Same two-shot, Jordan’s hand now withdrawn to the table edge, Alex exhaling. The cup unmoved.', tags:['image_edit',['from first','ref']] },
+      ],
+      motion:'Jordan’s hand hovers over the cup, hesitates, withdraws between the frames. Alex exhales. Static frame; the tension lives in the stillness.',
+      motionTags:['8s','flfv','static'] },
+    { n:6, title:'The loop confirmed', strategy:'single', clip:6,
+      frames:[
+        { kind:'first', n:6, state:'done', prompt:'Over-the-shoulder from behind Alex toward Jordan, the clock visible between them at 2:14. Jordan’s expression tightening from amusement into unease.', tags:['image_text_to_image',['2 refs','ref']] },
+      ],
+      motion:'Slow creep-in past Alex’s shoulder onto Jordan as the clock resets. The realization lands without a word.',
+      motionTags:['7s','single','creep-in'] },
+    // RUNNING shot — FLFV. First frame done; LAST frame still generating;
+    // motion directive streaming. Demonstrates per-frame presence/absence.
+    { n:7, title:'Jordan sees the reset', strategy:'flfv', clip:null, running:true,
+      frames:[
+        { kind:'first', n:7, state:'done', prompt:'Tight reaction close-up on Jordan, fully unsettled now, steam curling between them, the clock a soft amber blur behind. The cup untouched in the foreground.', tags:['image_text_to_image',['2 refs','ref']] },
+        { kind:'last',  n:null, state:'running', prompt:'', tags:[] },  // last frame being generated
+      ],
+      motion:'', motionTags:[] },
+    // QUEUED shot — strategy not yet resolved; only the first-frame prompt written.
+    { n:8, title:'Alex says it', strategy:'pending', clip:null,
+      frames:[
+        { kind:'first', n:null, state:'done', prompt:'Close-up on Alex, finally speaking the unspoken line, voice low. The café almost falls away; only the two of them and the steam remain in focus.', tags:['queued'] },
+      ],
+      motion:'', motionTags:[] },
+  ];
+
+  // clips: only shots 1–2 rendered in this demo state
+  const CLIPS_DONE_AT = { shots:0, motion:0, clips:3, finished:20 };
+
+  const ICON_TEXT = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h10"/></svg>';
+  const ICON_FILM = '<svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M3 15h18M8 4v16M16 4v16"/></svg>';
+  const ICON_INFO = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex:none;margin-top:1px"><circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/></svg>';
+
+  const $ = s => document.querySelector(s);
+  const $$ = s => [...document.querySelectorAll(s)];
+
+  function statusOf(shot, stage){
+    // derive a shot's status from the demo stage
+    if (shot.running && (stage==='motion')) return 'running';
+    if (stage==='finished') return 'done';
+    if (stage==='clips') return 'done';
+    if (stage==='motion') return shot.n <= 7 ? 'done' : 'done'; // prompts all done
+    return 'done';
+  }
+
+  function tagsHTML(tags){
+    return (tags||[]).map(t => Array.isArray(t) ? `<span class="tag ${t[1]}">${t[0]}</span>` : `<span class="tag">${t}</span>`).join('');
+  }
+  const FRAME_LABEL = { first:'First frame', last:'Last frame' };
+
+  // one image-prompt lane per frame (first, optionally last)
+  function frameLaneHTML(fr){
+    const src = fr.kind==='first' ? (fr.n?FRAME(fr.n):null) : (fr.n?LFRAME(fr.n):null);
+    let media;
+    if (fr.state==='done' && src){
+      media = `<div class="lane-media"><span class="mtag">${fr.kind} frame</span><img src="${src}" alt="${fr.kind} frame" onerror="this.parentElement.classList.add('placeholder');this.innerHTML='<span class=ph-tag>frame</span>';"></div>`;
+    } else if (fr.state==='running'){
+      media = `<div class="lane-media live placeholder"><span class="ph-tag">generating ${fr.kind} frame…</span></div>`;
+    } else {
+      media = `<div class="lane-media placeholder"><span class="ph-tag">${fr.kind} frame queued</span></div>`;
+    }
+    const body = fr.prompt
+      ? `<p class="artifact-prose">${fr.prompt}</p>`
+      : fr.state==='running'
+        ? `<p class="empty-line">Image prompt for the ${fr.kind} frame is being written…</p>`
+        : `<p class="empty-line">No image prompt yet for the ${fr.kind} frame.</p>`;
+    return `<div class="lane">
+      ${media}
+      <div class="lane-text">
+        <div class="artifact-label">${ICON_TEXT}Image prompt · ${FRAME_LABEL[fr.kind]}</div>
+        ${body}
+        <div class="tagrow">${tagsHTML(fr.tags)}${fr.state==='running'?'<span class="tag hot">generating…</span>':''}</div>
+      </div>
+    </div>`;
+  }
+
+  function shotSheetHTML(shot, idx){
+    const first = shot.frames.find(f=>f.kind==='first');
+    const hasLast = shot.frames.some(f=>f.kind==='last');
+    const lastFr = shot.frames.find(f=>f.kind==='last');
+    const firstDone = first && first.state==='done' && first.n;
+    const clipDone = !!shot.clip;
+    const motionStreaming = !!shot.running;
+    const open = !shot.running && firstDone && idx < 3; // first few done shots open by default
+
+    // header thumb + status chip + strategy chip
+    const thumb = firstDone
+      ? `<div class="sheet-thumb"><img src="${FRAME(first.n)}" alt="" onerror="this.parentElement.classList.add('placeholder');this.remove();"></div>`
+      : `<div class="sheet-thumb placeholder"></div>`;
+    const stratLabel = shot.strategy==='flfv' ? 'FLFV · 2 frames'
+      : shot.strategy==='single' ? 'Single frame'
+      : 'strategy pending';
+    let chip;
+    if (lastFr && lastFr.state==='running') chip = `<span class="status-chip running"><span class="cd"></span>generating last frame</span>`;
+    else if (motionStreaming) chip = `<span class="status-chip running"><span class="cd"></span>writing motion</span>`;
+    else if (firstDone) chip = `<span class="status-chip done"><span class="cd"></span>frames · prompts</span>`;
+    else chip = `<span class="status-chip queued"><span class="cd"></span>queued</span>`;
+
+    // image-prompt lanes — one per frame
+    let imageLanes = shot.frames.map(frameLaneHTML).join('');
+    // explicitly cater for ABSENCE of a last frame on single-frame strategies
+    if (shot.strategy==='single'){
+      imageLanes += `<div class="lane-note">${ICON_INFO}<span><b>Single-frame strategy</b> — this shot animates from one key frame, so there is no last frame. The motion directive carries all the movement.</span></div>`;
+    }
+
+    // motion-directive lane
+    const clipMedia = clipDone
+      ? `<div class="lane-media"><span class="mtag">clip</span><video src="${CLIP(shot.clip)}" muted loop playsinline preload="metadata" onmouseover="this.play()" onmouseout="this.pause()" onerror="this.parentElement.classList.add('placeholder');this.remove();"></video><span class="play"></span></div>`
+      : motionStreaming
+        ? `<div class="lane-media live placeholder"><span class="ph-tag">clip after directive →</span></div>`
+        : `<div class="lane-media placeholder"><span class="ph-tag">clip queued</span></div>`;
+    const motionBody = motionStreaming
+      ? `<p class="artifact-prose streaming">Jordan’s expression shifts from amused to alarmed. Steam curls upward between them. The clock</p>`
+      : shot.motion
+        ? `<p class="artifact-prose">${shot.motion}</p>`
+        : `<p class="empty-line">Motion directive not written yet — generated after the frame${hasLast?'s are':' is'} approved.</p>`;
+    const motionTagsHTML = tagsHTML(shot.motionTags) + (motionStreaming ? `<span class="tag hot">writing…</span>` : '');
+
+    // raw json reflects the real per-frame shape
+    const framesObj = {};
+    shot.frames.forEach(f=>{ framesObj[`${f.kind}_frame`] = { generationMode: f.kind==='first'?'image_text_to_image':'image_edit', imagePrompt: f.prompt || (f.state==='running'?'(generating…)':null), status: f.state }; });
+    const raw = JSON.stringify({
+      nodeId:`shot:scene_1_shot_${shot.n}`,
+      generationStrategy: shot.strategy,
+      frames: framesObj,
+      motionDirective: motionStreaming ? '(streaming…)' : (shot.motion || null),
+      status: motionStreaming ? 'in_progress' : 'completed'
+    }, null, 2);
+
+    return `
+    <article class="shot-sheet ${open?'open':''} ${motionStreaming?'running':''}" data-shot="${shot.n}">
+      <div class="sheet-head" onclick="this.parentElement.classList.toggle('open')">
+        ${thumb}
+        <div class="sheet-id">
+          <div class="sheet-slug">Scene 1 · Shot ${String(shot.n).padStart(2,'0')} <span class="strat">${stratLabel}</span></div>
+          <div class="sheet-title">${shot.title}</div>
+        </div>
+        <div class="sheet-right">${chip}<span class="chev"></span></div>
+      </div>
+      <div class="sheet-body">
+        ${imageLanes}
+        <div class="lane">
+          ${clipMedia}
+          <div class="lane-text">
+            <div class="artifact-label">${ICON_FILM}Motion directive${hasLast?' · first → last':''}</div>
+            ${motionBody}
+            <div class="tagrow">${motionTagsHTML}</div>
+          </div>
+        </div>
+        <div class="sheet-actions">
+          <button class="act"><span class="ai">✎</span>Edit prompt${hasLast?'s':''}</button>
+          <button class="act"><span class="ai">✎</span>Edit directive</button>
+          <button class="act ghost"><span class="ai">↻</span>Regenerate</button>
+          <span class="spacer"></span>
+        </div>
+        <details class="raw"><summary>Inspect JSON</summary><pre>${raw.replace(/</g,'&lt;')}</pre></details>
+      </div>
+    </article>`;
+  }
+
+  function renderShots(stage){
+    $('#shotList').innerHTML = SHOTS.map((s,i)=>shotSheetHTML(s,i)).join('');
+  }
+
+  function renderClips(stage){
+    const done = CLIPS_DONE_AT[stage] ?? 0;
+    let html='';
+    for (let n=1;n<=6;n++){
+      if (n<=done){
+        html += `<article class="clip-card"><div class="cm"><video src="${CLIP(n)}" muted loop playsinline preload="metadata" onmouseover="this.play()" onmouseout="this.pause()"></video></div><div class="cb"><h4>Scene 1 · Shot ${n}</h4><p>Rendered · ~${5+n%3}s</p></div></article>`;
+      } else if (n===done+1 && stage==='clips'){
+        html += `<article class="clip-card"><div class="cm placeholder">rendering…</div><div class="cb"><h4>Scene 1 · Shot ${n}</h4><p>Motion pass in progress</p></div></article>`;
+      } else {
+        html += `<article class="clip-card"><div class="cm placeholder">queued</div><div class="cb"><h4>Scene 1 · Shot ${n}</h4><p>Awaiting directive</p></div></article>`;
+      }
+    }
+    $('#clipGrid').innerHTML = html;
+    $('#clipsBadge').textContent = `${done}/20 ${done?'rendering':'queued'}`;
+  }
+
+  // ----- live indicator state (INDICATE-ONLY: never scrolls on its own) -----
+  const STAGE_CFG = {
+    shots:    { kicker:'Writing',  label:'Shot Image Prompts', num:20, total:20, ovr:48, build:'24 to build', target:'shots',
+                latestKind:'Shot prompt', latestTitle:'Scene 1 · Shot 20', latestDesc:'— the final beat, “Alex says it”, prompt complete.',
+                nowTask:'Shot Image Prompt · Scene 1 · Shot 20' },
+    motion:   { kicker:'Rendering', label:'Shot Motion Directives', num:7, total:20, ovr:63, build:'18 to build', target:'shots',
+                latestKind:'Motion directive', latestTitle:'Scene 1 · Shot 7', latestDesc:'— camera push-in, steam curls, the clock blinks back to 2:14.',
+                nowTask:'Motion Directive · Scene 1 · Shot 7' },
+    clips:    { kicker:'Rendering', label:'Shot Clips', num:3, total:20, ovr:78, build:'17 to build', target:'clips',
+                latestKind:'Clip', latestTitle:'Scene 1 · Shot 3', latestDesc:'— 5s motion pass rendered from the approved frame.',
+                nowTask:'Shot Clip · Scene 1 · Shot 3' },
+    finished: { kicker:'Finished', label:'Final Cut', num:1, total:1, ovr:100, build:'done', target:'final',
+                latestKind:'Final cut', latestTitle:'Alex And Jordan', latestDesc:'— 0:60 · 20 shots assembled. Ready to play.',
+                nowTask:'—' },
+  };
+  let liveStage = 'motion';
+
+  function applyStage(stage){
+    liveStage = stage;
+    const cfg = STAGE_CFG[stage];
+    document.body.classList.toggle('running', stage!=='finished');
+
+    // top readout
+    $('#phaseKicker').textContent = cfg.kicker;
+    $('#nowTask').textContent = cfg.nowTask;
+    $('#roNum').textContent = cfg.num;
+    $('#roTotal').textContent = `/ ${cfg.total}`;
+    $('#roLabel').textContent = cfg.label;
+    $('#roBar').style.width = Math.round(cfg.num/cfg.total*100)+'%';
+    $('#ovrPct').textContent = cfg.ovr+'%';
+    $('#buildChip').textContent = cfg.build;
+
+    // latest strip
+    $('#latestKind').textContent = cfg.latestKind;
+    $('#latestTitle').textContent = cfg.latestTitle;
+    $('#latestDesc').textContent = cfg.latestDesc;
+
+    // chat (Dhee narrates; never steals the view)
+    const CHAT = {
+      shots:    'Writing the <b>image prompts</b> — open any shot on the left to read them as they land.',
+      motion:   'Image prompts are all in. Now writing <b>motion directives</b> — 7 of 20 done. The running stage is lit above; nothing jumps unless you click.',
+      clips:    'Directives done. <b>Rendering clips</b> now — 3 of 20. Each shot sheet picks up its clip beside the directive.',
+      finished: 'The <b>final cut</b> is assembled — 0:60, 20 shots. Play it from the Final Cut section, or ask me to change anything.',
+    };
+    $('#chatLive').innerHTML = CHAT[stage] || CHAT.motion;
+    $('#chatState').textContent = stage==='finished' ? 'Ready' : 'Supervising run';
+
+    // pills: light the running one, mark earlier ones done. DOES NOT scroll.
+    const order = ['story','essence','world','cast','scenes','shotsPrompts','motion','clips','final'];
+    $$('.stage-pill').forEach(p=>{
+      const st = p.dataset.stage;
+      p.classList.remove('running');
+      if (st===stage){ p.classList.add('running'); p.classList.remove('done'); }
+    });
+    // motion pill specifically
+    $$('.stage-pill').forEach(p=>{
+      const st = p.dataset.stage;
+      if (!st) return;
+      if (stage==='clips' && st==='motion') { p.classList.add('done'); }
+      if (stage==='finished'){ if(st==='motion'||st==='clips'){p.classList.add('done');p.classList.remove('running');} if(st==='final'){p.classList.add('done');p.classList.remove('running');} }
+      if (stage==='shots'){ if(st==='motion'){ p.classList.remove('running'); } }
+    });
+    // refresh the motion/clips/final pill counts + states cleanly
+    syncPillStates(stage);
+
+    renderShots(stage);
+    renderClips(stage);
+    $('#shotsBadge').textContent = stage==='shots'
+      ? '20 shots · prompts 20/20 · motion 0/20'
+      : stage==='motion' ? '20 shots · prompts 20/20 · motion 7/20'
+      : stage==='clips' ? '20 shots · directives 20/20 · clips 3/20'
+      : '20 shots · all directives + clips complete';
+
+    // demo buttons
+    $$('#demo button').forEach(b=>b.classList.toggle('on', b.dataset.stage===stage));
+  }
+
+  function syncPillStates(stage){
+    const motionPill = $$('.stage-pill').find(p=>p.dataset.stage==='motion');
+    const clipsPill  = $$('.stage-pill').find(p=>p.dataset.stage==='clips');
+    const finalPill  = $$('.stage-pill').find(p=>p.dataset.stage==='final');
+    const set=(pill,cls,strong,word)=>{ if(!pill)return; pill.classList.remove('running','done'); if(cls)pill.classList.add(cls); pill.querySelector('.pill-count strong').textContent=strong; pill.querySelector('.pill-count span').textContent=word; };
+    if (stage==='shots'){ set(motionPill,null,'0/20','queued'); set(clipsPill,null,'0/20','queued'); set(finalPill,null,'0/1','queued'); }
+    if (stage==='motion'){ set(motionPill,'running','7/20','running'); set(clipsPill,null,'0/20','queued'); set(finalPill,null,'0/1','queued'); }
+    if (stage==='clips'){ set(motionPill,'done','20/20','done'); set(clipsPill,'running','3/20','running'); set(finalPill,null,'0/1','queued'); }
+    if (stage==='finished'){ set(motionPill,'done','20/20','done'); set(clipsPill,'done','20/20','done'); set(finalPill,'done','1/1','done'); }
+  }
+
+  // ----- pill click = navigate (user-driven). Running indicator is separate. -----
+  $('#stageNav').addEventListener('click', e=>{
+    const pill = e.target.closest('.stage-pill'); if(!pill) return;
+    const t = document.getElementById(pill.dataset.target);
+    if (t) t.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  // jump-to-live is the ONLY thing that moves the view toward the run — and only on click.
+  $('#jumpLive').addEventListener('click', ()=>{
+    const t = document.getElementById(STAGE_CFG[liveStage].target);
+    if (t) t.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+
+  // expand / collapse all shot sheets
+  $('#expandAll').addEventListener('click', ()=>$$('.shot-sheet').forEach(s=>s.classList.add('open')));
+  $('#collapseAll').addEventListener('click', ()=>$$('.shot-sheet').forEach(s=>s.classList.remove('open')));
+
+  // demo: switch the running stage. Note the view does NOT jump — only the
+  // pills + readout + latest strip change. That's the whole point.
+  $('#demo').addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b)return; applyStage(b.dataset.stage);
+  });
+
+  // viewing-state: which section is on screen (teal), independent of running (amber)
+  const pills = $$('.stage-pill');
+  const sections = $$('.production-section');
+  const obs = new IntersectionObserver(entries=>{
+    const vis = entries.filter(e=>e.isIntersecting).sort((a,b)=>b.intersectionRatio-a.intersectionRatio)[0];
+    if(!vis) return;
+    const id = vis.target.id;
+    pills.forEach(p=>p.classList.toggle('viewing', p.dataset.target===id));
+  }, { rootMargin:'-190px 0px -55% 0px', threshold:[.05,.2,.4] });
+  sections.forEach(s=>obs.observe(s));
+
+  // clock tick
+  let t=85;
+  setInterval(()=>{ if(!document.body.classList.contains('running'))return; t++; const m=String(Math.floor(t/60)).padStart(2,'0'),s=String(t%60).padStart(2,'0'); $('#clock').textContent=`${m}:${s}`; },1000);
+
+  applyStage('motion');
+</script>
+</body>
+</html>
