@@ -244,8 +244,10 @@
 .writingLine { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: $color-accent-primary; margin-top: 10px; display: flex; align-items: center; gap: 8px; }
 .writingLine::before { content: ''; width: 7px; height: 7px; border-radius: 50%; background: $color-accent-primary; animation: blink 1.4s ease-in-out infinite; }
 @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-.scriptDoc { max-width: 680px; margin: 0 auto 26px; }
-.scriptDocBody { border: 1px solid $color-border-subtle; border-radius: $radius-md; background: $color-bg-panel; padding: 16px 20px; }
+/* docs share the column + left edge with every other section; the readable
+   body caps its width (for line length) but stays LEFT-aligned, never centered. */
+.scriptDoc { margin: 0 0 26px; }
+.scriptDocBody { max-width: 860px; border: 1px solid $color-border-subtle; border-radius: $radius-md; background: $color-bg-panel; padding: 16px 20px; }
 
 /* full markdown prose (treatment + reading docs) */
 .prose :global(h1) { font-family: $font-family-base; font-size: 22px; font-weight: 600; color: $color-text-primary; margin: 0 0 10px; }
