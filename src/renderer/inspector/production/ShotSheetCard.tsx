@@ -86,7 +86,11 @@ export function ShotSheetCard({ entity, projectDir, portrait, defaultOpen, onOpe
     <article className={`${styles.shotSheet} ${entity.status === 'running' ? styles.shotSheetRunning : ''} ${open ? styles.shotOpen : ''}`}>
       <button type="button" className={styles.sheetHead} onClick={() => setOpen((o) => !o)}>
         <span className={`${styles.sheetThumb} ${portrait ? styles.sheetThumbPortrait : ''}`}>
-          {entity.thumb?.outputPath ? <img src={mediaUrl(projectDir, entity.thumb.outputPath, entity.thumb.ts)} alt="" /> : <span className={styles.sheetThumbPh} />}
+          {entity.thumb?.outputPath ? (
+            entity.thumb.format === 'video'
+              ? <video src={mediaUrl(projectDir, entity.thumb.outputPath, entity.thumb.ts)} muted preload="metadata" />
+              : <img src={mediaUrl(projectDir, entity.thumb.outputPath, entity.thumb.ts)} alt="" />
+          ) : <span className={styles.sheetThumbPh} />}
         </span>
         <span className={styles.sheetId}>
           <span className={styles.sheetSlug}>{entity.label}</span>

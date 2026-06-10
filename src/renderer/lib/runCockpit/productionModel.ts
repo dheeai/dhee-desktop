@@ -188,7 +188,11 @@ function buildEntities(shotStages: RunStageView[], headlineFields: Map<string, s
       label: entityLabel(itemId),
       status: rollup(refs),
       pairs: pairEntries(refs),
-      thumb: refs.find((r) => r.format === 'image' && r.status === 'completed' && r.outputPath),
+      // prefer a completed still; fall back to a completed clip so scene
+      // entities (no image, only a video) still preview their media.
+      thumb:
+        refs.find((r) => r.format === 'image' && r.status === 'completed' && r.outputPath)
+        ?? refs.find((r) => r.format === 'video' && r.status === 'completed' && r.outputPath),
       artifactCount: refs.length,
     };
   });

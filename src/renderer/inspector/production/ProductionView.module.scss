@@ -25,8 +25,9 @@
   gap: 14px;
   padding: 11px 24px;
   /* Reserve clearance for the parent InspectorView's floating mode tabs
-     (Production / Cards / Graph), which are position:absolute top/right. */
-  padding-right: 216px;
+     (Production / Cards / Graph), position:absolute top/right — they occupy
+     ~229px of the panel (217px wide + 12px margin), so reserve a bit more. */
+  padding-right: 248px;
   background: linear-gradient(180deg, rgba(var(--color-bg-panel-rgb), 0.97), rgba(var(--color-bg-panel-rgb), 0.72));
   backdrop-filter: blur(7px);
   border-bottom: 1px solid $color-border-subtle;
@@ -329,7 +330,7 @@
 .sheetHead { width: 100%; display: grid; grid-template-columns: 54px 1fr auto; gap: 14px; align-items: center; padding: 12px 15px; cursor: pointer; background: none; border: none; color: inherit; text-align: left; }
 .sheetThumb { width: 54px; height: 34px; border-radius: $radius-sm; overflow: hidden; background: $color-bg-panel-inset; border: 1px solid $color-border-strong; flex: none; }
 .sheetThumbPortrait { width: 28px; height: 38px; }
-.sheetThumb img { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
+.sheetThumb img, .sheetThumb video { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
 .sheetThumbPh { display: block; width: 100%; height: 100%; background: repeating-linear-gradient(45deg, rgba(var(--color-accent-primary-rgb), 0.08) 0 6px, transparent 6px 13px), $color-bg-panel-inset; }
 .sheetId { min-width: 0; }
 .sheetSlug { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: $color-accent-primary; }
