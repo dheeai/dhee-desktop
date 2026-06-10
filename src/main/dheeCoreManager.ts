@@ -1512,11 +1512,42 @@ export class dheeCoreManager {
 
   /**
    * Tear down. Safe to call when not started. Phase 6.4: there's no
-   * embedded ConversationManager to shutdown anymore — just flip the
-   * started flag so isStarted() reflects reality.
+   * embedded ConversationManager to shutdown anymore — but we DO own
+   * long-lived per-session agent state (pi-agent JSONL handles, provider
+   * sockets, watchdog timers), so teardown must release it. Otherwise a
+   * settings-change `restart()` (or quit) orphans every live session:
+   * zombie handles linger while new sessions get rebuilt on the next
+   * chatPrompt.
    */
   stop(): void {
+    this.disposeAllSessions();
     this.started = false;
+  }
+
+  /**
+   * Dispose every live agent session and clear all per-session state.
+   * The whole-set analogue of {@link deleteSession}. Sessions are
+   * rebuilt lazily on the next chatPrompt, so dropping them here is
+   * safe and prevents resource leaks across restart/quit.
+   */
+  private disposeAllSessions(): void {
+    for (const agent of this.agentSessions.values()) {
+      if (agent?.session.dispose) {
+        try {
+          agent.session.dispose();
+        } catch {
+          // Best-effort — never let disposal failure block teardown.
+        }
+      }
+    }
+    this.agentSessions.clear();
+    // Clear hard-cancel watchdogs so no timer fires against a gone session.
+    for (const timer of this.hardCancelTimers.values()) clearTimeout(timer);
+    this.hardCancelTimers.clear();
+    this.sessionForceReject.clear();
+    this.busySessions.clear();
+    this.sessionProjects.clear();
+    this.sessionFlags.clear();
   }
 
   /** Replace the manager (used when settings change). */
