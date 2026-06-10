@@ -1,7 +1,7 @@
 {
   "name": "dhee-desktop",
-  "version": "0.1.6",
-  "description": "Desktop application for Dhee Studios video generation",
+  "version": "0.1.9",
+  "description": "Dhee Studio",
   "main": "./dist/main/main.js",
   "dependencies": {
     "@codemirror/lang-json": "^6.0.2",
