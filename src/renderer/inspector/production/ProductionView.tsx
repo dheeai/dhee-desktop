@@ -276,6 +276,7 @@ export function ProductionView() {
               key={entity.key}
               entity={entity}
               projectDir={dir}
+              portrait={section.portrait}
               defaultOpen={entity.status === 'running' || idx < 2}
               onOpenEntry={setOpenKey}
             />

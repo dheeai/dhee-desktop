@@ -328,7 +328,8 @@
 
 .sheetHead { width: 100%; display: grid; grid-template-columns: 54px 1fr auto; gap: 14px; align-items: center; padding: 12px 15px; cursor: pointer; background: none; border: none; color: inherit; text-align: left; }
 .sheetThumb { width: 54px; height: 34px; border-radius: $radius-sm; overflow: hidden; background: $color-bg-panel-inset; border: 1px solid $color-border-strong; flex: none; }
-.sheetThumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.sheetThumbPortrait { width: 28px; height: 38px; }
+.sheetThumb img { width: 100%; height: 100%; object-fit: cover; object-position: center top; display: block; }
 .sheetThumbPh { display: block; width: 100%; height: 100%; background: repeating-linear-gradient(45deg, rgba(var(--color-accent-primary-rgb), 0.08) 0 6px, transparent 6px 13px), $color-bg-panel-inset; }
 .sheetId { min-width: 0; }
 .sheetSlug { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase; color: $color-accent-primary; }
@@ -354,7 +355,10 @@
 .pairSolo .pairMedia { border-right: 0; }
 .mediaTag { display: block; margin-bottom: 8px; font-family: $font-family-mono; font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: $color-accent-primary; }
 .pairMediaInner { position: relative; aspect-ratio: 16 / 9; border-radius: $radius-sm; overflow: hidden; background: $color-bg-panel-inset; border: 1px solid $color-border-strong; }
-.laneImg, .laneVideo { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* portrait entities (characters / locations) → 3:4 frame, centered in the column. */
+.portraitMedia { aspect-ratio: 3 / 4; max-width: 240px; margin: 0 auto; }
+/* show the WHOLE image, vertically + horizontally centered — never crop a head. */
+.laneImg, .laneVideo { width: 100%; height: 100%; object-fit: contain; object-position: center; display: block; }
 .lanePlaceholder { display: grid; place-items: center; background: repeating-linear-gradient(45deg, rgba(var(--color-accent-primary-rgb), 0.07) 0 8px, transparent 8px 18px), $color-bg-panel-inset; }
 .laneLive::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 30%, rgba(var(--color-accent-primary-rgb), 0.28) 50%, transparent 70%); background-size: 220% 100%; animation: shimmer 1.4s linear infinite; }
 .phTag { font-family: $font-family-mono; font-size: 10px; letter-spacing: 0.1em; color: $color-accent-primary; border: 1px solid rgba(var(--color-accent-primary-rgb), 0.22); border-radius: $radius-sm; padding: 6px 10px; background: rgba(0, 0, 0, 0.4); }

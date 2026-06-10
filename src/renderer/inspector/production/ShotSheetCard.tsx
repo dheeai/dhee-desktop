@@ -13,6 +13,8 @@ import styles from './ProductionView.module.scss';
 interface Props {
   entity: EntityCard;
   projectDir: string;
+  /** portrait entities (characters, locations) use a 3:4 frame so heads aren't cropped. */
+  portrait?: boolean;
   defaultOpen?: boolean;
   onOpenEntry: (key: string) => void;
 }
@@ -21,9 +23,11 @@ function mediaUrl(projectDir: string, outputPath: string, ts?: number): string {
   return `${toFileUrl(`${projectDir}/${outputPath}`)}?t=${ts ?? 0}`;
 }
 
-function MediaBlock({ media, projectDir, expectVideo }: { media?: ArtifactRef; projectDir: string; expectVideo: boolean }) {
+function MediaBlock({ media, projectDir, expectVideo, portrait }: { media?: ArtifactRef; projectDir: string; expectVideo: boolean; portrait?: boolean }) {
   const done = media?.status === 'completed' && !!media.outputPath;
   const running = media?.status === 'in_progress';
+  // video is always 16:9; portrait flag only reshapes image frames.
+  const cls = `${styles.pairMediaInner} ${portrait && media?.format !== 'video' ? styles.portraitMedia : ''}`;
   if (done && media?.outputPath) {
     return media.format === 'video' ? (
       <div className={styles.pairMediaInner}>
@@ -37,19 +41,19 @@ function MediaBlock({ media, projectDir, expectVideo }: { media?: ArtifactRef; p
         <span className={styles.videoPin} />
       </div>
     ) : (
-      <div className={styles.pairMediaInner}>
+      <div className={cls}>
         <img className={styles.laneImg} src={mediaUrl(projectDir, media.outputPath, media.ts)} alt="" />
       </div>
     );
   }
   return (
-    <div className={`${styles.pairMediaInner} ${styles.lanePlaceholder} ${running ? styles.laneLive : ''}`}>
+    <div className={`${cls} ${styles.lanePlaceholder} ${running ? styles.laneLive : ''}`}>
       <span className={styles.phTag}>{running ? 'producing…' : expectVideo ? 'clip queued' : 'queued'}</span>
     </div>
   );
 }
 
-function PairRow({ pair, projectDir }: { pair: ArtifactPair; projectDir: string }) {
+function PairRow({ pair, projectDir, portrait }: { pair: ArtifactPair; projectDir: string; portrait?: boolean }) {
   const { media, text } = pair;
   const textDone = text?.status === 'completed' && !!text.outputPath;
   const textRunning = text?.status === 'in_progress';
@@ -57,7 +61,7 @@ function PairRow({ pair, projectDir }: { pair: ArtifactPair; projectDir: string 
     <div className={`${styles.pairRow} ${text ? '' : styles.pairSolo}`}>
       <div className={styles.pairMedia}>
         <span className={styles.mediaTag}>{pair.mediaTag}</span>
-        <MediaBlock media={media} projectDir={projectDir} expectVideo={pair.expectVideo} />
+        <MediaBlock media={media} projectDir={projectDir} expectVideo={pair.expectVideo} portrait={portrait} />
       </div>
       {text ? (
         <div className={styles.pairText}>
@@ -73,7 +77,7 @@ function PairRow({ pair, projectDir }: { pair: ArtifactPair; projectDir: string 
   );
 }
 
-export function ShotSheetCard({ entity, projectDir, defaultOpen, onOpenEntry }: Props) {
+export function ShotSheetCard({ entity, projectDir, portrait, defaultOpen, onOpenEntry }: Props) {
   const [open, setOpen] = useState(!!defaultOpen);
   const statusCls = entity.status === 'running' ? styles.shotRunning : entity.status === 'done' ? styles.shotDone : styles.shotQueued;
   const refs = entity.pairs.flatMap((p) => [p.text, p.media]).filter(Boolean) as ArtifactRef[];
@@ -81,7 +85,7 @@ export function ShotSheetCard({ entity, projectDir, defaultOpen, onOpenEntry }: 
   return (
     <article className={`${styles.shotSheet} ${entity.status === 'running' ? styles.shotSheetRunning : ''} ${open ? styles.shotOpen : ''}`}>
       <button type="button" className={styles.sheetHead} onClick={() => setOpen((o) => !o)}>
-        <span className={styles.sheetThumb}>
+        <span className={`${styles.sheetThumb} ${portrait ? styles.sheetThumbPortrait : ''}`}>
           {entity.thumb?.outputPath ? <img src={mediaUrl(projectDir, entity.thumb.outputPath, entity.thumb.ts)} alt="" /> : <span className={styles.sheetThumbPh} />}
         </span>
         <span className={styles.sheetId}>

@@ -67,7 +67,7 @@ export type HeroPhase = 'new' | 'writing' | 'rendering' | 'assembling' | 'finish
 export type Section =
   | { kind: 'doc'; id: string; label: string; format?: string; collapsed: boolean; writing: boolean; items: ArtifactRef[] }
   | { kind: 'board'; id: string; label: string; portrait: boolean; tiles: ArtifactRef[] }
-  | { kind: 'sheets'; id: string; label: string; entities: EntityCard[] }
+  | { kind: 'sheets'; id: string; label: string; entities: EntityCard[]; portrait: boolean }
   | { kind: 'film'; id: string; label: string; phase: HeroPhase; final?: ArtifactRef; recent: ArtifactRef[] };
 
 export interface StagePill {
@@ -249,7 +249,7 @@ export function buildProductionDoc(
       const pfx = entityPrefix(s.id);
       if (!groupStageIds.has(pfx)) {
         groupStageIds.set(pfx, []);
-        sections.push({ kind: 'sheets', id: pfx, label: pluralLabel(pfx), entities: [] }); // placeholder
+        sections.push({ kind: 'sheets', id: pfx, label: pluralLabel(pfx), entities: [], portrait: false }); // placeholder
       }
       groupStageIds.get(pfx)!.push(s.id);
       pills.push(pill(s, pfx));
@@ -277,10 +277,12 @@ export function buildProductionDoc(
     const grp = (groupStageIds.get(sec.id) ?? []).map((id) => byId.get(id)!).filter(Boolean);
     const hasText = grp.some((s) => s.kind === 'text');
     const hasMedia = grp.some((s) => s.kind === 'visual');
+    // Portrait entities (characters, locations) carry reference stills that a
+    // 16:9 frame would crop (heads cut off) — flag them for a portrait frame.
+    const portrait = grp.some((s) => /char|cast|person|actor|setting|location|place/i.test(s.id));
     if (hasText && hasMedia) {
-      sections[i] = { kind: 'sheets', id: sec.id, label: sec.label, entities: buildEntities(grp, headlineFields) };
+      sections[i] = { kind: 'sheets', id: sec.id, label: sec.label, entities: buildEntities(grp, headlineFields), portrait };
     } else if (hasMedia) {
-      const portrait = grp.some((s) => /char|cast|person|actor/i.test(s.id));
       sections[i] = { kind: 'board', id: sec.id, label: sec.label, portrait, tiles: grp.flatMap((s) => s.items.map((it) => toRef(it, s, undefined))) };
     } else {
       sections[i] = {
