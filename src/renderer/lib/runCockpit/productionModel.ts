@@ -297,5 +297,40 @@ export function buildProductionDoc(
     }
   }
 
+  attachSceneClipsToShots(stages, sections);
   return { pills, sections };
+}
+
+/**
+ * Prompt-relay: a single scene CLIP is the realized output of all the shots
+ * that relay into it. So surface that scene's clip on EVERY shot of the scene
+ * — on the shot's motion-directive pair (or as a trailing pair) — so a shot
+ * sheet shows the clip it's part of, not just an empty "queued" media. The
+ * clip also lives in its own Scenes section; this is the per-shot context.
+ */
+function attachSceneClipsToShots(stages: RunStageView[], sections: Section[]): void {
+  // scene clip = a completed video whose item id encodes a scene but NOT a shot.
+  const sceneClip = new Map<number, ArtifactRef>();
+  for (const s of stages) {
+    if (s.kind !== 'visual') continue;
+    for (const it of s.items) {
+      if (it.format !== 'video' || it.status !== 'completed' || !it.outputPath) continue;
+      const sn = parseSceneNo(it.itemId);
+      if (sn !== null && parseShotNo(it.itemId) === null && !sceneClip.has(sn)) sceneClip.set(sn, toRef(it, s, undefined));
+    }
+  }
+  if (sceneClip.size === 0) return;
+  for (const sec of sections) {
+    if (sec.kind !== 'sheets') continue;
+    for (const e of sec.entities) {
+      const sn = parseSceneNo(e.key);
+      if (sn === null || parseShotNo(e.key) === null) continue; // shots only
+      const clip = sceneClip.get(sn);
+      if (!clip || e.pairs.some((p) => p.media?.format === 'video')) continue; // already has a clip
+      const motion = e.pairs.find((p) => p.text && !p.media && /motion|directive|clip|video/i.test(p.text.nodeId));
+      if (motion) { motion.media = clip; motion.mediaTag = 'scene clip'; motion.expectVideo = true; }
+      else e.pairs.push({ media: clip, mediaTag: 'scene clip', expectVideo: true });
+      if (!e.thumb) e.thumb = clip;
+    }
+  }
 }

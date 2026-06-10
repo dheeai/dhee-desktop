@@ -90,6 +90,35 @@ describe('buildProductionDoc', () => {
     expect(s1.pairs[0].text?.headlineField).toBe('imagePrompt');
   });
 
+  it('prompt-relay: surfaces the per-scene clip on every shot of that scene', () => {
+    // narrative_prompt_relay: shots have a motion directive but NO shot_video;
+    // the clip is per-scene (item id `scene_1`, no shot number).
+    const RELAY = [
+      { id: 'shot_image_prompt', kind: 'node', outputs: { format: 'json' }, displayName: 'Shot Prompts' },
+      { id: 'shot_image', kind: 'node', outputs: { format: 'image' }, displayName: 'Shots' },
+      { id: 'shot_motion_directive', kind: 'node', outputs: { format: 'json' }, displayName: 'Motion Directives' },
+      { id: 'scene_clip', kind: 'node', outputs: { format: 'video' }, displayName: 'Clips' },
+    ];
+    const insts: InstanceGraphNode[] = [
+      inst('shot_image_prompt', 'completed', { itemId: 'scene_1_shot_1', outputPath: 'p/a.json' }),
+      inst('shot_image', 'completed', { itemId: 'scene_1_shot_1', outputPath: 'i/a.png' }),
+      inst('shot_motion_directive', 'completed', { itemId: 'scene_1_shot_1', outputPath: 'm/a.json' }),
+      inst('shot_image_prompt', 'completed', { itemId: 'scene_1_shot_2', outputPath: 'p/b.json' }),
+      inst('shot_image', 'completed', { itemId: 'scene_1_shot_2', outputPath: 'i/b.png' }),
+      inst('shot_motion_directive', 'completed', { itemId: 'scene_1_shot_2', outputPath: 'm/b.json' }),
+      inst('scene_clip', 'completed', { itemId: 'scene_1', outputPath: 'v/scene_1.mp4' }),
+    ];
+    const model = deriveRunModel({ instances: insts, edges: [], bundleNodes: RELAY, runnerActive: true, cancelling: false, agentBusy: false, now: NOW });
+    const shots = buildProductionDoc(model).sections.find((s) => s.id === 'shot') as Extract<Section, { kind: 'sheets' }>;
+    // both shots of scene 1 show the SAME scene clip (its motion-directive pair)
+    for (const key of ['scene_1_shot_1', 'scene_1_shot_2']) {
+      const e = shots.entities.find((x) => x.key === key)!;
+      const clipPair = e.pairs.find((p) => p.media?.format === 'video');
+      expect(clipPair?.media?.outputPath).toBe('v/scene_1.mp4');
+      expect(clipPair?.mediaTag).toBe('scene clip');
+    }
+  });
+
   it('handles a shot with a written prompt but no media yet (running, text-only pair)', () => {
     const shots = doc().sections.find((s) => s.id === 'shot') as Extract<Section, { kind: 'sheets' }>;
     const s2 = shots.entities.find((e) => e.key === 'scene_1_shot_2')!;
