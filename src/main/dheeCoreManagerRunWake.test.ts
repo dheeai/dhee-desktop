@@ -202,6 +202,59 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     expect(msg).not.toMatch(/just completed in the background/i);
   });
 
+  it('1c. completed-but-BUDGET-CAPPED + idle → budget notice + cap nudge, not a completion', async () => {
+    const mgr = makeMgr();
+    const captureSpy = jest.spyOn(mgr, 'captureAnalyticsEvent');
+    const events = await primeSession(mgr, 's-1c', '/tmp/proj-budget');
+    runTurnSpy.mockClear();
+    captureSpy.mockClear();
+
+    const cappedEvent = {
+      task: {
+        id: 'task-budget',
+        spec: { params: { projectDir: '/tmp/proj-budget' } },
+        budgetExceeded: { capUsd: 3, spentUsd: 4, nextNodeId: 'fanout', itemId: 'b' },
+      },
+    };
+    mgr.onRunTerminal('completed', cappedEvent);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // A visible error notice names the cap.
+    const notices = events.filter((e) => (e as { eventName?: string }).eventName === 'notification');
+    expect(
+      notices.some(
+        (n) =>
+          (n as { data?: { level?: string } }).data?.level === 'error' &&
+          /budget cap/i.test((n as { data?: { message?: string } }).data?.message ?? ''),
+      ),
+    ).toBe(true);
+    // The agent is nudged about the cap (not a finish) and told not to resume.
+    expect(runTurnSpy).toHaveBeenCalledTimes(1);
+    const msg = runTurnSpy.mock.calls[0]![1] as string;
+    expect(msg).toMatch(/budget cap/i);
+    expect(msg).toMatch(/do NOT resume/i);
+    // Pricing/credit signal emitted.
+    expect(captureSpy).toHaveBeenCalledWith(
+      'budget_cap_hit',
+      expect.objectContaining({ cap_usd: 3, spent_usd: 4 }),
+    );
+  });
+
+  it('2a. captures a terminal failure to PostHog as error_occurred (#2)', async () => {
+    const mgr = makeMgr();
+    const captureSpy = jest.spyOn(mgr, 'captureAnalyticsEvent');
+    await primeSession(mgr, 's-2a', '/tmp/proj-cap');
+    captureSpy.mockClear();
+
+    mgr.onRunTerminal('failed', terminalEvent('/tmp/proj-cap', 'schema validation failed: mood not in enum'));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(captureSpy).toHaveBeenCalledWith(
+      'error_occurred',
+      expect.objectContaining({ error_type: 'terminal', will_retry: false }),
+    );
+  });
+
   it('2. failed (structural) + idle → fix-upstream framing + visible notice (C2)', async () => {
     const mgr = makeMgr();
     const events = await primeSession(mgr, 's-2', '/tmp/proj-b');

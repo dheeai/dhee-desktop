@@ -172,4 +172,14 @@ export interface AppSettings {
   vlmBaseUrl: string;
   vlmApiKey: string;
   vlmModel: string;
+  /**
+   * Global default paid-spend cap (USD) stamped into each NEW project's
+   * `features.budgetCapUsd`. A safety backstop: a bundle walk halts
+   * before the next paid step once cumulative spend on a branch reaches
+   * the cap, so a runaway regeneration loop can't burn a user's credits.
+   * `0` (or negative) means "no cap". Ships at `5`. Local-only runs cost
+   * nothing and never hit it. Per-project value can later diverge by
+   * editing project.json; this is only the default for new projects.
+   */
+  budgetCapUsd: number;
 }

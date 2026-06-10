@@ -21,6 +21,8 @@ const DEFAULT_THEME_ID: ThemeId = 'cinematic';
 const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 const DEFAULT_OPENAI_MODEL = 'gpt-4o';
+/** Ships protected: $5 default paid-spend cap stamped into new projects. */
+const DEFAULT_BUDGET_CAP_USD = 5;
 
 const DEFAULT_TIER_CONFIG: LLMTierConfig = {
   provider: 'openai',
@@ -63,6 +65,7 @@ const defaults: AppSettings = {
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...DEFAULT_TIER_CONFIG },
   llmTierLight: { ...DEFAULT_TIER_CONFIG },
+  budgetCapUsd: DEFAULT_BUDGET_CAP_USD,
 };
 
 const store = new Store<AppSettings>({
@@ -199,6 +202,16 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   const llmTierMedium = normalizeTierConfig(value?.llmTierMedium);
   const llmTierLight = normalizeTierConfig(value?.llmTierLight);
 
+  // Budget cap (USD) stamped into new projects. A finite number ≥ 0 is
+  // honored (0 = no cap); anything else (missing, negative, non-finite,
+  // non-number) falls back to the $5 default so a corrupt/legacy blob
+  // still ships protected.
+  const rawBudgetCap = (value as { budgetCapUsd?: unknown } | null | undefined)?.budgetCapUsd;
+  const budgetCapUsd =
+    typeof rawBudgetCap === 'number' && Number.isFinite(rawBudgetCap) && rawBudgetCap >= 0
+      ? rawBudgetCap
+      : DEFAULT_BUDGET_CAP_USD;
+
   // Backward compatibility:
   // - Missing mode + empty URL => inherit
   // - Missing mode + legacy localhost default => inherit
@@ -254,6 +267,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
     llmUseSameForAllTiers,
     llmTierMedium,
     llmTierLight,
+    budgetCapUsd,
   };
 
   if (projectDir) {

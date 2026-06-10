@@ -90,6 +90,7 @@ const emptySettings: AppSettings = {
   llmUseSameForAllTiers: true,
   llmTierMedium: { ...emptyTierConfig },
   llmTierLight: { ...emptyTierConfig },
+  budgetCapUsd: 5,
 };
 
 function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
@@ -105,6 +106,12 @@ function normalizeConnectionSettings(input: AppSettings | null): AppSettings {
     comfyuiMode: comfyuiUrl ? 'custom' : 'inherit',
     comfyuiUrl,
     singleGpuMode: next.singleGpuMode === true,
+    budgetCapUsd:
+      typeof next.budgetCapUsd === 'number' &&
+      Number.isFinite(next.budgetCapUsd) &&
+      next.budgetCapUsd >= 0
+        ? next.budgetCapUsd
+        : emptySettings.budgetCapUsd,
     comfyCloudApiKey: next.comfyCloudApiKey ?? '',
     googleApiKey: next.googleApiKey ?? '',
     geminiModel: next.geminiModel?.trim() || emptySettings.geminiModel,
@@ -370,6 +377,7 @@ export default function SettingsPanel({
       comfyuiMode: normalized.comfyuiUrl ? 'custom' : 'inherit',
       comfyuiUrl: normalized.comfyuiUrl,
       singleGpuMode: normalized.singleGpuMode,
+      budgetCapUsd: normalized.budgetCapUsd,
       comfyCloudApiKey: normalized.comfyCloudApiKey,
       llmProvider: normalized.llmProvider,
       googleApiKey: normalized.googleApiKey,
@@ -890,6 +898,35 @@ export default function SettingsPanel({
                     Use this when local ComfyUI and a local LLM share one GPU.
                     Chat stays available during LLM work and pauses only while
                     local ComfyUI is rendering.
+                  </p>
+                </fieldset>
+
+                <fieldset className={styles.fieldset}>
+                  <legend>Budget cap</legend>
+                  <label className={styles.label}>
+                    Stop a run after spending (USD)
+                    <input
+                      type="number"
+                      className={styles.input}
+                      min={0}
+                      step={1}
+                      value={form.budgetCapUsd}
+                      onChange={(event) => {
+                        const n = Number.parseFloat(event.target.value);
+                        handleInput(
+                          'budgetCapUsd',
+                          Number.isFinite(n) && n >= 0 ? n : 0,
+                        );
+                      }}
+                    />
+                  </label>
+                  <p className={styles.infoText}>
+                    A safety limit on paid generation (cloud LLM / image / video).
+                    A run pauses before the next paid step once a project reaches
+                    this much spend, so a runaway loop can&apos;t burn through your
+                    credits — you can then raise it and resume. Applies to new
+                    projects. Set to <strong>0</strong> for no cap. Fully local
+                    runs cost nothing and never hit it.
                   </p>
                 </fieldset>
 

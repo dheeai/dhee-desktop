@@ -1186,6 +1186,10 @@ export class dheeCoreManager {
         // the stop-after-each-collection gate paused it (issue #133).
         gatedAfter?: string;
         pendingAfterGate?: string[];
+        // Stamped when a run "completed" only because it hit the project's
+        // budget cap (features.budgetCapUsd). Like gatedAfter, this is a
+        // pause, not a finish — must not be announced as completed.
+        budgetExceeded?: { capUsd: number; spentUsd: number; nextNodeId: string; itemId?: string };
       };
       error?: string;
     };
@@ -1193,6 +1197,7 @@ export class dheeCoreManager {
     const projectDir = spec?.params?.projectDir;
     const nodeId = extractNodeId(payload.error);
     const gatedAfter = payload.task?.gatedAfter;
+    const budgetExceeded = payload.task?.budgetExceeded;
 
     // Resolve the owning live agent chat session (for the nudge): prefer
     // an explicit chat sessionId on the spec; otherwise reverse-look-up
@@ -1211,6 +1216,39 @@ export class dheeCoreManager {
     if (kind === 'completed') {
       // Fresh budget for the next run chain on this project.
       if (projectDir) this.autoRetriedRuns.delete(projectDir);
+
+      // A "completed" event can also mean the run PAUSED on the project's
+      // budget cap. Surface it as an error notice (matching the cap halt)
+      // and wake the agent to ask whether to raise the cap — never treat
+      // it as a finish, and never auto-resume (that would just re-trip it).
+      if (budgetExceeded) {
+        this.captureAnalyticsEvent('budget_cap_hit', {
+          cap_usd: budgetExceeded.capUsd,
+          spent_usd: budgetExceeded.spentUsd,
+          next_node_id: budgetExceeded.nextNodeId,
+        });
+        this.emitRunNotice(
+          sessionId,
+          'error',
+          `⏸ Paused — hit your $${budgetExceeded.capUsd.toFixed(2)} budget cap for this project ` +
+            `(spent ~$${budgetExceeded.spentUsd.toFixed(2)}). Nothing was charged for the step that was ` +
+            `about to run. Raise or clear the cap in Settings, then resume.`,
+        );
+        if (sessionId && !this.busySessions.has(sessionId) && this.lastEventCb) {
+          void this.chatPrompt(
+            sessionId,
+            `The run paused because this project hit its $${budgetExceeded.capUsd.toFixed(2)} budget cap ` +
+              `(spent ~$${budgetExceeded.spentUsd.toFixed(2)}). Tell the user plainly that they've reached ` +
+              `their budget cap, and ask whether to raise it (Settings → budget cap) before continuing. ` +
+              `Do NOT resume on your own — it would immediately hit the same cap.`,
+            this.lastEventCb,
+          ).catch((err) => {
+            log.warn('[dheeCoreManager] budget-cap nudge failed:', err);
+          });
+        }
+        return;
+      }
+
       // A "completed" event can mean the run PAUSED on the gate rather
       // than finishing end-to-end. Pick the matching nudge so the agent
       // announces the real reason (issue #133) — a gated pause must not
@@ -1274,6 +1312,11 @@ export class dheeCoreManager {
       const spent = this.autoRetriedRuns.get(projectDir) ?? 0;
       if (spent < dheeCoreManager.MAX_AUTO_RETRIES) {
         this.autoRetriedRuns.set(projectDir, spent + 1);
+        // Observability (#2): a run failure was previously invisible to us
+        // once it left the user's machine. Capture every failure to
+        // PostHog so we can see real-world failure rates + types. This one
+        // is being auto-retried, so flag it as recovered-or-pending.
+        this.captureRunError(payload.error, { nodeId, transient: true, willRetry: true });
         this.emitRunNotice(
           sessionId,
           'warning',
@@ -1287,6 +1330,12 @@ export class dheeCoreManager {
         return;
       }
     }
+
+    // Observability (#2): capture the terminal failure to PostHog — a
+    // run that failed for good (either non-transient, or transient after
+    // auto-retry was exhausted). This is the real-world failure signal we
+    // were blind to before launch.
+    this.captureRunError(payload.error, { nodeId, transient, willRetry: false });
 
     // C2 — ALWAYS surface a visible failure message, independent of
     // whether there's a live agent session to nudge. Previously three
@@ -1602,6 +1651,32 @@ export class dheeCoreManager {
     this.managerModule?.captureAnalyticsEvent?.(event, properties, {
       component: 'dhee-desktop',
     });
+  }
+
+  /**
+   * Capture a run failure to PostHog as `error_occurred` (#2). Until now
+   * a failed run surfaced to the user (the C2 notice) but was invisible
+   * to us once it left their machine, so we had no read on real-world
+   * failure rates/types — the signal launch most needs. Best-effort and
+   * no-ops without a PostHog key. We send a TRUNCATED message (220 chars,
+   * the same slice the user sees) plus structural fields; PostHog's
+   * property sanitizer strips any credential-keyed fields. Never throws.
+   */
+  private captureRunError(
+    error: string | undefined,
+    opts: { nodeId?: string; transient: boolean; willRetry: boolean },
+  ): void {
+    try {
+      const message = (error ?? '(no detail)').slice(0, 220);
+      this.captureAnalyticsEvent('error_occurred', {
+        error_type: opts.transient ? 'transient' : 'terminal',
+        will_retry: opts.willRetry,
+        ...(opts.nodeId ? { node_id: opts.nodeId } : {}),
+        error_message: message,
+      });
+    } catch {
+      // Analytics must never affect run handling.
+    }
   }
 
   isAnalyticsEnabled(): boolean {
