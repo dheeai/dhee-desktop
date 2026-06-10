@@ -1153,6 +1153,13 @@ export default function ChatPanelEmbedded() {
       },
     ]);
     streamingMsgIdRef.current = null;
+    // Ensure the session's project is focused BEFORE the agent call, mirroring
+    // the kickoff path. Otherwise resuming before the focusProject effect lands
+    // (e.g. right after a restart of a mid-run project) fails with
+    // "no project focused for session …".
+    if (projectName) {
+      await session.focusProject(projectName, projectDirectory).catch(() => undefined);
+    }
     const result = await session.chatPrompt(task);
     if (!result.ok) {
       setMessages((prev) => [
