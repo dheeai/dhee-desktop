@@ -110,4 +110,20 @@ describe('settingsManager theme normalization', () => {
       }).singleGpuMode,
     ).toBe(true);
   });
+
+  it('defaults the budget cap to $5 and honors a valid override (incl. 0 = no cap)', () => {
+    expect(normalizeSettings(baseSettings).budgetCapUsd).toBe(5);
+    expect(normalizeSettings({ ...baseSettings, budgetCapUsd: 20 }).budgetCapUsd).toBe(20);
+    // 0 is a legitimate value meaning "no cap" — must be preserved, not
+    // bounced back to the default.
+    expect(normalizeSettings({ ...baseSettings, budgetCapUsd: 0 }).budgetCapUsd).toBe(0);
+  });
+
+  it('falls back to the $5 default for invalid budget-cap values', () => {
+    for (const bad of [-5, NaN, Infinity, '10', null, undefined]) {
+      expect(
+        normalizeSettings({ ...baseSettings, budgetCapUsd: bad } as never).budgetCapUsd,
+      ).toBe(5);
+    }
+  });
 });

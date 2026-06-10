@@ -12,6 +12,7 @@ const baseSettings = {
   comfyuiMode: 'inherit' as const,
   comfyuiUrl: '',
   singleGpuMode: false,
+  budgetCapUsd: 5,
   comfyCloudApiKey: '',
   comfyuiTimeout: 1800,
   llmProvider: 'openai' as const,
@@ -240,6 +241,7 @@ describe('SettingsPanel', () => {
     expect(onSave).toHaveBeenCalled();
     expect(onSave.mock.calls[0][0]).toMatchObject({
       singleGpuMode: true,
+      budgetCapUsd: 5,
     });
   });
 

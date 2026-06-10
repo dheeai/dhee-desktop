@@ -1557,6 +1557,7 @@ type ProjectInitModule = {
     bundleId: string;
     description?: string;
     inputs?: Record<string, unknown>;
+    budgetCapUsd?: number;
   }) =>
     | { ok: true; projectDir: string }
     | { ok: false; error: string };
@@ -1613,7 +1614,15 @@ ipcMain.handle(
       // dheeCoreManager.ts's `loadDagModule`.
       const dagModulePath = 'dhee-core/dag';
       const mod = (await import(/* webpackIgnore: true */ dagModulePath)) as ProjectInitModule;
-      return mod.initializeProject(payload);
+      // Stamp the global budget cap into the new project's
+      // features.budgetCapUsd (#1). The renderer doesn't supply it — the
+      // main process owns the global default from Settings so every new
+      // project ships protected. A `0` setting means "no cap": pass
+      // undefined so initializeProject leaves the project uncapped.
+      const cap = getSettings().budgetCapUsd;
+      const enriched =
+        typeof cap === 'number' && cap > 0 ? { ...payload, budgetCapUsd: cap } : payload;
+      return mod.initializeProject(enriched);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, error: message };

@@ -373,6 +373,7 @@ const fakeElectron = {
           comfyuiMode: 'inherit',
           comfyuiUrl: '',
           singleGpuMode: false,
+          budgetCapUsd: 5,
           comfyCloudApiKey: '',
           comfyuiTimeout: 1800,
           llmProvider: 'openai',
