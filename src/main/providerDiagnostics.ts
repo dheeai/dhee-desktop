@@ -1,8 +1,10 @@
 /* eslint-disable compat/compat, import/prefer-default-export */
 import type { AccountInfo, AppSettings } from '../shared/settingsTypes';
 import type {
+  LlmModelInfo,
   LlmProbeInput,
   LlmProbeResult,
+  LlmWarmResult,
   ProviderDiagnosticItem,
   ProviderDiagnosticsSnapshot,
 } from '../shared/providerDiagnosticsTypes';
@@ -10,6 +12,7 @@ import { getComfyUiUrl, withV1Suffix } from './utils/comfyUrl';
 import { isLocalLlmUrl } from '../shared/localUrl';
 
 const DEFAULT_TIMEOUT_MS = 3500;
+const MODEL_WARM_TIMEOUT_MS = 180_000;
 const GEMINI_MODELS_URL =
   'https://generativelanguage.googleapis.com/v1beta/models';
 
@@ -54,6 +57,60 @@ async function fetchModelIds(url: string, headers?: Record<string, string>): Pro
     const body = (await response.json()) as { data?: Array<{ id?: unknown }> };
     return (body.data ?? [])
       .map((m) => (typeof m?.id === 'string' ? m.id : null))
+      .filter((x): x is string => x !== null)
+      .slice(0, 50);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Parse model ids + local server status from an OpenAI-compatible GET /models body. */
+async function fetchModelDetails(url: string, headers?: Record<string, string>): Promise<LlmModelInfo[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    // eslint-disable-next-line compat/compat
+    const response = await fetch(url, { method: 'GET', headers, signal: controller.signal });
+    if (!response.ok) return [];
+    const body = (await response.json()) as {
+      data?: Array<{ id?: unknown; status?: { value?: unknown } | unknown }>;
+    };
+    return (body.data ?? [])
+      .map((m) => {
+        if (typeof m?.id !== 'string') return null;
+        const status =
+          typeof m.status === 'object' &&
+          m.status !== null &&
+          'value' in m.status &&
+          typeof m.status.value === 'string'
+            ? m.status.value
+            : undefined;
+        return { id: m.id, ...(status ? { status } : {}) };
+      })
+      .filter((x): x is LlmModelInfo => x !== null)
+      .slice(0, 50);
+  } catch {
+    return [];
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchGeminiModelIds(apiKey: string): Promise<string[]> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS);
+  try {
+    // eslint-disable-next-line compat/compat
+    const response = await fetch(
+      `${GEMINI_MODELS_URL}?key=${encodeURIComponent(apiKey)}`,
+      { method: 'GET', signal: controller.signal },
+    );
+    if (!response.ok) return [];
+    const body = (await response.json()) as { models?: Array<{ name?: unknown }> };
+    return (body.models ?? [])
+      .map((m) => (typeof m?.name === 'string' ? m.name.replace(/^models\//, '') : null))
       .filter((x): x is string => x !== null)
       .slice(0, 50);
   } catch {
@@ -233,10 +290,14 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
     const result = await fetchOk(
       `${GEMINI_MODELS_URL}?key=${encodeURIComponent(key)}`,
     );
+    const models = result.ok ? await fetchGeminiModelIds(key) : [];
     return result.ok
       ? {
           ok: true,
-          message: `Gemini key verified${input.model ? ` for ${input.model}` : ''}.`,
+          message: models.length
+            ? `Gemini key verified — ${models.length} models available.`
+            : `Gemini key verified${input.model ? ` for ${input.model}` : ''}.`,
+          models,
         }
       : {
           ok: false,
@@ -268,12 +329,71 @@ export async function probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
   }
   // Reachable — enumerate the served models so the form can offer a picker
   // instead of a blank box.
-  const models = await fetchModelIds(joinUrl(baseUrl, '/models'), headers);
+  const modelDetails = await fetchModelDetails(joinUrl(baseUrl, '/models'), headers);
+  const models = modelDetails.length
+    ? modelDetails.map((m) => m.id)
+    : await fetchModelIds(joinUrl(baseUrl, '/models'), headers);
   return {
     ok: true,
     message: models.length ? `Reachable — ${models.length} models available.` : `Model endpoint reachable for ${model}.`,
     models,
+    ...(modelDetails.length ? { modelDetails } : {}),
   };
+}
+
+export async function warmLlmModel(input: LlmProbeInput): Promise<LlmWarmResult> {
+  if (input.provider !== 'openai') {
+    return { ok: false, message: 'Model loading is only available for local OpenAI-compatible endpoints.' };
+  }
+
+  const baseUrl = withV1Suffix(input.baseUrl || 'https://api.openai.com/v1');
+  if (!isLocalBaseUrl(baseUrl)) {
+    return { ok: false, message: 'Model loading is only triggered automatically for local endpoints.' };
+  }
+
+  const model = input.model?.trim();
+  if (!model) return { ok: false, message: 'Choose a model before loading it.' };
+
+  const apiKey = (input.apiKey ?? '').trim();
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODEL_WARM_TIMEOUT_MS);
+  try {
+    // A tiny completion is the most portable load trigger across local
+    // OpenAI-compatible servers. llama.cpp model-manager endpoints load
+    // or swap the requested model before generating this response.
+    // eslint-disable-next-line compat/compat
+    const response = await fetch(joinUrl(baseUrl, '/chat/completions'), {
+      method: 'POST',
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        model,
+        messages: [{ role: 'user', content: 'Reply with ok.' }],
+        max_tokens: 1,
+        temperature: 0,
+      }),
+    });
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      return {
+        ok: false,
+        message: `Could not load ${model}.`,
+        detail: text || `HTTP ${response.status}`,
+      };
+    }
+    return { ok: true, message: `${model} is loaded.` };
+  } catch (error) {
+    return {
+      ok: false,
+      message: `Could not load ${model}.`,
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 async function vlmDiagnostic(

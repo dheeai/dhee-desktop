@@ -32,6 +32,15 @@ export interface LlmProbeInput {
   baseUrl?: string;
 }
 
+export interface LlmModelInfo {
+  id: string;
+  status?: string;
+}
+
 export type LlmProbeResult =
-  | { ok: true; message: string; models?: string[] }
+  | { ok: true; message: string; models?: string[]; modelDetails?: LlmModelInfo[] }
+  | { ok: false; message: string; detail?: string };
+
+export type LlmWarmResult =
+  | { ok: true; message: string }
   | { ok: false; message: string; detail?: string };

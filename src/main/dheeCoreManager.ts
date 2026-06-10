@@ -36,10 +36,14 @@ import {
   parseSessionToolCalls,
   type SessionToolCall,
 } from './parseSessionToolCalls';
-import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
+import { buildCompletedNudge, buildFailedNudge, buildGatedNudge, buildStopAtReviewNudge, extractNodeId, isTransientFailure } from './runWakeNudge';
 import { pathToFileURL } from 'url';
 import { getComfyUiUrl, isComfyCloudUrl } from './utils/comfyUrl';
 import { applyRuntimeAnalyticsConfig } from './cloudRuntimeConfig';
+import {
+  freeComfyBeforeLocalLlm,
+  unloadLocalLlmBeforeLocalComfy,
+} from './singleGpuCoordinator';
 
 export interface dheeCloudAuthRuntime {
   websiteUrl: string;
@@ -183,6 +187,9 @@ type ManagerModule = {
     root: string;
     projectsDir: string;
   };
+  addLocalResourceStartListener?: (
+    listener: (resource: RunnerCurrentResource) => void | Promise<void>,
+  ) => () => void;
 
   // Phase 6.4: workflow CRUD + WorkflowModeRegistry + chat-session
   // persistence are no longer exposed by dhee-core (the underlying
@@ -1045,6 +1052,7 @@ export class dheeCoreManager {
    * needs the same desktop token + website URL cached here.
    */
   private lastCloudAuth: dheeCloudAuthRuntime | null = null;
+  private unsubscribeLocalResourceStart: (() => void) | null = null;
 
   /**
    * Test seam — seed `lastSettings` without going through start().
@@ -1181,7 +1189,7 @@ export class dheeCoreManager {
   onRunTerminal(kind: 'completed' | 'failed', e: unknown): void {
     const payload = e as {
       task?: {
-        spec?: { sessionId?: string; params?: { projectDir?: string } };
+        spec?: { sessionId?: string; params?: { projectDir?: string; stage?: string } };
         // Stamped by the core runner when a run "completed" only because
         // the stop-after-each-collection gate paused it (issue #133).
         gatedAfter?: string;
@@ -1195,6 +1203,7 @@ export class dheeCoreManager {
     };
     const spec = payload.task?.spec;
     const projectDir = spec?.params?.projectDir;
+    const stopAt = typeof spec?.params?.stage === 'string' ? spec.params.stage : undefined;
     const nodeId = extractNodeId(payload.error);
     const gatedAfter = payload.task?.gatedAfter;
     const budgetExceeded = payload.task?.budgetExceeded;
@@ -1254,7 +1263,15 @@ export class dheeCoreManager {
       // announces the real reason (issue #133) — a gated pause must not
       // read as a finish, or the agent confabulates why downstream
       // produced nothing.
-      if (!gatedAfter && sessionId && this.lastEventCb && projectDir) {
+      if (!gatedAfter && stopAt && sessionId && !this.busySessions.has(sessionId) && this.lastEventCb && projectDir) {
+        const nudge = buildStopAtReviewNudge({ projectDir, stopAt });
+        void this.chatPrompt(sessionId, nudge, this.lastEventCb).catch((err) => {
+          log.warn('[dheeCoreManager] run-wake stopAt nudge failed:', err);
+        });
+        return;
+      }
+
+      if (!gatedAfter && !stopAt && sessionId && this.lastEventCb && projectDir) {
         const output = resolveCompletedRunOutput(projectDir);
         this.emitRunNotice(
           sessionId,
@@ -1549,6 +1566,15 @@ export class dheeCoreManager {
     // {provider, modelId, apiKey} for the pi-agent.
     this.lastSettings = settings;
     this.lastCloudAuth = cloudAuth ?? null;
+    this.unsubscribeLocalResourceStart?.();
+    this.unsubscribeLocalResourceStart = null;
+    if (settings.singleGpuMode === true) {
+      this.unsubscribeLocalResourceStart =
+        this.managerModule.addLocalResourceStartListener?.(async (resource) => {
+          if (resource.kind !== 'local_comfy') return;
+          await unloadLocalLlmBeforeLocalComfy(settings);
+        }) ?? null;
+    }
 
     // Seed process-wide oversight + VLM flags from persisted
     // AppSettings on the very first run. Pi-agent-in-process
@@ -1570,6 +1596,8 @@ export class dheeCoreManager {
    */
   stop(): void {
     this.disposeAllSessions();
+    this.unsubscribeLocalResourceStart?.();
+    this.unsubscribeLocalResourceStart = null;
     this.started = false;
   }
 
@@ -2613,6 +2641,10 @@ export class dheeCoreManager {
         error:
           'Single GPU mode is active: chat is paused while local ComfyUI is rendering. Use Stop to interrupt the render, or switch ComfyUI/LLM to cloud to chat during renders.',
       };
+    }
+
+    if (this.lastSettings) {
+      await freeComfyBeforeLocalLlm(this.lastSettings);
     }
 
     // chatDeps is lazy-loaded from dhee-core; tests inject via __setChatDeps.

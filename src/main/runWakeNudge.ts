@@ -56,6 +56,17 @@ export function buildCompletedNudge(opts: { videoPath?: string; projectDir?: str
   );
 }
 
+export function buildStopAtReviewNudge(opts: { projectDir: string; stopAt: string }): string {
+  return (
+    `[system] The bounded review run just completed at stopAt='${opts.stopAt}' ` +
+    `for projectDir="${opts.projectDir}". This was a critique-review pass, ` +
+    `not permission to continue downstream. Show the regenerated '${opts.stopAt}' ` +
+    `artifact with dhee_show_node_output, ask the user if they are satisfied, ` +
+    `and do NOT call dhee_start_run again unless the user says the corrected ` +
+    `shot is good or explicitly asks to continue.`
+  );
+}
+
 /**
  * The run didn't finish — it PAUSED on the stop-after-each-collection
  * gate (gateAfterCollections), by design, after a collection node. This

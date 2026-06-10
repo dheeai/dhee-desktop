@@ -75,6 +75,49 @@ describe('probeLlm — API-key requirement', () => {
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.message).toMatch(/needs an api key/i);
   });
+
+  it('returns Gemini model ids from the models endpoint', async () => {
+    mockFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        models: [
+          { name: 'models/gemini-2.5-flash' },
+          { name: 'models/gemini-2.5-pro' },
+        ],
+      }),
+    }));
+    const res = await probeLlm({ provider: 'gemini', apiKey: 'AIza-test' });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.models).toEqual(['gemini-2.5-flash', 'gemini-2.5-pro']);
+    }
+  });
+
+  it('returns local OpenAI-compatible model statuses when the endpoint provides them', async () => {
+    mockFetch(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        data: [
+          { id: 'qwen-loaded', status: { value: 'loaded' } },
+          { id: 'qwen-unloaded', status: { value: 'unloaded' } },
+        ],
+      }),
+    }));
+    const res = await probeLlm({
+      provider: 'openai',
+      baseUrl: 'http://0.0.0.0:8080',
+    });
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.models).toEqual(['qwen-loaded', 'qwen-unloaded']);
+      expect(res.modelDetails).toEqual([
+        { id: 'qwen-loaded', status: 'loaded' },
+        { id: 'qwen-unloaded', status: 'unloaded' },
+      ]);
+    }
+  });
 });
 
 describe('probeLlm — reachability & model enumeration', () => {
