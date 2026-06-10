@@ -1,0 +1,115 @@
+@import '../../../styles/tokens';
+
+.root {
+  position: relative;
+  width: 100%;
+}
+
+.controlRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: stretch;
+  width: 100%;
+}
+
+.input {
+  width: 100%;
+  min-width: 0;
+}
+
+.trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: $spacing-xs;
+  min-width: 112px;
+  padding: 0 $spacing-md;
+  border: 1px solid $color-panel-border;
+  border-left: 0;
+  border-radius: 0 $radius-sm $radius-sm 0;
+  background: rgba(var(--color-accent-primary-rgb), 0.08);
+  color: $color-accent-primary;
+  font-family: $font-family-mono;
+  font-size: $font-size-xs;
+  font-weight: $font-weight-semibold;
+  letter-spacing: 0;
+  cursor: pointer;
+  transition:
+    background-color $transition-fast,
+    border-color $transition-fast,
+    color $transition-fast;
+
+  &:hover:not(:disabled) {
+    background: rgba(var(--color-accent-primary-rgb), 0.14);
+    border-color: rgba(var(--color-accent-primary-rgb), 0.45);
+  }
+
+  &:focus {
+    outline: none;
+    border-color: $color-accent-primary;
+    box-shadow: 0 0 0 3px rgba(var(--color-accent-primary-rgb), 0.12);
+  }
+
+  &:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+}
+
+.chevron {
+  width: 7px;
+  height: 7px;
+  border-right: 1px solid $color-text-muted;
+  border-bottom: 1px solid $color-text-muted;
+  transform: translateY(-2px) rotate(45deg);
+}
+
+.listbox {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + #{$spacing-xs});
+  right: 0;
+  left: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: $spacing-xs;
+  border: 1px solid rgba(var(--color-accent-primary-rgb), 0.34);
+  border-radius: $radius-sm;
+  background: rgba(var(--color-bg-panel-rgb), 0.98);
+  box-shadow: $shadow-lg;
+}
+
+.option {
+  display: block;
+  width: 100%;
+  min-height: 34px;
+  padding: $spacing-sm $spacing-md;
+  border: 0;
+  border-radius: $radius-sm;
+  background: transparent;
+  color: $color-text-secondary;
+  font-family: $font-family-mono;
+  font-size: $font-size-xs;
+  line-height: 1.35;
+  text-align: left;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+
+  &:hover,
+  &:focus {
+    outline: none;
+    background: rgba(var(--color-accent-primary-rgb), 0.12);
+    color: $color-text-primary;
+  }
+}
+
+.optionSelected {
+  background: rgba(var(--color-accent-primary-rgb), 0.18);
+  color: $color-text-primary;
+}
+
+.empty {
+  padding: $spacing-sm $spacing-md;
+  color: $color-text-muted;
+  font-size: $font-size-xs;
+}

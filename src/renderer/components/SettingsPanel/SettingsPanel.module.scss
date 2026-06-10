@@ -473,6 +473,26 @@
   }
 }
 
+.modelComboInput {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.modelListHint,
+.modelListError {
+  margin: 0;
+  font-size: $font-size-xs;
+  line-height: 1.4;
+}
+
+.modelListHint {
+  color: $color-text-muted;
+}
+
+.modelListError {
+  color: $color-warning;
+}
+
 .statusCard,
 .infoCard {
   border: 1px solid rgba(var(--color-accent-primary-rgb), 0.18);

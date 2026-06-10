@@ -15,6 +15,7 @@ import type {
 import type {
   LlmProbeInput,
   LlmProbeResult,
+  LlmWarmResult,
   ProviderDiagnosticsSnapshot,
 } from '../shared/providerDiagnosticsTypes';
 import type {
@@ -149,6 +150,9 @@ const providerDiagnosticsBridge = {
   },
   probeLlm(input: LlmProbeInput): Promise<LlmProbeResult> {
     return ipcRenderer.invoke('provider-diagnostics:probe-llm', input);
+  },
+  warmLlmModel(input: LlmProbeInput): Promise<LlmWarmResult> {
+    return ipcRenderer.invoke('provider-diagnostics:warm-llm-model', input);
   },
 };
 

@@ -240,6 +240,31 @@ describe('dheeCoreManager.onRunTerminal — agent re-wake', () => {
     );
   });
 
+  it('1d. completed stopAt review run + idle → wakes agent to ask for user approval, not final completion', async () => {
+    const mgr = makeMgr();
+    const projectDir = projectWithFinalVideo();
+    await primeSession(mgr, 's-stopat', projectDir);
+    runTurnSpy.mockClear();
+
+    mgr.onRunTerminal('completed', {
+      task: {
+        id: 'task-stopat',
+        spec: {
+          sessionId: 's-stopat',
+          params: { projectDir, stage: 'shot_image' },
+        },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(runTurnSpy).toHaveBeenCalledTimes(1);
+    const msg = runTurnSpy.mock.calls[0]![1] as string;
+    expect(msg).toMatch(/bounded review run/i);
+    expect(msg).toContain("stopAt='shot_image'");
+    expect(msg).toMatch(/ask the user if they are satisfied/i);
+    expect(msg).not.toMatch(/final video/i);
+  });
+
   it('2a. captures a terminal failure to PostHog as error_occurred (#2)', async () => {
     const mgr = makeMgr();
     const captureSpy = jest.spyOn(mgr, 'captureAnalyticsEvent');

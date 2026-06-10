@@ -7,11 +7,13 @@ import type {
   ThemeId,
 } from '../../../shared/settingsTypes';
 import type {
+  LlmModelInfo,
   ProviderDiagnosticItem,
   ProviderDiagnosticsSnapshot,
   ProviderDiagnosticStatus,
 } from '../../../shared/providerDiagnosticsTypes';
 import { useFirstRunSetup } from '../../contexts/FirstRunSetupContext';
+import { ComboList } from '../ui';
 import AccountTab from './AccountTab';
 import WorkflowsTab from './WorkflowsTab';
 import styles from './SettingsPanel.module.scss';
@@ -53,6 +55,18 @@ type Props = {
   onSaveConnection: (settings: Partial<AppSettings>) => Promise<boolean> | void;
   isSavingConnection: boolean;
   error?: string | null;
+};
+
+type ModelListState = {
+  status: 'idle' | 'loading' | 'ready' | 'error';
+  models: string[];
+  modelDetails?: LlmModelInfo[];
+  message?: string;
+};
+
+type ModelWarmState = {
+  status: 'loading' | 'ready' | 'error';
+  message: string;
 };
 
 const emptyTierConfig: LLMTierConfig = {
@@ -199,6 +213,8 @@ export default function SettingsPanel({
   const [providerDiagnostics, setProviderDiagnostics] =
     useState<ProviderDiagnosticsSnapshot | null>(null);
   const [providerDiagnosticsBusy, setProviderDiagnosticsBusy] = useState(false);
+  const [modelLists, setModelLists] = useState<Record<string, ModelListState>>({});
+  const [modelWarmStates, setModelWarmStates] = useState<Record<string, ModelWarmState>>({});
   const canUseHostedComfy = canAccountUseHostedComfy(account);
   const isComfyBlockedByPlan = Boolean(account) && !canUseHostedComfy;
 
@@ -272,6 +288,100 @@ export default function SettingsPanel({
       });
     } finally {
       setProviderDiagnosticsBusy(false);
+    }
+  };
+
+  const loadModels = async (
+    key: string,
+    input: {
+      provider: 'openai' | 'gemini';
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+    },
+  ) => {
+    setModelLists((prev) => ({
+      ...prev,
+      [key]: {
+        status: 'loading',
+        models: prev[key]?.models ?? [],
+        modelDetails: prev[key]?.modelDetails,
+      },
+    }));
+    try {
+      const bridge = getProviderDiagnosticsBridge();
+      if (!bridge?.probeLlm) {
+        throw new Error('Model lookup is unavailable in this build.');
+      }
+      const result = await bridge.probeLlm(input);
+      if (result.ok) {
+        setModelLists((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'ready',
+            models: result.models ?? [],
+            modelDetails: result.modelDetails,
+            message: result.message,
+          },
+        }));
+      } else {
+        setModelLists((prev) => ({
+          ...prev,
+          [key]: {
+            status: 'error',
+            models: [],
+            message: result.detail ?? result.message,
+          },
+        }));
+      }
+    } catch (err) {
+      setModelLists((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'error',
+          models: [],
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }));
+    }
+  };
+
+  const warmSelectedModel = async (
+    key: string,
+    input: {
+      provider: 'openai' | 'gemini';
+      apiKey?: string;
+      model?: string;
+      baseUrl?: string;
+    },
+  ) => {
+    if (!input.model) return;
+    setModelWarmStates((prev) => ({
+      ...prev,
+      [key]: { status: 'loading', message: `Loading ${input.model}...` },
+    }));
+    try {
+      const bridge = getProviderDiagnosticsBridge();
+      if (!bridge?.warmLlmModel) {
+        throw new Error('Model loading is unavailable in this build.');
+      }
+      const result = await bridge.warmLlmModel(input);
+      setModelWarmStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: result.ok ? 'ready' : 'error',
+          message: result.ok ? result.message : result.detail ?? result.message,
+        },
+      }));
+      await loadModels(key, input);
+    } catch (err) {
+      setModelWarmStates((prev) => ({
+        ...prev,
+        [key]: {
+          status: 'error',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      }));
     }
   };
   useEffect(() => {
@@ -456,6 +566,116 @@ export default function SettingsPanel({
       ? 'Connected to Cloud'
       : 'Cloud sign-in required'
     : 'Connected to Local';
+
+  const renderModelIdInput = (opts: {
+    id: string;
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    provider: 'openai' | 'gemini';
+    apiKey?: string;
+    baseUrl?: string;
+    disabled?: boolean;
+    placeholder: string;
+    tourId?: string;
+  }) => {
+    const state = modelLists[opts.id] ?? { status: 'idle' as const, models: [] };
+    const warmState = modelWarmStates[opts.id];
+    const canQuery =
+      !opts.disabled &&
+      (opts.provider === 'openai' || Boolean((opts.apiKey ?? '').trim()));
+    const query = async () => {
+      if (!canQuery) return;
+      await loadModels(opts.id, {
+        provider: opts.provider,
+        apiKey: opts.apiKey,
+        model: opts.value,
+        ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+      });
+    };
+
+    return (
+      <div className={styles.label}>
+        <div className={styles.labelRow}>
+          <span>{opts.label}</span>
+          <button
+            type="button"
+            className={styles.inlineButton}
+            onClick={() => {
+              void query();
+            }}
+            disabled={!canQuery || state.status === 'loading'}
+          >
+            {state.status === 'loading' ? 'Loading models...' : 'Refresh models'}
+          </button>
+        </div>
+        <ComboList
+          value={opts.value}
+          onChange={(value) => {
+            opts.onChange(value);
+            setModelWarmStates((prev) => {
+              const next = { ...prev };
+              delete next[opts.id];
+              return next;
+            });
+          }}
+          onOptionSelect={(value) => {
+            opts.onChange(value);
+            if (opts.provider === 'openai') {
+              void warmSelectedModel(opts.id, {
+                provider: opts.provider,
+                apiKey: opts.apiKey,
+                model: value,
+                ...(opts.baseUrl ? { baseUrl: opts.baseUrl } : {}),
+              });
+            }
+          }}
+          options={state.models.map((model) => {
+            const detail = state.modelDetails?.find((m) => m.id === model);
+            return {
+              value: model,
+              label: detail?.status ? `${model}  ·  ${detail.status}` : model,
+            };
+          })}
+          loading={state.status === 'loading'}
+          disabled={opts.disabled}
+          triggerDisabled={!canQuery}
+          placeholder={opts.placeholder}
+          buttonLabel="Models"
+          inputClassName={`${styles.input} ${styles.modelComboInput}`}
+          dataTourId={opts.tourId}
+          onRequestOptions={query}
+        />
+        {state.status === 'ready' && state.models.length > 0 ? (
+          <p className={styles.modelListHint}>
+            {state.models.length} model{state.models.length === 1 ? '' : 's'} available from endpoint. You can still type a custom id.
+          </p>
+        ) : null}
+        {warmState ? (
+          <p
+            className={
+              warmState.status === 'error'
+                ? styles.modelListError
+                : styles.modelListHint
+            }
+          >
+            {warmState.message}
+          </p>
+        ) : null}
+        {state.status === 'ready' && state.models.length === 0 ? (
+          <p className={styles.modelListHint}>
+            Endpoint reached, but it did not return model ids. Type one manually.
+          </p>
+        ) : null}
+        {state.status === 'error' ? (
+          <p className={styles.modelListError}>
+            {state.message ?? 'Could not load models. Type one manually.'}
+          </p>
+        ) : null}
+      </div>
+    );
+  };
+
   const renderTierSection = (
     tier: 'llmTierMedium' | 'llmTierLight',
     label: string,
@@ -495,19 +715,16 @@ export default function SettingsPanel({
 
         {cfg.provider === 'gemini' && (
           <>
-            <label className={styles.label}>
-              Gemini Model ID
-              <input
-                type="text"
-                className={styles.input}
-                value={cfg.geminiModel}
-                disabled={isLlmCloudMode}
-                onChange={(event) =>
-                  handleTierInput(tier, 'geminiModel', event.target.value)
-                }
-                placeholder="gemini-2.5-flash"
-              />
-            </label>
+            {renderModelIdInput({
+              id: `${tier}-gemini-model`,
+              label: 'Gemini Model ID',
+              value: cfg.geminiModel,
+              provider: 'gemini',
+              apiKey: cfg.googleApiKey,
+              disabled: isLlmCloudMode,
+              placeholder: 'gemini-2.5-flash',
+              onChange: (value) => handleTierInput(tier, 'geminiModel', value),
+            })}
             <label className={styles.label}>
               Google API Key
               <input
@@ -539,19 +756,17 @@ export default function SettingsPanel({
                 placeholder="https://api.openai.com/v1"
               />
             </label>
-            <label className={styles.label}>
-              Model ID
-              <input
-                type="text"
-                className={styles.input}
-                value={cfg.openaiModel}
-                disabled={isLlmCloudMode}
-                onChange={(event) =>
-                  handleTierInput(tier, 'openaiModel', event.target.value)
-                }
-                placeholder="gpt-4o"
-              />
-            </label>
+            {renderModelIdInput({
+              id: `${tier}-openai-model`,
+              label: 'Model ID',
+              value: cfg.openaiModel,
+              provider: 'openai',
+              apiKey: cfg.openaiApiKey,
+              baseUrl: cfg.openaiBaseUrl,
+              disabled: isLlmCloudMode,
+              placeholder: 'gpt-4o',
+              onChange: (value) => handleTierInput(tier, 'openaiModel', value),
+            })}
             <label className={styles.label}>
               API Key
               <input
@@ -994,19 +1209,16 @@ export default function SettingsPanel({
 
                       {form.llmProvider === 'gemini' && (
                         <>
-                          <label className={styles.label}>
-                            Gemini Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.geminiModel}
-                              onChange={(event) =>
-                                handleInput('geminiModel', event.target.value)
-                              }
-                              placeholder="gemini-2.5-flash"
-                              data-tour-id="settings-llm-model"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'heavy-gemini-model',
+                            label: 'Gemini Model ID',
+                            value: form.geminiModel,
+                            provider: 'gemini',
+                            apiKey: form.googleApiKey,
+                            placeholder: 'gemini-2.5-flash',
+                            tourId: 'settings-llm-model',
+                            onChange: (value) => handleInput('geminiModel', value),
+                          })}
 
                           <label className={styles.label}>
                             Google API Key
@@ -1055,19 +1267,17 @@ export default function SettingsPanel({
                             />
                           </div>
 
-                          <label className={styles.label}>
-                            Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.openaiModel}
-                              onChange={(event) =>
-                                handleInput('openaiModel', event.target.value)
-                              }
-                              placeholder="gpt-4o"
-                              data-tour-id="settings-llm-model"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'heavy-openai-model',
+                            label: 'Model ID',
+                            value: form.openaiModel,
+                            provider: 'openai',
+                            apiKey: form.openaiApiKey,
+                            baseUrl: form.openaiBaseUrl,
+                            placeholder: 'gpt-4o',
+                            tourId: 'settings-llm-model',
+                            onChange: (value) => handleInput('openaiModel', value),
+                          })}
 
                           <label className={styles.label}>
                             API Key
@@ -1210,18 +1420,15 @@ export default function SettingsPanel({
 
                       {form.vlmProvider === 'gemini' ? (
                         <>
-                          <label className={styles.label}>
-                            Gemini Vision Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.vlmModel}
-                              onChange={(event) =>
-                                handleInput('vlmModel', event.target.value)
-                              }
-                              placeholder="gemini-2.5-pro"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'vlm-gemini-model',
+                            label: 'Gemini Vision Model ID',
+                            value: form.vlmModel,
+                            provider: 'gemini',
+                            apiKey: form.vlmApiKey,
+                            placeholder: 'gemini-2.5-pro',
+                            onChange: (value) => handleInput('vlmModel', value),
+                          })}
                           <label className={styles.label}>
                             Google API Key
                             <input
@@ -1249,18 +1456,16 @@ export default function SettingsPanel({
                               placeholder="http://127.0.0.1:1234/v1"
                             />
                           </label>
-                          <label className={styles.label}>
-                            Vision Model ID
-                            <input
-                              type="text"
-                              className={styles.input}
-                              value={form.vlmModel}
-                              onChange={(event) =>
-                                handleInput('vlmModel', event.target.value)
-                              }
-                              placeholder="qwen-vl-72b"
-                            />
-                          </label>
+                          {renderModelIdInput({
+                            id: 'vlm-openai-model',
+                            label: 'Vision Model ID',
+                            value: form.vlmModel,
+                            provider: 'openai',
+                            apiKey: form.vlmApiKey,
+                            baseUrl: form.vlmBaseUrl,
+                            placeholder: 'qwen-vl-72b',
+                            onChange: (value) => handleInput('vlmModel', value),
+                          })}
                           <label className={styles.label}>
                             API Key
                             <input
