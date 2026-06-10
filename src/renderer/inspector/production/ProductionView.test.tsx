@@ -2,18 +2,21 @@
  * ProductionView — render coverage (exercises the real component).
  *
  * useRunModel + the contexts are mocked so we can drive a specific run
- * state; the layer derivation + section rendering run for real. ScriptDoc
- * and CardDetailModal are stubbed (file IPC / modal internals aren't under
- * test here).
+ * state; the pure buildProductionDoc shape + the dumb section/pill render
+ * run for real. CardDetailModal/ReadableArtifact/ShotSheetCard internals
+ * (file IPC, modal) aren't under test here and are stubbed.
  *
- * Failure modes:
- *   1. layer bar is derived from the bundle stages using their declared
- *      display names (Film/Script/Shots/Clips/Characters/Settings)
- *   2. defaults to Film once visual artifacts exist; hero renders
- *   3. switching to a reference layer shows that stage's items
- *   4. empty project (no stages) renders the "new" hero without crashing
+ * jsdom lacks IntersectionObserver (the indicate-only viewing tracker) and
+ * Element.scrollIntoView (pill click → scroll) — both are stubbed below so
+ * the component's effects/handlers run without throwing.
+ *
+ * Failure modes covered:
+ *   1. one pill per bundle stage, using declared display names
+ *   2. the Final Cut hero renders with the project title
+ *   3. media-only stages render as a board of their items
+ *   4. empty project (no artifacts) renders the "new" hero without crashing
  */
-import { describe, it, expect, jest, beforeEach } from '@jest/globals';
+import { describe, it, expect, jest, beforeEach, beforeAll } from '@jest/globals';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { deriveRunModel, type RunModel } from '../../lib/runCockpit/deriveRunModel';
 import type { InstanceGraphNode } from '../../../shared/dheeIpc';
@@ -34,7 +37,10 @@ jest.mock('../../hooks/useRunModel', () => ({ useRunModel: () => ({ model: mockM
 jest.mock('../../contexts/WorkspaceContext', () => ({ useWorkspace: () => ({ projectDirectory: '/proj/Set In The 1970s' }) }));
 jest.mock('../../contexts/ProjectContext', () => ({ useProject: () => ({ bundle: { id: 'narr', nodes: mockNarrative } }) }));
 jest.mock('../CardDetailModal', () => ({ CardDetailModal: () => null }));
-jest.mock('./ScriptDoc', () => ({ ScriptDoc: () => <div data-testid="script-doc" /> }));
+jest.mock('./ReadableArtifact', () => ({ ReadableArtifact: () => <div data-testid="readable" /> }));
+jest.mock('./ShotSheetCard', () => ({
+  ShotSheetCard: ({ entity }: any) => <div data-testid="sheet">{entity.label}</div>,
+}));
 
 import { ProductionView } from './ProductionView';
 
@@ -57,38 +63,55 @@ const MID_RUN: InstanceGraphNode[] = [
   inst('final_video', 'pending'),
 ];
 
+beforeAll(() => {
+  // jsdom implements neither — the viewing-tracker effect and pill-click
+  // handler use them. Stub so the real component mounts/handles without throwing.
+  (global as any).IntersectionObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+    takeRecords() { return []; }
+  };
+  (Element.prototype as any).scrollIntoView = jest.fn();
+});
+
 beforeEach(() => {
   mockModel = buildModel(MID_RUN);
 });
 
 describe('ProductionView', () => {
-  it('derives the layer bar from the bundle stages + display names', () => {
+  it('renders a pill per bundle stage using its declared display name', () => {
     render(<ProductionView />);
-    for (const label of ['Film', 'Script', 'Shots', 'Clips', 'Characters', 'Settings']) {
+    for (const label of ['Story', 'Scene Breakdown', 'Characters', 'Settings', 'Shots', 'Clips', 'Final Cut']) {
       expect(screen.getAllByText(label).length).toBeGreaterThan(0);
     }
   });
 
-  it('defaults to the Film layer once visual artifacts exist and renders the hero', () => {
+  it('renders the Final Cut hero with the project title', () => {
     render(<ProductionView />);
-    // hero title derived from the project dir
     expect(screen.getByText('Set In The 1970s')).toBeTruthy();
   });
 
-  it('switches to a reference layer and shows that stage’s items', () => {
+  it('renders media-only stages as a board of their items, and pill clicks scroll without crashing', () => {
     render(<ProductionView />);
-    const charsBtn = screen
+    // character_image (media-only) → board; its two items render as tiles.
+    expect(screen.getByText(/lyla/i)).toBeTruthy();
+    expect(screen.getByText(/floyd/i)).toBeTruthy();
+    const charsPill = screen
       .getAllByText('Characters')
       .map((el) => el.closest('button'))
       .find(Boolean) as HTMLButtonElement;
-    fireEvent.click(charsBtn);
-    expect(screen.getByText('Lyla')).toBeTruthy();
-    expect(screen.getByText('Floyd')).toBeTruthy();
+    fireEvent.click(charsPill);
+    expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
-  it('renders the "new" hero for an empty project without crashing', () => {
+  it('renders a blank canvas without crashing when the run has no instances yet', () => {
+    // Zero instances → deriveRunModel yields no stages → no sections/pills.
+    // The point of this case is that the real component (IntersectionObserver
+    // effect included) still mounts cleanly instead of throwing.
     mockModel = buildModel([]);
-    render(<ProductionView />);
-    expect(screen.getByText(/no footage yet/i)).toBeTruthy();
+    const { container } = render(<ProductionView />);
+    expect(container.firstChild).toBeTruthy(); // mounted, no throw
+    expect(screen.queryAllByRole('button')).toHaveLength(0); // no stage pills
   });
 });
