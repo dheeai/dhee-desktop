@@ -84,16 +84,14 @@ export interface ProductionDoc {
   sections: Section[];
 }
 
-const SHOTS_ID = 'shots';
 const BLUEPRINT_RE = /_plan$|breakdown/i;
 
-function isShotKeyed(stage: RunStageView): boolean {
-  if (!stage.collection) return false;
-  const withItems = stage.items.filter((i) => i.itemId);
-  if (withItems.length > 0) {
-    return withItems.some((i) => parseSceneNo(i.itemId) !== null && parseShotNo(i.itemId) !== null);
-  }
-  return /shot/i.test(stage.id);
+function entityPrefix(stageId: string): string {
+  return stageId.split(/[_-]/)[0] || stageId;
+}
+function pluralLabel(prefix: string): string {
+  const cap = prefix.charAt(0).toUpperCase() + prefix.slice(1);
+  return cap.endsWith('s') ? cap : `${cap}s`;
 }
 
 function findFilmStage(stages: RunStageView[]): RunStageView | null {
@@ -126,11 +124,18 @@ function toRef(it: RunDeliverable, stage: RunStageView, headlineField: string | 
 /** Pair media with the nearest preceding unpaired text (pipeline order). */
 function pairEntries(refs: ArtifactRef[]): ArtifactPair[] {
   const pairs: ArtifactPair[] = [];
+  // "first/last frame" only when the entity actually has two frames (shots);
+  // a character portrait or a location still isn't a "first frame".
+  const hasLast = refs.some((r) => r.frameRole === 'last');
   let pendingText: ArtifactRef | undefined;
   const push = (media: ArtifactRef | undefined, text: ArtifactRef | undefined) => {
     const expectVideo = media?.format === 'video' || (!!text && /motion|clip|video/i.test(text.nodeId));
     const role = media?.frameRole ?? text?.frameRole ?? null;
-    const mediaTag = expectVideo ? 'clip' : role === 'last' ? 'last frame' : role === 'first' ? 'first frame' : media?.stageLabel ?? text?.stageLabel ?? 'media';
+    const mediaTag = expectVideo
+      ? 'clip'
+      : role === 'last' ? 'last frame'
+      : role === 'first' && hasLast ? 'first frame'
+      : media?.stageLabel ?? text?.stageLabel ?? 'media';
     pairs.push({ media, text, mediaTag, expectVideo });
   };
   for (const r of refs) {
@@ -216,7 +221,7 @@ export function buildProductionDoc(
   const byId = new Map(stages.map((s) => [s.id, s]));
   const sections: Section[] = [];
   const pills: StagePill[] = [];
-  let shotStageIds: string[] = [];
+  const groupStageIds = new Map<string, string[]>();
 
   const pill = (s: RunStageView, sectionId: string): StagePill => ({
     stageId: s.id, label: s.label, status: s.status, done: s.done, total: s.total, sectionId,
@@ -224,9 +229,10 @@ export function buildProductionDoc(
 
   for (const s of stages) {
     if (s === film) {
+      const finalItem = s.items.find((i) => i.status === 'completed' && i.outputPath);
       sections.push({
         kind: 'film', id: 'film', label: s.label, phase: heroPhase(model, film),
-        final: s.items.find((i) => i.status === 'completed' && i.outputPath) && toRef(s.items.find((i) => i.status === 'completed' && i.outputPath)!, s, undefined),
+        final: finalItem ? toRef(finalItem, s, undefined) : undefined,
         recent: stages.filter((x) => x.kind === 'visual').flatMap((x) => x.items)
           .filter((i) => i.status === 'completed' && i.outputPath && i.format === 'image').slice(-5)
           .map((i) => toRef(i, byId.get(i.nodeId) ?? s, undefined)),
@@ -234,19 +240,30 @@ export function buildProductionDoc(
       pills.push(pill(s, 'film'));
       continue;
     }
-    if (isShotKeyed(s)) {
-      if (shotStageIds.length === 0) sections.push({ kind: 'sheets', id: SHOTS_ID, label: 'Shots', entities: [] });
-      shotStageIds.push(s.id);
-      pills.push(pill(s, SHOTS_ID));
+    // Fan-out detection by ITEM-ID presence — NOT the bundle `collection`
+    // flag, which is always false in production (the bundle's node `kind` is
+    // the artifact kind image/json/…, never 'collection'). A stage whose
+    // items carry item ids fans out per entity → group it by entity prefix.
+    const isFanout = s.collection || s.items.some((i) => i.itemId);
+    if (isFanout) {
+      const pfx = entityPrefix(s.id);
+      if (!groupStageIds.has(pfx)) {
+        groupStageIds.set(pfx, []);
+        sections.push({ kind: 'sheets', id: pfx, label: pluralLabel(pfx), entities: [] }); // placeholder
+      }
+      groupStageIds.get(pfx)!.push(s.id);
+      pills.push(pill(s, pfx));
       continue;
     }
     if (s.kind === 'visual') {
-      const portrait = s.format === 'image' && /char|cast|person|actor/i.test(s.id);
+      // A single visual stage that isn't the film and doesn't fan out → board.
+      // (Guard: visual content must NEVER fall into the text/doc path, which
+      // would read images/videos as text.)
+      const portrait = /char|cast|person|actor/i.test(s.id);
       sections.push({ kind: 'board', id: s.id, label: s.label, portrait, tiles: s.items.map((it) => toRef(it, s, undefined)) });
       pills.push(pill(s, s.id));
       continue;
     }
-    // text/json single-or-collection → readable doc (collapsed for *_plan blueprints).
     sections.push({
       kind: 'doc', id: s.id, label: s.label, format: s.format, collapsed: BLUEPRINT_RE.test(s.id),
       writing: s.status === 'active', items: s.items.map((it) => toRef(it, s, headlineFields.get(s.id))),
@@ -254,11 +271,23 @@ export function buildProductionDoc(
     pills.push(pill(s, s.id));
   }
 
-  // Resolve the merged shots section's entities now that all shot stages are known.
-  if (shotStageIds.length > 0) {
-    const shotsSection = sections.find((sec) => sec.id === SHOTS_ID);
-    if (shotsSection && shotsSection.kind === 'sheets') {
-      shotsSection.entities = buildEntities(shotStageIds.map((id) => byId.get(id)!), headlineFields);
+  for (let i = 0; i < sections.length; i += 1) {
+    const sec = sections[i];
+    if (sec.kind !== 'sheets') continue;
+    const grp = (groupStageIds.get(sec.id) ?? []).map((id) => byId.get(id)!).filter(Boolean);
+    const hasText = grp.some((s) => s.kind === 'text');
+    const hasMedia = grp.some((s) => s.kind === 'visual');
+    if (hasText && hasMedia) {
+      sections[i] = { kind: 'sheets', id: sec.id, label: sec.label, entities: buildEntities(grp, headlineFields) };
+    } else if (hasMedia) {
+      const portrait = grp.some((s) => /char|cast|person|actor/i.test(s.id));
+      sections[i] = { kind: 'board', id: sec.id, label: sec.label, portrait, tiles: grp.flatMap((s) => s.items.map((it) => toRef(it, s, undefined))) };
+    } else {
+      sections[i] = {
+        kind: 'doc', id: sec.id, label: sec.label, format: grp[0]?.format, collapsed: false,
+        writing: grp.some((s) => s.status === 'active'),
+        items: grp.flatMap((s) => s.items.map((it) => toRef(it, s, headlineFields.get(s.id)))),
+      };
     }
   }
 

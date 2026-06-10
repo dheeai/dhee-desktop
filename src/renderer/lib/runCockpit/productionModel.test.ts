@@ -69,28 +69,29 @@ describe('buildProductionDoc', () => {
     expect((byId.story as Extract<Section, { kind: 'doc' }>).collapsed).toBe(false);
     expect(byId.characters_plan.kind).toBe('doc');
     expect((byId.characters_plan as Extract<Section, { kind: 'doc' }>).collapsed).toBe(true);
-    expect(byId.character_image.kind).toBe('board');
-    expect(byId.shots.kind).toBe('sheets');
+    expect(byId.character.kind).toBe('board'); // character_image alone (media-only) → board
+    expect(byId.shot.kind).toBe('sheets'); // shot_* prompt+media → sheets, keyed by entity prefix
     expect(byId.film.kind).toBe('film');
     expect(byKind(sections, 'sheets')).toHaveLength(1);
   });
 
   it('pairs each entity’s media with the text that produced it', () => {
-    const shots = doc().sections.find((s) => s.id === 'shots') as Extract<Section, { kind: 'sheets' }>;
+    const shots = doc().sections.find((s) => s.id === 'shot') as Extract<Section, { kind: 'sheets' }>;
     const s1 = shots.entities.find((e) => e.key === 'scene_1_shot_1')!;
     expect(s1.label).toBe('Scene 1 · Shot 1');
     expect(s1.pairs.map((p) => [p.text?.nodeId, p.media?.nodeId])).toEqual([
       ['shot_image_prompt', 'shot_image'],
       ['shot_motion_directive', 'shot_video'],
     ]);
-    expect(s1.pairs[0].mediaTag).toBe('first frame');
+    // single-frame shot (no last frame) → media tag is the stage label, not "first frame"
+    expect(s1.pairs[0].mediaTag).toBe('Shots');
     expect(s1.pairs[1].mediaTag).toBe('clip');
     expect(s1.thumb?.nodeId).toBe('shot_image');
     expect(s1.pairs[0].text?.headlineField).toBe('imagePrompt');
   });
 
   it('handles a shot with a written prompt but no media yet (running, text-only pair)', () => {
-    const shots = doc().sections.find((s) => s.id === 'shots') as Extract<Section, { kind: 'sheets' }>;
+    const shots = doc().sections.find((s) => s.id === 'shot') as Extract<Section, { kind: 'sheets' }>;
     const s2 = shots.entities.find((e) => e.key === 'scene_1_shot_2')!;
     expect(s2.status).toBe('running');
     expect(s2.pairs).toHaveLength(1);
