@@ -119,6 +119,27 @@ describe('buildProductionDoc', () => {
     }
   });
 
+  it('groups a scene’s clip prompt + ALL its clips (chunks) into one sheet', () => {
+    const RELAY = [
+      { id: 'scene_video_prompt', kind: 'node', outputs: { format: 'json' }, displayName: 'Clip Prompts' },
+      { id: 'scene_clip', kind: 'node', outputs: { format: 'video' }, displayName: 'Clips' },
+    ];
+    const insts: InstanceGraphNode[] = [
+      inst('scene_video_prompt', 'completed', { itemId: 'scene_1', outputPath: 'p/s1.json' }),
+      inst('scene_clip', 'completed', { itemId: 'scene_1_chunk_1', outputPath: 'v/s1c1.mp4' }),
+      inst('scene_clip', 'completed', { itemId: 'scene_1_chunk_2', outputPath: 'v/s1c2.mp4' }),
+      inst('scene_video_prompt', 'completed', { itemId: 'scene_2', outputPath: 'p/s2.json' }),
+      inst('scene_clip', 'completed', { itemId: 'scene_2_chunk_1', outputPath: 'v/s2c1.mp4' }),
+    ];
+    const model = deriveRunModel({ instances: insts, edges: [], bundleNodes: RELAY, runnerActive: true, cancelling: false, agentBusy: false, now: NOW });
+    const scenes = buildProductionDoc(model).sections.find((s) => s.id === 'scene') as Extract<Section, { kind: 'sheets' }>;
+    expect(scenes.entities.map((e) => e.key)).toEqual(['scene_1', 'scene_2']); // chunks collapse by scene
+    const s1 = scenes.entities.find((e) => e.key === 'scene_1')!;
+    // BOTH chunk clips shown, plus the scene clip prompt
+    expect(s1.pairs.map((p) => p.media?.outputPath).filter(Boolean)).toEqual(['v/s1c1.mp4', 'v/s1c2.mp4']);
+    expect(s1.pairs.some((p) => p.text?.nodeId === 'scene_video_prompt')).toBe(true);
+  });
+
   it('handles a shot with a written prompt but no media yet (running, text-only pair)', () => {
     const shots = doc().sections.find((s) => s.id === 'shot') as Extract<Section, { kind: 'sheets' }>;
     const s2 = shots.entities.find((e) => e.key === 'scene_1_shot_2')!;

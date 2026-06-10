@@ -166,18 +166,33 @@ function entityLabel(itemId: string): string {
   return itemId.replace(/[_-]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+/**
+ * The grouping key for an entity sheet. Shots stay distinct (scene+shot), but
+ * scene-level items collapse by SCENE NUMBER — so a scene's clip prompt and
+ * ALL its clips (e.g. scene_1_chunk_1, scene_1_chunk_2) land in one sheet.
+ * Non scene/shot ids (characters, settings) group on the id itself.
+ */
+function entityKey(itemId: string): string {
+  const sc = parseSceneNo(itemId);
+  const sh = parseShotNo(itemId);
+  if (sc !== null && sh !== null) return `scene_${sc}_shot_${sh}`;
+  if (sc !== null) return `scene_${sc}`;
+  return itemId;
+}
+
 function buildEntities(shotStages: RunStageView[], headlineFields: Map<string, string | undefined>): EntityCard[] {
   const byItem = new Map<string, ArtifactRef[]>();
   const order: string[] = [];
   for (const stage of shotStages) {
     for (const it of stage.items) {
       if (!it.itemId) continue;
+      const key = entityKey(it.itemId);
       const ref = toRef(it, stage, headlineFields.get(stage.id));
-      const list = byItem.get(it.itemId);
+      const list = byItem.get(key);
       if (list) list.push(ref);
       else {
-        byItem.set(it.itemId, [ref]);
-        order.push(it.itemId);
+        byItem.set(key, [ref]);
+        order.push(key);
       }
     }
   }
