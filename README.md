@@ -4,6 +4,24 @@ Electron desktop app for **dhee** — a local-first generative-media studio. It 
 
 The app is **local-only**: the agent, the engine, and your projects all live on your machine, and there is no SaaS backend. Pointing ComfyUI at `https://cloud.comfy.org` (or any remote ComfyUI URL) in Settings → Connection is a separate, still-supported way to offload image/video generation — it does not make the app cloud-hosted.
 
+## Screenshots
+
+**Your Studio** — drop a story, an idea, or a script and Dhee breaks it into scenes, generates the visuals, and stitches the video.
+
+![Your Studio — the project launcher](assets/screenshots/studio-landing.png)
+
+**Production view** — every shot keeps its prompt and generated media together. The agent (docked right) explains its plan, runs the bundle, and regenerates individual nodes on your behalf.
+
+![Production view with the agent panel](assets/screenshots/production-shot-sheets.png)
+
+**Film view** — the shots grid as a contact sheet while a run is live, with the agent making targeted edits (here: re-framing shot 2 as an over-the-shoulder shot) and cascading the change downstream.
+
+![Film view — shots grid with a live agent edit](assets/screenshots/film-view-shots.png)
+
+**Live run** — scene-by-scene shot grid filling in as the pipeline walks the DAG, with stage progress across the top and the shot list on the right.
+
+![Live run — shot grid filling in across scenes](assets/screenshots/shots-grid-running.png)
+
 ## How it embeds dhee-core
 
 The Electron main process (`src/main/dheeCoreManager.ts`, logs as `DheeCoreManager`) lazy-imports `dhee-core` and owns the embedded engine for the lifetime of the app. There are two kinds of work:
