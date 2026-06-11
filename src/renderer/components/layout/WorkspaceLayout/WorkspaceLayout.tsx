@@ -45,7 +45,10 @@ function getProjectDisplayName(
 export default function WorkspaceLayout() {
   const { closeProject, projectName, projectDirectory } = useWorkspace();
   const { bundle } = useProject();
-  const { active: runnerActive, cancel: cancelRunner } = useRunnerStatus();
+  const { active: runnerActive, cancel: cancelRunner } = useRunnerStatus({
+    projectDirectory,
+    projectName,
+  });
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
   const displayProjectName = getProjectDisplayName(
     projectName,

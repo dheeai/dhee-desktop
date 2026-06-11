@@ -28,10 +28,10 @@ export interface UseRunModelResult {
 }
 
 export function useRunModel(pollMs = 1500): UseRunModelResult {
-  const runner = useRunnerStatus();
+  const { projectDirectory, projectName } = useWorkspace();
+  const runner = useRunnerStatus({ projectDirectory, projectName });
   const session = useDheeSession();
   const { bundle } = useProject();
-  const { projectDirectory } = useWorkspace();
 
   const agentBusy = session.status === 'running';
   const live = runner.active || agentBusy;

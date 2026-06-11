@@ -294,6 +294,34 @@ describe('preload context-isolation contract', () => {
     expect(invokeCalls.map((c) => c.channel)).toEqual(['project:select-directory']);
   });
 
+  it('electron.project attachment methods forward to the attachment IPC channels', () => {
+    const electron = exposed.get('electron') as Record<string, unknown>;
+    const project = electron.project as Record<string, (...a: unknown[]) => unknown>;
+    invokeCalls.length = 0;
+    project.selectAttachment({ kinds: ['reference_image'], multiple: true });
+    project.importReferenceImages({
+      projectDir: '/tmp/project.dhee',
+      attachments: [{ id: 'att-1', kind: 'reference_image', path: '/tmp/a.png', name: 'a.png' }],
+    });
+    expect(invokeCalls).toMatchObject([
+      {
+        channel: 'project:select-attachment',
+        args: [{ kinds: ['reference_image'], multiple: true }],
+      },
+      {
+        channel: 'project:import-reference-images',
+        args: [
+          {
+            projectDir: '/tmp/project.dhee',
+            attachments: [
+              { id: 'att-1', kind: 'reference_image', path: '/tmp/a.png', name: 'a.png' },
+            ],
+          },
+        ],
+      },
+    ]);
+  });
+
   it('the narrowed ipcRenderer.sendMessage uses send() (fire-and-forget), not invoke()', () => {
     const electron = exposed.get('electron') as Record<string, unknown>;
     const ipc = electron.ipcRenderer as Record<string, (...a: unknown[]) => unknown>;

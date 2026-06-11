@@ -13,7 +13,7 @@
  *   auto-opened, so the WorkspaceLayout renders (Timeline, Assets,
  *   Storyboard, Preview, etc.).
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { WorkspaceProvider, useWorkspace } from '../contexts/WorkspaceContext';
 import { TimelineProvider } from '../contexts/TimelineContext';
 import { ProjectProvider } from '../contexts/ProjectContext';
@@ -35,7 +35,7 @@ function ProjectBootstrap({
   children,
   showPickerOnEmpty = true,
 }: {
-  children: React.ReactNode;
+  children: ReactNode;
   showPickerOnEmpty?: boolean;
 }) {
   const { openProject, projectDirectory } = useWorkspace();
@@ -93,12 +93,24 @@ function ProjectBootstrap({
   return <>{children}</>;
 }
 
+function ScopedDheeSessionProvider({ children }: { children: ReactNode }) {
+  const { projectDirectory, projectName } = useWorkspace();
+  return (
+    <DheeSessionProvider
+      projectDirectory={projectDirectory}
+      projectName={projectName}
+    >
+      {children}
+    </DheeSessionProvider>
+  );
+}
+
 /** Original chat-only mount — preserved for the existing 9 specs. */
 function ChatSurface() {
   return (
     <AppSettingsProvider>
-      <DheeSessionProvider>
-        <WorkspaceProvider>
+      <WorkspaceProvider>
+        <ScopedDheeSessionProvider>
           <ChatQuestionsProvider>
             <ProjectBootstrap>
               <div style={{ width: '100vw', height: '100vh', display: 'flex' }}>
@@ -106,8 +118,8 @@ function ChatSurface() {
               </div>
             </ProjectBootstrap>
           </ChatQuestionsProvider>
-        </WorkspaceProvider>
-      </DheeSessionProvider>
+        </ScopedDheeSessionProvider>
+      </WorkspaceProvider>
     </AppSettingsProvider>
   );
 }
@@ -130,8 +142,8 @@ function FullAppSurface({ autoOpen }: { autoOpen: boolean }) {
   return (
     <ErrorBoundary>
       <AppSettingsProvider>
-        <DheeSessionProvider>
-          <WorkspaceProvider>
+        <WorkspaceProvider>
+          <ScopedDheeSessionProvider>
             <FirstRunTourProvider>
               <ProjectProvider>
                 <TimelineProvider>
@@ -149,8 +161,8 @@ function FullAppSurface({ autoOpen }: { autoOpen: boolean }) {
                 </TimelineProvider>
               </ProjectProvider>
             </FirstRunTourProvider>
-          </WorkspaceProvider>
-        </DheeSessionProvider>
+          </ScopedDheeSessionProvider>
+        </WorkspaceProvider>
       </AppSettingsProvider>
     </ErrorBoundary>
   );

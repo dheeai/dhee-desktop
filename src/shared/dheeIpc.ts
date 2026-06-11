@@ -9,6 +9,8 @@
  * narrowing logic regardless of transport.
  */
 
+import type { Attachment } from './attachmentTypes';
+
 /** Channel names for `ipcMain.handle` / `ipcRenderer.invoke` request/response calls. */
 export const dhee_CHANNELS = {
   CREATE_SESSION: 'dhee:createSession',
@@ -206,10 +208,12 @@ export interface HistorySnapshot {
     content: string;
     timestamp: number;
     agentName?: string;
+    attachments?: HistoryAttachmentPreview[];
     media?: {
       kind: 'image' | 'video';
       path: string;
       project: string;
+      projectDir?: string;
       source?: string;
     };
   }>;
@@ -229,6 +233,18 @@ export interface HistorySnapshot {
   }>;
   focusedProject?: string;
   compactionCount: number;
+}
+
+export interface HistoryAttachmentPreview {
+  id: string;
+  kind: string;
+  name: string;
+  path?: string;
+  mimeType?: string;
+  role?: string;
+  purpose?: string;
+  replacementTargetId?: string;
+  replacementTargetName?: string;
 }
 
 export interface CreateSessionResponse {
@@ -251,6 +267,7 @@ export interface ClearChatHistoryRequest {
 
 export interface GetHistoryRequest {
   sessionId: string;
+  projectDir?: string;
 }
 
 export interface GetHistoryResponse {
@@ -268,6 +285,10 @@ export interface ClearChatHistoryResponse {
 
 export interface RunnerCancelResponse {
   cancelled: boolean;
+}
+
+export interface RunnerCancelRequest {
+  projectDir?: string;
 }
 
 export type RunnerCurrentResourceKind = 'local_comfy' | 'local_llm';
@@ -295,6 +316,7 @@ export interface RunnerStatusResponse {
   taskId?: string;
   kind?: string;
   projectName?: string;
+  projectDir?: string;
   startedAt?: number;
   sessionId?: string;
   currentResource?: RunnerCurrentResource | null;
@@ -317,6 +339,7 @@ export interface OkResponse {
 export interface RunTaskRequest {
   sessionId: string;
   task: string;
+  projectDir?: string;
   stopAtStage?: string;
   /**
    * Files the user attached in the chat input. Currently only
@@ -328,13 +351,15 @@ export interface RunTaskRequest {
    * the dhee-core ConversationManager API unchanged while still
    * being structurally typed across the IPC boundary.
    */
-  attachments?: import('./attachmentTypes').Attachment[];
+  attachments?: Attachment[];
 }
 
 /** Phase 6.5: chatPrompt IPC contract. */
 export interface ChatPromptRequest {
   sessionId: string;
   message: string;
+  projectDir?: string;
+  attachments?: Attachment[];
 }
 
 export type ChatPromptResponse =

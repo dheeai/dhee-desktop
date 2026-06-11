@@ -83,8 +83,14 @@ import { DheeSessionProvider } from '../../../hooks/useDheeSession';
 // hook now requires a provider; tests historically rendered the
 // panel bare).
 function renderPanel() {
+  const projectDirectory = mockWorkspaceProjectName
+    ? `/tmp/${mockWorkspaceProjectName}.dhee`
+    : null;
   return render(
-    <DheeSessionProvider>
+    <DheeSessionProvider
+      projectDirectory={projectDirectory}
+      projectName={mockWorkspaceProjectName}
+    >
       <ChatPanelEmbedded />
     </DheeSessionProvider>,
   );
@@ -449,6 +455,7 @@ describe('ChatPanelEmbedded', () => {
   });
 
   it('single GPU mode pauses chat while a local ComfyUI render is active', async () => {
+    mockWorkspaceProjectName = 'p';
     mockSingleGpuMode = true;
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
       jest.fn(async () => ({
@@ -466,6 +473,7 @@ describe('ChatPanelEmbedded', () => {
     await waitFor(() =>
       expect(screen.getByText(/Single GPU mode: chat is paused/i)).toBeInTheDocument(),
     );
+    const callCountBeforeBlockedSend = mockState.chatPromptCalls.length;
     const input = screen.getByRole('textbox') as HTMLTextAreaElement;
     expect(input).toBeDisabled();
 
@@ -474,7 +482,7 @@ describe('ChatPanelEmbedded', () => {
       fireEvent.click(screen.getByRole('button', { name: /send/i }));
     });
 
-    expect(mockState.chatPromptCalls).toHaveLength(0);
+    expect(mockState.chatPromptCalls).toHaveLength(callCountBeforeBlockedSend);
     expect(mockState.cancelCalls).toHaveLength(0);
   });
 
@@ -1385,7 +1393,7 @@ describe('ChatPanelEmbedded', () => {
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
       runnerCancel as never;
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-      jest.fn(async () => ({ active: runnerActive })) as never;
+      jest.fn(async () => ({ active: runnerActive, projectName: 'BurgerEating' })) as never;
 
     renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
@@ -1449,7 +1457,7 @@ describe('ChatPanelEmbedded', () => {
     }) as never;
     // Runner reports active — same scenario as a long pipeline mid-run.
     (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-      jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+      jest.fn(async () => ({ active: true, kind: 'run_to', projectName: 'BurgerEating' })) as never;
 
     renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
@@ -1571,7 +1579,7 @@ describe('ChatPanelEmbedded', () => {
       setupProjectFiles();
       let active = true;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-        jest.fn(async () => ({ active })) as never;
+        jest.fn(async () => ({ active, projectName: 'BurgerEating' })) as never;
 
       renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
@@ -1601,7 +1609,7 @@ describe('ChatPanelEmbedded', () => {
       setupProjectFiles();
       const runnerCancel = jest.fn(async () => ({ cancelled: true }));
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-        jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+        jest.fn(async () => ({ active: true, kind: 'run_to', projectName: 'BurgerEating' })) as never;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
         runnerCancel as never;
 
@@ -1632,7 +1640,7 @@ describe('ChatPanelEmbedded', () => {
       const runnerCancel = jest.fn(async () => ({ cancelled: true }));
       const cancelTask = jest.fn(async () => ({ cancelled: true }));
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerStatus =
-        jest.fn(async () => ({ active: true, kind: 'run_to' })) as never;
+        jest.fn(async () => ({ active: true, kind: 'run_to', projectName: 'BurgerEating' })) as never;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.runnerCancel =
         runnerCancel as never;
       (window as unknown as { dhee: Record<string, unknown> }).dhee.cancelTask =
@@ -1668,6 +1676,7 @@ describe('ChatPanelEmbedded', () => {
 
   describe('history re-hydration on mount', () => {
     it('calls window.dhee.getHistory(sessionId) once the session is ready', async () => {
+      mockWorkspaceProjectName = 'HistoryProject';
       const getHistory = jest.fn(async (req: { sessionId: string }) => ({
         sessionId: req.sessionId,
         history: null,
@@ -1678,7 +1687,10 @@ describe('ChatPanelEmbedded', () => {
       renderPanel();
       await waitFor(() => screen.getByRole('textbox'));
       await waitFor(() => expect(getHistory).toHaveBeenCalled());
-      expect(getHistory.mock.calls[0]?.[0]).toMatchObject({ sessionId: 's-1' });
+      expect(getHistory.mock.calls[0]?.[0]).toMatchObject({
+        sessionId: 's-1',
+        projectDir: '/tmp/HistoryProject.dhee',
+      });
     });
 
     it('renders prior user + assistant messages from the refetched snapshot', async () => {

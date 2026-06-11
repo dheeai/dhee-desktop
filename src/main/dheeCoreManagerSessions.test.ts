@@ -12,6 +12,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { projectSlugFromDir } from './projectSessionSlug';
 
 const userDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dhee-sessions-test-'));
 
@@ -72,7 +73,11 @@ describe('dheeCoreManager session-history & cleanup stubs (Phase 6.3)', () => {
   it('getSessionHistorySnapshot rehydrates user+assistant turns from the focused project JSONL (Phase 6.5c.d)', async () => {
     const projectDir = path.join(userDataRoot, 'projects', 'RubyV4');
     fs.mkdirSync(projectDir, { recursive: true });
-    const sessionsDir = path.join(userDataRoot, 'pi-sessions', 'RubyV4');
+    const sessionsDir = path.join(
+      userDataRoot,
+      'pi-sessions',
+      projectSlugFromDir(projectDir),
+    );
     fs.mkdirSync(sessionsDir, { recursive: true });
     const jsonl = [
       JSON.stringify({
@@ -109,9 +114,41 @@ describe('dheeCoreManager session-history & cleanup stubs (Phase 6.3)', () => {
     expect(snap).not.toBeNull();
     expect(snap?.focusedProject).toBe('RubyV4');
     expect(snap?.compactionCount).toBe(1);
-    expect(snap?.messages).toHaveLength(2);
+    expect(snap?.messages).toHaveLength(3);
     expect(snap?.messages[0]).toMatchObject({ type: 'user', content: 'hello' });
     expect(snap?.messages[1]).toMatchObject({ type: 'agent', content: 'hi there' });
+    expect(snap?.messages[2]).toMatchObject({
+      type: 'system',
+      content: expect.stringMatching(/summarized/i),
+    });
+  });
+
+  it('getSessionHistorySnapshot returns null when explicit projectDir does not match the focused session', async () => {
+    const projectDir = path.join(userDataRoot, 'projects', 'ScopedA');
+    const otherProjectDir = path.join(userDataRoot, 'projects', 'ScopedB');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.mkdirSync(otherProjectDir, { recursive: true });
+    const sessionsDir = path.join(
+      userDataRoot,
+      'pi-sessions',
+      projectSlugFromDir(projectDir),
+    );
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'sess.jsonl'),
+      JSON.stringify({
+        type: 'message',
+        id: 'm-1',
+        timestamp: '2026-05-29T10:00:00.000Z',
+        message: { role: 'user', content: 'hello from A', timestamp: 1716981600000 },
+      }),
+    );
+
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-mismatch', 'ScopedA', projectDir);
+    expect(
+      mgr.getSessionHistorySnapshot('s-mismatch', otherProjectDir),
+    ).toBeNull();
   });
 
   it('clearChatHistory mints a fresh session id and does not throw', () => {

@@ -24,9 +24,17 @@ jest.mock('../../backend/BackendBadges', () => ({
 // The strip now reads useDheeSession for the agent-busy half of its honest
 // activity chip. Drive it via a mutable mock.
 let mockSessionStatus = 'idle';
+let mockExecution = {
+  active: false,
+  runnerActive: false,
+  chatBusy: false,
+  pendingCancel: false,
+  otherProjectRunner: null,
+  cancel: jest.fn(),
+};
 jest.mock('../../../hooks/useDheeSession', () => ({
-  useDheeSession: () => ({ status: mockSessionStatus }),
-  useOptionalDheeSession: () => ({ status: mockSessionStatus }),
+  useDheeSession: () => ({ status: mockSessionStatus, execution: mockExecution }),
+  useOptionalDheeSession: () => ({ status: mockSessionStatus, execution: mockExecution }),
 }));
 
 import { StatusStrip } from './StatusStrip';
@@ -48,6 +56,14 @@ beforeEach(() => {
   runnerStatusMock.mockResolvedValue({ active: false });
   runnerCancelMock.mockResolvedValue({ ok: true });
   mockSessionStatus = 'idle';
+  mockExecution = {
+    active: false,
+    runnerActive: false,
+    chatBusy: false,
+    pendingCancel: false,
+    otherProjectRunner: null,
+    cancel: jest.fn(),
+  };
   jest.useFakeTimers();
 });
 
@@ -83,12 +99,14 @@ describe('StatusStrip', () => {
   });
 
   it('reads "Running" when the walk runner is active', async () => {
-    runnerStatusMock.mockResolvedValue({
+    mockExecution = {
       active: true,
-      kind: 'compose_video',
-      taskId: 't1',
-      startedAt: Date.now() - 10_000,
-    });
+      runnerActive: true,
+      chatBusy: false,
+      pendingCancel: false,
+      otherProjectRunner: null,
+      cancel: jest.fn(),
+    };
     renderStrip();
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId('status-state')).toHaveTextContent(/running/i);
@@ -98,7 +116,6 @@ describe('StatusStrip', () => {
   });
 
   it('reads "Working" when the agent is busy but no walk is running (no more "Idle" lie)', async () => {
-    runnerStatusMock.mockResolvedValue({ active: false });
     mockSessionStatus = 'running';
     renderStrip();
     await act(async () => { await Promise.resolve(); });
@@ -106,13 +123,14 @@ describe('StatusStrip', () => {
   });
 
   it('shows "Stopping…" when a runner cancel is in flight', async () => {
-    runnerStatusMock.mockResolvedValue({
+    mockExecution = {
       active: true,
-      cancelling: true,
-      kind: 'render',
-      taskId: 't1',
-      startedAt: Date.now(),
-    });
+      runnerActive: true,
+      chatBusy: false,
+      pendingCancel: true,
+      otherProjectRunner: null,
+      cancel: jest.fn(),
+    };
     renderStrip();
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByTestId('status-state')).toHaveTextContent(/stopping/i);

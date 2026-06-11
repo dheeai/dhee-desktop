@@ -25,7 +25,8 @@
  * artifacts: never delete, just stop reading.
  */
 import { existsSync, readdirSync, renameSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
+import { projectSlugFromDir } from './projectSessionSlug';
 
 export interface ClearProjectSessionsResult {
   /** Number of JSONL files archived (renamed to .archived). */
@@ -35,14 +36,10 @@ export interface ClearProjectSessionsResult {
 }
 
 /**
- * Project slug uses the same scheme as getSessionHistorySnapshot:
- *   basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_')
- * Keep this in sync — if these diverge, clearChatHistory deletes a
- * different directory than the one getSessionHistorySnapshot reads.
+ * Project slug uses the same scheme as getSessionHistorySnapshot.
+ * Re-exported for legacy tests/imports.
  */
-export function projectSlugFromDir(projectDir: string): string {
-  return basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
-}
+export { projectSlugFromDir };
 
 export function clearProjectSessions(
   userDataDir: string,

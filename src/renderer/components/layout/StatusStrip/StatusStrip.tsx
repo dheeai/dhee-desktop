@@ -19,7 +19,6 @@ import {
   FileText,
   Clock,
 } from 'lucide-react';
-import { useRunnerStatus } from '../../../hooks/useRunnerStatus';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useOverlay, type OverlayKey } from '../../../overlays/OverlayContext';
 import BackendBadges from '../../backend/BackendBadges';
@@ -35,9 +34,11 @@ export interface StatusStripProps {
 }
 
 export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps) {
-  const { active: runnerActive, cancelling } = useRunnerStatus();
-  const { status: sessionStatus } = useDheeSession();
+  const session = useDheeSession();
   const { open } = useOverlay();
+  const runnerActive = session.execution?.runnerActive ?? false;
+  const cancelling = session.execution?.pendingCancel ?? false;
+  const sessionStatus = session.status;
   const agentBusy = sessionStatus === 'running';
   const active = runnerActive || agentBusy;
   const activityLabel = cancelling ? 'Stopping…' : runnerActive ? 'Running' : 'Working';

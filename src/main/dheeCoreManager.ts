@@ -20,7 +20,11 @@
  */
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import { isLocalLlmUrl } from '../shared/localUrl';
-import type { OkResponse, RunnerCurrentResource } from '../shared/dheeIpc';
+import type {
+  HistoryAttachmentPreview,
+  OkResponse,
+  RunnerCurrentResource,
+} from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
 import {
@@ -32,6 +36,10 @@ import {
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
+import {
+  normalizeProjectDirForSession,
+  projectSessionsDirFromDir,
+} from './projectSessionSlug';
 import {
   parseSessionToolCalls,
   type SessionToolCall,
@@ -126,6 +134,170 @@ function resolveCompletedRunOutput(projectDir: string): { filePath: string; kind
     log.warn('[dheeCoreManager] failed to resolve completed run output:', err);
     return null;
   }
+}
+
+function firstPositiveIndex(values: number[]): number {
+  const positive = values.filter((value) => value >= 0);
+  return positive.length > 0 ? Math.min(...positive) : -1;
+}
+
+function sanitizeLegacyWizardKickoff(text: string): string | null {
+  if (!text.startsWith('Create the dhee project "')) return null;
+  const storyMarker = '\nStory:\n';
+  const storyStart = text.indexOf(storyMarker);
+  if (storyStart < 0) return null;
+
+  const afterStory = text.slice(storyStart + storyMarker.length);
+  const storyEnd = firstPositiveIndex([
+    afterStory.indexOf('\n\nPass these copied project-local reference images'),
+    afterStory.indexOf('\n\nThen start the pipeline.'),
+  ]);
+  const story = (storyEnd >= 0 ? afterStory.slice(0, storyEnd) : afterStory).trim();
+  if (!story) return null;
+
+  const names = Array.from(afterStory.matchAll(/"name"\s*:\s*"([^"]+)"/g))
+    .map((match) => match[1])
+    .filter((name): name is string => Boolean(name));
+  return [
+    story,
+    names.length > 0 ? `Attached: ${Array.from(new Set(names)).join(', ')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function shouldHideInternalUserTask(text: string): boolean {
+  return (
+    /^Run the pipeline for the current project to completion\./.test(text) ||
+    /^Continue running the dhee pipeline for project=/.test(text) ||
+    /^Continue running the bundle for the current project/.test(text) ||
+    /^The run paused because this project hit its \$/.test(text)
+  );
+}
+
+function sanitizeUserHistoryText(text: string): string | null {
+  if (text.startsWith('[SYSTEM EVENT]')) return null;
+  const stripped = text.replace(/^\(Active project:[^)]*\)\s*/, '').trim();
+  if (!stripped) return null;
+  if (shouldHideInternalUserTask(stripped)) return null;
+  return sanitizeLegacyWizardKickoff(stripped) ?? stripped;
+}
+
+function basenameFromMaybePath(value: string): string {
+  try {
+    return path.basename(value);
+  } catch {
+    return value;
+  }
+}
+
+function attachmentRoleFromSection(section: string): string | undefined {
+  if (/character/i.test(section)) return 'character';
+  if (/setting/i.test(section)) return 'setting';
+  return undefined;
+}
+
+function attachmentPurposeFromRole(role: string | undefined): string | undefined {
+  if (role === 'character') return 'character_ref';
+  if (role === 'setting') return 'setting_ref';
+  return 'reference_general';
+}
+
+function parseAttachmentPreviewsFromText(text: string): HistoryAttachmentPreview[] {
+  const previews: HistoryAttachmentPreview[] = [];
+  let currentSection = '';
+  for (const line of text.split('\n')) {
+    const section = line.trim().match(/^Attached .+ images:$/i);
+    if (section) {
+      currentSection = line.trim();
+      continue;
+    }
+
+    const match = line.trim().match(/^-\s+(.+?):\s+(.+)$/);
+    if (!match || !currentSection) continue;
+    const name = match[1]?.trim();
+    const filePath = match[2]?.trim();
+    if (!name || !filePath) continue;
+    const role = attachmentRoleFromSection(currentSection);
+	    previews.push({
+	      id: `history-att-${previews.length}-${name}`,
+	      kind: 'reference_image',
+	      name,
+	      path: filePath,
+	      ...(role ? { role } : {}),
+	      ...(attachmentPurposeFromRole(role)
+	        ? { purpose: attachmentPurposeFromRole(role) }
+	        : {}),
+	    });
+  }
+  return previews;
+}
+
+function extractTextContent(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const text = content
+      .filter((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'text')
+      .map((c) => (c as { text?: string }).text ?? '')
+      .join('');
+    return text.length > 0 ? text : null;
+  }
+  return null;
+}
+
+function parseHistoryTimestamp(parsed: Record<string, unknown>, nested?: { timestamp?: number }): number {
+  if (typeof nested?.timestamp === 'number') return nested.timestamp;
+  if (typeof parsed['timestamp'] === 'string') {
+    const ts = Date.parse(parsed['timestamp'] as string);
+    if (Number.isFinite(ts)) return ts;
+  }
+  if (typeof parsed['timestamp'] === 'number') return parsed['timestamp'] as number;
+  return Date.now();
+}
+
+function mediaRecordFromCustomMessage(
+  parsed: Record<string, unknown>,
+  projectDir: string,
+  fallbackId: string,
+): Record<string, unknown> | null {
+  const payload = (
+    parsed['message'] ??
+    parsed['data'] ??
+    parsed['payload'] ??
+    parsed['customMessage']
+  ) as Record<string, unknown> | undefined;
+  if (!payload || typeof payload !== 'object') return null;
+
+  const type = payload['type'];
+  const rawKind = payload['kind'] ?? payload['mediaKind'];
+  const rawPath = payload['path'] ?? payload['filePath'] ?? payload['outputPath'];
+  if (
+    type !== 'media' &&
+    rawKind !== 'image' &&
+    rawKind !== 'video'
+  ) {
+    return null;
+  }
+  if (rawKind !== 'image' && rawKind !== 'video') return null;
+  if (typeof rawPath !== 'string' || rawPath.length === 0) return null;
+
+  const ts = parseHistoryTimestamp(parsed);
+  const source = typeof payload['source'] === 'string' ? payload['source'] : undefined;
+  const project =
+    typeof payload['project'] === 'string' && payload['project'].length > 0
+      ? payload['project']
+      : path.basename(projectDir);
+  return {
+    id: (parsed['id'] as string) ?? fallbackId,
+    type: 'media',
+    content: basenameFromMaybePath(rawPath),
+    timestamp: ts,
+    media: {
+      kind: rawKind,
+      path: rawPath,
+      project,
+      projectDir,
+      ...(source ? { source } : {}),
+    },
+  };
 }
 
 // Phase 6.4: narrowed to the host-helper surface that survives the
@@ -266,12 +438,18 @@ export function __setManagerLoader(loader: () => Promise<ManagerModule>): void {
 type RunnersModule = {
   getBackgroundTaskRunner: () => {
     cancel: () => boolean;
-    getActive: () => null | {
-      id: string;
-      spec: { kind: string; projectName: string; sessionId: string };
-      startedAt: number;
-      currentResource?: RunnerCurrentResource | null;
-    };
+	    getActive: () => null | {
+	      id: string;
+	      spec: {
+	        kind: string;
+	        projectName: string;
+	        projectDir?: string;
+	        sessionId: string;
+	        params?: { projectDir?: string };
+	      };
+	      startedAt: number;
+	      currentResource?: RunnerCurrentResource | null;
+	    };
     isCancelling?: () => boolean;
   };
 };
@@ -1285,11 +1463,12 @@ export class dheeCoreManager {
             eventName: 'media_generated',
             sessionId,
             data: {
-              kind: output.kind,
-              path: output.filePath,
-              project: path.basename(projectDir),
-            },
-          });
+	              kind: output.kind,
+	              path: output.filePath,
+	              project: path.basename(projectDir),
+	              projectDir,
+	            },
+	          });
         }
         // Do not wake the LLM for a successful end-to-end completion:
         // it already has enough context and may choose expensive or
@@ -1793,20 +1972,27 @@ export class dheeCoreManager {
    * shows the empty intro card) or when no JSONL exists (fresh
    * project, never chatted).
    */
-  getSessionHistorySnapshot(sessionId: string): {
+  getSessionHistorySnapshot(sessionId: string, explicitProjectDir?: string): {
     messages: Array<Record<string, unknown>>;
     toolCalls: SessionToolCall[];
     focusedProject?: string;
     compactionCount: number;
   } | null {
-    const projectDir = this.sessionProjects.get(sessionId);
+    const mappedProjectDir = this.sessionProjects.get(sessionId);
+    const projectDir = (() => {
+      if (!explicitProjectDir) return mappedProjectDir;
+      if (!mappedProjectDir) return explicitProjectDir;
+      return normalizeProjectDirForSession(mappedProjectDir) ===
+        normalizeProjectDirForSession(explicitProjectDir)
+        ? explicitProjectDir
+        : null;
+    })();
     if (!projectDir) return null;
     let sessionsDir: string;
     try {
-      const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
       const userData = app.getPath?.('userData');
       if (!userData) return null;
-      sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+      sessionsDir = projectSessionsDirFromDir(userData, projectDir);
     } catch {
       return null;
     }
@@ -1834,59 +2020,64 @@ export class dheeCoreManager {
     try {
       const content = fsReadFileSync(latest.path, 'utf8');
       const lines = content.split('\n').filter((l) => l.trim().length > 0);
-      const messages: Array<Record<string, unknown>> = [];
-      let compactionCount = 0;
-      for (const line of lines) {
-        let parsed: Record<string, unknown>;
+	      const messages: Array<Record<string, unknown>> = [];
+	      let compactionCount = 0;
+	      for (const line of lines) {
+	        let parsed: Record<string, unknown>;
         try {
           parsed = JSON.parse(line) as Record<string, unknown>;
         } catch {
           continue;
         }
-        if (parsed['type'] === 'compaction') {
-          compactionCount += 1;
-          continue;
-        }
-        if (parsed['type'] !== 'message') continue;
-        const msg = parsed['message'] as
-          | { role?: string; content?: unknown; timestamp?: number }
-          | undefined;
-        if (!msg) continue;
-        const ts = typeof msg.timestamp === 'number'
-          ? msg.timestamp
-          : (typeof parsed['timestamp'] === 'string'
-              ? Date.parse(parsed['timestamp'] as string)
-              : Date.now());
-        // user content is a string; assistant content is an array of
-        // {type:'text'|'toolCall'|'thinking', text?}. Flatten to plain
-        // text — tool-call envelopes are dropped here (the new chat
-        // panel doesn't render them from history; only live events).
-        let content: string;
-        if (typeof msg.content === 'string') {
-          content = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          content = msg.content
-            .filter((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'text')
-            .map((c) => (c as { text?: string }).text ?? '')
-            .join('');
-        } else {
-          continue;
-        }
-        if (!content.trim()) continue;
-        // Synthetic system messages from prior runs are noise; skip
-        // anything starting with [SYSTEM EVENT] or (Active project: …).
-        if (msg.role === 'user' && /^\[SYSTEM EVENT\]|^\(Active project:/.test(content)) {
-          continue;
-        }
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          messages.push({
-            id: (parsed['id'] as string) ?? `${ts}-${messages.length}`,
-            type: msg.role === 'user' ? 'user' : 'agent',
-            content,
-            timestamp: ts,
-          });
-        }
-      }
+	        const parsedType = parsed['type'];
+	        if (parsedType === 'compaction') {
+	          compactionCount += 1;
+	          const ts = parseHistoryTimestamp(parsed);
+	          messages.push({
+	            id: (parsed['id'] as string) ?? `compaction-${ts}-${compactionCount}`,
+	            type: 'system',
+	            content: 'Earlier conversation was summarized to keep context available.',
+	            timestamp: ts,
+	          });
+	          continue;
+	        }
+	        if (parsedType === 'custom_message') {
+	          const media = mediaRecordFromCustomMessage(
+	            parsed,
+	            projectDir,
+	            `media-${messages.length}`,
+	          );
+	          if (media) messages.push(media);
+	          continue;
+	        }
+	        if (parsedType !== 'message') continue;
+	        const msg = parsed['message'] as
+	          | { role?: string; content?: unknown; timestamp?: number }
+	          | undefined;
+	        if (!msg) continue;
+	        const ts = parseHistoryTimestamp(parsed, msg);
+	        const extracted = extractTextContent(msg.content);
+	        if (extracted === null) continue;
+	        let content = extracted;
+	        if (!content.trim()) continue;
+	        if (msg.role === 'user') {
+	          const sanitized = sanitizeUserHistoryText(content);
+	          if (!sanitized) continue;
+	          content = sanitized;
+	        }
+	        if (msg.role === 'user' || msg.role === 'assistant') {
+	          const attachments = msg.role === 'user'
+	            ? parseAttachmentPreviewsFromText(content)
+	            : [];
+	          messages.push({
+	            id: (parsed['id'] as string) ?? `${ts}-${messages.length}`,
+	            type: msg.role === 'user' ? 'user' : 'agent',
+	            content,
+	            timestamp: ts,
+	            ...(attachments.length > 0 ? { attachments } : {}),
+	          });
+	        }
+	      }
       return {
         messages,
         // Reconstruct the tool-call timeline (call + result, joined by id)
@@ -2309,19 +2500,28 @@ export class dheeCoreManager {
    * button so cancellation is instant even while the main session
    * is mid-reply.
    */
-  async cancelBackgroundTask(): Promise<boolean> {
-    const mod = await loadRunnersModule();
-    return mod.getBackgroundTaskRunner().cancel();
-  }
+	  async cancelBackgroundTask(projectDir?: string): Promise<boolean> {
+	    const mod = await loadRunnersModule();
+	    const runner = mod.getBackgroundTaskRunner();
+	    if (projectDir) {
+	      const active = runner.getActive();
+	      const activeProjectDir = active?.spec.params?.projectDir ?? active?.spec.projectDir;
+	      if (activeProjectDir !== projectDir) {
+	        return false;
+	      }
+	    }
+	    return runner.cancel();
+	  }
 
   /** Snapshot of the runner's current state (or `{ active: false }`). */
   async getBackgroundTaskStatus(): Promise<{
     active: boolean;
     cancelling?: boolean;
     taskId?: string;
-    kind?: string;
-    projectName?: string;
-    startedAt?: number;
+	    kind?: string;
+	    projectName?: string;
+	    projectDir?: string;
+	    startedAt?: number;
     sessionId?: string;
     currentResource?: RunnerCurrentResource | null;
   }> {
@@ -2329,13 +2529,15 @@ export class dheeCoreManager {
     const runner = mod.getBackgroundTaskRunner();
     const active = runner.getActive();
     if (!active) return { active: false };
-    return {
-      active: true,
-      cancelling: runner.isCancelling?.() ?? false,
-      taskId: active.id,
-      kind: active.spec.kind,
-      projectName: active.spec.projectName,
-      startedAt: active.startedAt,
+	    const activeProjectDir = active.spec.params?.projectDir ?? active.spec.projectDir;
+	    return {
+	      active: true,
+	      cancelling: runner.isCancelling?.() ?? false,
+	      taskId: active.id,
+	      kind: active.spec.kind,
+	      projectName: active.spec.projectName,
+	      ...(activeProjectDir ? { projectDir: activeProjectDir } : {}),
+	      startedAt: active.startedAt,
       sessionId: active.spec.sessionId,
       currentResource: active.currentResource ?? null,
     };
@@ -2691,10 +2893,9 @@ export class dheeCoreManager {
         // session manager (no persistence; old behavior).
         let sessionsDir: string | undefined;
         try {
-          const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
           const userData = app.getPath?.('userData');
           if (userData) {
-            sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+            sessionsDir = projectSessionsDirFromDir(userData, projectDir);
             if (!fsExistsSync(sessionsDir)) {
               fsMkdirSync(sessionsDir, { recursive: true });
             }

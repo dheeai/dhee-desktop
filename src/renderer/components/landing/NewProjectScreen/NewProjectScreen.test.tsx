@@ -45,6 +45,9 @@ describe('NewProjectScreen bundle packages', () => {
   const initialize =
     jest.fn<(payload: unknown) => Promise<{ ok: true; projectDir: string }>>();
   const createFolder = jest.fn<() => Promise<string | null>>();
+  const selectAttachment = jest.fn<(payload: unknown) => Promise<unknown>>();
+  const importReferenceImages =
+    jest.fn<(payload: unknown) => Promise<unknown>>();
 
   beforeEach(() => {
     mockOpenProject.mockReset();
@@ -52,6 +55,8 @@ describe('NewProjectScreen bundle packages', () => {
     installBundlePackage.mockReset();
     initialize.mockReset();
     createFolder.mockReset();
+    selectAttachment.mockReset();
+    importReferenceImages.mockReset();
 
     mockOpenProject.mockResolvedValue(undefined);
     createFolder.mockResolvedValue('/projects/my-short');
@@ -59,6 +64,8 @@ describe('NewProjectScreen bundle packages', () => {
       ok: true,
       projectDir: '/projects/my-short',
     });
+    selectAttachment.mockResolvedValue({ ok: false });
+    importReferenceImages.mockResolvedValue({ ok: true, attachments: [] });
 
     Object.defineProperty(window, 'electron', {
       configurable: true,
@@ -78,6 +85,8 @@ describe('NewProjectScreen bundle packages', () => {
           selectDirectory: async () => '/projects',
           createFolder,
           initialize,
+          selectAttachment,
+          importReferenceImages,
         },
       },
     });
@@ -127,6 +136,84 @@ describe('NewProjectScreen bundle packages', () => {
           inputs: expect.objectContaining({
             story_input: 'A creator learns why the first three seconds matter.',
           }),
+        }),
+      );
+    });
+  });
+
+  it('imports setup character references and passes them into project initialization', async () => {
+    listBundles.mockResolvedValue([youtubeBundle]);
+    selectAttachment.mockResolvedValue({
+      ok: true,
+      attachments: [
+        {
+          id: 'att_hero',
+          kind: 'reference_image',
+          path: '/tmp/hero.png',
+          name: 'hero.png',
+          mimeType: 'image/png',
+          size: 123,
+        },
+      ],
+    });
+    importReferenceImages.mockResolvedValue({
+      ok: true,
+      attachments: [
+        {
+          id: 'att_hero',
+          kind: 'reference_image',
+          path: '/projects/my-short/assets/uploads/characters/hero.png',
+          name: 'hero.png',
+          mimeType: 'image/png',
+          size: 123,
+          meta: {
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            projectRelativePath: 'assets/uploads/characters/hero.png',
+            originalPath: '/tmp/hero.png',
+            originalFilename: 'hero.png',
+          },
+        },
+      ],
+    });
+
+    render(<NewProjectScreen isOpen onClose={jest.fn()} />);
+
+    await waitFor(() => screen.getByText('YouTube Short'));
+    fireEvent.click(screen.getByText('YouTube Short'));
+    fireEvent.click(
+      screen.getByRole('button', { name: /add character reference images/i }),
+    );
+
+    await waitFor(() => screen.getByText('hero.png'));
+    fireEvent.change(screen.getByPlaceholderText('Short idea...'), {
+      target: { value: 'A heroine maps a city through impossible lights.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^roll/i }));
+
+    await waitFor(() => {
+      expect(importReferenceImages).toHaveBeenCalledWith({
+        projectDir: '/projects/my-short',
+        attachments: [
+          expect.objectContaining({
+            path: '/tmp/hero.png',
+            meta: expect.objectContaining({
+              purpose: 'character_ref',
+              referenceRole: 'character',
+            }),
+          }),
+        ],
+      });
+      expect(initialize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          referenceImages: [
+            expect.objectContaining({
+              name: 'hero.png',
+              relativePath: 'assets/uploads/characters/hero.png',
+              purpose: 'character_ref',
+              referenceRole: 'character',
+            }),
+          ],
         }),
       );
     });
