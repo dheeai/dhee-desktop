@@ -85,6 +85,14 @@ const fakeManager = {
     runTaskEventCb = eventCb;
     return { status: 'completed' };
   },
+  chatPrompt: async (
+    sessionId: string,
+    message: string,
+    _eventCb: (e: { eventName: string; sessionId: string; data: unknown }) => void,
+  ) => {
+    managerCalls.push({ method: 'chatPrompt', args: [sessionId, message] });
+    return { ok: true as const, assistant_text: 'ok', tool_calls: [] };
+  },
   cancelTask: (sessionId: string) => {
     managerCalls.push({ method: 'cancelTask', args: [sessionId] });
     return sessionId === 's-1';
@@ -153,6 +161,39 @@ describe('dheeIpcBridge', () => {
     expect(call?.args[0]).toBe('s-1');
     expect(call?.args[1]).toBe('hi');
     expect(call?.args[2]).toMatchObject({ stopAtStage: 'shot_image' });
+  });
+
+  it('chatPrompt channel forwards (sessionId, message) to dheeCoreManager.chatPrompt unchanged when no attachments', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.CHAT_PROMPT)!;
+    await handler({} as never, { sessionId: 's-1', message: 'use this car image' });
+    const call = managerCalls.find((c) => c.method === 'chatPrompt');
+    expect(call?.args[0]).toBe('s-1');
+    expect(call?.args[1]).toBe('use this car image');
+  });
+
+  it('chatPrompt prepends an attachment marker per file before handing the message to the manager', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.CHAT_PROMPT)!;
+    await handler({} as never, {
+      sessionId: 's-1',
+      message: 'use this car image',
+      attachments: [
+        { id: 'a1', kind: 'image', path: '/tmp/car.jpeg', name: 'car.jpeg' },
+      ],
+    });
+    const message = managerCalls.find((c) => c.method === 'chatPrompt')?.args[1] as string;
+    // The agent must receive a machine-readable marker carrying the
+    // file's kind + path, with the user's text preserved after it.
+    expect(message).toContain('[attachment kind=image path="/tmp/car.jpeg" name="car.jpeg"]');
+    expect(message).toContain('use this car image');
+    expect(message.indexOf('[attachment')).toBeLessThan(message.indexOf('use this car image'));
   });
 
   it('runTask routes events from manager.eventCb to webContents.send(dhee_EVENT_CHANNEL, …)', async () => {

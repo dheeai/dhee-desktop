@@ -45,6 +45,7 @@ import type {
   RunTaskRequest,
   RedoNodeRequest,
 } from '../../shared/dheeIpc';
+import type { Attachment } from '../../shared/attachmentTypes';
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'connecting';
 
@@ -179,6 +180,7 @@ export interface DheeSessionApi {
    */
   chatPrompt: (
     message: string,
+    attachments?: Attachment[],
   ) => Promise<
     | { ok: true; assistant_text: string; tool_calls: Array<{ name: string }> }
     | { ok: false; error: string }
@@ -422,13 +424,17 @@ function useCreateKshanaSession(): DheeSessionApi {
    * unstoppable from the UI — the only escape was killing the desktop.
    */
   const chatPrompt = useCallback<DheeSessionApi['chatPrompt']>(
-    async (message) => {
+    async (message, attachments) => {
       const id = sessionIdRef.current;
       if (!id) return { ok: false, error: 'no active session' };
       setStatus('running');
       setError(null);
       try {
-        const result = await window.dhee.chatPrompt({ sessionId: id, message });
+        const result = await window.dhee.chatPrompt({
+          sessionId: id,
+          message,
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
+        });
         if (result.ok) {
           setStatus('idle');
         } else {

@@ -335,6 +335,15 @@ export interface RunTaskRequest {
 export interface ChatPromptRequest {
   sessionId: string;
   message: string;
+  /**
+   * Files the user attached in the chat input. Threaded exactly like
+   * RunTaskRequest.attachments: the main process prepends a textual
+   * `[attachment kind=… path=… name=…]` marker per file (via
+   * prefixAttachmentsToTask) so pi-agent's skill prompts read them and
+   * call the right tool. dhee-core's chatPrompt stays string-only — the
+   * markers ride inside `message`.
+   */
+  attachments?: import('./attachmentTypes').Attachment[];
 }
 
 export type ChatPromptResponse =
