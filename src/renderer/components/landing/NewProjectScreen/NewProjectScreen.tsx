@@ -59,6 +59,8 @@ interface BundleInputDecl {
 interface BundleSummary {
   id: string;
   version: string;
+  bundleSource?: string;
+  sourceScheme?: 'built-in' | 'user';
   displayName: string;
   summary: string;
   techLine?: string;
@@ -180,6 +182,10 @@ export default function NewProjectScreen({
   const [workspacePath, setWorkspacePath] = useState<string>('');
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isInstallingBundle, setIsInstallingBundle] = useState(false);
+  const [npmBundleSpec, setNpmBundleSpec] = useState(
+    '@dhee_ai/youtube-short-bundle',
+  );
   const [error, setError] = useState<string | null>(null);
   const [nounIndex, setNounIndex] = useState(0);
 
@@ -187,28 +193,33 @@ export default function NewProjectScreen({
   // hasn't picked a bundle yet. Once they pick, freeze the noun so it
   // doesn't distract during form filling.
   useEffect(() => {
-    if (!isOpen) return;
-    if (selectedBundleId) return;
+    if (!isOpen) return undefined;
+    if (selectedBundleId) return undefined;
     const t = setInterval(() => {
       setNounIndex((i) => (i + 1) % ROTATING_NOUNS.length);
     }, NOUN_ROTATE_MS);
     return () => clearInterval(t);
   }, [isOpen, selectedBundleId]);
 
+  const loadBundles = useCallback(async () => {
+    const list =
+      (await window.electron.project.listBundles()) as BundleSummary[];
+    // Picker-eligible bundles only: bundle.json must explicitly
+    // declare BOTH displayName AND summary. Falls back to the full
+    // list if nothing matches (dev environment with no curated
+    // bundles yet).
+    const eligible = list.filter((b) => b.pickerEligible);
+    setBundles(eligible.length > 0 ? eligible : list);
+  }, []);
+
   // Load bundles + initial workspace path on open.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     let cancelled = false;
     (async () => {
       try {
-        const list = (await window.electron.project.listBundles()) as BundleSummary[];
+        await loadBundles();
         if (cancelled) return;
-        // Picker-eligible bundles only: bundle.json must explicitly
-        // declare BOTH displayName AND summary. Falls back to the full
-        // list if nothing matches (dev environment with no curated
-        // bundles yet).
-        const eligible = list.filter((b) => b.pickerEligible);
-        setBundles(eligible.length > 0 ? eligible : list);
       } catch {
         if (!cancelled) setBundles([]);
       }
@@ -244,11 +255,11 @@ export default function NewProjectScreen({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, loadBundles]);
 
   // ESC closes.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isSubmitting) {
         onClose();
@@ -298,16 +309,21 @@ export default function NewProjectScreen({
   // Apply bundle defaults the moment a bundle is selected (so the form
   // is sensibly populated even before the user touches anything).
   useEffect(() => {
-    if (!selectedBundle) return;
+    if (!selectedBundle) return undefined;
     setInputValues((prev) => {
       const next: Record<string, unknown> = { ...prev };
-      for (const decl of selectedBundle.inputs ?? []) {
-        if (decl.kind === 'project' && next[decl.id] === undefined && decl.default !== undefined) {
+      (selectedBundle.inputs ?? []).forEach((decl) => {
+        if (
+          decl.kind === 'project' &&
+          next[decl.id] === undefined &&
+          decl.default !== undefined
+        ) {
           next[decl.id] = decl.default;
         }
-      }
+      });
       return next;
     });
+    return undefined;
   }, [selectedBundle]);
 
   const storyText = String(inputValues[STORY_INPUT_ID] ?? '');
@@ -331,6 +347,36 @@ export default function NewProjectScreen({
     setSelectedBundleId(id);
     setError(null);
   }, []);
+
+  const handleInstallBundle = useCallback(async () => {
+    const packageSpec = npmBundleSpec.trim();
+    if (!packageSpec || isInstallingBundle) return;
+    setError(null);
+    setIsInstallingBundle(true);
+    try {
+      const result = await window.electron.project.installBundlePackage({
+        packageSpec,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      await loadBundles();
+      setSelectedBundleId(result.bundleId);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to install bundle package: ${message}`);
+    } finally {
+      setIsInstallingBundle(false);
+    }
+  }, [isInstallingBundle, loadBundles, npmBundleSpec]);
+
+  const queueInstallBundle = useCallback(() => {
+    handleInstallBundle().catch((err) => {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to install bundle package: ${message}`);
+    });
+  }, [handleInstallBundle]);
 
   const handleInputChange = useCallback((id: string, value: unknown) => {
     setInputValues((prev) => ({ ...prev, [id]: value }));
@@ -357,7 +403,8 @@ export default function NewProjectScreen({
     setError(null);
     setIsSubmitting(true);
     try {
-      const folderName = safeFolderName(title) || `production-${productionNumber}`;
+      const folderName =
+        safeFolderName(title) || `production-${productionNumber}`;
       // 1. Make sure parent workspace folder exists, then create the project folder.
       const created = await window.electron.project.createFolder(
         workspacePath,
@@ -365,7 +412,9 @@ export default function NewProjectScreen({
         { source: 'renderer', intent: 'new_project_parent' } as never,
       );
       if (!created) {
-        setError('Could not create the project folder. Check the workspace path and try again.');
+        setError(
+          'Could not create the project folder. Check the workspace path and try again.',
+        );
         setIsSubmitting(false);
         return;
       }
@@ -375,6 +424,8 @@ export default function NewProjectScreen({
         projectDir: created,
         name: title.trim(),
         bundleId: selectedBundleId,
+        bundleSource:
+          selectedBundle.bundleSource ?? `built-in:${selectedBundleId}`,
         inputs: inputValues,
       });
       if (!result.ok) {
@@ -410,7 +461,12 @@ export default function NewProjectScreen({
     <div className={styles.screen}>
       <div className={styles.frame}>
         <header className={styles.header}>
-          <button type="button" className={styles.headerEsc} onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className={styles.headerEsc}
+            onClick={onClose}
+            aria-label="Close"
+          >
             ESC
           </button>
           <div className={styles.headerCenter}>
@@ -430,6 +486,29 @@ export default function NewProjectScreen({
           </span>
           {' ?'}
         </h1>
+
+        <div className={styles.bundleInstallRow}>
+          <input
+            type="text"
+            aria-label="npm bundle package"
+            className={styles.bundleInstallInput}
+            value={npmBundleSpec}
+            onChange={(e) => setNpmBundleSpec(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                queueInstallBundle();
+              }
+            }}
+          />
+          <button
+            type="button"
+            className={styles.bundleInstallButton}
+            disabled={isInstallingBundle || npmBundleSpec.trim().length === 0}
+            onClick={queueInstallBundle}
+          >
+            {isInstallingBundle ? 'Installing' : 'Install bundle'}
+          </button>
+        </div>
 
         <div className={styles.bundleGrid}>
           {bundles.map((bundle) => {
@@ -498,11 +577,13 @@ export default function NewProjectScreen({
                 <textarea
                   className={styles.storyTextarea}
                   placeholder={
-                    selectedBundle.inputs?.find((i) => i.id === STORY_INPUT_ID)?.placeholder ??
-                    'Type your story here...'
+                    selectedBundle.inputs?.find((i) => i.id === STORY_INPUT_ID)
+                      ?.placeholder ?? 'Type your story here...'
                   }
                   value={storyText}
-                  onChange={(e) => handleInputChange(STORY_INPUT_ID, e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange(STORY_INPUT_ID, e.target.value)
+                  }
                 />
               </div>
               <div className={styles.storyMeta}>
@@ -588,7 +669,14 @@ export default function NewProjectScreen({
 
               <div className={styles.row}>
                 <span className={styles.rowLabel}>Workspace</span>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    alignItems: 'center',
+                    flex: 1,
+                  }}
+                >
                   <input
                     type="text"
                     className={styles.textInput}
@@ -630,7 +718,9 @@ export default function NewProjectScreen({
             disabled={!canRoll}
             onClick={handleRoll}
           >
-            <span className={`${styles.recDot} ${canRoll ? styles.recDotReady : ''}`} />
+            <span
+              className={`${styles.recDot} ${canRoll ? styles.recDotReady : ''}`}
+            />
             <span>{isSubmitting ? 'Rolling…' : 'Roll'}</span>
             <span className={styles.arrow}>→</span>
           </button>

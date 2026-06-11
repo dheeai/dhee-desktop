@@ -164,6 +164,59 @@
 
 // ─── Bundle picker ────────────────────────────────────────────────
 
+.bundleInstallRow {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  margin: 0 0 20px;
+  opacity: 0;
+  animation: fadeUp 600ms ease 80ms forwards;
+}
+
+.bundleInstallInput {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  padding: 11px 14px;
+  background: var(--slate-surface);
+  border: 1px solid var(--slate-border);
+  color: var(--slate-fg);
+  border-radius: 3px;
+  outline: 0;
+  min-width: 0;
+
+  &:focus {
+    border-color: var(--slate-accent);
+  }
+}
+
+.bundleInstallButton {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 11px 14px;
+  background: transparent;
+  border: 1px solid var(--slate-border);
+  color: var(--slate-fg-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 160ms ease;
+
+  &:hover:not(:disabled) {
+    color: var(--slate-fg);
+    border-color: var(--slate-accent);
+    background: var(--slate-accent-soft);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
 .bundleGrid {
   display: grid;
   grid-template-columns: 1fr 1fr;

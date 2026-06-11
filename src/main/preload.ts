@@ -305,10 +305,26 @@ const projectBridge = {
     projectDir: string;
     name: string;
     bundleId: string;
+    bundleSource?: string;
     description?: string;
     inputs?: Record<string, unknown>;
   }): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> {
     return ipcRenderer.invoke('project:initialize', payload);
+  },
+  installBundlePackage(payload: {
+    packageSpec: string;
+    registryUrl?: string;
+  }): Promise<
+    | {
+        ok: true;
+        packageName: string;
+        version: string;
+        bundleId: string;
+        bundleDir: string;
+      }
+    | { ok: false; error: string }
+  > {
+    return ipcRenderer.invoke('bundle:install-npm', payload);
   },
   /**
    * Enumerate every available bundle's metadata for the Production
@@ -319,6 +335,8 @@ const projectBridge = {
     Array<{
       id: string;
       version: string;
+      bundleSource: string;
+      sourceScheme: 'built-in' | 'user';
       displayName: string;
       summary: string;
       techLine?: string;
