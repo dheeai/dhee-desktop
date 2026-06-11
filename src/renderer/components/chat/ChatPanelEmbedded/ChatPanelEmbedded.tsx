@@ -1026,26 +1026,17 @@ export default function ChatPanelEmbedded() {
     // chatPrompt (NOT runTask, which is for bundle-runner dispatches —
     // Resume button etc.). One-shot exchange: send → wait → append
     // the assistant_text as a single bubble. Streaming + tool-call
-    // surfacing comes in 6.5c.b. Attachments are not threaded through
-    // chatPrompt yet — they continue working only when sent via the
-    // Resume / runTask path. Surfaced as a system message for now so
-    // the user knows.
-    if (sentAttachments.length > 0) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'system',
-          text: 'Attachments aren\'t yet supported on the new chat path (Phase 6.5c.b). The text was sent; the attachment(s) were ignored.',
-        },
-      ]);
-    }
+    // surfacing comes in 6.5c.b. Attachments now ride along too: the
+    // IPC bridge prepends a `[attachment …]` marker per file (same
+    // mechanism as the runTask path) so pi-agent's skill prompts can
+    // act on them.
+    //
     // Phase 6.5c.b: the agent's reply now streams via stream_chunk
     // events handled by handleEvent — the existing streamingMsgIdRef
     // path accumulates into a single bubble. We only need to surface
     // the END-OF-TURN summary if streaming produced nothing (e.g. the
     // provider returned tools-only or the model output was empty).
-    const result = await session.chatPrompt(text);
+    const result = await session.chatPrompt(text, sentAttachments);
     if (!result.ok) {
       setMessages((prev) => [
         ...prev,

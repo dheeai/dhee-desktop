@@ -173,7 +173,12 @@ export function registerdheeIpcBridge(
     dhee_CHANNELS.CHAT_PROMPT,
     async (_event, req: ChatPromptRequest): Promise<ChatPromptResponse> => {
       const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
-      return manager.chatPrompt(req.sessionId, req.message, eventCb);
+      // Attachment hints are prepended to the chat message here — the
+      // SAME mechanism RUN_TASK uses — so pi-agent's skill prompts see a
+      // one-line marker per attachment and call the right tool without
+      // extending dhee-core's chatPrompt signature.
+      const finalMessage = prefixAttachmentsToTask(req.message, req.attachments);
+      return manager.chatPrompt(req.sessionId, finalMessage, eventCb);
     },
   );
 
