@@ -960,7 +960,7 @@ describe('dheeCoreManager', () => {
     expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
   });
 
-  it('vlmJudge=false: VLM env left untouched (no auto-config)', async () => {
+  it('vlmJudge=false still applies VLM routing from Settings', async () => {
     process.env['VLM_PROVIDER'] = 'openrouter';
     process.env['VLM_API_KEY'] = 'sk-or-v1-from-dotenv';
     process.env['VLM_MODEL'] = 'qwen/qwen3.5-9b';
@@ -971,9 +971,9 @@ describe('dheeCoreManager', () => {
       vlmJudge: false,
     });
 
-    // Whatever was in the env stays. VLM calls are gated upstream by
-    // the vlmJudge flag inside core, so no harm in leaving stale env.
-    expect(process.env['VLM_PROVIDER']).toBe('openrouter');
+    // The judge toggle controls whether VLM calls run; routing still
+    // follows the VLM lane so Resume always reflects current Settings.
+    expect(process.env['VLM_PROVIDER']).toBe('openai');
     expect(process.env['VLM_API_KEY']).toBe('sk-or-v1-from-dotenv');
     expect(process.env['VLM_MODEL']).toBe('qwen/qwen3.5-9b');
   });

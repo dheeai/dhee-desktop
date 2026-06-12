@@ -17,7 +17,14 @@
  *   - phase_transition: phase banner system message.
  *   - context_usage: footer token-usage indicator.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -29,7 +36,19 @@ import {
   Paperclip,
   X,
 } from 'lucide-react';
-import type { Attachment } from '../../../../shared/attachmentTypes';
+import type {
+  Attachment,
+  ReferenceImageReplacementTarget,
+  ReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
+import {
+  attachmentsFromSelectResponse,
+  getReferenceImageReplacementTarget,
+  getReferenceImageRole,
+  isReferenceImageLikeAttachment,
+  withReferenceImageReplacementTarget,
+  withReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
 import AttachmentChip from '../ChatInput/AttachmentChip';
 import styles from './ChatPanelEmbedded.module.scss';
 import { findCanonicalAssistantBubbleIdx } from './findCanonicalBubble';
@@ -47,13 +66,19 @@ import {
   classifyProjectState,
   type ProjectLifecycleState,
 } from './classifyProjectState';
-import type { ChatMessage, ToolStatus } from './chatMessageModel';
+import type {
+  ChatAttachmentPreview,
+  ChatMessage,
+  ToolStatus,
+} from './chatMessageModel';
 import { coalesceTranscript, type TurnEntry } from './coalesceTranscript';
 import { deriveActivityState } from './activityState';
 import TranscriptTurn from '../TranscriptTurn';
 import ActivityTransport from '../ActivityTransport';
 import ProjectCTA, { type CTAAction } from './ProjectCTA';
 import ProjectRunButton from './ProjectRunButton';
+import { runnerBelongsToProject } from '../../../utils/runnerProjectScope';
+import { consumeProjectAutoStart } from '../../../utils/projectAutoStart';
 
 interface ContextUsage {
   used: number;
@@ -63,6 +88,16 @@ interface ContextUsage {
 let nextMessageId = 1;
 function newMessageId(): string {
   return `msg-${nextMessageId++}`;
+}
+
+function normalizeProjectDirectoryForChat(
+  value: string | null | undefined,
+): string | null {
+  const normalized = (value ?? '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .trim();
+  return normalized || null;
 }
 
 /**
@@ -214,9 +249,234 @@ function toolResultText(
   return '';
 }
 
+function mergePickedAttachment(
+  existing: Attachment[],
+  picked: Attachment,
+): Attachment[] {
+  if (picked.kind === 'comfy_workflow') {
+    return [...existing.filter((a) => a.kind !== 'comfy_workflow'), picked];
+  }
+  if (isReferenceImageLikeAttachment(picked)) {
+    const duplicate = existing.some(
+      (a) => isReferenceImageLikeAttachment(a) && a.path === picked.path,
+    );
+    return duplicate ? existing : [...existing, picked];
+  }
+  return [picked];
+}
+
+function attachmentPreviewsFromAttachments(
+  attachments: Attachment[],
+): ChatAttachmentPreview[] {
+  return attachments.map((attachment) => {
+    const target = getReferenceImageReplacementTarget(attachment);
+    const role = isReferenceImageLikeAttachment(attachment)
+      ? getReferenceImageRole(attachment)
+      : undefined;
+    const meta = attachment.meta as Record<string, unknown> | undefined;
+    const purpose =
+      typeof meta?.purpose === 'string' ? meta.purpose : undefined;
+    return {
+      id: attachment.id,
+      kind: attachment.kind,
+      name: attachment.name,
+      path: attachment.path,
+      ...(attachment.mimeType ? { mimeType: attachment.mimeType } : {}),
+      ...(role ? { role } : {}),
+      ...(purpose ? { purpose } : {}),
+      ...(target
+        ? {
+            replacementTargetId: target.id,
+            replacementTargetName: target.name,
+          }
+        : {}),
+    };
+  });
+}
+
+function hasTargetedCharacterReplacement(attachments: Attachment[]): boolean {
+  return attachments.some((attachment) =>
+    Boolean(getReferenceImageReplacementTarget(attachment)),
+  );
+}
+
+function referencePathForInstruction(attachment: Attachment): string {
+  const meta = attachment.meta as Record<string, unknown> | undefined;
+  if (typeof meta?.projectRelativePath === 'string' && meta.projectRelativePath) {
+    return meta.projectRelativePath;
+  }
+  return attachment.path;
+}
+
+function buildCharacterReplacementTask(
+  userText: string,
+  attachments: Attachment[],
+  projectDirectory: string,
+): string {
+  const targeted = attachments
+    .map((attachment) => ({
+      attachment,
+      target: getReferenceImageReplacementTarget(attachment),
+    }))
+    .filter(
+      (entry): entry is {
+        attachment: Attachment;
+        target: ReferenceImageReplacementTarget;
+      } => Boolean(entry.target),
+    );
+  if (targeted.length === 0) return userText;
+
+  const lead =
+    userText.trim() ||
+    'Replace the selected character reference image(s) and continue the project run.';
+  const calls = targeted.map(
+    ({ attachment, target }, index) =>
+      `${index + 1}. Call dhee_replace_character_reference with projectDir="${projectDirectory}", characterId="${target.id}", referencePath="${referencePathForInstruction(attachment)}".`,
+  );
+  return [
+    lead,
+    'Character reference replacement flow:',
+    ...calls,
+    `After every replacement succeeds, call dhee_start_run exactly once with projectDir="${projectDirectory}".`,
+    'Do not call dhee_run_to for this flow.',
+  ].join('\n');
+}
+
+function normalizeCharacterTarget(value: unknown): ReferenceImageReplacementTarget | null {
+  if (!value || typeof value !== 'object') return null;
+  const record = value as Record<string, unknown>;
+  const id =
+    typeof record.id === 'string'
+      ? record.id
+      : typeof record.characterId === 'string'
+        ? record.characterId
+        : typeof record.key === 'string'
+          ? record.key
+          : undefined;
+  const name =
+    typeof record.name === 'string'
+      ? record.name
+      : typeof record.displayName === 'string'
+        ? record.displayName
+        : id;
+  if (!id || !name) return null;
+  return { id, name };
+}
+
+function collectCharacterTargets(
+  value: unknown,
+  out: ReferenceImageReplacementTarget[],
+  seen: Set<string>,
+): void {
+  if (!value || typeof value !== 'object') return;
+  if (Array.isArray(value)) {
+    value.forEach((item) => collectCharacterTargets(item, out, seen));
+    return;
+  }
+
+  const target = normalizeCharacterTarget(value);
+  if (target && !seen.has(target.id)) {
+    seen.add(target.id);
+    out.push(target);
+  }
+
+  Object.values(value).forEach((nested) => {
+    if (nested && typeof nested === 'object') {
+      collectCharacterTargets(nested, out, seen);
+    }
+  });
+}
+
+function parseCharactersPlanTargets(raw: string | null): ReferenceImageReplacementTarget[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const source =
+      parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+        ? ((parsed as Record<string, unknown>).characters ??
+          (parsed as Record<string, unknown>).character ??
+          parsed)
+        : parsed;
+    const targets: ReferenceImageReplacementTarget[] = [];
+    collectCharacterTargets(source, targets, new Set());
+    return targets;
+  } catch {
+    return [];
+  }
+}
+
+function parseWalkStateCharacterTargets(raw: string | null): ReferenceImageReplacementTarget[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw) as {
+      walkState?: { nodes?: Record<string, unknown> };
+    };
+    const keys = Object.keys(parsed.walkState?.nodes ?? {});
+    return keys
+      .filter((key) => key.startsWith('character_image:'))
+      .map((key) => key.slice('character_image:'.length))
+      .filter(Boolean)
+      .map((id) => ({ id, name: id.replace(/[_-]+/g, ' ') }));
+  } catch {
+    return [];
+  }
+}
+
+function walkStateHasNoPendingNodes(
+  raw: string | null,
+  goalNodeId?: string,
+): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as {
+      walkState?: { nodes?: Record<string, { status?: unknown }> };
+    };
+    const entries = Object.entries(parsed.walkState?.nodes ?? {});
+    if (entries.length === 0) return false;
+    if (!entries.every(([, node]) => node?.status === 'completed')) {
+      return false;
+    }
+    if (goalNodeId) {
+      return entries.some(
+        ([key]) => key === goalNodeId || key.startsWith(`${goalNodeId}:`),
+      );
+    }
+    return entries.some(
+      ([key]) =>
+        key === 'final_video' ||
+        key.startsWith('final_video:') ||
+        key === 'final' ||
+        key.startsWith('final:'),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function formatBackendLane(value: string | undefined): string {
+  return value === 'cloud' ? 'Cloud' : 'Local';
+}
+
+function formatRunStartText(settings: {
+  llmBackend?: string;
+  comfyBackend?: string;
+  vlmBackend?: string;
+}): string {
+  return [
+    'Starting pipeline run',
+    `LLM: ${formatBackendLane(settings.llmBackend)}`,
+    `Comfy: ${formatBackendLane(settings.comfyBackend)}`,
+    `VLM: ${formatBackendLane(settings.vlmBackend)}`,
+  ].join(' - ');
+}
+
 export default function ChatPanelEmbedded() {
   const session = useDheeSession();
   const { projectName, projectDirectory } = useWorkspace();
+  const normalizedProjectDirectory = useMemo(
+    () => normalizeProjectDirectoryForChat(projectDirectory),
+    [projectDirectory],
+  );
   const firstRunTour = useOptionalFirstRunTour();
   const agent = useAgent();
   const chatQuestions = useChatQuestions();
@@ -225,6 +485,10 @@ export default function ChatPanelEmbedded() {
   const [input, setInput] = useState('');
   const [chatAttachments, setChatAttachments] = useState<Attachment[]>([]);
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isImportingReferenceImages, setIsImportingReferenceImages] = useState(false);
+  const [replacementCharacters, setReplacementCharacters] = useState<
+    ReferenceImageReplacementTarget[]
+  >([]);
   const [contextUsage, setContextUsage] = useState<ContextUsage | null>(null);
   const [connectionError, setConnectionError] = useState<string | null>(null);
   // Header dropdown menu (project name → caret → menu) state.
@@ -278,6 +542,12 @@ export default function ChatPanelEmbedded() {
     if (!session.history) return;
     const snap = session.consumeHistory();
     if (!snap) return;
+    if (
+      normalizeProjectDirectoryForChat(snap.projectDirectory) !==
+      normalizedProjectDirectory
+    ) {
+      return;
+    }
 
     type Row = { ts: number; msg: ChatMessage };
     const rows: Row[] = [];
@@ -290,9 +560,24 @@ export default function ChatPanelEmbedded() {
           msg: {
             id: m.id,
             role: 'media',
-            mediaKind: m.media.kind,
-            mediaPath: m.media.path,
-            mediaProject: m.media.project,
+	            mediaKind: m.media.kind,
+	            mediaPath: m.media.path,
+	            mediaProject: m.media.project,
+	            mediaProjectDir: m.media.projectDir,
+	          },
+        });
+        continue;
+      }
+      if (m.type === 'progress') {
+        rows.push({
+          ts,
+          msg: {
+            id: m.id,
+            role: 'progress',
+            progressText: m.content,
+            ...(m.progressForToolCallId
+              ? { progressForToolCallId: m.progressForToolCallId }
+              : {}),
           },
         });
         continue;
@@ -303,10 +588,18 @@ export default function ChatPanelEmbedded() {
           : m.type === 'agent'
             ? 'assistant'
             : 'system';
-      rows.push({
-        ts,
-        msg: { id: m.id, role, text: m.content },
-      });
+	      rows.push({
+	        ts,
+	        msg: {
+	          id: m.id,
+	          role,
+	          text: m.content,
+	          ...(m.attachments ? { attachments: m.attachments } : {}),
+	          ...(m.notificationLevel
+	            ? { notificationLevel: m.notificationLevel }
+	            : {}),
+	        },
+	      });
     }
 
     for (const tc of snap.toolCalls) {
@@ -341,7 +634,12 @@ export default function ChatPanelEmbedded() {
 
     rows.sort((a, b) => a.ts - b.ts);
     setMessages(rows.map((r) => r.msg));
-  }, [session.sessionId, session.history, session.consumeHistory]);
+  }, [
+    session.sessionId,
+    session.history,
+    session.consumeHistory,
+    normalizedProjectDirectory,
+  ]);
 
   // ── New-project wizard state ──────────────────────────────────────
   // Auto-spawns when the user opens an unconfigured project. Collects
@@ -426,6 +724,7 @@ export default function ChatPanelEmbedded() {
   const [runnerActive, setRunnerActive] = useState(false);
   const [runnerCurrentResource, setRunnerCurrentResource] =
     useState<RunnerStatusResponse['currentResource'] | null>(null);
+  const [startRunPending, setStartRunPending] = useState(false);
 
   // Stop-after-each-collection gate. Per-project: mirrors
   // `features.gateAfterCollections` in the active project's
@@ -452,6 +751,34 @@ export default function ChatPanelEmbedded() {
   // Timestamp of the last render `asset` event — used as a defense-in-
   // depth running signal (see RENDER_ACTIVITY_TTL_MS).
   const lastRenderEventRef = useRef<number>(0);
+  const runStartMessageIdRef = useRef<string | null>(null);
+
+  const previousProjectDirectoryRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  useLayoutEffect(() => {
+    const previous = previousProjectDirectoryRef.current;
+    if (previous !== undefined && previous !== normalizedProjectDirectory) {
+      setMessages([]);
+      setInput('');
+      setChatAttachments([]);
+      setAttachmentError(null);
+      setIsImportingReferenceImages(false);
+      setReplacementCharacters([]);
+      setContextUsage(null);
+      setConnectionError(null);
+      setBgSessionId(null);
+      setRunnerActive(false);
+      setRunnerCurrentResource(null);
+      setPendingCancel(false);
+      setStartRunPending(false);
+      streamingMsgIdRef.current = null;
+      runStartMessageIdRef.current = null;
+      toolNameByCallIdRef.current.clear();
+      lastRenderEventRef.current = 0;
+    }
+    previousProjectDirectoryRef.current = normalizedProjectDirectory;
+  }, [normalizedProjectDirectory]);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -473,6 +800,21 @@ export default function ChatPanelEmbedded() {
       // explicitly tagged for a different session.
       const sid = event.sessionId;
       if (sid && sid !== mainId && sid !== bgSessionId) {
+        return;
+      }
+      const scopedData =
+        event.data && typeof event.data === 'object'
+          ? (event.data as { projectDir?: unknown; project?: unknown })
+          : null;
+      const eventProjectDir =
+        typeof scopedData?.projectDir === 'string'
+          ? normalizeProjectDirectoryForChat(scopedData.projectDir)
+          : null;
+      if (
+        eventProjectDir &&
+        normalizedProjectDirectory &&
+        eventProjectDir !== normalizedProjectDirectory
+      ) {
         return;
       }
       // Defense-in-depth running signal: a `media_generated` event means
@@ -498,10 +840,16 @@ export default function ChatPanelEmbedded() {
         setContextUsage,
         toolNameByCallIdRef,
         setProbeNonce,
+        runStartMessageIdRef,
       );
     });
     return unsubscribe;
-  }, [session.sessionId, session.subscribe, bgSessionId]);
+  }, [
+    session.sessionId,
+    session.subscribe,
+    bgSessionId,
+    normalizedProjectDirectory,
+  ]);
 
   // Renderer-side chat-notice bus: lets sibling components (Redo
   // menu, settings, future per-shot edit flow…) post an ephemeral
@@ -535,16 +883,20 @@ export default function ChatPanelEmbedded() {
   // Stop without waiting for the first interval tick.
   useEffect(() => {
     let cancelled = false;
-    const tick = async () => {
-      try {
-        const status = await window.dhee.runnerStatus();
-        if (cancelled) return;
-        // Authoritative signal OR a recent render-asset window. The
-        // poll owns turning it OFF (so it can't stick on); the asset
-        // window catches any run that doesn't surface via runnerStatus.
-        const recentRender = Date.now() - lastRenderEventRef.current < RENDER_ACTIVITY_TTL_MS;
-        setRunnerActive(!!status?.active || recentRender);
-        setRunnerCurrentResource(status?.currentResource ?? null);
+	    const tick = async () => {
+	      try {
+	        const status = await window.dhee.runnerStatus();
+	        if (cancelled) return;
+	        const ownsRunner = runnerBelongsToProject(status, {
+	          projectDirectory,
+	          projectName,
+	        });
+	        // Authoritative signal OR a recent render-asset window. The
+	        // poll owns turning it OFF (so it can't stick on); the asset
+	        // window catches any run that doesn't surface via runnerStatus.
+	        const recentRender = Date.now() - lastRenderEventRef.current < RENDER_ACTIVITY_TTL_MS;
+	        setRunnerActive(ownsRunner || recentRender);
+	        setRunnerCurrentResource(ownsRunner ? status?.currentResource ?? null : null);
         // Mirror server-side `cancelling` into local pendingCancel.
         // This is what makes pi-agent's `dhee_task_cancel` (and any
         // other non-UI cancel path) flip the button to "Stopping…"
@@ -554,9 +906,9 @@ export default function ChatPanelEmbedded() {
         // demote): the existing effect at line ~613 that clears
         // pendingCancel once both lanes go idle is still the only
         // path that flips it back to false, so we don't race.
-        if (status?.cancelling) {
-          setPendingCancel((prev) => (prev ? prev : true));
-        }
+	        if (status?.cancelling && ownsRunner) {
+	          setPendingCancel((prev) => (prev ? prev : true));
+	        }
       } catch {
         if (!cancelled) {
           setRunnerActive(false);
@@ -570,7 +922,7 @@ export default function ChatPanelEmbedded() {
       cancelled = true;
       clearInterval(handle);
     };
-  }, []);
+	  }, [projectDirectory, projectName]);
 
   // Clear the local "Stopping…" flag once BOTH execution lanes report
   // idle: the BackgroundTaskRunner AND the pi-agent chat session.
@@ -759,9 +1111,9 @@ export default function ChatPanelEmbedded() {
   // setup wizard. Runs every time the user opens a different project,
   // AND whenever `probeNonce` is bumped by a tool result that mutated
   // the project's lifecycle-relevant fields.
-  useEffect(() => {
-    if (!projectDirectory) return;
-    let cancelled = false;
+	  useEffect(() => {
+	    if (!projectDirectory) return;
+	    let cancelled = false;
     const reader = {
       readFile: (p: string) => window.electron.project.readFile(p),
     };
@@ -794,11 +1146,47 @@ export default function ChatPanelEmbedded() {
       setSetupProbeCompleted(true);
     })();
     return () => {
-      cancelled = true;
-    };
-  }, [projectDirectory, probeNonce]);
+	      cancelled = true;
+	    };
+	  }, [projectDirectory, probeNonce]);
 
-  // Click handler for any CTA action: dispatch the pre-baked task as
+	  useEffect(() => {
+	    let cancelled = false;
+	    const loadTargets = async () => {
+	      if (!projectDirectory) {
+	        setReplacementCharacters([]);
+	        return;
+	      }
+	      const readFile = window.electron?.project?.readFile;
+	      if (!readFile) {
+	        setReplacementCharacters([]);
+	        return;
+	      }
+	      const planRaw = await readFile(`${projectDirectory}/plans/characters_plan.json`)
+	        .catch(() => null);
+	      let targets = parseCharactersPlanTargets(planRaw);
+	      if (targets.length === 0) {
+	        const projectRaw = await readFile(`${projectDirectory}/project.json`)
+	          .catch(() => null);
+	        targets = parseWalkStateCharacterTargets(projectRaw);
+	      }
+	      if (cancelled) return;
+	      const seen = new Set<string>();
+	      setReplacementCharacters(
+	        targets.filter((target) => {
+	          if (seen.has(target.id)) return false;
+	          seen.add(target.id);
+	          return true;
+	        }),
+	      );
+	    };
+	    void loadTargets();
+	    return () => {
+	      cancelled = true;
+	    };
+	  }, [projectDirectory, probeNonce]);
+
+	  // Click handler for any CTA action: dispatch the pre-baked task as
   // a chat message so it's visible in the user's history (matching
   // typed-input behaviour).
   const handleCTAAction = useCallback(
@@ -856,10 +1244,12 @@ export default function ChatPanelEmbedded() {
       // Ensure the session is focused on this project before the agent
       // dispatches any tool calls. Idempotent — safe to re-call even
       // if the main focus effect already ran.
-      if (projectName) {
-        await session.focusProject(projectName, projectDirectory).catch(() => undefined);
-      }
-      const r = await session.chatPrompt(kickoff);
+	      if (projectName) {
+	        await session.focusProject(projectName, projectDirectory).catch(() => undefined);
+	      }
+	      const r = await session.chatPrompt(kickoff, {
+	        ...(projectDirectory ? { projectDir: projectDirectory } : {}),
+	      });
       if (!r.ok) {
         setMessages((prev) => [
           ...prev,
@@ -890,9 +1280,11 @@ export default function ChatPanelEmbedded() {
             : m,
         ),
       );
-      void session.chatPrompt(`Use ${bundleId}`);
-    },
-    [session],
+	      void session.chatPrompt(`Use ${bundleId}`, {
+	        ...(projectDirectory ? { projectDir: projectDirectory } : {}),
+	      });
+	    },
+	    [projectDirectory, session],
   );
 
   /**
@@ -945,53 +1337,116 @@ export default function ChatPanelEmbedded() {
           const labels = picked.map((id) =>
             target.questionCard!.options.find((o) => o.id === id)?.label ?? id,
           );
-          void session.chatPrompt(labels.join(', '));
-          return prev;
-        });
-      });
-    },
-    [session],
-  );
+	          void session.chatPrompt(labels.join(', '), {
+	            ...(projectDirectory ? { projectDir: projectDirectory } : {}),
+	          });
+	          return prev;
+	        });
+	      });
+	    },
+	    [projectDirectory, session],
+	  );
 
-  const handleAttachClick = async () => {
-    setAttachmentError(null);
-    try {
-      const result = await window.electron.project.selectAttachment({
-        // Order matters: when a picked file's extension maps to
-        // multiple kinds the IPC handler returns the FIRST listed
-        // match. Images first so PNG/JPG don't get misclassified.
-        kinds: ['image', 'comfy_workflow'],
-        title: 'Attach an image or ComfyUI workflow',
-      });
-      if (!result.ok) {
-        if (result.error) setAttachmentError(result.error);
-        return;
-      }
-      if (result.attachment) {
-        // v1 caps at one attachment per turn — keeps the skill
-        // prompt's parsing simple. Lift this when batched flows
-        // (e.g. multiple images at once) need it.
-        setChatAttachments([result.attachment as Attachment]);
-      }
-    } catch (err) {
-      setAttachmentError(err instanceof Error ? err.message : String(err));
-    }
-  };
+	  const handleAttachClick = async () => {
+	    setAttachmentError(null);
+	    try {
+	      const result = await window.electron.project.selectAttachment({
+	        kinds: projectDirectory
+	          ? ['reference_image', 'comfy_workflow']
+	          : ['comfy_workflow'],
+	        title: projectDirectory
+	          ? 'Attach reference images or a ComfyUI workflow'
+	          : 'Attach a ComfyUI workflow',
+	        multiple: Boolean(projectDirectory),
+	      });
+	      if (!result.ok) {
+	        if (result.error) setAttachmentError(result.error);
+	        return;
+	      }
+	      const picked = attachmentsFromSelectResponse(result);
+	      if (picked.length > 0) {
+	        setChatAttachments((prev) =>
+	          picked.reduce(
+	            (next, attachment) => mergePickedAttachment(next, attachment),
+	            prev,
+	          ),
+	        );
+	      }
+	    } catch (err) {
+	      setAttachmentError(err instanceof Error ? err.message : String(err));
+	    }
+	  };
 
-  const handleRemoveAttachment = (id: string) => {
-    setChatAttachments((prev) => prev.filter((a) => a.id !== id));
-  };
+	  const handleRemoveAttachment = (id: string) => {
+	    setChatAttachments((prev) => prev.filter((a) => a.id !== id));
+	  };
 
-  const singleGpuChatBlocked =
+	  const handleReferenceRoleChange = (
+	    id: string,
+	    role: ReferenceImageRole,
+	  ) => {
+	    setChatAttachments((prev) =>
+	      prev.map((attachment) =>
+	        attachment.id === id
+	          ? withReferenceImageReplacementTarget(
+	              withReferenceImageRole(attachment, role),
+	              role === 'character'
+	                ? getReferenceImageReplacementTarget(attachment)
+	                : null,
+	            )
+	          : attachment,
+	      ),
+	    );
+	  };
+
+	  const handleReplacementCharacterChange = (
+	    id: string,
+	    target: ReferenceImageReplacementTarget | null,
+	  ) => {
+	    setChatAttachments((prev) =>
+	      prev.map((attachment) =>
+	        attachment.id === id
+	          ? withReferenceImageReplacementTarget(attachment, target)
+	          : attachment,
+	      ),
+	    );
+	  };
+
+	  const importReferenceImagesForProject = async (
+	    attachments: Attachment[],
+	  ): Promise<Attachment[] | null> => {
+	    if (!projectDirectory) return attachments;
+	    if (!attachments.some(isReferenceImageLikeAttachment)) return attachments;
+	    setIsImportingReferenceImages(true);
+	    try {
+	      const result = await window.electron.project.importReferenceImages({
+	        projectDir: projectDirectory,
+	        attachments,
+	      });
+	      if (!result.ok) {
+	        setAttachmentError(result.error ?? 'Failed to import reference images');
+	        return null;
+	      }
+	      return result.attachments ?? attachments;
+	    } catch (err) {
+	      setAttachmentError(err instanceof Error ? err.message : String(err));
+	      return null;
+	    } finally {
+	      setIsImportingReferenceImages(false);
+	    }
+	  };
+
+	  const singleGpuChatBlocked =
     settings?.singleGpuMode === true &&
     runnerCurrentResource?.kind === 'local_comfy';
 
-  const handleSend = async () => {
-    const text = input.trim();
-    // A turn must have either text or at least one attachment.
-    if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
-    if (singleGpuChatBlocked) return;
-    firstRunTour.notifyTourEvent('chat_prompt_sent');
+	  const handleSend = async () => {
+	    const text = input.trim();
+	    // A turn must have either text or at least one attachment.
+	    if ((!text && chatAttachments.length === 0) || !session.sessionId) return;
+	    if (singleGpuChatBlocked) return;
+	    if (isImportingReferenceImages) return;
+	    firstRunTour.notifyTourEvent('chat_prompt_sent');
 
     // If pi-agent is mid-turn (e.g. running a multi-step regen +
     // bash + regen sequence), the user often wants to interject
@@ -1004,48 +1459,55 @@ export default function ChatPanelEmbedded() {
       await session.cancel().catch(() => undefined);
     }
 
-    // Render the user-visible message — include a small "📎 N
-    // attachment(s)" suffix when files were attached, so the chat
-    // log reflects what was sent.
-    const visibleText =
-      chatAttachments.length > 0
-        ? `${text}${text ? '\n\n' : ''}📎 ${chatAttachments.map((a) => a.name).join(', ')}`
-        : text;
+	    const importedAttachments = await importReferenceImagesForProject(chatAttachments);
+	    if (!importedAttachments) return;
+	    const sentAttachments = importedAttachments;
+	    const visibleText =
+	      text ||
+	      (sentAttachments.length > 0
+	        ? `Attached ${sentAttachments.length === 1 ? 'file' : 'files'}`
+	        : '');
 
-    setMessages((prev) => [
-      ...prev,
-      { id: newMessageId(), role: 'user', text: visibleText },
-    ]);
-    const sentAttachments = chatAttachments;
-    setInput('');
-    setChatAttachments([]);
+	    setMessages((prev) => [
+	      ...prev,
+	      {
+	        id: newMessageId(),
+	        role: 'user',
+	        text: visibleText,
+	        ...(sentAttachments.length > 0
+	          ? { attachments: attachmentPreviewsFromAttachments(sentAttachments) }
+	          : {}),
+	      },
+	    ]);
+	    setInput('');
+	    setChatAttachments([]);
     setAttachmentError(null);
     streamingMsgIdRef.current = null;
 
-    // Phase 6.5c: chat input now drives pi-agent directly via
-    // chatPrompt (NOT runTask, which is for bundle-runner dispatches —
-    // Resume button etc.). One-shot exchange: send → wait → append
-    // the assistant_text as a single bubble. Streaming + tool-call
-    // surfacing comes in 6.5c.b. Attachments are not threaded through
-    // chatPrompt yet — they continue working only when sent via the
-    // Resume / runTask path. Surfaced as a system message for now so
-    // the user knows.
-    if (sentAttachments.length > 0) {
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'system',
-          text: 'Attachments aren\'t yet supported on the new chat path (Phase 6.5c.b). The text was sent; the attachment(s) were ignored.',
-        },
-      ]);
-    }
-    // Phase 6.5c.b: the agent's reply now streams via stream_chunk
+	    let taskText =
+	      text ||
+	      (sentAttachments.length > 0
+	        ? 'Use the attached file(s) for this project.'
+	        : '');
+	    if (
+	      projectDirectory &&
+	      hasTargetedCharacterReplacement(sentAttachments)
+	    ) {
+	      taskText = buildCharacterReplacementTask(
+	        taskText,
+	        sentAttachments,
+	        projectDirectory,
+	      );
+	    }
+	    // Phase 6.5c.b: the agent's reply now streams via stream_chunk
     // events handled by handleEvent — the existing streamingMsgIdRef
     // path accumulates into a single bubble. We only need to surface
     // the END-OF-TURN summary if streaming produced nothing (e.g. the
     // provider returned tools-only or the model output was empty).
-    const result = await session.chatPrompt(text);
+	    const result = await session.chatPrompt(taskText, {
+	      ...(projectDirectory ? { projectDir: projectDirectory } : {}),
+	      ...(sentAttachments.length > 0 ? { attachments: sentAttachments } : {}),
+	    });
     if (!result.ok) {
       setMessages((prev) => [
         ...prev,
@@ -1120,52 +1582,123 @@ export default function ChatPanelEmbedded() {
     //      tool calls while the spinner says "Stopping…".
     // Both calls are best-effort — failures here would just leave the
     // optimistic spinner on; the runnerActive poll will reset it.
-    setPendingCancel(true);
-    await Promise.all([
-      window.dhee.runnerCancel().catch(() => undefined),
-      session.cancel().catch(() => undefined),
-    ]);
-  }, [session]);
+	    setPendingCancel(true);
+	    await Promise.all([
+	      window.dhee
+	        .runnerCancel(projectDirectory ? { projectDir: projectDirectory } : undefined)
+	        .catch(() => undefined),
+	      session.cancel().catch(() => undefined),
+	    ]);
+	  }, [projectDirectory, session]);
 
-  // Build the "resume the pipeline" task and run it on the MAIN
-  // session. dhee-core's pi-agent will receive it, call
-  // dhee_run_to, which now dispatches to the BackgroundTaskRunner
-  // and returns immediately — keeping this chat session free for
-  // follow-up questions while the run streams progress in parallel.
-  // (Was a separate bg session in an earlier iteration; the runner
-  // singleton replaces that mechanism.)
+  // Directly dispatch Resume/Run to the BackgroundTaskRunner. The
+  // chat session stays free for follow-up questions while
+  // runnerStatus drives Running/Stop state.
   const handleStartRun = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
+    if (startRunPending || runnerActive || pendingCancel) return;
     setBgSessionId(session.sessionId);
 
-    // Route Resume through the pi-agent so the agent is the consistent
-    // entry point for bundle runs. Pi-agent's dhee_start_run dispatches
-    // via BackgroundTaskRunner (non-blocking), so progress events surface
-    // in the status strip and completion comes back as a re-wake nudge.
-    const task = `Continue running the bundle for the current project to completion. Call dhee_start_run with projectDir="${projectDirectory}". You'll be notified when it finishes (or pauses on the stop-after-each-collection gate); once it completes call dhee_show_node_output for the goal node so I can see the result.`;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: newMessageId(),
-        role: 'system',
-        text: 'Resuming pipeline run…',
-      },
-    ]);
-    streamingMsgIdRef.current = null;
-    const result = await session.chatPrompt(task);
-    if (!result.ok) {
+    const reader = {
+      readFile: (p: string) => window.electron.project.readFile(p),
+    };
+    const projectRaw = await reader
+      .readFile(`${projectDirectory}/project.json`)
+      .catch(() => null);
+    let goalNodeId: string | undefined;
+    try {
+      const parsedProject = projectRaw
+        ? (JSON.parse(projectRaw) as { bundleSource?: unknown })
+        : null;
+      const bundleSource =
+        typeof parsedProject?.bundleSource === 'string'
+          ? parsedProject.bundleSource
+          : undefined;
+      if (bundleSource && typeof window.dhee.resolveBundle === 'function') {
+        const bundleResp = await window.dhee.resolveBundle({ bundleSource });
+        if (bundleResp.ok && typeof bundleResp.bundle?.goal === 'string') {
+          goalNodeId = bundleResp.bundle.goal;
+        }
+      }
+    } catch {
+      goalNodeId = undefined;
+    }
+    const lifecycle = await classifyProjectState(projectDirectory, reader)
+      .catch((): ProjectLifecycleState => 'in_progress');
+    if (
+      lifecycle === 'completed' ||
+      walkStateHasNoPendingNodes(projectRaw, goalNodeId)
+    ) {
       setMessages((prev) => [
         ...prev,
         {
           id: newMessageId(),
           role: 'system',
-          text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
-          notificationLevel: 'error',
+          text: 'All nodes are already generated — nothing to resume. Use Redo/invalidate to regenerate.',
+          notificationLevel: 'info',
         },
       ]);
+      return;
     }
-  }, [projectDirectory, session]);
+
+    setStartRunPending(true);
+    const startText = formatRunStartText(settings ?? {});
+    setMessages((prev) => {
+      const existingId = runStartMessageIdRef.current;
+      if (existingId) {
+        return prev.map((m) =>
+          m.id === existingId ? { ...m, text: startText } : m,
+        );
+      }
+      const id = newMessageId();
+      runStartMessageIdRef.current = id;
+      return [
+        ...prev,
+        {
+          id,
+          role: 'system',
+          text: startText,
+        },
+      ];
+    });
+    streamingMsgIdRef.current = null;
+    const result = await session
+      .startRun({ projectDir: projectDirectory })
+      .catch((err: unknown) => ({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    setStartRunPending(false);
+    if (result.ok) {
+      setRunnerActive(true);
+      setRunnerCurrentResource(null);
+      return;
+    }
+    setRunnerActive(false);
+    runStartMessageIdRef.current = null;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newMessageId(),
+        role: 'system',
+        text: `Couldn't start the run: ${result.error ?? 'unknown error'}.`,
+        notificationLevel: 'error',
+      },
+    ]);
+  }, [
+    projectDirectory,
+    session,
+    settings,
+    startRunPending,
+    runnerActive,
+    pendingCancel,
+  ]);
+
+  useEffect(() => {
+    if (!projectDirectory || !session.sessionId) return;
+    if (!consumeProjectAutoStart(projectDirectory)) return;
+    void handleStartRun();
+  }, [handleStartRun, projectDirectory, session.sessionId]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
@@ -1274,7 +1807,11 @@ export default function ChatPanelEmbedded() {
             : 'Idle';
 
   const chatInputDisabled = !isReady || singleGpuChatBlocked;
-  const sendActive = input.trim().length > 0 && isReady && !singleGpuChatBlocked;
+	  const sendActive =
+	    (input.trim().length > 0 || chatAttachments.length > 0) &&
+	    isReady &&
+	    !singleGpuChatBlocked &&
+	    !isImportingReferenceImages;
 
   return (
     <div className={styles.root}>
@@ -1348,7 +1885,7 @@ export default function ChatPanelEmbedded() {
           <ProjectRunButton
             projectState={projectState}
             running={isRunning}
-            ready={isReady}
+            ready={isReady && !startRunPending}
             pendingCancel={pendingCancel}
             onStart={() => void handleStartRun()}
             onCancel={() => void handleCancel()}
@@ -1557,18 +2094,21 @@ export default function ChatPanelEmbedded() {
               onAction={(a) => void handleCTAAction(a)}
             />
           )}
-        {chatAttachments.length > 0 && (
-          <div className={styles.attachmentRow}>
-            {chatAttachments.map((att) => (
-              <AttachmentChip
-                key={att.id}
-                attachment={att}
-                onRemove={handleRemoveAttachment}
-                disabled={isMainBusy}
-              />
-            ))}
-          </div>
-        )}
+	        {chatAttachments.length > 0 && (
+	          <div className={styles.attachmentRow}>
+	            {chatAttachments.map((att) => (
+	              <AttachmentChip
+	                key={att.id}
+	                attachment={att}
+	                onRemove={handleRemoveAttachment}
+	                onReferenceRoleChange={handleReferenceRoleChange}
+	                replacementCharacters={replacementCharacters}
+	                onReplacementCharacterChange={handleReplacementCharacterChange}
+	                disabled={isMainBusy || isImportingReferenceImages}
+	              />
+	            ))}
+	          </div>
+	        )}
         {attachmentError && (
           <div className={styles.attachmentError}>{attachmentError}</div>
         )}
@@ -1588,12 +2128,16 @@ export default function ChatPanelEmbedded() {
         <div className={styles.inputWrapper}>
           <button
             type="button"
-            onClick={handleAttachClick}
-            aria-label="Attach file"
-            title="Attach a ComfyUI workflow JSON"
-            disabled={chatInputDisabled || isMainBusy}
-            className={styles.attachButton}
-          >
+	            onClick={handleAttachClick}
+	            aria-label="Attach file"
+	            title={
+	              projectDirectory
+	                ? 'Attach reference images or a ComfyUI workflow'
+	                : 'Attach a ComfyUI workflow JSON'
+	            }
+	            disabled={chatInputDisabled || isMainBusy || isImportingReferenceImages}
+	            className={styles.attachButton}
+	          >
             <Paperclip size={16} />
           </button>
           <textarea
@@ -1613,18 +2157,19 @@ export default function ChatPanelEmbedded() {
                 : isRunning
                   ? `Type to ask while the pipeline runs (e.g. "show me shot 1")…`
                   : 'Type a task and press Enter…'
-            }
-            rows={2}
-            disabled={chatInputDisabled}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                if (
-                  !singleGpuChatBlocked &&
-                  (input.trim().length > 0 || chatAttachments.length > 0)
-                )
-                  handleSend();
-              }
+	            }
+	            rows={2}
+	            disabled={chatInputDisabled}
+	            onKeyDown={(e) => {
+	              if (e.key === 'Enter' && !e.shiftKey) {
+	                e.preventDefault();
+	                if (
+	                  !singleGpuChatBlocked &&
+	                  !isImportingReferenceImages &&
+	                  (input.trim().length > 0 || chatAttachments.length > 0)
+	                )
+	                  handleSend();
+	              }
             }}
             className={styles.textarea}
             data-tour-id="workspace-chat-input"
@@ -1634,20 +2179,23 @@ export default function ChatPanelEmbedded() {
             onClick={handleSend}
             aria-label="Send"
             title={
-              singleGpuChatBlocked
-                ? 'Chat is paused while local ComfyUI renders in Single GPU mode'
-                : isMainBusy
-                ? 'Cancel the current reply and send this message'
-                : 'Send (Enter)'
-            }
-            disabled={
-              chatInputDisabled ||
-              (input.trim().length === 0 && chatAttachments.length === 0)
-            }
+	              singleGpuChatBlocked
+	                ? 'Chat is paused while local ComfyUI renders in Single GPU mode'
+	                : isMainBusy
+	                  ? 'Cancel the current reply and send this message'
+	                  : isImportingReferenceImages
+	                    ? 'Importing reference images'
+	                    : 'Send (Enter)'
+	            }
+	            disabled={
+	              chatInputDisabled ||
+	              isImportingReferenceImages ||
+	              (input.trim().length === 0 && chatAttachments.length === 0)
+	            }
             className={`${styles.sendButton}${sendActive ? ` ${styles.active}` : ''}`}
           >
-            {isMainBusy ? (
-              <Loader2 size={14} className={styles.spinning} />
+	            {isMainBusy || isImportingReferenceImages ? (
+	              <Loader2 size={14} className={styles.spinning} />
             ) : (
               <ArrowUp size={18} strokeWidth={2.5} />
             )}
@@ -1791,7 +2339,54 @@ function renderTurnEntry(
       </div>
     );
   }
-  return null; // 'tool' handled by TranscriptTurn
+	  return null; // 'tool' handled by TranscriptTurn
+}
+
+function UserAttachmentPreviews({
+  attachments,
+  projectDirectory,
+}: {
+  attachments: ChatAttachmentPreview[];
+  projectDirectory: string | null;
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <div className={styles.userAttachmentGrid}>
+      {attachments.map((attachment) => {
+        const isImage =
+          attachment.kind === 'reference_image' ||
+          attachment.kind === 'character_ref' ||
+          attachment.kind === 'image' ||
+          /\.(png|jpe?g|webp|gif|bmp)$/i.test(attachment.path ?? '');
+        const src =
+          attachment.path && isImage
+            ? resolveMediaSrc(attachment.path, projectDirectory)
+            : '';
+        const label = attachment.replacementTargetName
+          ? `Replace ${attachment.replacementTargetName}`
+          : attachment.role
+            ? attachment.role
+            : attachment.kind;
+        return (
+          <div key={attachment.id} className={styles.userAttachmentPreview}>
+            {src ? (
+              <img
+                src={src}
+                alt={attachment.name}
+                className={styles.userAttachmentThumb}
+              />
+            ) : (
+              <Paperclip size={14} className={styles.userAttachmentIcon} />
+            )}
+            <div className={styles.userAttachmentMeta}>
+              <span className={styles.userAttachmentName}>{attachment.name}</span>
+              <span className={styles.userAttachmentRole}>{label}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function MessageRow({
@@ -2014,10 +2609,11 @@ function MessageRow({
       </div>
     );
   }
-  if (m.role === 'media') {
-    const rawSrc = m.mediaPath
-      ? resolveMediaSrc(m.mediaPath, projectDirectory)
-      : '';
+	  if (m.role === 'media') {
+	    const mediaProjectDirectory = m.mediaProjectDir ?? projectDirectory;
+	    const rawSrc = m.mediaPath
+	      ? resolveMediaSrc(m.mediaPath, mediaProjectDirectory)
+	      : '';
     const resolvedSrc = cacheBustMediaSrc(rawSrc, m.mediaCreatedAt ?? null);
     // Strip the project directory + leading slash so the caption
     // shows just the artifact-relative path (e.g.
@@ -2027,9 +2623,9 @@ function MessageRow({
     const captionPath = (() => {
       const p = m.mediaPath ?? '';
       if (!p) return '';
-      if (projectDirectory && p.startsWith(projectDirectory)) {
-        return p.slice(projectDirectory.length).replace(/^\/+/, '');
-      }
+	      if (mediaProjectDirectory && p.startsWith(mediaProjectDirectory)) {
+	        return p.slice(mediaProjectDirectory.length).replace(/^\/+/, '');
+	      }
       const lastSlash = p.lastIndexOf('/');
       return lastSlash >= 0 ? p.slice(lastSlash + 1) : p;
     })();
@@ -2066,14 +2662,20 @@ function MessageRow({
     );
   }
   // user / assistant — editorial eyebrow + body.
-  if (m.role === 'user') {
-    return (
-      <div className={`${styles.bubble} ${styles.bubbleUser}`}>
-        <span className={styles.bubbleEyebrow}>You</span>
-        <div className={styles.bubbleBody}>{m.text}</div>
-      </div>
-    );
-  }
+	  if (m.role === 'user') {
+	    return (
+	      <div className={`${styles.bubble} ${styles.bubbleUser}`}>
+	        <span className={styles.bubbleEyebrow}>You</span>
+	        {m.text ? <div className={styles.bubbleBody}>{m.text}</div> : null}
+	        {m.attachments && m.attachments.length > 0 ? (
+	          <UserAttachmentPreviews
+	            attachments={m.attachments}
+	            projectDirectory={projectDirectory}
+	          />
+	        ) : null}
+	      </div>
+	    );
+	  }
   // Render-layer guard: skip empty/whitespace-only assistant bubbles.
   // Multiple upstream paths can land an empty assistant message (a
   // trailing empty stream_chunk after agent_response cleared the ref,
@@ -2156,6 +2758,7 @@ function handleEvent(
   setContextUsage: React.Dispatch<React.SetStateAction<ContextUsage | null>>,
   toolNameByCallIdRef: React.RefObject<Map<string, string>>,
   setProbeNonce: React.Dispatch<React.SetStateAction<number>>,
+  runStartMessageIdRef: React.RefObject<string | null>,
 ): void {
   switch (event.eventName) {
     case 'tool_call': {
@@ -2537,6 +3140,56 @@ function handleEvent(
       // and on user send (next conversation round).
       return;
     }
+    case 'progress': {
+      const data = event.data as {
+        content?: string;
+        message?: string;
+        toolCallId?: string;
+      };
+      const text = (data.content ?? data.message ?? '').trim();
+      if (!text) return;
+      const lines = text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (lines.length === 0) return;
+      const NOW = Date.now();
+      setMessages((prev) => [
+        ...prev,
+        ...lines.map((line) => ({
+          id: newMessageId(),
+          role: 'progress' as const,
+          progressText: line,
+          ...(data.toolCallId
+            ? { progressForToolCallId: data.toolCallId }
+            : {}),
+          ...({ _ts: NOW } as Record<string, unknown>),
+        })),
+      ]);
+      return;
+    }
+    case 'status': {
+      const data = event.data as {
+        level?: string;
+        message?: string;
+        status?: string;
+      };
+      const message = (data.message ?? data.status ?? '').trim();
+      if (!message) return;
+      const rawLevel = data.level ?? 'info';
+      const level: 'info' | 'warning' | 'error' =
+        rawLevel === 'error' || rawLevel === 'warning' ? rawLevel : 'info';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: level === 'info' ? message : `[${level}] ${message}`,
+          notificationLevel: level,
+        },
+      ]);
+      return;
+    }
     case 'agent_response': {
       const data = event.data as { output?: string; status?: string };
       if (!data.output) return;
@@ -2588,21 +3241,23 @@ function handleEvent(
       return;
     }
     case 'media_generated': {
-      const data = event.data as {
-        kind?: 'image' | 'video';
-        path?: string;
-        project?: string;
-      };
+	      const data = event.data as {
+	        kind?: 'image' | 'video';
+	        path?: string;
+	        project?: string;
+	        projectDir?: string;
+	      };
       streamingMsgIdRef.current = null;
       setMessages((prev) => [
         ...prev,
         {
           id: newMessageId(),
           role: 'media',
-          mediaKind: data.kind ?? 'image',
-          mediaPath: data.path,
-          mediaProject: data.project,
-        },
+	          mediaKind: data.kind ?? 'image',
+	          mediaPath: data.path,
+	          mediaProject: data.project,
+	          mediaProjectDir: data.projectDir,
+	        },
       ]);
       return;
     }
@@ -2612,15 +3267,34 @@ function handleEvent(
       const rawLevel = data.level ?? 'info';
       const level: 'info' | 'warning' | 'error' =
         rawLevel === 'error' || rawLevel === 'warning' ? rawLevel : 'info';
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'system',
-          text: level === 'info' ? data.message! : `[${level}] ${data.message}`,
-          notificationLevel: level,
-        },
-      ]);
+      const message = data.message;
+      const terminal =
+        /^Run (finished|failed|cancelled|paused)\b/.test(message) ||
+        message.includes('nothing pending');
+      setMessages((prev) => {
+        const startId = runStartMessageIdRef.current;
+        if (terminal && startId) {
+          runStartMessageIdRef.current = null;
+          return prev.map((m) =>
+            m.id === startId
+              ? {
+                  ...m,
+                  text: level === 'info' ? message : `[${level}] ${message}`,
+                  notificationLevel: level,
+                }
+              : m,
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: newMessageId(),
+            role: 'system',
+            text: level === 'info' ? message : `[${level}] ${message}`,
+            notificationLevel: level,
+          },
+        ];
+      });
       return;
     }
     case 'agent_question': {

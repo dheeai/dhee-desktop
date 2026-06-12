@@ -64,6 +64,13 @@ describe('pathResolver', () => {
       );
     });
 
+    it('encodes spaces and URL-reserved characters in file paths', async () => {
+      const { toFileUrl } = await loadModule();
+      expect(toFileUrl('/Users/me/Desktop/My Image #1?.png')).toBe(
+        'file:///Users/me/Desktop/My%20Image%20%231%3F.png',
+      );
+    });
+
     it('treats a UNC/backslash-only path as starting with / (2-slash form)', async () => {
       const { toFileUrl } = await loadModule();
       // After backslash normalization \\server\share becomes //server/share

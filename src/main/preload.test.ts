@@ -169,6 +169,7 @@ describe('preload context-isolation contract', () => {
       'setAutonomous',
       'setPiOversight',
       'setVlmJudge',
+      'startRun',
       'workflows.delete',
       'workflows.get',
       'workflows.list',
@@ -191,6 +192,7 @@ describe('preload context-isolation contract', () => {
       [dhee_CHANNELS.CREATE_SESSION]: 'createSession',
       [dhee_CHANNELS.CONFIGURE_PROJECT]: 'configureProject',
       [dhee_CHANNELS.RUN_TASK]: 'runTask',
+      [dhee_CHANNELS.START_RUN]: 'startRun',
       [dhee_CHANNELS.CHAT_PROMPT]: 'chatPrompt',
       [dhee_CHANNELS.SEND_RESPONSE]: 'sendResponse',
       [dhee_CHANNELS.CANCEL_TASK]: 'cancelTask',
@@ -268,6 +270,19 @@ describe('preload context-isolation contract', () => {
     expect(call?.args).toEqual([{ sessionId: 's-1', task: 'render' }]);
   });
 
+  it('startRun forwards its request argument unchanged to the START_RUN channel', () => {
+    const dhee = exposed.get('dhee') as Record<string, unknown>;
+    invokeCalls.length = 0;
+    (dhee.startRun as (req: unknown) => unknown)({
+      sessionId: 's-1',
+      projectDir: '/tmp/project.dhee',
+    });
+    const call = invokeCalls.find((c) => c.channel === dhee_CHANNELS.START_RUN);
+    expect(call?.args).toEqual([
+      { sessionId: 's-1', projectDir: '/tmp/project.dhee' },
+    ]);
+  });
+
   // ── window.electron sub-bridges forward to their string channels ─────
 
   it('electron.settings.get forwards to the settings:get channel', () => {
@@ -292,6 +307,34 @@ describe('preload context-isolation contract', () => {
     invokeCalls.length = 0;
     project.selectDirectory();
     expect(invokeCalls.map((c) => c.channel)).toEqual(['project:select-directory']);
+  });
+
+  it('electron.project attachment methods forward to the attachment IPC channels', () => {
+    const electron = exposed.get('electron') as Record<string, unknown>;
+    const project = electron.project as Record<string, (...a: unknown[]) => unknown>;
+    invokeCalls.length = 0;
+    project.selectAttachment({ kinds: ['reference_image'], multiple: true });
+    project.importReferenceImages({
+      projectDir: '/tmp/project.dhee',
+      attachments: [{ id: 'att-1', kind: 'reference_image', path: '/tmp/a.png', name: 'a.png' }],
+    });
+    expect(invokeCalls).toMatchObject([
+      {
+        channel: 'project:select-attachment',
+        args: [{ kinds: ['reference_image'], multiple: true }],
+      },
+      {
+        channel: 'project:import-reference-images',
+        args: [
+          {
+            projectDir: '/tmp/project.dhee',
+            attachments: [
+              { id: 'att-1', kind: 'reference_image', path: '/tmp/a.png', name: 'a.png' },
+            ],
+          },
+        ],
+      },
+    ]);
   });
 
   it('the narrowed ipcRenderer.sendMessage uses send() (fire-and-forget), not invoke()', () => {

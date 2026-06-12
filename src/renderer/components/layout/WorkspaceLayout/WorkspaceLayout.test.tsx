@@ -12,7 +12,7 @@
  * Watch/Plans/Timeline/Settings live as overlays now.
  */
 import '@testing-library/jest-dom';
-import { render, screen } from '@testing-library/react';
+import { act, render, screen } from '@testing-library/react';
 
 // react-resizable-panels ships ESM-only; jest's CJS transform can't
 // handle it. Stub with passthrough divs — the test asserts on the
@@ -102,6 +102,16 @@ describe('WorkspaceLayout — binary workspace', () => {
   it('renders the ChatPanel (right)', () => {
     render(<WorkspaceLayout />);
     expect(screen.getByTestId('ws-chat')).toBeInTheDocument();
+  });
+
+  it('exposes a top-right button that toggles the chat panel', async () => {
+    render(<WorkspaceLayout />);
+
+    const hide = screen.getByRole('button', { name: /hide chat panel/i });
+    await act(async () => { hide.click(); });
+    expect(
+      screen.getByRole('button', { name: /show chat panel/i }),
+    ).toBeInTheDocument();
   });
 
   it('does NOT render the legacy PreviewPanel tab system', () => {

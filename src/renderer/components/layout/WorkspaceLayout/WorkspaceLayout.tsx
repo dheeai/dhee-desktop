@@ -12,7 +12,7 @@
  * canvas nodes (e.g. final_video → library overlay). One screen, no
  * tabs.
  */
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Panel,
   PanelGroup,
@@ -45,8 +45,12 @@ function getProjectDisplayName(
 export default function WorkspaceLayout() {
   const { closeProject, projectName, projectDirectory } = useWorkspace();
   const { bundle } = useProject();
-  const { active: runnerActive, cancel: cancelRunner } = useRunnerStatus();
+  const { active: runnerActive, cancel: cancelRunner } = useRunnerStatus({
+    projectDirectory,
+    projectName,
+  });
   const chatPanelRef = useRef<ImperativePanelHandle>(null);
+  const [chatOpen, setChatOpen] = useState(true);
   const displayProjectName = getProjectDisplayName(
     projectName,
     projectDirectory,
@@ -69,9 +73,17 @@ export default function WorkspaceLayout() {
 
   const toggleChat = useCallback(() => {
     const panel = chatPanelRef.current;
-    if (!panel) return;
-    if (panel.isCollapsed()) panel.expand();
-    else panel.collapse();
+    if (!panel) {
+      setChatOpen((open) => !open);
+      return;
+    }
+    if (panel.isCollapsed()) {
+      panel.expand();
+      setChatOpen(true);
+    } else {
+      panel.collapse();
+      setChatOpen(false);
+    }
   }, []);
 
   // Cmd+I to toggle chat — preserved from the old layout.
@@ -96,6 +108,8 @@ export default function WorkspaceLayout() {
           onBack={handleBack}
           projectName={displayProjectName ?? undefined}
           bundleId={bundle?.id}
+          chatOpen={chatOpen}
+          onToggleChat={toggleChat}
         />
         <TransportBar />
         <div className={styles.workspace}>
@@ -111,6 +125,8 @@ export default function WorkspaceLayout() {
               maxSize={50}
               collapsible
               collapsedSize={0}
+              onCollapse={() => setChatOpen(false)}
+              onExpand={() => setChatOpen(true)}
             >
               <div
                 className={styles.panelTourTarget}

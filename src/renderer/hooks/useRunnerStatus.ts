@@ -12,10 +12,15 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { RunnerStatusResponse } from '../../shared/dheeIpc';
+import { runnerBelongsToProject } from '../utils/runnerProjectScope';
 
 export interface UseRunnerStatusOpts {
   /** Polling interval in ms. Default 1500. */
   intervalMs?: number;
+  /** Optional absolute project path. When set, active/cancelling are scoped to it. */
+  projectDirectory?: string | null;
+  /** Optional project name fallback when the runner does not report projectDir. */
+  projectName?: string | null;
 }
 
 export interface RunnerStatusHook {
@@ -23,8 +28,10 @@ export interface RunnerStatusHook {
   status: RunnerStatusResponse | null;
   /** Convenience: equivalent to `status?.active === true`. */
   active: boolean;
-  /** Convenience: equivalent to `status?.cancelling === true`. */
-  cancelling: boolean;
+	  /** Convenience: equivalent to `status?.cancelling === true`. */
+	  cancelling: boolean;
+	  /** Raw active runner for a different project, when scoped. */
+	  otherProjectRunner: RunnerStatusResponse | null;
   /** Trigger runner cancellation via the existing IPC. */
   cancel: () => Promise<void>;
 }
@@ -35,6 +42,11 @@ export function useRunnerStatus(opts: UseRunnerStatusOpts = {}): RunnerStatusHoo
   const interval = opts.intervalMs ?? DEFAULT_INTERVAL_MS;
   const [status, setStatus] = useState<RunnerStatusResponse | null>(null);
   const statusRef = useRef<RunnerStatusResponse | null>(null);
+  const belongsToProject = runnerBelongsToProject(status, {
+    projectDirectory: opts.projectDirectory,
+    projectName: opts.projectName,
+  });
+  const isScoped = Boolean(opts.projectDirectory || opts.projectName);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,16 +74,21 @@ export function useRunnerStatus(opts: UseRunnerStatusOpts = {}): RunnerStatusHoo
     };
   }, [interval]);
 
-  const cancel = useCallback(async () => {
-    if (typeof window.dhee?.runnerCancel === 'function') {
-      await window.dhee.runnerCancel();
-    }
-  }, []);
+	  const cancel = useCallback(async () => {
+	    if (typeof window.dhee?.runnerCancel === 'function') {
+	      await window.dhee.runnerCancel(
+	        opts.projectDirectory ? { projectDir: opts.projectDirectory } : undefined,
+	      );
+	    }
+	  }, [opts.projectDirectory]);
 
-  return {
-    status,
-    active: status?.active === true,
-    cancelling: status?.cancelling === true,
-    cancel,
-  };
+	  return {
+	    status,
+	    active: status?.active === true && (!isScoped || belongsToProject),
+	    cancelling:
+	      status?.cancelling === true && (!isScoped || belongsToProject),
+	    otherProjectRunner:
+	      isScoped && status?.active === true && !belongsToProject ? status : null,
+	    cancel,
+	  };
 }

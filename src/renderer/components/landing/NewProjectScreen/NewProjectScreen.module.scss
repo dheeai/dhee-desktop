@@ -367,6 +367,55 @@
   text-transform: uppercase;
 }
 
+// ─── Setup reference images ───────────────────────────────────────
+
+.referenceSection {
+  margin-top: 24px;
+}
+
+.referenceHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.referenceAttachButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 8px 12px;
+  background: transparent;
+  border: 1px solid var(--slate-border);
+  color: var(--slate-fg-muted);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 160ms ease;
+
+  &:hover:not(:disabled) {
+    color: var(--slate-fg);
+    border-color: var(--slate-accent);
+    background: var(--slate-accent-soft);
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+
+.referenceChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
 // ─── Production rows ──────────────────────────────────────────────
 
 .row {

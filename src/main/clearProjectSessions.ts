@@ -2,7 +2,7 @@
  * Pure helper for clearChatHistory's on-disk cleanup.
  *
  * Given a userData directory and a projectDir, ARCHIVES (not deletes)
- * the JSONL files under `<userData>/pi-sessions/<projectSlug>/` by
+ * the JSONL files under that project's resolved session directory by
  * renaming each `<id>.jsonl` to `<id>.archived` (NO `.jsonl` suffix).
  *
  * Why no `.jsonl`? pi-coding-agent's `SessionManager.continueRecent`
@@ -25,7 +25,8 @@
  * artifacts: never delete, just stop reading.
  */
 import { existsSync, readdirSync, renameSync, statSync } from 'node:fs';
-import { basename, join } from 'node:path';
+import { join } from 'node:path';
+import { projectSessionsDirFromDir, projectSlugFromDir } from './projectSessionSlug';
 
 export interface ClearProjectSessionsResult {
   /** Number of JSONL files archived (renamed to .archived). */
@@ -35,26 +36,21 @@ export interface ClearProjectSessionsResult {
 }
 
 /**
- * Project slug uses the same scheme as getSessionHistorySnapshot:
- *   basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_')
- * Keep this in sync — if these diverge, clearChatHistory deletes a
- * different directory than the one getSessionHistorySnapshot reads.
+ * Project slug uses the same scheme as getSessionHistorySnapshot.
+ * Re-exported for legacy tests/imports.
  */
-export function projectSlugFromDir(projectDir: string): string {
-  return basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
-}
+export { projectSlugFromDir };
 
 export function clearProjectSessions(
   userDataDir: string,
   projectDir: string,
 ): ClearProjectSessionsResult {
   if (!userDataDir || !projectDir) return { archived: 0, files: [] };
-  const slug = projectSlugFromDir(projectDir);
-  const slugDir = join(userDataDir, 'pi-sessions', slug);
-  if (!existsSync(slugDir)) return { archived: 0, files: [] };
+  const sessionsDir = projectSessionsDirFromDir(userDataDir, projectDir);
+  if (!existsSync(sessionsDir)) return { archived: 0, files: [] };
   let entries: string[];
   try {
-    entries = readdirSync(slugDir);
+    entries = readdirSync(sessionsDir);
   } catch {
     return { archived: 0, files: [] };
   }
@@ -62,7 +58,7 @@ export function clearProjectSessions(
   for (const name of entries) {
     // Already on the new scheme? Skip.
     if (name.endsWith('.archived')) continue;
-    const full = join(slugDir, name);
+    const full = join(sessionsDir, name);
     try {
       const st = statSync(full);
       if (!st.isFile()) continue;
@@ -75,7 +71,7 @@ export function clearProjectSessions(
     if (name.endsWith('.archived.jsonl')) {
       try {
         const targetName = name.replace(/\.archived\.jsonl$/, '.archived');
-        renameSync(full, join(slugDir, targetName));
+        renameSync(full, join(sessionsDir, targetName));
       } catch {
         // best-effort migration; don't crash the clear.
       }
@@ -85,7 +81,7 @@ export function clearProjectSessions(
     if (!name.endsWith('.jsonl')) continue;
     try {
       const targetName = name.replace(/\.jsonl$/, '.archived');
-      renameSync(full, join(slugDir, targetName));
+      renameSync(full, join(sessionsDir, targetName));
       archived.push(name);
     } catch {
       // best-effort; skip unreadable / locked files.

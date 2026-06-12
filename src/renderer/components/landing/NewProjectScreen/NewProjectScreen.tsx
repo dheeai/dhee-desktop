@@ -16,6 +16,18 @@
  * labels, single amber accent. Subtle film grain + vignette overlays.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ImagePlus } from 'lucide-react';
+import type {
+  Attachment,
+  ReferenceImagePayload,
+  ReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
+import {
+  attachmentsFromSelectResponse,
+  isReferenceImageLikeAttachment,
+  referenceImagesFromAttachments,
+  withReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import {
   buildDefaultWorkspaceFolder,
@@ -23,8 +35,10 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import { markProjectForAutoStart } from '../../../utils/projectAutoStart';
 import BundleConfigurator from '../../BundleConfigurator/BundleConfigurator';
 import BundleInstall from '../../BundleConfigurator/BundleInstall';
+import AttachmentChip from '../../chat/ChatInput/AttachmentChip';
 import WorkflowImport from '../../BundleConfigurator/WorkflowImport';
 import styles from './NewProjectScreen.module.scss';
 
@@ -147,6 +161,24 @@ function formatSeconds(s: number): string {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
+function mergeSetupReferenceAttachments(
+  current: Attachment[],
+  picked: Attachment[],
+): Attachment[] {
+  const next = [...current];
+  for (const rawAttachment of picked) {
+    if (!isReferenceImageLikeAttachment(rawAttachment)) continue;
+    const attachment = withReferenceImageRole(rawAttachment, 'character');
+    const existingIndex = next.findIndex((item) => item.path === attachment.path);
+    if (existingIndex >= 0) {
+      next[existingIndex] = attachment;
+    } else {
+      next.push(attachment);
+    }
+  }
+  return next;
+}
+
 export default function NewProjectScreen({
   isOpen,
   onClose,
@@ -183,6 +215,9 @@ export default function NewProjectScreen({
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInstallingBundle, setIsInstallingBundle] = useState(false);
+  const [setupReferenceAttachments, setSetupReferenceAttachments] = useState<
+    Attachment[]
+  >([]);
   const [npmBundleSpec, setNpmBundleSpec] = useState(
     '@dhee_ai/youtube-short-bundle',
   );
@@ -398,6 +433,49 @@ export default function NewProjectScreen({
     }
   }, []);
 
+  const handleSelectReferenceImages = useCallback(async () => {
+    setError(null);
+    try {
+      const result = await window.electron.project.selectAttachment({
+        kinds: ['reference_image'],
+        title: 'Add character reference images',
+        multiple: true,
+      });
+      if (!result.ok) {
+        if (result.error) setError(result.error);
+        return;
+      }
+      const picked = attachmentsFromSelectResponse(result);
+      if (picked.length > 0) {
+        setSetupReferenceAttachments((prev) =>
+          mergeSetupReferenceAttachments(prev, picked),
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to add character images: ${message}`);
+    }
+  }, []);
+
+  const handleRemoveSetupReference = useCallback((id: string) => {
+    setSetupReferenceAttachments((prev) =>
+      prev.filter((attachment) => attachment.id !== id),
+    );
+  }, []);
+
+  const handleSetupReferenceRoleChange = useCallback(
+    (id: string, role: ReferenceImageRole) => {
+      setSetupReferenceAttachments((prev) =>
+        prev.map((attachment) =>
+          attachment.id === id
+            ? withReferenceImageRole(attachment, role)
+            : attachment,
+        ),
+      );
+    },
+    [],
+  );
+
   const handleRoll = useCallback(async () => {
     if (!canRoll || !selectedBundleId || !selectedBundle) return;
     setError(null);
@@ -419,6 +497,22 @@ export default function NewProjectScreen({
         return;
       }
 
+      let referenceImages: ReferenceImagePayload[] = [];
+      if (setupReferenceAttachments.length > 0) {
+        const imported = await window.electron.project.importReferenceImages({
+          projectDir: created,
+          attachments: setupReferenceAttachments,
+        });
+        if (!imported.ok) {
+          setError(imported.error ?? 'Failed to import character images.');
+          setIsSubmitting(false);
+          return;
+        }
+        referenceImages = referenceImagesFromAttachments(
+          imported.attachments ?? setupReferenceAttachments,
+        );
+      }
+
       // 2. Populate project.json + bundle inputs.
       const result = await window.electron.project.initialize({
         projectDir: created,
@@ -427,6 +521,7 @@ export default function NewProjectScreen({
         bundleSource:
           selectedBundle.bundleSource ?? `built-in:${selectedBundleId}`,
         inputs: inputValues,
+        ...(referenceImages.length > 0 ? { referenceImages } : {}),
       });
       if (!result.ok) {
         setError(result.error);
@@ -436,7 +531,8 @@ export default function NewProjectScreen({
 
       // 3. Open the project. The workspace context flips routing to the
       //    workspace layout; the agent enters a fully-configured project.
-      await openProject(created);
+      markProjectForAutoStart(result.projectDir);
+      await openProject(result.projectDir);
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -451,6 +547,7 @@ export default function NewProjectScreen({
     workspacePath,
     productionNumber,
     inputValues,
+    setupReferenceAttachments,
     openProject,
     onClose,
   ]);
@@ -588,6 +685,35 @@ export default function NewProjectScreen({
               </div>
               <div className={styles.storyMeta}>
                 {wordCount} words · {formatSeconds(readSeconds)} read
+              </div>
+
+              <div className={styles.referenceSection}>
+                <div className={styles.referenceHeader}>
+                  <span className={styles.rowLabel}>Characters</span>
+                  <button
+                    type="button"
+                    className={styles.referenceAttachButton}
+                    onClick={handleSelectReferenceImages}
+                    disabled={isSubmitting}
+                    aria-label="Add character reference images"
+                  >
+                    <ImagePlus size={14} />
+                    <span>Add images</span>
+                  </button>
+                </div>
+                {setupReferenceAttachments.length > 0 ? (
+                  <div className={styles.referenceChipRow}>
+                    {setupReferenceAttachments.map((attachment) => (
+                      <AttachmentChip
+                        key={attachment.id}
+                        attachment={attachment}
+                        onRemove={handleRemoveSetupReference}
+                        onReferenceRoleChange={handleSetupReferenceRoleChange}
+                        disabled={isSubmitting}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <hr className={styles.divider} style={{ marginTop: '40px' }} />

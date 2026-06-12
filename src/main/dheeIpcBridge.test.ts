@@ -57,6 +57,12 @@ const managerCalls: Array<{ method: string; args: unknown[] }> = [];
 let runTaskEventCb:
   | ((e: { eventName: string; sessionId: string; data: unknown }) => void)
   | null = null;
+let startRunEventCb:
+  | ((e: { eventName: string; sessionId: string; data: unknown }) => void)
+  | null = null;
+let chatPromptEventCb:
+  | ((e: { eventName: string; sessionId: string; data: unknown }) => void)
+  | null = null;
 
 const fakeManager = {
   isStarted: () => true,
@@ -85,9 +91,35 @@ const fakeManager = {
     runTaskEventCb = eventCb;
     return { status: 'completed' };
   },
+  startRun: async (
+    sessionId: string,
+    opts: unknown,
+    eventCb: (e: { eventName: string; sessionId: string; data: unknown }) => void,
+  ) => {
+    managerCalls.push({ method: 'startRun', args: [sessionId, opts] });
+    startRunEventCb = eventCb;
+    return { ok: true, taskId: 'task-started' };
+  },
+  chatPrompt: async (
+    sessionId: string,
+    message: string,
+    eventCb: (e: { eventName: string; sessionId: string; data: unknown }) => void,
+  ) => {
+    managerCalls.push({ method: 'chatPrompt', args: [sessionId, message] });
+    chatPromptEventCb = eventCb;
+    return { ok: true, assistant_text: 'ok' };
+  },
   cancelTask: (sessionId: string) => {
     managerCalls.push({ method: 'cancelTask', args: [sessionId] });
     return sessionId === 's-1';
+  },
+  cancelBackgroundTask: async (projectDir?: string) => {
+    managerCalls.push({ method: 'cancelBackgroundTask', args: [projectDir] });
+    return projectDir === '/tmp/project-a.dhee';
+  },
+  getBackgroundTaskStatus: () => {
+    managerCalls.push({ method: 'getBackgroundTaskStatus', args: [] });
+    return { active: true, projectDir: '/tmp/project-a.dhee' };
   },
   redoNode: async (sessionId: string, nodeId: string, opts: unknown) => {
     managerCalls.push({ method: 'redoNode', args: [sessionId, nodeId, opts] });
@@ -115,6 +147,8 @@ beforeEach(() => {
   sentEvents.length = 0;
   managerCalls.length = 0;
   runTaskEventCb = null;
+  startRunEventCb = null;
+  chatPromptEventCb = null;
 });
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports, import/first
@@ -155,6 +189,111 @@ describe('dheeIpcBridge', () => {
     expect(call?.args[2]).toMatchObject({ stopAtStage: 'shot_image' });
   });
 
+  it('startRun channel forwards sessionId and projectDir, returning the runner task id', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.START_RUN)!;
+    const result = await handler({} as never, {
+      sessionId: 's-1',
+      projectDir: '/tmp/project-a.dhee',
+      stopAtStage: 'scene_clip',
+    });
+    expect(result).toEqual({ ok: true, taskId: 'task-started' });
+    const call = managerCalls.find((c) => c.method === 'startRun');
+    expect(call?.args[0]).toBe('s-1');
+    expect(call?.args[1]).toEqual({
+      projectDir: '/tmp/project-a.dhee',
+      stopAtStage: 'scene_clip',
+    });
+    expect(startRunEventCb).not.toBeNull();
+  });
+
+  it('startRun channel forwards runner rejection errors', async () => {
+    const manager = {
+      ...fakeManager,
+      startRun: async (sessionId: string, opts: unknown) => {
+        managerCalls.push({ method: 'startRunRejected', args: [sessionId, opts] });
+        return { ok: false, error: 'task already running on project' };
+      },
+    };
+    registerdheeIpcBridge(
+      manager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.START_RUN)!;
+    const result = await handler({} as never, {
+      sessionId: 's-1',
+      projectDir: '/tmp/project-a.dhee',
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: 'task already running on project',
+    });
+  });
+
+  it('runTask forwards projectDir attachments as structured task hints', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUN_TASK)!;
+    await handler({} as never, {
+      sessionId: 's-1',
+      task: 'use these',
+      projectDir: '/tmp/project-a.dhee',
+      attachments: [
+        {
+          id: 'att-1',
+          kind: 'reference_image',
+          path: '/tmp/project-a.dhee/assets/uploads/characters/hero.png',
+          name: 'hero.png',
+          meta: {
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            projectRelativePath: 'assets/uploads/characters/hero.png',
+          },
+        },
+      ],
+    });
+    const call = managerCalls.find((c) => c.method === 'runTask');
+    expect(call?.args[1]).toContain('use these');
+    expect(call?.args[1]).toContain('Attached character reference images:');
+    expect(call?.args[1]).toContain('hero.png: assets/uploads/characters/hero.png');
+  });
+
+  it('chatPrompt forwards projectDir attachments through the same media hint path', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.CHAT_PROMPT)!;
+    await handler({} as never, {
+      sessionId: 's-1',
+      message: 'replace hero',
+      projectDir: '/tmp/project-a.dhee',
+      attachments: [
+        {
+          id: 'att-1',
+          kind: 'reference_image',
+          path: '/tmp/project-a.dhee/assets/uploads/characters/hero.png',
+          name: 'hero.png',
+          meta: {
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            projectRelativePath: 'assets/uploads/characters/hero.png',
+          },
+        },
+      ],
+    });
+    const call = managerCalls.find((c) => c.method === 'chatPrompt');
+    expect(call?.args[0]).toBe('s-1');
+    expect(call?.args[1]).toContain('replace hero');
+    expect(call?.args[1]).toContain('Attached character reference images:');
+    expect(chatPromptEventCb).not.toBeNull();
+  });
+
   it('runTask routes events from manager.eventCb to webContents.send(dhee_EVENT_CHANNEL, …)', async () => {
     registerdheeIpcBridge(
       fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
@@ -184,6 +323,29 @@ describe('dheeIpcBridge', () => {
     const handler = handlerRegistry.get(dhee_CHANNELS.CANCEL_TASK)!;
     expect(await handler({} as never, { sessionId: 's-1' })).toEqual({ cancelled: true });
     expect(await handler({} as never, { sessionId: 'unknown' })).toEqual({ cancelled: false });
+  });
+
+  it('runnerCancel forwards optional projectDir to the manager', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUNNER_CANCEL)!;
+    expect(await handler({} as never, { projectDir: '/tmp/project-a.dhee' })).toEqual({ cancelled: true });
+    const call = managerCalls.find((c) => c.method === 'cancelBackgroundTask');
+    expect(call?.args).toEqual(['/tmp/project-a.dhee']);
+  });
+
+  it('runnerStatus includes the manager projectDir field', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.RUNNER_STATUS)!;
+    expect(await handler({} as never)).toEqual({
+      active: true,
+      projectDir: '/tmp/project-a.dhee',
+    });
   });
 
   it('invalidateNodes channel forwards (sessionId, nodeIds) and returns the manager result', async () => {
@@ -217,8 +379,8 @@ describe('dheeIpcBridge', () => {
     };
     const manager = {
       ...fakeManager,
-      getSessionHistorySnapshot: (sessionId: string) => {
-        managerCalls.push({ method: 'getSessionHistorySnapshot', args: [sessionId] });
+      getSessionHistorySnapshot: (sessionId: string, projectDir?: string) => {
+        managerCalls.push({ method: 'getSessionHistorySnapshot', args: [sessionId, projectDir] });
         return sample;
       },
     };
@@ -227,10 +389,13 @@ describe('dheeIpcBridge', () => {
       browserWindowMock as unknown as import('electron').BrowserWindow,
     );
     const handler = handlerRegistry.get(dhee_CHANNELS.GET_HISTORY)!;
-    const result = await handler({} as never, { sessionId: 's-1' });
+    const result = await handler({} as never, {
+      sessionId: 's-1',
+      projectDir: '/tmp/project-a',
+    });
     expect(result).toEqual({ sessionId: 's-1', history: sample });
     const call = managerCalls.find((c) => c.method === 'getSessionHistorySnapshot');
-    expect(call?.args).toEqual(['s-1']);
+    expect(call?.args).toEqual(['s-1', '/tmp/project-a']);
   });
 
   it('getHistory returns { history: null } when the on-disk snapshot is empty (avoids re-seeding empty state)', async () => {

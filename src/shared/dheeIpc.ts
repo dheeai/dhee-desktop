@@ -9,11 +9,19 @@
  * narrowing logic regardless of transport.
  */
 
+import type { Attachment } from './attachmentTypes';
+
 /** Channel names for `ipcMain.handle` / `ipcRenderer.invoke` request/response calls. */
 export const dhee_CHANNELS = {
   CREATE_SESSION: 'dhee:createSession',
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',
+  /**
+   * Direct, non-blocking bundle run dispatch. Used by the primary
+   * Resume/Run control so a user click starts the BackgroundTaskRunner
+   * immediately instead of waiting for a chat agent turn to call a tool.
+   */
+  START_RUN: 'dhee:startRun',
   /**
    * Phase 6.5: send a user message to the chat session's pi-agent
    * and return {assistant_text, tool_calls}. Distinct from RUN_TASK
@@ -202,14 +210,18 @@ export interface CreateSessionRequest {
 export interface HistorySnapshot {
   messages: Array<{
     id: string;
-    type: 'agent' | 'user' | 'system' | 'media';
+    type: 'agent' | 'user' | 'system' | 'media' | 'progress';
     content: string;
     timestamp: number;
     agentName?: string;
+    notificationLevel?: 'info' | 'warning' | 'error';
+    progressForToolCallId?: string;
+    attachments?: HistoryAttachmentPreview[];
     media?: {
       kind: 'image' | 'video';
       path: string;
       project: string;
+      projectDir?: string;
       source?: string;
     };
   }>;
@@ -227,8 +239,21 @@ export interface HistorySnapshot {
     duration?: number;
     agentName?: string;
   }>;
+  projectDirectory: string;
   focusedProject?: string;
   compactionCount: number;
+}
+
+export interface HistoryAttachmentPreview {
+  id: string;
+  kind: string;
+  name: string;
+  path?: string;
+  mimeType?: string;
+  role?: string;
+  purpose?: string;
+  replacementTargetId?: string;
+  replacementTargetName?: string;
 }
 
 export interface CreateSessionResponse {
@@ -251,6 +276,7 @@ export interface ClearChatHistoryRequest {
 
 export interface GetHistoryRequest {
   sessionId: string;
+  projectDir?: string;
 }
 
 export interface GetHistoryResponse {
@@ -268,6 +294,10 @@ export interface ClearChatHistoryResponse {
 
 export interface RunnerCancelResponse {
   cancelled: boolean;
+}
+
+export interface RunnerCancelRequest {
+  projectDir?: string;
 }
 
 export type RunnerCurrentResourceKind = 'local_comfy' | 'local_llm';
@@ -295,6 +325,7 @@ export interface RunnerStatusResponse {
   taskId?: string;
   kind?: string;
   projectName?: string;
+  projectDir?: string;
   startedAt?: number;
   sessionId?: string;
   currentResource?: RunnerCurrentResource | null;
@@ -317,6 +348,7 @@ export interface OkResponse {
 export interface RunTaskRequest {
   sessionId: string;
   task: string;
+  projectDir?: string;
   stopAtStage?: string;
   /**
    * Files the user attached in the chat input. Currently only
@@ -328,13 +360,27 @@ export interface RunTaskRequest {
    * the dhee-core ConversationManager API unchanged while still
    * being structurally typed across the IPC boundary.
    */
-  attachments?: import('./attachmentTypes').Attachment[];
+  attachments?: Attachment[];
+}
+
+export interface StartRunRequest {
+  sessionId: string;
+  projectDir: string;
+  stopAtStage?: string;
+}
+
+export interface StartRunResponse {
+  ok: boolean;
+  taskId?: string;
+  error?: string;
 }
 
 /** Phase 6.5: chatPrompt IPC contract. */
 export interface ChatPromptRequest {
   sessionId: string;
   message: string;
+  projectDir?: string;
+  attachments?: Attachment[];
 }
 
 export type ChatPromptResponse =

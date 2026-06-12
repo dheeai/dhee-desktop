@@ -12,6 +12,7 @@ import { describe, expect, it, jest } from '@jest/globals';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { projectSlugFromDir } from './projectSessionSlug';
 
 const userDataRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'dhee-sessions-test-'));
 
@@ -72,7 +73,11 @@ describe('dheeCoreManager session-history & cleanup stubs (Phase 6.3)', () => {
   it('getSessionHistorySnapshot rehydrates user+assistant turns from the focused project JSONL (Phase 6.5c.d)', async () => {
     const projectDir = path.join(userDataRoot, 'projects', 'RubyV4');
     fs.mkdirSync(projectDir, { recursive: true });
-    const sessionsDir = path.join(userDataRoot, 'pi-sessions', 'RubyV4');
+    const sessionsDir = path.join(
+      userDataRoot,
+      'pi-sessions',
+      projectSlugFromDir(projectDir),
+    );
     fs.mkdirSync(sessionsDir, { recursive: true });
     const jsonl = [
       JSON.stringify({
@@ -109,9 +114,150 @@ describe('dheeCoreManager session-history & cleanup stubs (Phase 6.3)', () => {
     expect(snap).not.toBeNull();
     expect(snap?.focusedProject).toBe('RubyV4');
     expect(snap?.compactionCount).toBe(1);
-    expect(snap?.messages).toHaveLength(2);
+    expect(snap?.messages).toHaveLength(3);
     expect(snap?.messages[0]).toMatchObject({ type: 'user', content: 'hello' });
     expect(snap?.messages[1]).toMatchObject({ type: 'agent', content: 'hi there' });
+    expect(snap?.messages[2]).toMatchObject({
+      type: 'system',
+      content: expect.stringMatching(/summarized/i),
+    });
+  });
+
+  it('adopts legacy basename session folders in place with meta.json', async () => {
+    const projectDir = path.join(userDataRoot, 'projects', 'normal-boy2');
+    fs.mkdirSync(projectDir, { recursive: true });
+    const legacyDir = path.join(userDataRoot, 'pi-sessions', 'normal-boy2');
+    const hashedDir = path.join(
+      userDataRoot,
+      'pi-sessions',
+      projectSlugFromDir(projectDir),
+    );
+    fs.rmSync(legacyDir, { recursive: true, force: true });
+    fs.rmSync(hashedDir, { recursive: true, force: true });
+    fs.mkdirSync(legacyDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(legacyDir, 'legacy.jsonl'),
+      JSON.stringify({
+        type: 'message',
+        id: 'legacy-user',
+        timestamp: '2026-06-12T10:00:00.000Z',
+        message: {
+          role: 'user',
+          content: 'normal-boy2 legacy chat',
+          timestamp: 1781268000000,
+        },
+      }),
+    );
+
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-legacy', 'normal-boy2', projectDir);
+    const snap = mgr.getSessionHistorySnapshot('s-legacy');
+
+    expect(snap?.messages[0]).toMatchObject({
+      type: 'user',
+      content: 'normal-boy2 legacy chat',
+    });
+    expect(fs.existsSync(hashedDir)).toBe(false);
+    expect(fs.existsSync(legacyDir)).toBe(true);
+    expect(fs.existsSync(path.join(legacyDir, 'meta.json'))).toBe(true);
+  });
+
+  it('hydrates setup reference image previews from project.json when the initial chat seed has no attachments', async () => {
+    const projectDir = path.join(userDataRoot, 'projects', 'MountEverest');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectDir, 'project.json'),
+      JSON.stringify({
+        projectId: 'project-with-refs',
+        inputs: [
+          {
+            id: 'character-ref-1',
+            source: {
+              type: 'local_path',
+              value: 'assets/uploads/characters/hero.png',
+              originalValue: '/tmp/hero.png',
+            },
+            mediaType: 'image',
+            purpose: 'character_ref',
+            metadata: {
+              originalFilename: 'hero.png',
+              mimeType: 'image/png',
+              referenceRole: 'character',
+            },
+            processing: {
+              status: 'completed',
+              localPath: 'assets/uploads/characters/hero.png',
+            },
+          },
+        ],
+      }),
+      'utf8',
+    );
+    const sessionsDir = path.join(
+      userDataRoot,
+      'pi-sessions',
+      projectSlugFromDir(projectDir),
+    );
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'initial.jsonl'),
+      JSON.stringify({
+        type: 'message',
+        id: 'initial-user',
+        timestamp: '2026-05-29T10:00:00.000Z',
+        message: {
+          role: 'user',
+          content: 'A climber reaches the summit.',
+          timestamp: 1716981600000,
+        },
+      }),
+    );
+
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-refs', 'MountEverest', projectDir);
+    const snap = mgr.getSessionHistorySnapshot('s-refs');
+
+    expect(snap?.messages[0]).toMatchObject({
+      type: 'user',
+      content: 'A climber reaches the summit.',
+      attachments: [
+        expect.objectContaining({
+          kind: 'reference_image',
+          name: 'hero.png',
+          path: 'assets/uploads/characters/hero.png',
+          role: 'character',
+          purpose: 'character_ref',
+        }),
+      ],
+    });
+  });
+
+  it('getSessionHistorySnapshot returns null when explicit projectDir does not match the focused session', async () => {
+    const projectDir = path.join(userDataRoot, 'projects', 'ScopedA');
+    const otherProjectDir = path.join(userDataRoot, 'projects', 'ScopedB');
+    fs.mkdirSync(projectDir, { recursive: true });
+    fs.mkdirSync(otherProjectDir, { recursive: true });
+    const sessionsDir = path.join(
+      userDataRoot,
+      'pi-sessions',
+      projectSlugFromDir(projectDir),
+    );
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sessionsDir, 'sess.jsonl'),
+      JSON.stringify({
+        type: 'message',
+        id: 'm-1',
+        timestamp: '2026-05-29T10:00:00.000Z',
+        message: { role: 'user', content: 'hello from A', timestamp: 1716981600000 },
+      }),
+    );
+
+    const mgr = new dheeCoreManager();
+    await mgr.focusSessionProject('s-mismatch', 'ScopedA', projectDir);
+    expect(
+      mgr.getSessionHistorySnapshot('s-mismatch', otherProjectDir),
+    ).toBeNull();
   });
 
   it('clearChatHistory mints a fresh session id and does not throw', () => {
