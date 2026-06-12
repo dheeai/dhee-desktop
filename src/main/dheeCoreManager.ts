@@ -1053,26 +1053,31 @@ function tierConfigFromPrimarySettings(settings: AppSettings): LLMTierConfig {
  * gemini we set BASE_URL to its OpenAI-compatible endpoint so the
  * router can reuse the OpenAI client unchanged.
  */
-function writeTierEnv(tier: 'HEAVY' | 'MEDIUM' | 'LIGHT', cfg: LLMTierConfig): void {
-  if (cfg.provider === 'gemini') {
+function writeTierEnv(
+  tier: 'HEAVY' | 'MEDIUM' | 'LIGHT',
+  cfg: Partial<LLMTierConfig> | undefined,
+): void {
+  if (!cfg) return;
+  const provider = cfg.provider === 'gemini' ? 'gemini' : 'openai';
+  if (provider === 'gemini') {
     process.env[`LLM_TIER_${tier}_PROVIDER`] = 'gemini';
     process.env[`LLM_TIER_${tier}_BASE_URL`] = GEMINI_OPENAI_COMPAT_BASE_URL;
-    if (cfg.googleApiKey.trim()) {
+    if (cfg.googleApiKey?.trim()) {
       process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.googleApiKey.trim();
     }
-    if (cfg.geminiModel.trim()) {
+    if (cfg.geminiModel?.trim()) {
       process.env[`LLM_TIER_${tier}_MODEL`] = cfg.geminiModel.trim();
     }
     return;
   }
   process.env[`LLM_TIER_${tier}_PROVIDER`] = 'openai';
-  if (cfg.openaiBaseUrl.trim()) {
+  if (cfg.openaiBaseUrl?.trim()) {
     process.env[`LLM_TIER_${tier}_BASE_URL`] = cfg.openaiBaseUrl.trim();
   }
-  if (cfg.openaiApiKey.trim()) {
+  if (cfg.openaiApiKey?.trim()) {
     process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.openaiApiKey.trim();
   }
-  if (cfg.openaiModel.trim()) {
+  if (cfg.openaiModel?.trim()) {
     process.env[`LLM_TIER_${tier}_MODEL`] = cfg.openaiModel.trim();
   }
 }
@@ -1192,9 +1197,7 @@ export function applyEnvFromSettings(
     // Gating the key behind `isComfyCloudUrl(comfyuiUrl)` made those
     // per-node cloud calls fail with "COMFY_CLOUD_API_KEY is required"
     // even though the key was set in Settings.
-    if (settings.comfyCloudApiKey.trim()) {
-      process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
-    }
+    setIfPresent('COMFY_CLOUD_API_KEY', settings.comfyCloudApiKey);
   }
   setIfPresent('dhee_PROJECT_DIR', settings.projectDir);
 
