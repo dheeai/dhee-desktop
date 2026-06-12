@@ -17,6 +17,12 @@ export const dhee_CHANNELS = {
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',
   /**
+   * Direct, non-blocking bundle run dispatch. Used by the primary
+   * Resume/Run control so a user click starts the BackgroundTaskRunner
+   * immediately instead of waiting for a chat agent turn to call a tool.
+   */
+  START_RUN: 'dhee:startRun',
+  /**
    * Phase 6.5: send a user message to the chat session's pi-agent
    * and return {assistant_text, tool_calls}. Distinct from RUN_TASK
    * which dispatches bundle runs via BackgroundTaskRunner — chat is
@@ -204,10 +210,12 @@ export interface CreateSessionRequest {
 export interface HistorySnapshot {
   messages: Array<{
     id: string;
-    type: 'agent' | 'user' | 'system' | 'media';
+    type: 'agent' | 'user' | 'system' | 'media' | 'progress';
     content: string;
     timestamp: number;
     agentName?: string;
+    notificationLevel?: 'info' | 'warning' | 'error';
+    progressForToolCallId?: string;
     attachments?: HistoryAttachmentPreview[];
     media?: {
       kind: 'image' | 'video';
@@ -231,6 +239,7 @@ export interface HistorySnapshot {
     duration?: number;
     agentName?: string;
   }>;
+  projectDirectory: string;
   focusedProject?: string;
   compactionCount: number;
 }
@@ -352,6 +361,18 @@ export interface RunTaskRequest {
    * being structurally typed across the IPC boundary.
    */
   attachments?: Attachment[];
+}
+
+export interface StartRunRequest {
+  sessionId: string;
+  projectDir: string;
+  stopAtStage?: string;
+}
+
+export interface StartRunResponse {
+  ok: boolean;
+  taskId?: string;
+  error?: string;
 }
 
 /** Phase 6.5: chatPrompt IPC contract. */

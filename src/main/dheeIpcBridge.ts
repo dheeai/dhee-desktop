@@ -27,6 +27,8 @@ import {
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type StartRunRequest,
+  type StartRunResponse,
   type ChatPromptRequest,
   type ChatPromptResponse,
   type SendResponseRequest,
@@ -191,6 +193,17 @@ export function registerdheeIpcBridge(
       return result.status === 'failed'
         ? { ok: false, ...(result.error ? { error: result.error } : {}) }
         : { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    dhee_CHANNELS.START_RUN,
+    async (_event, req: StartRunRequest): Promise<StartRunResponse> => {
+      const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
+      return manager.startRun(req.sessionId, {
+        projectDir: req.projectDir,
+        ...(req.stopAtStage ? { stopAtStage: req.stopAtStage } : {}),
+      }, eventCb);
     },
   );
 

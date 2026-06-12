@@ -35,6 +35,7 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import { markProjectForAutoStart } from '../../../utils/projectAutoStart';
 import BundleConfigurator from '../../BundleConfigurator/BundleConfigurator';
 import BundleInstall from '../../BundleConfigurator/BundleInstall';
 import AttachmentChip from '../../chat/ChatInput/AttachmentChip';
@@ -530,7 +531,8 @@ export default function NewProjectScreen({
 
       // 3. Open the project. The workspace context flips routing to the
       //    workspace layout; the agent enters a fully-configured project.
-      await openProject(created);
+      markProjectForAutoStart(result.projectDir);
+      await openProject(result.projectDir);
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

@@ -23,6 +23,11 @@ type EventListener = (e: dheeEvent) => void;
 interface dheeMockState {
   createSessionCount: number;
   runTaskArgs: Array<{ sessionId: string; task: string; stopAtStage?: string }>;
+  startRunArgs: Array<{
+    sessionId: string;
+    projectDir: string;
+    stopAtStage?: string;
+  }>;
   cancelTaskArgs: Array<{ sessionId: string }>;
   redoNodeArgs: Array<{
     sessionId: string;
@@ -45,6 +50,7 @@ function resetMockState(): void {
   mockState = {
     createSessionCount: 0,
     runTaskArgs: [],
+    startRunArgs: [],
     cancelTaskArgs: [],
     redoNodeArgs: [],
     configureProjectArgs: [],
@@ -76,6 +82,16 @@ beforeEach(() => {
       }) => {
         mockState.runTaskArgs.push(req);
         return mockState.runTaskResult;
+      },
+    ),
+    startRun: jest.fn(
+      async (req: {
+        sessionId: string;
+        projectDir: string;
+        stopAtStage?: string;
+      }) => {
+        mockState.startRunArgs.push(req);
+        return { ok: true, taskId: 'task-1' };
       },
     ),
     cancelTask: jest.fn(async (req: { sessionId: string }) => {
@@ -174,6 +190,39 @@ describe('useDheeSession', () => {
       task: 'write a noir story',
       stopAtStage: 'shot_image',
     });
+  });
+
+  it('startRun delegates to window.dhee.startRun without marking chat status running', async () => {
+    let api: ReturnType<typeof useDheeSession> | null = null;
+    render(
+      <DheeSessionProvider>
+        <TestHarness
+          onApi={(a) => {
+            api = a;
+          }}
+        />
+      </DheeSessionProvider>,
+    );
+    await waitFor(() => expect(api?.sessionId).toBe('s-1'));
+    expect(api!.status).toBe('idle');
+
+    let result: { ok: boolean; taskId?: string; error?: string } | undefined;
+    await act(async () => {
+      result = await api!.startRun({
+        projectDir: '/tmp/project.dhee',
+        stopAtStage: 'shot_image',
+      });
+    });
+
+    expect(result).toEqual({ ok: true, taskId: 'task-1' });
+    expect(mockState.startRunArgs).toEqual([
+      {
+        sessionId: 's-1',
+        projectDir: '/tmp/project.dhee',
+        stopAtStage: 'shot_image',
+      },
+    ]);
+    expect(api!.status).toBe('idle');
   });
 
   it('cancelTask delegates to window.dhee.cancelTask', async () => {
@@ -433,6 +482,7 @@ describe('useDheeSession', () => {
         },
       ],
       toolCalls: [],
+      projectDirectory: '/tmp/WrongProject.dhee',
       compactionCount: 0,
     };
     let getHistoryCalls = 0;
@@ -517,6 +567,7 @@ describe('useDheeSession', () => {
         },
       ],
       toolCalls: [],
+      projectDirectory: '/tmp/WrongProject.dhee',
       compactionCount: 0,
     };
     const scopedSnapshot = {
@@ -529,6 +580,7 @@ describe('useDheeSession', () => {
         },
       ],
       toolCalls: [],
+      projectDirectory: '/tmp/ScopedHistory.dhee',
       compactionCount: 0,
     };
     (

@@ -44,6 +44,8 @@ import type {
   dheeEventName,
   RunnerStatusResponse,
   RunTaskRequest,
+  StartRunRequest,
+  StartRunResponse,
   ChatPromptRequest,
   RedoNodeRequest,
 } from '../../shared/dheeIpc';
@@ -62,6 +64,14 @@ function normalizeProjectDirectory(
     .replace(/\/+$/, '')
     .trim();
   return normalized || null;
+}
+
+function historyMatchesProject(
+  history: HistorySnapshot | null,
+  projectDirectory: string | null,
+): boolean {
+  if (!history || !projectDirectory) return true;
+  return normalizeProjectDirectory(history.projectDirectory) === projectDirectory;
 }
 
 function readLegacyStoredSessionId(): string | null {
@@ -255,6 +265,7 @@ async function createSessionWithRetry(
 }
 
 type RunTaskOpts = Omit<RunTaskRequest, 'sessionId' | 'task'>;
+type StartRunOpts = Omit<StartRunRequest, 'sessionId'>;
 type ChatPromptOpts = Omit<ChatPromptRequest, 'sessionId' | 'message'>;
 type RedoNodeOpts = Omit<RedoNodeRequest, 'sessionId' | 'nodeId'>;
 type ConfigureProjectOpts = Omit<ConfigureProjectRequest, 'sessionId'>;
@@ -315,6 +326,12 @@ export interface DheeSessionApi {
     task: string,
     opts?: RunTaskOpts,
   ) => Promise<{ ok: boolean; error?: string }>;
+  /**
+   * Directly dispatch a bundle run through the BackgroundTaskRunner.
+   * This intentionally does not mark the chat session as running;
+   * runnerStatus drives long-run UI state.
+   */
+  startRun: (opts: StartRunOpts) => Promise<StartRunResponse>;
   /**
    * Phase 6.5c: chat-input path. Sends a user message to the in-
    * process pi-agent (NOT BackgroundTaskRunner) and returns the
@@ -468,7 +485,10 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
             sessionId: resp.sessionId,
             projectDir: projectDirectory,
           });
-          nextHistory = historyResp.history ?? null;
+          const candidate = historyResp.history ?? null;
+          nextHistory = historyMatchesProject(candidate, projectDirectory)
+            ? candidate
+            : null;
         } catch {
           nextHistory = null;
         }
@@ -571,7 +591,10 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
         sessionId: id,
         ...(projectDirectory ? { projectDir: projectDirectory } : {}),
       });
-      const snap = resp.history ?? null;
+      const candidate = resp.history ?? null;
+      const snap = historyMatchesProject(candidate, projectDirectory)
+        ? candidate
+        : null;
       if (
         sessionIdRef.current !== id ||
         projectDirectoryRef.current !== projectDirectory
@@ -649,6 +672,14 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
         return { ok: false, error: msg };
       }
     },
+    [runWithSelfHeal],
+  );
+
+  const startRun = useCallback<DheeSessionApi['startRun']>(
+    (opts) =>
+      runWithSelfHeal((sessionId) =>
+        window.dhee.startRun({ sessionId, ...opts }),
+      ),
     [runWithSelfHeal],
   );
 
@@ -890,6 +921,7 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
     refreshHistory,
     clearChatHistory,
     runTask,
+    startRun,
     chatPrompt,
     cancel,
     redoNode,
@@ -945,6 +977,7 @@ export function DheeSessionProvider({
       api.refreshHistory,
       api.clearChatHistory,
       api.runTask,
+      api.startRun,
       api.chatPrompt,
       api.cancel,
       api.redoNode,

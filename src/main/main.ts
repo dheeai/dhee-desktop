@@ -1674,6 +1674,7 @@ ipcMain.handle(
             projectDir: result.projectDir,
             story: payload.inputs?.['story_input'],
             bundleId: payload.bundleId,
+            referenceImages: payload.referenceImages,
           });
         } catch (seedError) {
           log.warn('[project:initialize] failed to seed initial chat history', seedError);

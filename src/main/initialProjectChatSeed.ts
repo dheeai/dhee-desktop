@@ -1,12 +1,18 @@
 import { randomUUID } from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
-import { projectSessionsDirFromDir } from './projectSessionSlug';
+import type { ReferenceImagePayload } from '../shared/attachmentTypes';
+import type { HistoryAttachmentPreview } from '../shared/dheeIpc';
+import {
+  projectSessionsDirFromDir,
+  writeProjectSessionMeta,
+} from './projectSessionSlug';
 
 function messageRecord(
   role: 'user' | 'assistant',
   content: string,
   timestamp: number,
+  attachments: HistoryAttachmentPreview[] = [],
 ): string {
   return JSON.stringify({
     type: 'message',
@@ -16,8 +22,29 @@ function messageRecord(
       role,
       content,
       timestamp,
+      ...(attachments.length > 0 ? { attachments } : {}),
     },
   });
+}
+
+function attachmentPreviewsFromReferenceImages(
+  images: ReferenceImagePayload[] | undefined,
+): HistoryAttachmentPreview[] {
+  return (images ?? []).map((image, index) => ({
+    id: `initial-reference-${index}-${image.name}`,
+    kind: 'reference_image',
+    name: image.name,
+    path: image.relativePath,
+    ...(image.mimeType ? { mimeType: image.mimeType } : {}),
+    ...(image.referenceRole ? { role: image.referenceRole } : {}),
+    ...(image.purpose ? { purpose: image.purpose } : {}),
+    ...(image.replacementCharacterId
+      ? { replacementTargetId: image.replacementCharacterId }
+      : {}),
+    ...(image.replacementCharacterName
+      ? { replacementTargetName: image.replacementCharacterName }
+      : {}),
+  }));
 }
 
 export async function seedInitialProjectChatHistory(params: {
@@ -25,6 +52,7 @@ export async function seedInitialProjectChatHistory(params: {
   projectDir: string;
   story: unknown;
   bundleId: string;
+  referenceImages?: ReferenceImagePayload[];
 }): Promise<void> {
   const story = typeof params.story === 'string' ? params.story.trim() : '';
   if (!story) return;
@@ -34,6 +62,7 @@ export async function seedInitialProjectChatHistory(params: {
     params.projectDir,
   );
   await fs.mkdir(sessionsDir, { recursive: true });
+  writeProjectSessionMeta(sessionsDir, params.projectDir);
   const now = Date.now();
   const sessionFile = path.join(
     sessionsDir,
@@ -42,10 +71,13 @@ export async function seedInitialProjectChatHistory(params: {
   const receipt =
     `Project created with ${params.bundleId}. ` +
     'Ready to continue generation from this story.';
+  const attachments = attachmentPreviewsFromReferenceImages(
+    params.referenceImages,
+  );
   await fs.writeFile(
     sessionFile,
     [
-      messageRecord('user', story, now),
+      messageRecord('user', story, now, attachments),
       messageRecord('assistant', receipt, now + 1),
     ].join('\n') + '\n',
     'utf8',

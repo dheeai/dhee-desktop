@@ -57,6 +57,9 @@ const managerCalls: Array<{ method: string; args: unknown[] }> = [];
 let runTaskEventCb:
   | ((e: { eventName: string; sessionId: string; data: unknown }) => void)
   | null = null;
+let startRunEventCb:
+  | ((e: { eventName: string; sessionId: string; data: unknown }) => void)
+  | null = null;
 let chatPromptEventCb:
   | ((e: { eventName: string; sessionId: string; data: unknown }) => void)
   | null = null;
@@ -87,6 +90,15 @@ const fakeManager = {
     managerCalls.push({ method: 'runTask', args: [sessionId, task, opts] });
     runTaskEventCb = eventCb;
     return { status: 'completed' };
+  },
+  startRun: async (
+    sessionId: string,
+    opts: unknown,
+    eventCb: (e: { eventName: string; sessionId: string; data: unknown }) => void,
+  ) => {
+    managerCalls.push({ method: 'startRun', args: [sessionId, opts] });
+    startRunEventCb = eventCb;
+    return { ok: true, taskId: 'task-started' };
   },
   chatPrompt: async (
     sessionId: string,
@@ -135,6 +147,7 @@ beforeEach(() => {
   sentEvents.length = 0;
   managerCalls.length = 0;
   runTaskEventCb = null;
+  startRunEventCb = null;
   chatPromptEventCb = null;
 });
 
@@ -174,6 +187,50 @@ describe('dheeIpcBridge', () => {
     expect(call?.args[0]).toBe('s-1');
     expect(call?.args[1]).toBe('hi');
     expect(call?.args[2]).toMatchObject({ stopAtStage: 'shot_image' });
+  });
+
+  it('startRun channel forwards sessionId and projectDir, returning the runner task id', async () => {
+    registerdheeIpcBridge(
+      fakeManager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.START_RUN)!;
+    const result = await handler({} as never, {
+      sessionId: 's-1',
+      projectDir: '/tmp/project-a.dhee',
+      stopAtStage: 'scene_clip',
+    });
+    expect(result).toEqual({ ok: true, taskId: 'task-started' });
+    const call = managerCalls.find((c) => c.method === 'startRun');
+    expect(call?.args[0]).toBe('s-1');
+    expect(call?.args[1]).toEqual({
+      projectDir: '/tmp/project-a.dhee',
+      stopAtStage: 'scene_clip',
+    });
+    expect(startRunEventCb).not.toBeNull();
+  });
+
+  it('startRun channel forwards runner rejection errors', async () => {
+    const manager = {
+      ...fakeManager,
+      startRun: async (sessionId: string, opts: unknown) => {
+        managerCalls.push({ method: 'startRunRejected', args: [sessionId, opts] });
+        return { ok: false, error: 'task already running on project' };
+      },
+    };
+    registerdheeIpcBridge(
+      manager as unknown as import('./dheeCoreManager').dheeCoreManager,
+      browserWindowMock as unknown as import('electron').BrowserWindow,
+    );
+    const handler = handlerRegistry.get(dhee_CHANNELS.START_RUN)!;
+    const result = await handler({} as never, {
+      sessionId: 's-1',
+      projectDir: '/tmp/project-a.dhee',
+    });
+    expect(result).toEqual({
+      ok: false,
+      error: 'task already running on project',
+    });
   });
 
   it('runTask forwards projectDir attachments as structured task hints', async () => {

@@ -159,7 +159,8 @@ describe('dheeCoreManager.runTask (Phase 6.2 rewire)', () => {
     const names = events.map((e) => e.eventName);
     expect(names).toContain('tool_call');
     expect(names).toContain('tool_result');
-    expect(names).toContain('status');
+    expect(names).toContain('notification');
+    expect(names).not.toContain('status');
   });
 
   it('errors clearly when runTask is called for a session that has never been focused', async () => {
@@ -177,6 +178,51 @@ describe('dheeCoreManager.runTask (Phase 6.2 rewire)', () => {
     expect((lastDispatched!.spec.params as { stage?: string }).stage).toBe('shot_image');
     emitRunnerEvent('completed', {});
     await promise;
+  });
+});
+
+describe('dheeCoreManager.startRun', () => {
+  it('dispatches a run_to task for the provided projectDir and returns the task id immediately', async () => {
+    const mgr = new dheeCoreManager();
+    const result = await mgr.startRun(
+      's-start',
+      { projectDir: '/tmp/projects/DirectStart', stopAtStage: 'scene_clip' },
+      () => {},
+    );
+
+    expect(result).toEqual({ ok: true, taskId: lastDispatched!.taskId });
+    expect(lastDispatched!.spec).toMatchObject({
+      kind: 'run_to',
+      projectName: 'DirectStart',
+      sessionId: 's-start',
+      params: {
+        projectDir: '/tmp/projects/DirectStart',
+        stage: 'scene_clip',
+      },
+    });
+
+    emitRunnerEvent('completed', {});
+  });
+
+  it('returns a rejection error when the background runner is already busy', async () => {
+    const mgr = new dheeCoreManager();
+    const first = await mgr.startRun(
+      's-first',
+      { projectDir: '/tmp/projects/First' },
+      () => {},
+    );
+    expect(first.ok).toBe(true);
+
+    const second = await mgr.startRun(
+      's-second',
+      { projectDir: '/tmp/projects/Second' },
+      () => {},
+    );
+
+    expect(second.ok).toBe(false);
+    expect(second.error).toMatch(/already running/i);
+
+    emitRunnerEvent('completed', {});
   });
 });
 

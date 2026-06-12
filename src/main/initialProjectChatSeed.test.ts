@@ -23,6 +23,18 @@ describe('seedInitialProjectChatHistory', () => {
         projectDir,
         story: 'A young engineer discovers a traffic glitch.',
         bundleId: 'youtube_short_text_video',
+        referenceImages: [
+          {
+            name: 'hero.png',
+            relativePath: 'assets/uploads/characters/hero.png',
+            purpose: 'character_ref',
+            referenceRole: 'character',
+            sourcePath: '/tmp/hero.png',
+            originalFilename: 'hero.png',
+            mimeType: 'image/png',
+            size: 123,
+          },
+        ],
       });
 
       const sessionsDir = path.join(
@@ -34,14 +46,41 @@ describe('seedInitialProjectChatHistory', () => {
         file.endsWith('.jsonl'),
       );
       expect(files).toHaveLength(1);
+      const meta = JSON.parse(
+        readFileSync(path.join(sessionsDir, 'meta.json'), 'utf8'),
+      ) as { projectDir?: string; projectId?: string; createdAt?: string };
+      expect(meta).toMatchObject({
+        projectDir,
+        projectId: 'project-seed-1',
+      });
+      expect(typeof meta.createdAt).toBe('string');
       const lines = readFileSync(path.join(sessionsDir, files[0]!), 'utf8')
         .trim()
         .split('\n')
-        .map((line) => JSON.parse(line) as { message: { role: string; content: string } });
+        .map(
+          (line) =>
+            JSON.parse(line) as {
+              message: {
+                role: string;
+                content: string;
+                attachments?: Array<Record<string, unknown>>;
+              };
+            },
+        );
 
       expect(lines[0]?.message).toMatchObject({
         role: 'user',
         content: 'A young engineer discovers a traffic glitch.',
+        attachments: [
+          expect.objectContaining({
+            kind: 'reference_image',
+            name: 'hero.png',
+            path: 'assets/uploads/characters/hero.png',
+            role: 'character',
+            purpose: 'character_ref',
+            mimeType: 'image/png',
+          }),
+        ],
       });
       expect(lines[1]?.message).toMatchObject({
         role: 'assistant',

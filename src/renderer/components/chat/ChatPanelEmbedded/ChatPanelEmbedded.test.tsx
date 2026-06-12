@@ -77,23 +77,29 @@ jest.mock('../../../contexts/ChatQuestionsContext', () => ({
 import ChatPanelEmbedded from './ChatPanelEmbedded';
 // eslint-disable-next-line import/first
 import { DheeSessionProvider } from '../../../hooks/useDheeSession';
+// eslint-disable-next-line import/first
+import { markProjectForAutoStart } from '../../../utils/projectAutoStart';
 
 // Render helper — wraps the panel in the singleton session provider
 // so the in-component `useDheeSession` reads from context (the
 // hook now requires a provider; tests historically rendered the
 // panel bare).
-function renderPanel() {
+function panelElement() {
   const projectDirectory = mockWorkspaceProjectName
     ? `/tmp/${mockWorkspaceProjectName}.dhee`
     : null;
-  return render(
+  return (
     <DheeSessionProvider
       projectDirectory={projectDirectory}
       projectName={mockWorkspaceProjectName}
     >
       <ChatPanelEmbedded />
-    </DheeSessionProvider>,
+    </DheeSessionProvider>
   );
+}
+
+function renderPanel() {
+  return render(panelElement());
 }
 
 type EventListener = (e: dheeEvent) => void;
@@ -105,6 +111,11 @@ interface dheeListenerSlot {
 
 interface dheeMockState {
   runTaskCalls: Array<{ sessionId: string; task: string }>;
+  startRunCalls: Array<{
+    sessionId: string;
+    projectDir: string;
+    stopAtStage?: string;
+  }>;
   // Phase 6.5c: chat text input now drives chatPrompt; tests assert
   // against this separately so the runTask path can still be exercised
   // for the Resume / bundle-dispatch flows.
@@ -130,8 +141,10 @@ beforeEach(() => {
   mockWorkspaceProjectName = null;
   mockSavedConnectionSettings = [];
   mockSingleGpuMode = false;
+  window.sessionStorage.clear();
   mockState = {
     runTaskCalls: [],
+    startRunCalls: [],
     chatPromptCalls: [],
     cancelCalls: [],
     listeners: [],
@@ -144,6 +157,16 @@ beforeEach(() => {
       mockState.runTaskCalls.push(req);
       return { ok: true };
     }),
+    startRun: jest.fn(
+      async (req: {
+        sessionId: string;
+        projectDir: string;
+        stopAtStage?: string;
+      }) => {
+        mockState.startRunCalls.push(req);
+        return { ok: true, taskId: 'task-1' };
+      },
+    ),
     chatPrompt: jest.fn(async (req: { sessionId: string; message: string }) => {
       mockState.chatPromptCalls.push(req);
       return { ok: true, assistant_text: 'mock reply', tool_calls: [] };
@@ -423,6 +446,86 @@ describe('ChatPanelEmbedded', () => {
     });
     // runTask should NOT have been called from the chat-input path.
     expect(mockState.runTaskCalls).toHaveLength(0);
+  });
+
+  it('shows uploaded reference image thumbnails in the composer and sent user bubble', async () => {
+    mockWorkspaceProjectName = 'AttachmentProject';
+    const selectedAttachment = {
+      id: 'att-1',
+      kind: 'reference_image' as const,
+      path: '/Users/me/Desktop/My Image #1?.png',
+      name: 'My Image #1?.png',
+      meta: {
+        referenceRole: 'character',
+        purpose: 'character_ref',
+      },
+    };
+    const importedAttachment = {
+      ...selectedAttachment,
+      path: '/tmp/AttachmentProject.dhee/assets/uploads/characters/My Image #1?.png',
+      meta: {
+        ...selectedAttachment.meta,
+        projectRelativePath: 'assets/uploads/characters/My Image #1?.png',
+      },
+    };
+    const selectAttachment = jest.fn(async () => ({
+      ok: true,
+      attachment: selectedAttachment,
+    }));
+    const importReferenceImages = jest.fn(async () => ({
+      ok: true,
+      attachments: [importedAttachment],
+    }));
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async (path: string) =>
+          path.endsWith('project.json')
+            ? JSON.stringify({
+                bundleSource: 'built-in:narrative',
+                style: 'cinematic_realism',
+                templateId: 'narrative',
+                targetDuration: 60,
+              })
+            : null,
+        ),
+        exportChatJson: jest.fn(async () => undefined),
+        selectAttachment,
+        importReferenceImages,
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    const { container } = renderPanel();
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /attach file/i })).not.toBeDisabled(),
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /attach file/i }));
+    });
+
+    await waitFor(() => expect(selectAttachment).toHaveBeenCalled());
+    expect(
+      Array.from(container.querySelectorAll('img')).some(
+        (img) =>
+          img.getAttribute('src') ===
+          'file:///Users/me/Desktop/My%20Image%20%231%3F.png',
+      ),
+    ).toBe(true);
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /send/i }));
+    });
+
+    await waitFor(() => expect(importReferenceImages).toHaveBeenCalled());
+    await waitFor(() => expect(screen.getByText('Attached file')).toBeInTheDocument());
+    expect(
+      Array.from(container.querySelectorAll('img')).some(
+        (img) =>
+          img.getAttribute('src') ===
+          'file:///tmp/AttachmentProject.dhee/assets/uploads/characters/My%20Image%20%231%3F.png',
+      ),
+    ).toBe(true);
   });
 
   // Interruptible-runs Phase 3: with non-blocking dhee_start_run the
@@ -1313,24 +1416,18 @@ describe('ChatPanelEmbedded', () => {
   });
 
   // ── Background-run session ────────────────────────────────────
-  // Long pipeline runs (1–4h) execute in a SEPARATE pi-agent
-  // session so the user can keep chatting on the main session in
-  // parallel. Resume/Stop in the header target the background
-  // session; the inline send button stays Send-only.
+  // Long pipeline runs (1–4h) execute through the BackgroundTaskRunner
+  // so the user can keep chatting in parallel. Resume/Stop in the
+  // header target the runner; the inline send button stays Send-only.
 
-  it('clicking Resume drives the pi-agent via chatPrompt — agent then calls dhee_start_run which dispatches via BackgroundTaskRunner', async () => {
-    // Architecture: dhee_run_to was previously dispatched on a
-    // dedicated bg session; now dhee-core's runner singleton
-    // handles detached execution, so the chat panel can fire from
-    // the main session directly. The kickoff text still goes
-    // through runTask — pi-agent calls dhee_run_to which the
-    // dist now redirects to the runner.
+  it('clicking Resume directly dispatches startRun instead of creating an agent turn', async () => {
     mockWorkspaceProjectName = 'BurgerEating';
     (window as unknown as { electron: unknown }).electron = {
       project: {
         readFile: jest.fn(async (path: string) =>
           path.endsWith('project.json')
             ? JSON.stringify({
+                bundleSource: 'built-in:narrative',
                 style: 'cinematic_realism',
                 templateId: 'narrative',
                 targetDuration: 60,
@@ -1357,24 +1454,117 @@ describe('ChatPanelEmbedded', () => {
       fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
     });
 
-    // Resume routes through chatPrompt instead of runTask, so the
-    // pi-agent owns bundle dispatch. The agent calls dhee_start_run
-    // (non-blocking) which goes via BackgroundTaskRunner — but at this
-    // layer we only assert that the chatPrompt message names
-    // dhee_start_run so the agent knows which tool to invoke.
-    expect(mockState.chatPromptCalls.length).toBeGreaterThanOrEqual(1);
-    const last = mockState.chatPromptCalls[mockState.chatPromptCalls.length - 1];
-    expect(last?.sessionId).toBe('s-1');
-    expect(last?.message).toMatch(/dhee_start_run/);
+    expect(mockState.startRunCalls).toEqual([
+      {
+        sessionId: 's-1',
+        projectDir: '/tmp/BurgerEating.dhee',
+      },
+    ]);
+    expect(mockState.chatPromptCalls).toHaveLength(0);
   });
 
-  it('clicking Resume kicks off a dhee_run_to task, then Stop appears once runnerStatus reports active', async () => {
+  it('clicking Resume on an already generated project shows a no-op message and does not start a run', async () => {
     mockWorkspaceProjectName = 'BurgerEating';
     (window as unknown as { electron: unknown }).electron = {
       project: {
         readFile: jest.fn(async (path: string) =>
           path.endsWith('project.json')
             ? JSON.stringify({
+                bundleSource: 'built-in:narrative',
+                style: 'cinematic_realism',
+                templateId: 'narrative',
+                targetDuration: 60,
+                walkState: {
+                  nodes: {
+                    story: { status: 'completed' },
+                    final_video: { status: 'completed' },
+                  },
+                },
+              })
+            : null,
+        ),
+        exportChatJson: jest.fn(async () => undefined),
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(
+      () => {
+        expect(
+          screen.queryByRole('button', { name: /resume run/i }),
+        ).not.toBeNull();
+      },
+      { timeout: 1500 },
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
+    });
+
+    expect(mockState.startRunCalls).toHaveLength(0);
+    expect(
+      screen.getByText(/All nodes are already generated/i),
+    ).toBeInTheDocument();
+  });
+
+  it('renders direct runner progress, status, and terminal notification events', async () => {
+    mockWorkspaceProjectName = 'BurgerEating';
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async (path: string) =>
+          path.endsWith('project.json')
+            ? JSON.stringify({
+                bundleSource: 'built-in:narrative',
+                style: 'cinematic_realism',
+                templateId: 'narrative',
+                targetDuration: 60,
+              })
+            : null,
+        ),
+        exportChatJson: jest.fn(async () => undefined),
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+    await waitFor(() => screen.getByRole('textbox'));
+    await waitFor(() => {
+      expect(mockState.listeners.some((l) => l.active)).toBe(true);
+    });
+
+    act(() => {
+      publishEvent('progress', {
+        projectDir: '/tmp/BurgerEating.dhee',
+        toolCallId: 'task-1',
+        content: 'walker: rendering scene',
+      });
+      publishEvent('status', {
+        projectDir: '/tmp/BurgerEating.dhee',
+        level: 'info',
+        message: 'Runner status visible',
+      });
+      publishEvent('notification', {
+        projectDir: '/tmp/BurgerEating.dhee',
+        level: 'info',
+        message: 'Run finished - nothing pending.',
+      });
+    });
+
+    expect(screen.getByText('walker: rendering scene')).toBeInTheDocument();
+    expect(screen.getByText('Runner status visible')).toBeInTheDocument();
+    expect(screen.getByText('Run finished - nothing pending.')).toBeInTheDocument();
+  });
+
+  it('clicking Resume starts the runner, then Stop appears once runnerStatus reports active', async () => {
+    mockWorkspaceProjectName = 'BurgerEating';
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async (path: string) =>
+          path.endsWith('project.json')
+            ? JSON.stringify({
+                bundleSource: 'built-in:narrative',
                 style: 'cinematic_realism',
                 templateId: 'narrative',
                 targetDuration: 60,
@@ -1410,6 +1600,8 @@ describe('ChatPanelEmbedded', () => {
       fireEvent.click(screen.getByRole('button', { name: /resume run/i }));
     });
 
+    expect(mockState.startRunCalls).toHaveLength(1);
+
     // Simulate the runner picking up the task.
     runnerActive = true;
     await waitFor(
@@ -1426,6 +1618,39 @@ describe('ChatPanelEmbedded', () => {
     });
 
     expect(runnerCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('auto-starts once when opening a project just created by the Roll flow', async () => {
+    mockWorkspaceProjectName = 'FreshProject';
+    markProjectForAutoStart('/tmp/FreshProject.dhee');
+    (window as unknown as { electron: unknown }).electron = {
+      project: {
+        readFile: jest.fn(async (path: string) =>
+          path.endsWith('project.json')
+            ? JSON.stringify({
+                bundleSource: 'built-in:narrative',
+                style: 'cinematic_realism',
+                templateId: 'narrative',
+                targetDuration: 60,
+              })
+            : null,
+        ),
+        exportChatJson: jest.fn(async () => undefined),
+      },
+      logger: { logUserInput: jest.fn() },
+    };
+
+    renderPanel();
+
+    await waitFor(() =>
+      expect(mockState.startRunCalls).toEqual([
+        {
+          sessionId: 's-1',
+          projectDir: '/tmp/FreshProject.dhee',
+        },
+      ]),
+    );
+    expect(mockState.chatPromptCalls).toHaveLength(0);
   });
 
   it('inline send button stays "Send" while a background run is in progress (never becomes Cancel)', async () => {
@@ -1690,6 +1915,58 @@ describe('ChatPanelEmbedded', () => {
       expect(getHistory.mock.calls[0]?.[0]).toMatchObject({
         sessionId: 's-1',
         projectDir: '/tmp/HistoryProject.dhee',
+      });
+    });
+
+    it('clears old project messages immediately when switching projects with no history', async () => {
+      mockWorkspaceProjectName = 'ProjectA';
+      (window as unknown as { electron: unknown }).electron = {
+        project: {
+          readFile: jest.fn(async (path: string) =>
+            path.endsWith('project.json')
+              ? JSON.stringify({
+                  bundleSource: 'built-in:narrative',
+                  style: 'cinematic_realism',
+                  templateId: 'narrative',
+                  targetDuration: 60,
+                })
+              : null,
+          ),
+          exportChatJson: jest.fn(async () => undefined),
+        },
+        logger: { logUserInput: jest.fn() },
+      };
+      (window as unknown as { dhee: { getHistory: jest.Mock } }).dhee.getHistory =
+        jest.fn(async (req: { sessionId: string; projectDir?: string }) => ({
+          sessionId: req.sessionId,
+          history:
+            req.projectDir === '/tmp/ProjectA.dhee'
+              ? {
+                  messages: [
+                    {
+                      id: 'a-1',
+                      type: 'user' as const,
+                      content: 'project A only',
+                      timestamp: 1700000000000,
+                    },
+                  ],
+                  toolCalls: [],
+                  projectDirectory: '/tmp/ProjectA.dhee',
+                  compactionCount: 0,
+                }
+              : null,
+        }));
+
+      const view = renderPanel();
+      await waitFor(() =>
+        expect(screen.getByText('project A only')).toBeInTheDocument(),
+      );
+
+      mockWorkspaceProjectName = 'ProjectB';
+      view.rerender(panelElement());
+
+      await waitFor(() => {
+        expect(screen.queryByText('project A only')).toBeNull();
       });
     });
 

@@ -17,7 +17,14 @@
  *   - phase_transition: phase banner system message.
  *   - context_usage: footer token-usage indicator.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import {
@@ -71,6 +78,7 @@ import ActivityTransport from '../ActivityTransport';
 import ProjectCTA, { type CTAAction } from './ProjectCTA';
 import ProjectRunButton from './ProjectRunButton';
 import { runnerBelongsToProject } from '../../../utils/runnerProjectScope';
+import { consumeProjectAutoStart } from '../../../utils/projectAutoStart';
 
 interface ContextUsage {
   used: number;
@@ -80,6 +88,16 @@ interface ContextUsage {
 let nextMessageId = 1;
 function newMessageId(): string {
   return `msg-${nextMessageId++}`;
+}
+
+function normalizeProjectDirectoryForChat(
+  value: string | null | undefined,
+): string | null {
+  const normalized = (value ?? '')
+    .replace(/\\/g, '/')
+    .replace(/\/+$/, '')
+    .trim();
+  return normalized || null;
 }
 
 /**
@@ -404,9 +422,61 @@ function parseWalkStateCharacterTargets(raw: string | null): ReferenceImageRepla
   }
 }
 
+function walkStateHasNoPendingNodes(
+  raw: string | null,
+  goalNodeId?: string,
+): boolean {
+  if (!raw) return false;
+  try {
+    const parsed = JSON.parse(raw) as {
+      walkState?: { nodes?: Record<string, { status?: unknown }> };
+    };
+    const entries = Object.entries(parsed.walkState?.nodes ?? {});
+    if (entries.length === 0) return false;
+    if (!entries.every(([, node]) => node?.status === 'completed')) {
+      return false;
+    }
+    if (goalNodeId) {
+      return entries.some(
+        ([key]) => key === goalNodeId || key.startsWith(`${goalNodeId}:`),
+      );
+    }
+    return entries.some(
+      ([key]) =>
+        key === 'final_video' ||
+        key.startsWith('final_video:') ||
+        key === 'final' ||
+        key.startsWith('final:'),
+    );
+  } catch {
+    return false;
+  }
+}
+
+function formatBackendLane(value: string | undefined): string {
+  return value === 'cloud' ? 'Cloud' : 'Local';
+}
+
+function formatRunStartText(settings: {
+  llmBackend?: string;
+  comfyBackend?: string;
+  vlmBackend?: string;
+}): string {
+  return [
+    'Starting pipeline run',
+    `LLM: ${formatBackendLane(settings.llmBackend)}`,
+    `Comfy: ${formatBackendLane(settings.comfyBackend)}`,
+    `VLM: ${formatBackendLane(settings.vlmBackend)}`,
+  ].join(' - ');
+}
+
 export default function ChatPanelEmbedded() {
   const session = useDheeSession();
   const { projectName, projectDirectory } = useWorkspace();
+  const normalizedProjectDirectory = useMemo(
+    () => normalizeProjectDirectoryForChat(projectDirectory),
+    [projectDirectory],
+  );
   const firstRunTour = useOptionalFirstRunTour();
   const agent = useAgent();
   const chatQuestions = useChatQuestions();
@@ -472,6 +542,12 @@ export default function ChatPanelEmbedded() {
     if (!session.history) return;
     const snap = session.consumeHistory();
     if (!snap) return;
+    if (
+      normalizeProjectDirectoryForChat(snap.projectDirectory) !==
+      normalizedProjectDirectory
+    ) {
+      return;
+    }
 
     type Row = { ts: number; msg: ChatMessage };
     const rows: Row[] = [];
@@ -489,7 +565,21 @@ export default function ChatPanelEmbedded() {
 	            mediaProject: m.media.project,
 	            mediaProjectDir: m.media.projectDir,
 	          },
-	        });
+        });
+        continue;
+      }
+      if (m.type === 'progress') {
+        rows.push({
+          ts,
+          msg: {
+            id: m.id,
+            role: 'progress',
+            progressText: m.content,
+            ...(m.progressForToolCallId
+              ? { progressForToolCallId: m.progressForToolCallId }
+              : {}),
+          },
+        });
         continue;
       }
       const role: ChatMessage['role'] =
@@ -505,6 +595,9 @@ export default function ChatPanelEmbedded() {
 	          role,
 	          text: m.content,
 	          ...(m.attachments ? { attachments: m.attachments } : {}),
+	          ...(m.notificationLevel
+	            ? { notificationLevel: m.notificationLevel }
+	            : {}),
 	        },
 	      });
     }
@@ -541,7 +634,12 @@ export default function ChatPanelEmbedded() {
 
     rows.sort((a, b) => a.ts - b.ts);
     setMessages(rows.map((r) => r.msg));
-  }, [session.sessionId, session.history, session.consumeHistory]);
+  }, [
+    session.sessionId,
+    session.history,
+    session.consumeHistory,
+    normalizedProjectDirectory,
+  ]);
 
   // ── New-project wizard state ──────────────────────────────────────
   // Auto-spawns when the user opens an unconfigured project. Collects
@@ -626,6 +724,7 @@ export default function ChatPanelEmbedded() {
   const [runnerActive, setRunnerActive] = useState(false);
   const [runnerCurrentResource, setRunnerCurrentResource] =
     useState<RunnerStatusResponse['currentResource'] | null>(null);
+  const [startRunPending, setStartRunPending] = useState(false);
 
   // Stop-after-each-collection gate. Per-project: mirrors
   // `features.gateAfterCollections` in the active project's
@@ -652,6 +751,34 @@ export default function ChatPanelEmbedded() {
   // Timestamp of the last render `asset` event — used as a defense-in-
   // depth running signal (see RENDER_ACTIVITY_TTL_MS).
   const lastRenderEventRef = useRef<number>(0);
+  const runStartMessageIdRef = useRef<string | null>(null);
+
+  const previousProjectDirectoryRef = useRef<string | null | undefined>(
+    undefined,
+  );
+  useLayoutEffect(() => {
+    const previous = previousProjectDirectoryRef.current;
+    if (previous !== undefined && previous !== normalizedProjectDirectory) {
+      setMessages([]);
+      setInput('');
+      setChatAttachments([]);
+      setAttachmentError(null);
+      setIsImportingReferenceImages(false);
+      setReplacementCharacters([]);
+      setContextUsage(null);
+      setConnectionError(null);
+      setBgSessionId(null);
+      setRunnerActive(false);
+      setRunnerCurrentResource(null);
+      setPendingCancel(false);
+      setStartRunPending(false);
+      streamingMsgIdRef.current = null;
+      runStartMessageIdRef.current = null;
+      toolNameByCallIdRef.current.clear();
+      lastRenderEventRef.current = 0;
+    }
+    previousProjectDirectoryRef.current = normalizedProjectDirectory;
+  }, [normalizedProjectDirectory]);
 
   useEffect(() => {
     if (!session.sessionId) return;
@@ -673,6 +800,21 @@ export default function ChatPanelEmbedded() {
       // explicitly tagged for a different session.
       const sid = event.sessionId;
       if (sid && sid !== mainId && sid !== bgSessionId) {
+        return;
+      }
+      const scopedData =
+        event.data && typeof event.data === 'object'
+          ? (event.data as { projectDir?: unknown; project?: unknown })
+          : null;
+      const eventProjectDir =
+        typeof scopedData?.projectDir === 'string'
+          ? normalizeProjectDirectoryForChat(scopedData.projectDir)
+          : null;
+      if (
+        eventProjectDir &&
+        normalizedProjectDirectory &&
+        eventProjectDir !== normalizedProjectDirectory
+      ) {
         return;
       }
       // Defense-in-depth running signal: a `media_generated` event means
@@ -698,10 +840,16 @@ export default function ChatPanelEmbedded() {
         setContextUsage,
         toolNameByCallIdRef,
         setProbeNonce,
+        runStartMessageIdRef,
       );
     });
     return unsubscribe;
-  }, [session.sessionId, session.subscribe, bgSessionId]);
+  }, [
+    session.sessionId,
+    session.subscribe,
+    bgSessionId,
+    normalizedProjectDirectory,
+  ]);
 
   // Renderer-side chat-notice bus: lets sibling components (Redo
   // menu, settings, future per-shot edit flow…) post an ephemeral
@@ -1443,45 +1591,114 @@ export default function ChatPanelEmbedded() {
 	    ]);
 	  }, [projectDirectory, session]);
 
-  // Build the "resume the pipeline" task and run it on the MAIN
-  // session. dhee-core's pi-agent will receive it, call
-  // dhee_run_to, which now dispatches to the BackgroundTaskRunner
-  // and returns immediately — keeping this chat session free for
-  // follow-up questions while the run streams progress in parallel.
-  // (Was a separate bg session in an earlier iteration; the runner
-  // singleton replaces that mechanism.)
+  // Directly dispatch Resume/Run to the BackgroundTaskRunner. The
+  // chat session stays free for follow-up questions while
+  // runnerStatus drives Running/Stop state.
   const handleStartRun = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
+    if (startRunPending || runnerActive || pendingCancel) return;
     setBgSessionId(session.sessionId);
 
-    // Route Resume through the pi-agent so the agent is the consistent
-    // entry point for bundle runs. Pi-agent's dhee_start_run dispatches
-    // via BackgroundTaskRunner (non-blocking), so progress events surface
-    // in the status strip and completion comes back as a re-wake nudge.
-    const task = `Continue running the bundle for the current project to completion. Call dhee_start_run with projectDir="${projectDirectory}". You'll be notified when it finishes (or pauses on the stop-after-each-collection gate); once it completes call dhee_show_node_output for the goal node so I can see the result.`;
-
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: newMessageId(),
-        role: 'system',
-        text: 'Resuming pipeline run…',
-      },
-    ]);
-    streamingMsgIdRef.current = null;
-	    const result = await session.chatPrompt(task, { projectDir: projectDirectory });
-    if (!result.ok) {
+    const reader = {
+      readFile: (p: string) => window.electron.project.readFile(p),
+    };
+    const projectRaw = await reader
+      .readFile(`${projectDirectory}/project.json`)
+      .catch(() => null);
+    let goalNodeId: string | undefined;
+    try {
+      const parsedProject = projectRaw
+        ? (JSON.parse(projectRaw) as { bundleSource?: unknown })
+        : null;
+      const bundleSource =
+        typeof parsedProject?.bundleSource === 'string'
+          ? parsedProject.bundleSource
+          : undefined;
+      if (bundleSource && typeof window.dhee.resolveBundle === 'function') {
+        const bundleResp = await window.dhee.resolveBundle({ bundleSource });
+        if (bundleResp.ok && typeof bundleResp.bundle?.goal === 'string') {
+          goalNodeId = bundleResp.bundle.goal;
+        }
+      }
+    } catch {
+      goalNodeId = undefined;
+    }
+    const lifecycle = await classifyProjectState(projectDirectory, reader)
+      .catch((): ProjectLifecycleState => 'in_progress');
+    if (
+      lifecycle === 'completed' ||
+      walkStateHasNoPendingNodes(projectRaw, goalNodeId)
+    ) {
       setMessages((prev) => [
         ...prev,
         {
           id: newMessageId(),
           role: 'system',
-          text: `Couldn't reach the agent: ${result.error ?? 'unknown error'}.`,
-          notificationLevel: 'error',
+          text: 'All nodes are already generated — nothing to resume. Use Redo/invalidate to regenerate.',
+          notificationLevel: 'info',
         },
       ]);
+      return;
     }
-  }, [projectDirectory, session]);
+
+    setStartRunPending(true);
+    const startText = formatRunStartText(settings ?? {});
+    setMessages((prev) => {
+      const existingId = runStartMessageIdRef.current;
+      if (existingId) {
+        return prev.map((m) =>
+          m.id === existingId ? { ...m, text: startText } : m,
+        );
+      }
+      const id = newMessageId();
+      runStartMessageIdRef.current = id;
+      return [
+        ...prev,
+        {
+          id,
+          role: 'system',
+          text: startText,
+        },
+      ];
+    });
+    streamingMsgIdRef.current = null;
+    const result = await session
+      .startRun({ projectDir: projectDirectory })
+      .catch((err: unknown) => ({
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      }));
+    setStartRunPending(false);
+    if (result.ok) {
+      setRunnerActive(true);
+      setRunnerCurrentResource(null);
+      return;
+    }
+    setRunnerActive(false);
+    runStartMessageIdRef.current = null;
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: newMessageId(),
+        role: 'system',
+        text: `Couldn't start the run: ${result.error ?? 'unknown error'}.`,
+        notificationLevel: 'error',
+      },
+    ]);
+  }, [
+    projectDirectory,
+    session,
+    settings,
+    startRunPending,
+    runnerActive,
+    pendingCancel,
+  ]);
+
+  useEffect(() => {
+    if (!projectDirectory || !session.sessionId) return;
+    if (!consumeProjectAutoStart(projectDirectory)) return;
+    void handleStartRun();
+  }, [handleStartRun, projectDirectory, session.sessionId]);
 
   const handleExport = useCallback(async () => {
     if (!projectDirectory || !session.sessionId) return;
@@ -1668,7 +1885,7 @@ export default function ChatPanelEmbedded() {
           <ProjectRunButton
             projectState={projectState}
             running={isRunning}
-            ready={isReady}
+            ready={isReady && !startRunPending}
             pendingCancel={pendingCancel}
             onStart={() => void handleStartRun()}
             onCancel={() => void handleCancel()}
@@ -2541,6 +2758,7 @@ function handleEvent(
   setContextUsage: React.Dispatch<React.SetStateAction<ContextUsage | null>>,
   toolNameByCallIdRef: React.RefObject<Map<string, string>>,
   setProbeNonce: React.Dispatch<React.SetStateAction<number>>,
+  runStartMessageIdRef: React.RefObject<string | null>,
 ): void {
   switch (event.eventName) {
     case 'tool_call': {
@@ -2922,6 +3140,56 @@ function handleEvent(
       // and on user send (next conversation round).
       return;
     }
+    case 'progress': {
+      const data = event.data as {
+        content?: string;
+        message?: string;
+        toolCallId?: string;
+      };
+      const text = (data.content ?? data.message ?? '').trim();
+      if (!text) return;
+      const lines = text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (lines.length === 0) return;
+      const NOW = Date.now();
+      setMessages((prev) => [
+        ...prev,
+        ...lines.map((line) => ({
+          id: newMessageId(),
+          role: 'progress' as const,
+          progressText: line,
+          ...(data.toolCallId
+            ? { progressForToolCallId: data.toolCallId }
+            : {}),
+          ...({ _ts: NOW } as Record<string, unknown>),
+        })),
+      ]);
+      return;
+    }
+    case 'status': {
+      const data = event.data as {
+        level?: string;
+        message?: string;
+        status?: string;
+      };
+      const message = (data.message ?? data.status ?? '').trim();
+      if (!message) return;
+      const rawLevel = data.level ?? 'info';
+      const level: 'info' | 'warning' | 'error' =
+        rawLevel === 'error' || rawLevel === 'warning' ? rawLevel : 'info';
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: newMessageId(),
+          role: 'system',
+          text: level === 'info' ? message : `[${level}] ${message}`,
+          notificationLevel: level,
+        },
+      ]);
+      return;
+    }
     case 'agent_response': {
       const data = event.data as { output?: string; status?: string };
       if (!data.output) return;
@@ -2999,15 +3267,34 @@ function handleEvent(
       const rawLevel = data.level ?? 'info';
       const level: 'info' | 'warning' | 'error' =
         rawLevel === 'error' || rawLevel === 'warning' ? rawLevel : 'info';
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: newMessageId(),
-          role: 'system',
-          text: level === 'info' ? data.message! : `[${level}] ${data.message}`,
-          notificationLevel: level,
-        },
-      ]);
+      const message = data.message;
+      const terminal =
+        /^Run (finished|failed|cancelled|paused)\b/.test(message) ||
+        message.includes('nothing pending');
+      setMessages((prev) => {
+        const startId = runStartMessageIdRef.current;
+        if (terminal && startId) {
+          runStartMessageIdRef.current = null;
+          return prev.map((m) =>
+            m.id === startId
+              ? {
+                  ...m,
+                  text: level === 'info' ? message : `[${level}] ${message}`,
+                  notificationLevel: level,
+                }
+              : m,
+          );
+        }
+        return [
+          ...prev,
+          {
+            id: newMessageId(),
+            role: 'system',
+            text: level === 'info' ? message : `[${level}] ${message}`,
+            notificationLevel: level,
+          },
+        ];
+      });
       return;
     }
     case 'agent_question': {

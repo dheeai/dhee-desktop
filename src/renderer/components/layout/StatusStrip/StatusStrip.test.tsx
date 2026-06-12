@@ -157,6 +157,23 @@ describe('StatusStrip', () => {
     expect(screen.getByTestId('current-overlay')).toHaveTextContent('timeline');
   });
 
+  it('renders the chat panel toggle beside Settings when provided', async () => {
+    const onToggleChat = jest.fn();
+    renderStrip({ chatOpen: true, onToggleChat });
+
+    const toggle = screen.getByRole('button', { name: /hide chat panel/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    await act(async () => { toggle.click(); });
+    expect(onToggleChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates the chat panel toggle label when the panel is closed', () => {
+    renderStrip({ chatOpen: false, onToggleChat: jest.fn() });
+
+    const toggle = screen.getByRole('button', { name: /show chat panel/i });
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  });
+
   it('Back button fires onBack when provided', async () => {
     const onBack = jest.fn();
     renderStrip({ onBack });

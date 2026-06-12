@@ -242,4 +242,25 @@ describe('clearProjectSessions', () => {
     expect(existsSync(sessionAbs(userData, projectDir, 'live.jsonl'))).toBe(false);
     expect(existsSync(sessionAbs(userData, projectDir, 'live.archived'))).toBe(true);
   });
+
+  it('archives JSONLs from an adopted legacy basename folder without renaming it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cps-legacy-test-'));
+    dirs.push(root);
+    const userData = join(root, 'userData');
+    const projectDir = join(root, 'projects', 'normal-boy2');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, 'project.json'), '{}');
+    const legacyDir = join(userData, 'pi-sessions', 'normal-boy2');
+    const hashedDir = join(userData, 'pi-sessions', projectSlugFromDir(projectDir));
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, 'legacy.jsonl'), 'legacy chat');
+
+    const r = clearProjectSessions(userData, projectDir);
+
+    expect(r.archived).toBe(1);
+    expect(existsSync(join(legacyDir, 'legacy.jsonl'))).toBe(false);
+    expect(existsSync(join(legacyDir, 'legacy.archived'))).toBe(true);
+    expect(existsSync(join(legacyDir, 'meta.json'))).toBe(true);
+    expect(existsSync(hashedDir)).toBe(false);
+  });
 });

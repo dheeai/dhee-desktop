@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import NewProjectScreen from './NewProjectScreen';
+import { consumeProjectAutoStart } from '../../../utils/projectAutoStart';
 
 const mockOpenProject = jest.fn<(path: string) => Promise<void>>();
 
@@ -57,6 +58,7 @@ describe('NewProjectScreen bundle packages', () => {
     createFolder.mockReset();
     selectAttachment.mockReset();
     importReferenceImages.mockReset();
+    window.sessionStorage.clear();
 
     mockOpenProject.mockResolvedValue(undefined);
     createFolder.mockResolvedValue('/projects/my-short');
@@ -139,6 +141,7 @@ describe('NewProjectScreen bundle packages', () => {
         }),
       );
     });
+    expect(consumeProjectAutoStart('/projects/my-short')).toBe(true);
   });
 
   it('imports setup character references and passes them into project initialization', async () => {

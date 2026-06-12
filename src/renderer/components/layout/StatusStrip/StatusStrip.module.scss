@@ -53,6 +53,18 @@
   border-color: $color-border-subtle;
 }
 
+.iconButtonActive {
+  color: $color-accent-primary;
+  background: rgba(var(--color-accent-primary-rgb), 0.08);
+  border-color: rgba(var(--color-accent-primary-rgb), 0.24);
+}
+
+.iconButtonActive:hover {
+  color: $color-accent-primary;
+  background: rgba(var(--color-accent-primary-rgb), 0.14);
+  border-color: rgba(var(--color-accent-primary-rgb), 0.38);
+}
+
 .badgesButton {
   display: inline-flex;
   align-items: center;

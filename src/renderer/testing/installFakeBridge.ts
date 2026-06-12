@@ -19,6 +19,8 @@ import type {
   ConfigureProjectRequest,
   OkResponse,
   RunTaskRequest,
+  StartRunRequest,
+  StartRunResponse,
   SendResponseRequest,
   CancelTaskRequest,
   CancelTaskResponse,
@@ -32,6 +34,7 @@ import type {
 
 export type ScenarioChannel =
   | 'runTask'
+  | 'startRun'
   | 'sendResponse'
   | 'redoNode'
   | 'focusProject';
@@ -289,6 +292,11 @@ const fakedhee = {
     // `isRunning` correctly reflects the streaming window.
     await whenLastEventFires('runTask', req.task);
     return { ok: true };
+  },
+  async startRun(req: StartRunRequest): Promise<StartRunResponse> {
+    record('startRun', req);
+    applyMatchingRules('startRun', req.projectDir);
+    return { ok: true, taskId: 'fake-start-run' };
   },
   async sendResponse(req: SendResponseRequest): Promise<OkResponse> {
     record('sendResponse', req);
