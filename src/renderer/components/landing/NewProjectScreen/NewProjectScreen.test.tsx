@@ -43,6 +43,8 @@ describe('NewProjectScreen bundle packages', () => {
   const listBundles = jest.fn<() => Promise<unknown[]>>();
   const installBundlePackage =
     jest.fn<(payload: unknown) => Promise<unknown>>();
+  const searchNpmBundles =
+    jest.fn<(payload?: unknown) => Promise<unknown>>();
   const initialize =
     jest.fn<(payload: unknown) => Promise<{ ok: true; projectDir: string }>>();
   const createFolder = jest.fn<() => Promise<string | null>>();
@@ -54,6 +56,7 @@ describe('NewProjectScreen bundle packages', () => {
     mockOpenProject.mockReset();
     listBundles.mockReset();
     installBundlePackage.mockReset();
+    searchNpmBundles.mockReset();
     initialize.mockReset();
     createFolder.mockReset();
     selectAttachment.mockReset();
@@ -68,6 +71,8 @@ describe('NewProjectScreen bundle packages', () => {
     });
     selectAttachment.mockResolvedValue({ ok: false });
     importReferenceImages.mockResolvedValue({ ok: true, attachments: [] });
+    // The picker auto-searches npm on open — default to no published hits.
+    searchNpmBundles.mockResolvedValue({ ok: true, hits: [] });
 
     Object.defineProperty(window, 'electron', {
       configurable: true,
@@ -82,6 +87,7 @@ describe('NewProjectScreen bundle packages', () => {
         project: {
           listBundles,
           installBundlePackage,
+          searchNpmBundles,
           getDefaultWorkspacePath: async () => '/projects',
           getRecent: async () => [],
           selectDirectory: async () => '/projects',
@@ -94,21 +100,39 @@ describe('NewProjectScreen bundle packages', () => {
     });
   });
 
-  it('installs an npm bundle and refreshes the picker', async () => {
+  it('installs a published npm bundle from a search result and refreshes the picker', async () => {
     listBundles.mockResolvedValueOnce([]);
     listBundles.mockResolvedValueOnce([youtubeBundle]);
+    // A published, not-yet-installed bundle surfaces as an "Available · npm" card.
+    searchNpmBundles.mockResolvedValue({
+      ok: true,
+      hits: [
+        {
+          name: '@dhee_ai/youtube-short-bundle',
+          displayName: 'Youtube Short Bundle',
+          version: '0.1.0',
+          description: 'Short-form vertical video.',
+          spec: '@dhee_ai/youtube-short-bundle',
+        },
+      ],
+    });
     installBundlePackage.mockResolvedValue({
       ok: true,
       packageName: '@dhee_ai/youtube-short-bundle',
       version: '0.1.0',
       bundleId: 'youtube_short_text_video',
       bundleDir: '/projects/bundles/youtube_short_text_video',
+      installedRunners: [],
+      runnerErrors: [],
     });
 
     render(<NewProjectScreen isOpen onClose={jest.fn()} />);
 
-    await waitFor(() => expect(listBundles).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: /install bundle/i }));
+    // The available card (derived display name) renders from the auto-search.
+    await waitFor(() =>
+      expect(screen.getByText('Youtube Short Bundle')).not.toBeNull(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /install \+ runners/i }));
 
     await waitFor(() =>
       expect(screen.getByText('YouTube Short')).not.toBeNull(),
