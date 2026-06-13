@@ -218,7 +218,13 @@ export default function NewProjectScreen({
   // Browse-published-bundles (npm registry search by `dhee-bundle` keyword).
   const [searchQuery, setSearchQuery] = useState('');
   const [searchHits, setSearchHits] = useState<
-    Array<{ name: string; version: string; description: string; spec: string }>
+    Array<{
+      name: string;
+      displayName: string;
+      version: string;
+      description: string;
+      spec: string;
+    }>
   >([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -736,9 +742,11 @@ export default function NewProjectScreen({
                 >
                   Available · npm
                 </div>
-                <h2 className={styles.bundleName}>{hit.name}</h2>
+                <h2 className={styles.bundleName}>{hit.displayName}</h2>
                 <p className={styles.bundleSummary}>{hit.description || '—'}</p>
-                <div className={styles.bundleSpec}>v{hit.version}</div>
+                <div className={styles.bundleSpec}>
+                  {hit.name} · v{hit.version}
+                </div>
                 <button
                   type="button"
                   className={styles.bundleInstallButton}

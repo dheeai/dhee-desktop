@@ -12,10 +12,25 @@ export interface FetchLike {
 
 export interface NpmBundleSearchHit {
   name: string;
+  /** Human title derived from the package name (npm search has no displayName). */
+  displayName: string;
   version: string;
   description: string;
   /** install spec the desktop passes to bundle:install-npm. */
   spec: string;
+}
+
+/** "dhee-bundle-cartoon-explainer" → "Cartoon Explainer"; "@dhee_ai/x-pack" → "X Pack". */
+export function prettifyPackageName(name: string): string {
+  const base = name.replace(/^@[^/]+\//, ''); // drop scope
+  const stripped = base
+    .replace(/^dhee-bundle-/, '')
+    .replace(/^dhee-runner-/, '')
+    .replace(/^create-dhee-/, '');
+  const words = (stripped || base).split(/[-_]/).filter(Boolean);
+  return words
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
 }
 
 export type NpmBundleSearchResult =
@@ -60,6 +75,7 @@ export async function searchNpmBundles(
       if (p.name === 'create-dhee-bundle' || p.name.startsWith('create-')) continue;
       hits.push({
         name: p.name,
+        displayName: prettifyPackageName(p.name),
         version: p.version ?? 'latest',
         description: p.description ?? '',
         spec: p.name,

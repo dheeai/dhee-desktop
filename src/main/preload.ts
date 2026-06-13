@@ -339,7 +339,13 @@ const projectBridge = {
   }): Promise<
     | {
         ok: true;
-        hits: Array<{ name: string; version: string; description: string; spec: string }>;
+        hits: Array<{
+          name: string;
+          displayName: string;
+          version: string;
+          description: string;
+          spec: string;
+        }>;
       }
     | { ok: false; error: string }
   > {
