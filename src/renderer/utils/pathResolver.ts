@@ -15,10 +15,18 @@ import {
  * On Windows (C:/...) produces file:///C:/... ; on Unix (/...) produces file:///...
  */
 export function toFileUrl(absolutePath: string): string {
-  const normalized = absolutePath.replace(/\\/g, '/');
-  return normalized.startsWith('/')
-    ? `file://${normalized}`
-    : `file:///${normalized}`;
+  let normalized = absolutePath.replace(/\\/g, '/');
+  if (/^[A-Za-z]:/.test(normalized)) normalized = `/${normalized}`;
+  if (!normalized.startsWith('/')) normalized = `/${normalized}`;
+
+  const encoded = normalized
+    .split('/')
+    .map((segment) =>
+      /^[A-Za-z]:$/.test(segment) ? segment : encodeURIComponent(segment),
+    )
+    .join('/');
+
+  return `file://${encoded}`;
 }
 
 /**

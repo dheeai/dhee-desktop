@@ -28,6 +28,18 @@ export type Role =
 
 export type ToolStatus = 'in_progress' | 'completed' | 'error';
 
+export interface ChatAttachmentPreview {
+  id: string;
+  kind: string;
+  name: string;
+  path?: string;
+  mimeType?: string;
+  role?: string;
+  purpose?: string;
+  replacementTargetId?: string;
+  replacementTargetName?: string;
+}
+
 export interface ChatMessage {
   id: string;
   role: Role;
@@ -72,6 +84,8 @@ export interface ChatMessage {
   mediaKind?: 'image' | 'video';
   mediaPath?: string;
   mediaProject?: string;
+  mediaProjectDir?: string;
+  attachments?: ChatAttachmentPreview[];
   /**
    * Optional ms-timestamp from the tool's `details.created_at` (or
    * mtime). Threaded into the file:// URL as `?v=<key>` so the

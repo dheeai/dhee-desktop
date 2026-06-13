@@ -18,8 +18,9 @@ import {
   Film,
   FileText,
   Clock,
+  PanelRightClose,
+  PanelRightOpen,
 } from 'lucide-react';
-import { useRunnerStatus } from '../../../hooks/useRunnerStatus';
 import { useDheeSession } from '../../../hooks/useDheeSession';
 import { useOverlay, type OverlayKey } from '../../../overlays/OverlayContext';
 import BackendBadges from '../../backend/BackendBadges';
@@ -32,12 +33,24 @@ export interface StatusStripProps {
   projectName?: string;
   /** Bundle id (e.g. 'narrative_qwen_chain_relay'). */
   bundleId?: string;
+  /** Whether the chat side panel is currently expanded. */
+  chatOpen?: boolean;
+  /** Toggle the chat side panel. Hidden when omitted. */
+  onToggleChat?: () => void;
 }
 
-export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps) {
-  const { active: runnerActive, cancelling } = useRunnerStatus();
-  const { status: sessionStatus } = useDheeSession();
+export function StatusStrip({
+  onBack,
+  projectName,
+  bundleId,
+  chatOpen = true,
+  onToggleChat,
+}: StatusStripProps) {
+  const session = useDheeSession();
   const { open } = useOverlay();
+  const runnerActive = session.execution?.runnerActive ?? false;
+  const cancelling = session.execution?.pendingCancel ?? false;
+  const sessionStatus = session.status;
   const agentBusy = sessionStatus === 'running';
   const active = runnerActive || agentBusy;
   const activityLabel = cancelling ? 'Stopping…' : runnerActive ? 'Running' : 'Working';
@@ -48,6 +61,10 @@ export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps)
     { key: 'timeline', label: 'Timeline', Icon: Clock },
     { key: 'settings', label: 'Settings', Icon: SettingsIcon },
   ];
+  const mainLaunchers = launchers.filter((launcher) => launcher.key !== 'settings');
+  const settingsLauncher = launchers.find((launcher) => launcher.key === 'settings');
+  const ChatIcon = chatOpen ? PanelRightClose : PanelRightOpen;
+  const chatToggleLabel = chatOpen ? 'Hide chat panel' : 'Show chat panel';
 
   return (
     <div className={styles.strip} role="banner">
@@ -96,7 +113,7 @@ export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps)
         >
           <BackendBadges />
         </button>
-        {launchers.map(({ key, label, Icon }) => (
+        {mainLaunchers.map(({ key, label, Icon }) => (
           <button
             key={key}
             type="button"
@@ -108,6 +125,29 @@ export function StatusStrip({ onBack, projectName, bundleId }: StatusStripProps)
             <Icon size={15} />
           </button>
         ))}
+        {onToggleChat ? (
+          <button
+            type="button"
+            className={`${styles.iconButton} ${chatOpen ? styles.iconButtonActive : ''}`}
+            onClick={onToggleChat}
+            aria-label={chatToggleLabel}
+            aria-pressed={chatOpen}
+            title={`${chatToggleLabel} (Cmd+I)`}
+          >
+            <ChatIcon size={15} />
+          </button>
+        ) : null}
+        {settingsLauncher ? (
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={() => open(settingsLauncher.key)}
+            aria-label={settingsLauncher.label}
+            title={settingsLauncher.label}
+          >
+            <settingsLauncher.Icon size={15} />
+          </button>
+        ) : null}
       </div>
     </div>
   );

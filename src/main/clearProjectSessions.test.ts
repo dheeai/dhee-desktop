@@ -2,8 +2,10 @@
  * clearProjectSessions — TDD coverage.
  *
  * Failure modes:
- *  1. projectDir with no special chars → slug matches basename verbatim.
- *  2. projectDir basename with spaces / punctuation → underscores.
+ *  1. projectDir with no special chars → slug starts with safe basename
+ *     and ends with a stable identity hash.
+ *  2. projectDir basename with spaces / punctuation → safe basename
+ *     segment still uses underscores.
  *  3. JSONL files in the target slug dir → archived.
  *  4. NON-jsonl files in the slug dir (e.g. .lock) → preserved.
  *  5. Missing userData dir → no-op (0 archived, no throw).
@@ -34,14 +36,30 @@ function setupUserDataDir(layout: Record<string, string>): string {
   return root;
 }
 
+function sessionRel(projectDir: string, file: string): string {
+  return `pi-sessions/${projectSlugFromDir(projectDir)}/${file}`;
+}
+
+function sessionAbs(userData: string, projectDir: string, file: string): string {
+  return join(userData, 'pi-sessions', projectSlugFromDir(projectDir), file);
+}
+
 describe('projectSlugFromDir', () => {
-  it('1. simple name → matches basename', () => {
-    expect(projectSlugFromDir('/Users/x/projects/MyProject')).toBe('MyProject');
+  it('1. simple name → safe basename plus identity hash', () => {
+    expect(projectSlugFromDir('/Users/x/projects/MyProject')).toMatch(
+      /^MyProject-[0-9a-f]{12}$/,
+    );
   });
 
-  it('2. spaces + punctuation → underscores', () => {
-    expect(projectSlugFromDir('/Users/x/dhee-studios/Island Zombie Survival!')).toBe(
-      'Island_Zombie_Survival_',
+  it('2. spaces + punctuation → safe basename uses underscores', () => {
+    expect(projectSlugFromDir('/Users/x/dhee-studios/Island Zombie Survival!')).toMatch(
+      /^Island_Zombie_Survival_-[0-9a-f]{12}$/,
+    );
+  });
+
+  it('different absolute paths with the same basename get different slugs', () => {
+    expect(projectSlugFromDir('/Users/a/MyProj')).not.toBe(
+      projectSlugFromDir('/Users/b/MyProj'),
     );
   });
 });
@@ -56,29 +74,31 @@ describe('clearProjectSessions', () => {
   });
 
   it('3. deletes JSONL files in the slug dir', () => {
+    const projectDir = '/anywhere/MyProj';
     const userData = setupUserDataDir({
-      'pi-sessions/MyProj/session1.jsonl': '{"ev":1}',
-      'pi-sessions/MyProj/session2.jsonl': '{"ev":2}',
+      [sessionRel(projectDir, 'session1.jsonl')]: '{"ev":1}',
+      [sessionRel(projectDir, 'session2.jsonl')]: '{"ev":2}',
     });
     dirs.push(userData);
-    const r = clearProjectSessions(userData, '/anywhere/MyProj');
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(2);
     expect(r.files.sort()).toEqual(['session1.jsonl', 'session2.jsonl']);
-    expect(existsSync(join(userData, 'pi-sessions/MyProj/session1.jsonl'))).toBe(false);
-    expect(existsSync(join(userData, 'pi-sessions/MyProj/session2.jsonl'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, projectDir, 'session1.jsonl'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, projectDir, 'session2.jsonl'))).toBe(false);
   });
 
   it('4. preserves non-jsonl files', () => {
+    const projectDir = '/anywhere/MyProj';
     const userData = setupUserDataDir({
-      'pi-sessions/MyProj/session.jsonl': '{"ev":1}',
-      'pi-sessions/MyProj/session.lock': 'pid=123',
-      'pi-sessions/MyProj/README.md': 'notes',
+      [sessionRel(projectDir, 'session.jsonl')]: '{"ev":1}',
+      [sessionRel(projectDir, 'session.lock')]: 'pid=123',
+      [sessionRel(projectDir, 'README.md')]: 'notes',
     });
     dirs.push(userData);
-    const r = clearProjectSessions(userData, '/anywhere/MyProj');
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(1);
-    expect(existsSync(join(userData, 'pi-sessions/MyProj/session.lock'))).toBe(true);
-    expect(existsSync(join(userData, 'pi-sessions/MyProj/README.md'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'session.lock'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'README.md'))).toBe(true);
   });
 
   it('5. missing userData dir → no-op', () => {
@@ -95,65 +115,72 @@ describe('clearProjectSessions', () => {
   });
 
   it('7. empty slug dir → no-op', () => {
+    const projectDir = '/anywhere/MyProj';
     const userData = mkdtempSync(join(tmpdir(), 'cps-test-'));
     dirs.push(userData);
-    mkdirSync(join(userData, 'pi-sessions/MyProj'), { recursive: true });
-    const r = clearProjectSessions(userData, '/anywhere/MyProj');
+    mkdirSync(join(userData, 'pi-sessions', projectSlugFromDir(projectDir)), { recursive: true });
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(0);
   });
 
   it('8. multiple JSONLs → all archived, names returned', () => {
+    const projectDir = '/anywhere/MyProj';
     const userData = setupUserDataDir({
-      'pi-sessions/MyProj/a.jsonl': 'a',
-      'pi-sessions/MyProj/b.jsonl': 'b',
-      'pi-sessions/MyProj/c.jsonl': 'c',
+      [sessionRel(projectDir, 'a.jsonl')]: 'a',
+      [sessionRel(projectDir, 'b.jsonl')]: 'b',
+      [sessionRel(projectDir, 'c.jsonl')]: 'c',
     });
     dirs.push(userData);
-    const r = clearProjectSessions(userData, '/anywhere/MyProj');
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(3);
     expect(r.files.sort()).toEqual(['a.jsonl', 'b.jsonl', 'c.jsonl']);
   });
 
   it('9. subdirectories not recursed into (only top-level *.jsonl archived)', () => {
+    const projectDir = '/anywhere/MyProj';
     const userData = setupUserDataDir({
-      'pi-sessions/MyProj/top.jsonl': 'top',
-      'pi-sessions/MyProj/sub/nested.jsonl': 'nested',
+      [sessionRel(projectDir, 'top.jsonl')]: 'top',
+      [sessionRel(projectDir, 'sub/nested.jsonl')]: 'nested',
     });
     dirs.push(userData);
-    const r = clearProjectSessions(userData, '/anywhere/MyProj');
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(1);
-    expect(existsSync(join(userData, 'pi-sessions/MyProj/sub/nested.jsonl'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'sub/nested.jsonl'))).toBe(true);
   });
 
   it('10. sibling project unaffected', () => {
+    const projectDir = '/anywhere/MyProj';
+    const siblingDir = '/anywhere/OtherProj';
     const userData = setupUserDataDir({
-      'pi-sessions/MyProj/session.jsonl': 'mine',
-      'pi-sessions/OtherProj/session.jsonl': 'theirs',
+      [sessionRel(projectDir, 'session.jsonl')]: 'mine',
+      [sessionRel(siblingDir, 'session.jsonl')]: 'theirs',
     });
     dirs.push(userData);
-    clearProjectSessions(userData, '/anywhere/MyProj');
-    expect(existsSync(join(userData, 'pi-sessions/MyProj/session.jsonl'))).toBe(false);
-    expect(existsSync(join(userData, 'pi-sessions/OtherProj/session.jsonl'))).toBe(true);
+    clearProjectSessions(userData, projectDir);
+    expect(existsSync(sessionAbs(userData, projectDir, 'session.jsonl'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, siblingDir, 'session.jsonl'))).toBe(true);
   });
 
   it('also handles projectDir with trailing slash (basename normalizes)', () => {
+    const projectDir = '/Users/x/Foo/';
     const userData = setupUserDataDir({
-      'pi-sessions/Foo/x.jsonl': 'x',
+      [sessionRel(projectDir, 'x.jsonl')]: 'x',
     });
     dirs.push(userData);
-    const r = clearProjectSessions(userData, '/Users/x/Foo/');
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(1);
   });
 
   it('archive-not-delete: live JSONL renamed to `.archived` (no .jsonl); preserved on disk', () => {
+    const projectDir = '/anywhere/Foo';
     const userData = setupUserDataDir({
-      'pi-sessions/Foo/x.jsonl': 'x-content',
+      [sessionRel(projectDir, 'x.jsonl')]: 'x-content',
     });
     dirs.push(userData);
-    clearProjectSessions(userData, '/anywhere/Foo');
+    clearProjectSessions(userData, projectDir);
     // Live JSONL is gone, archived twin (no .jsonl suffix) holds the content.
-    expect(existsSync(join(userData, 'pi-sessions/Foo/x.jsonl'))).toBe(false);
-    expect(existsSync(join(userData, 'pi-sessions/Foo/x.archived'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'x.jsonl'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, projectDir, 'x.archived'))).toBe(true);
   });
 
   it('archived files use a non-.jsonl suffix so pi-coding-agent does not re-pickup them', () => {
@@ -164,12 +191,13 @@ describe('clearProjectSessions', () => {
     // Meanwhile getSessionHistorySnapshot's filter skipped the archived
     // file, so the UI showed blank chat even though pi was writing.
     // The fix: archives no longer end in `.jsonl`.
+    const projectDir = '/anywhere/Foo';
     const userData = setupUserDataDir({
-      'pi-sessions/Foo/sess.jsonl': 'live',
+      [sessionRel(projectDir, 'sess.jsonl')]: 'live',
     });
     dirs.push(userData);
-    clearProjectSessions(userData, '/anywhere/Foo');
-    const entries = readdirSync(join(userData, 'pi-sessions/Foo'));
+    clearProjectSessions(userData, projectDir);
+    const entries = readdirSync(join(userData, 'pi-sessions', projectSlugFromDir(projectDir)));
     for (const e of entries) {
       if (e === 'sess.jsonl') {
         throw new Error(`Live JSONL not renamed: ${e}`);
@@ -179,19 +207,20 @@ describe('clearProjectSessions', () => {
   });
 
   it('repeated clears do not double-suffix (skips already-archived files)', () => {
+    const projectDir = '/anywhere/Foo';
     const userData = setupUserDataDir({
-      'pi-sessions/Foo/x.archived': 'old',
-      'pi-sessions/Foo/y.jsonl': 'new',
+      [sessionRel(projectDir, 'x.archived')]: 'old',
+      [sessionRel(projectDir, 'y.jsonl')]: 'new',
     });
     dirs.push(userData);
-    const r = clearProjectSessions(userData, '/anywhere/Foo');
+    const r = clearProjectSessions(userData, projectDir);
     expect(r.archived).toBe(1);
     expect(r.files).toEqual(['y.jsonl']);
     // The pre-existing archived stays put.
-    expect(existsSync(join(userData, 'pi-sessions/Foo/x.archived'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'x.archived'))).toBe(true);
     // The new one is now archived (single suffix, no .jsonl).
-    expect(existsSync(join(userData, 'pi-sessions/Foo/y.archived'))).toBe(true);
-    expect(existsSync(join(userData, 'pi-sessions/Foo/y.archived.archived'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, projectDir, 'y.archived'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'y.archived.archived'))).toBe(false);
   });
 
   it('migrates legacy `.archived.jsonl` files to the new `.archived` suffix on first call', () => {
@@ -199,17 +228,39 @@ describe('clearProjectSessions', () => {
     // that pi-coding-agent keeps re-pickup'ing (the bug). On the next
     // clearProjectSessions call, rename them to `.archived` so the
     // problem stops perpetuating.
+    const projectDir = '/anywhere/Foo';
     const userData = setupUserDataDir({
-      'pi-sessions/Foo/old.archived.jsonl': 'legacy archived content',
-      'pi-sessions/Foo/live.jsonl': 'current live',
+      [sessionRel(projectDir, 'old.archived.jsonl')]: 'legacy archived content',
+      [sessionRel(projectDir, 'live.jsonl')]: 'current live',
     });
     dirs.push(userData);
-    clearProjectSessions(userData, '/anywhere/Foo');
+    clearProjectSessions(userData, projectDir);
     // Legacy migrated.
-    expect(existsSync(join(userData, 'pi-sessions/Foo/old.archived.jsonl'))).toBe(false);
-    expect(existsSync(join(userData, 'pi-sessions/Foo/old.archived'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'old.archived.jsonl'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, projectDir, 'old.archived'))).toBe(true);
     // Current archived under the new suffix.
-    expect(existsSync(join(userData, 'pi-sessions/Foo/live.jsonl'))).toBe(false);
-    expect(existsSync(join(userData, 'pi-sessions/Foo/live.archived'))).toBe(true);
+    expect(existsSync(sessionAbs(userData, projectDir, 'live.jsonl'))).toBe(false);
+    expect(existsSync(sessionAbs(userData, projectDir, 'live.archived'))).toBe(true);
+  });
+
+  it('archives JSONLs from an adopted legacy basename folder without renaming it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'cps-legacy-test-'));
+    dirs.push(root);
+    const userData = join(root, 'userData');
+    const projectDir = join(root, 'projects', 'normal-boy2');
+    mkdirSync(projectDir, { recursive: true });
+    writeFileSync(join(projectDir, 'project.json'), '{}');
+    const legacyDir = join(userData, 'pi-sessions', 'normal-boy2');
+    const hashedDir = join(userData, 'pi-sessions', projectSlugFromDir(projectDir));
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, 'legacy.jsonl'), 'legacy chat');
+
+    const r = clearProjectSessions(userData, projectDir);
+
+    expect(r.archived).toBe(1);
+    expect(existsSync(join(legacyDir, 'legacy.jsonl'))).toBe(false);
+    expect(existsSync(join(legacyDir, 'legacy.archived'))).toBe(true);
+    expect(existsSync(join(legacyDir, 'meta.json'))).toBe(true);
+    expect(existsSync(hashedDir)).toBe(false);
   });
 });

@@ -40,11 +40,14 @@ import {
   type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type StartRunRequest,
+  type StartRunResponse,
   type ChatPromptRequest,
   type ChatPromptResponse,
   type SendResponseRequest,
@@ -82,6 +85,13 @@ import {
   type GetHistoryRequest,
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
+import type {
+  ImportReferenceImagesRequest,
+  ImportReferenceImagesResponse,
+  ReferenceImagePayload,
+  SelectAttachmentRequest,
+  SelectAttachmentResponse,
+} from '../shared/attachmentTypes';
 
 interface PromptOverlayCue {
   id: string;
@@ -177,24 +187,16 @@ const projectBridge = {
   },
   /**
    * Generic chat-attachment file picker. Caller passes the kinds it
-   * accepts (currently only 'comfy_workflow'). Returns the picked
+   * accepts. Returns the picked
    * attachment shape, or `{ ok: false }` on cancel/error.
    */
-  selectAttachment(req: {
-    kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
-    title?: string;
-  }): Promise<{
-    ok: boolean;
-    attachment?: {
-      id: string;
-      kind: 'comfy_workflow' | 'text' | 'image' | 'video' | 'audio';
-      path: string;
-      name: string;
-      size?: number;
-    };
-    error?: string;
-  }> {
+  selectAttachment(req: SelectAttachmentRequest): Promise<SelectAttachmentResponse> {
     return ipcRenderer.invoke('project:select-attachment', req);
+  },
+  importReferenceImages(
+    req: ImportReferenceImagesRequest,
+  ): Promise<ImportReferenceImagesResponse> {
+    return ipcRenderer.invoke('project:import-reference-images', req);
   },
   getAudioDuration(audioPath: string): Promise<number> {
     return ipcRenderer.invoke('project:get-audio-duration', audioPath);
@@ -305,10 +307,49 @@ const projectBridge = {
     projectDir: string;
     name: string;
     bundleId: string;
+    bundleSource?: string;
     description?: string;
     inputs?: Record<string, unknown>;
+    referenceImages?: ReferenceImagePayload[];
   }): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> {
     return ipcRenderer.invoke('project:initialize', payload);
+  },
+  installBundlePackage(payload: {
+    packageSpec: string;
+    registryUrl?: string;
+  }): Promise<
+    | {
+        ok: true;
+        packageName: string;
+        version: string;
+        bundleId: string;
+        bundleDir: string;
+      }
+    | { ok: false; error: string }
+  > {
+    return ipcRenderer.invoke('bundle:install-npm', payload);
+  },
+  /**
+   * Search the npm registry for published Dhee bundles (keyword `dhee-bundle`).
+   * Powers the picker's "browse published bundles" section.
+   */
+  searchNpmBundles(payload?: {
+    query?: string;
+    registryUrl?: string;
+  }): Promise<
+    | {
+        ok: true;
+        hits: Array<{
+          name: string;
+          displayName: string;
+          version: string;
+          description: string;
+          spec: string;
+        }>;
+      }
+    | { ok: false; error: string }
+  > {
+    return ipcRenderer.invoke('bundle:search-npm', payload ?? {});
   },
   /**
    * Enumerate every available bundle's metadata for the Production
@@ -319,6 +360,8 @@ const projectBridge = {
     Array<{
       id: string;
       version: string;
+      bundleSource: string;
+      sourceScheme: 'built-in' | 'user';
       displayName: string;
       summary: string;
       techLine?: string;
@@ -676,6 +719,9 @@ const dheeBridge = {
   runTask(req: RunTaskRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUN_TASK, req);
   },
+  startRun(req: StartRunRequest): Promise<StartRunResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.START_RUN, req);
+  },
   chatPrompt(req: ChatPromptRequest): Promise<ChatPromptResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CHAT_PROMPT, req);
   },
@@ -711,8 +757,8 @@ const dheeBridge = {
   getHistory(req: GetHistoryRequest): Promise<GetHistoryResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.GET_HISTORY, req);
   },
-  runnerCancel(): Promise<RunnerCancelResponse> {
-    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL);
+  runnerCancel(req?: RunnerCancelRequest): Promise<RunnerCancelResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_CANCEL, req);
   },
   runnerStatus(): Promise<RunnerStatusResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUNNER_STATUS);

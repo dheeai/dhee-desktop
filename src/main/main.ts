@@ -32,6 +32,7 @@ import ffmpegInstaller from '@ffmpeg-installer/ffmpeg';
 import ffprobeInstaller from '@ffprobe-installer/ffprobe';
 import { normalizePathForFFmpeg } from './utils/pathNormalizer';
 import { ensureNewProjectParentExists } from './utils/newProjectParent';
+import { seedInitialProjectChatHistory } from './initialProjectChatSeed';
 import {
   configureAudioWaveformExtractor,
   getAudioWaveform,
@@ -79,6 +80,31 @@ import {
   type RuntimeConfigSource,
 } from './cloudRuntimeConfig';
 import fileSystemManager from './fileSystemManager';
+import {
+  defaultUserBundlesDir,
+  defaultRunnersNodeModulesDir,
+  installDheeBundleFromNpm,
+} from './services/npmBundleInstaller';
+import { searchNpmBundles } from './services/npmBundleSearch';
+
+/**
+ * Tool ids the engine provides built-in (mirrors dhee-core src/dag/runners/index.ts).
+ * A bundle's runnerPackages entry for any of these is skipped on install — only
+ * EXTERNAL runners get pulled. Drift here is non-fatal: a missed built-in just
+ * causes a (failed, non-blocking) install attempt of its package hint.
+ */
+const BUILTIN_RUNNER_TOOLS = [
+  'llm.generate',
+  'comfy.tti',
+  'comfy.fl2v',
+  'comfy.klein',
+  'comfy.qwen_edit_chain',
+  'comfy.ltx_director',
+  'ffmpeg.kenburns',
+  'ffmpeg.shot_clip',
+  'ffmpeg.concat',
+  'vlm.judge',
+] as const;
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import type {
@@ -107,6 +133,19 @@ import {
   type PromptOverlayCue,
 } from './services/promptOverlayAss';
 import * as watermarkModule from './video/watermark';
+import {
+  buildAttachmentPickerDialogOptions,
+  buildSelectAttachmentResponse,
+  createPickedAttachments,
+} from './attachmentPicker';
+import { importReferenceImageAttachments } from './characterReferenceImport';
+import type {
+  ImportReferenceImagesRequest,
+  ImportReferenceImagesResponse,
+  ReferenceImagePayload,
+  SelectAttachmentRequest,
+  SelectAttachmentResponse,
+} from '../shared/attachmentTypes';
 
 type AppUpdatePhase =
   | 'idle'
@@ -530,100 +569,49 @@ ipcMain.handle('project:select-audio-file', async () => {
   return result.filePaths[0];
 });
 
-// Generic chat-attachment file picker. v1 supports `comfy_workflow`
-// only; the contract accepts a list of kinds so future text/image/
-// video/audio picks reuse the same handler.
+// Generic chat-attachment file picker. The picker only returns selected
+// file paths as attachments; project-local import happens in a separate IPC.
 ipcMain.handle(
   'project:select-attachment',
-  async (
-    _event,
-    req: {
-      kinds: Array<'comfy_workflow' | 'text' | 'image' | 'video' | 'audio'>;
-      title?: string;
-    },
-  ): Promise<{
-    ok: boolean;
-    attachment?: {
-      id: string;
-      kind: string;
-      path: string;
-      name: string;
-      size?: number;
-    };
-    error?: string;
-  }> => {
+  async (_event, req: SelectAttachmentRequest): Promise<SelectAttachmentResponse> => {
     if (!mainWindow) return { ok: false, error: 'Main window unavailable' };
     if (!req?.kinds || req.kinds.length === 0) {
       return { ok: false, error: 'No attachment kinds specified' };
     }
 
-    const KIND_EXTENSIONS: Record<string, string[]> = {
-      comfy_workflow: ['json'],
-      text: ['txt', 'md'],
-      image: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'bmp'],
-      video: ['mp4', 'mov', 'webm', 'mkv', 'avi', 'm4v'],
-      audio: ['mp3', 'wav', 'm4a', 'aac', 'flac', 'ogg'],
-    };
-    const KIND_LABEL: Record<string, string> = {
-      comfy_workflow: 'ComfyUI Workflow',
-      text: 'Text File',
-      image: 'Image',
-      video: 'Video',
-      audio: 'Audio',
-    };
-
-    // Build one filter per kind so the dialog shows them as separate
-    // groups; final "All Files" entry as escape hatch.
-    const filters = req.kinds.map(k => ({
-      name: KIND_LABEL[k] ?? k,
-      extensions: KIND_EXTENSIONS[k] ?? ['*'],
-    }));
-    filters.push({ name: 'All Files', extensions: ['*'] });
-
-    const result = await dialog.showOpenDialog(mainWindow, {
-      properties: ['openFile'],
-      title: req.title ?? 'Select an attachment',
-      filters,
-    });
+    const result = await dialog.showOpenDialog(
+      mainWindow,
+      buildAttachmentPickerDialogOptions(req),
+    );
     if (result.canceled || result.filePaths.length === 0) {
       return { ok: false };
     }
 
-    const filePath = result.filePaths[0];
-    if (!filePath) {
-      return { ok: false, error: 'No file selected' };
-    }
-
-    // Pick the kind by extension match. If multiple kinds were
-    // requested and the extension matches more than one, prefer the
-    // first listed kind (callers control priority).
-    const ext = path.extname(filePath).slice(1).toLowerCase();
-    let pickedKind: string | undefined;
-    for (const k of req.kinds) {
-      if ((KIND_EXTENSIONS[k] ?? []).includes(ext)) {
-        pickedKind = k;
-        break;
-      }
-    }
-    if (!pickedKind) pickedKind = req.kinds[0]; // fallback — user picked an unrecognized ext via "All Files"
-
-    let size: number | undefined;
     try {
-      size = (await fs.stat(filePath)).size;
-    } catch {
-      size = undefined;
+      const attachments = await createPickedAttachments(result.filePaths, req.kinds);
+      return buildSelectAttachmentResponse(attachments, Boolean(req.multiple));
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
     }
+  },
+);
 
-    return {
-      ok: true,
-      attachment: {
-        id: `att_${Date.now()}_${Math.floor(Math.random() * 10000).toString(36)}`,
-        kind: pickedKind,
-        path: filePath,
-        name: path.basename(filePath),
-        size,
-      },
-    };
+ipcMain.handle(
+  'project:import-reference-images',
+  async (
+    _event,
+    req: ImportReferenceImagesRequest,
+  ): Promise<ImportReferenceImagesResponse> => {
+    if (!req?.projectDir) return { ok: false, error: 'Project directory required' };
+    try {
+      const attachments = await importReferenceImageAttachments({
+        projectDir: req.projectDir,
+        attachments: req.attachments ?? [],
+      });
+      return { ok: true, attachments };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
   },
 );
 
@@ -1519,27 +1507,53 @@ ipcMain.handle(
         meta,
       );
     }
-    const combinedPath = path.join(basePath, relativePath);
+    let combinedPath = path.join(basePath, relativePath);
     let normalizedPath: string | undefined;
     let resolvedPath: string | undefined;
     try {
-      normalizedPath = normalizeIncomingPath(
-        combinedPath,
-        process.platform,
-        process.cwd(),
-      );
-      resolvedPath = resolveAndValidateProjectPath(
-        normalizedPath,
-        activeProjectRoot,
-      );
-      await assertCanonicalProjectContainment(resolvedPath, activeProjectRoot);
-      await fs.mkdir(resolvedPath, { recursive: true });
-      if (isNewProjectCreate) {
-        captureDesktopProjectCreated(dheeCoreManager, {
-          projectName: relativePath,
-        });
+      const attempts = isNewProjectCreate ? 100 : 1;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const candidate =
+          attempt === 0 ? relativePath : `${relativePath}-${attempt + 1}`;
+        combinedPath = path.join(basePath, candidate);
+        normalizedPath = normalizeIncomingPath(
+          combinedPath,
+          process.platform,
+          process.cwd(),
+        );
+        resolvedPath = resolveAndValidateProjectPath(
+          normalizedPath,
+          activeProjectRoot,
+        );
+        await assertCanonicalProjectContainment(resolvedPath, activeProjectRoot);
+        try {
+          await fs.mkdir(
+            resolvedPath,
+            isNewProjectCreate ? undefined : { recursive: true },
+          );
+          if (isNewProjectCreate) {
+            captureDesktopProjectCreated(dheeCoreManager, {
+              projectName: candidate,
+            });
+          }
+          return resolvedPath;
+        } catch (mkdirError) {
+          if (
+            isNewProjectCreate &&
+            typeof mkdirError === 'object' &&
+            mkdirError !== null &&
+            'code' in mkdirError &&
+            mkdirError.code === 'EEXIST'
+          ) {
+            continue;
+          }
+          throw mkdirError;
+        }
       }
-      return resolvedPath;
+      throw createIpcFileOpError(
+        'INVALID_FILE_PATH',
+        'Could not find an available project folder name.',
+      );
     } catch (error) {
       throwFileOpError({
         operation: 'project:create-folder',
@@ -1570,19 +1584,23 @@ ipcMain.handle(
  * surfaces the error inline on the slate.
  */
 type ProjectInitModule = {
-  initializeProject: (params: {
-    projectDir: string;
-    name: string;
-    bundleId: string;
-    description?: string;
-    inputs?: Record<string, unknown>;
-    budgetCapUsd?: number;
-  }) =>
+	  initializeProject: (params: {
+	    projectDir: string;
+	    name: string;
+	    bundleId: string;
+	    bundleSource?: string;
+	    description?: string;
+	    inputs?: Record<string, unknown>;
+	    referenceImages?: ReferenceImagePayload[];
+	    budgetCapUsd?: number;
+	  }) =>
     | { ok: true; projectDir: string }
     | { ok: false; error: string };
   listBundles: () => Array<{
     id: string;
     version: string;
+    bundleSource: string;
+    sourceScheme: 'built-in' | 'user';
     displayName: string;
     summary: string;
     techLine?: string;
@@ -1597,6 +1615,8 @@ ipcMain.handle(
     Array<{
       id: string;
       version: string;
+      bundleSource: string;
+      sourceScheme: 'built-in' | 'user';
       displayName: string;
       summary: string;
       techLine?: string;
@@ -1615,16 +1635,41 @@ ipcMain.handle(
 );
 
 ipcMain.handle(
+  'bundle:install-npm',
+  async (
+    _event,
+    payload: { packageSpec: string; registryUrl?: string },
+  ) => {
+    const home = app.getPath('home');
+    return installDheeBundleFromNpm({
+      packageSpec: payload.packageSpec,
+      registryUrl: payload.registryUrl,
+      targetBundlesDir: defaultUserBundlesDir(home),
+      runnersNodeModulesDir: defaultRunnersNodeModulesDir(home),
+      builtinTools: BUILTIN_RUNNER_TOOLS,
+    });
+  },
+);
+
+ipcMain.handle(
+  'bundle:search-npm',
+  async (_event, payload: { query?: string; registryUrl?: string }) =>
+    searchNpmBundles({ query: payload?.query, registryUrl: payload?.registryUrl }),
+);
+
+ipcMain.handle(
   'project:initialize',
   async (
     _event,
-    payload: {
-      projectDir: string;
-      name: string;
-      bundleId: string;
-      description?: string;
-      inputs?: Record<string, unknown>;
-    },
+	    payload: {
+	      projectDir: string;
+	      name: string;
+	      bundleId: string;
+	      bundleSource?: string;
+	      description?: string;
+	      inputs?: Record<string, unknown>;
+	      referenceImages?: ReferenceImagePayload[];
+	    },
   ): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> => {
     try {
       // Indirect the module path through a variable so the TS compiler
@@ -1641,7 +1686,21 @@ ipcMain.handle(
       const cap = getSettings().budgetCapUsd;
       const enriched =
         typeof cap === 'number' && cap > 0 ? { ...payload, budgetCapUsd: cap } : payload;
-      return mod.initializeProject(enriched);
+      const result = mod.initializeProject(enriched);
+      if (result.ok) {
+        try {
+          await seedInitialProjectChatHistory({
+            userDataDir: app.getPath('userData'),
+            projectDir: result.projectDir,
+            story: payload.inputs?.['story_input'],
+            bundleId: payload.bundleId,
+            referenceImages: payload.referenceImages,
+          });
+        } catch (seedError) {
+          log.warn('[project:initialize] failed to seed initial chat history', seedError);
+        }
+      }
+      return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       return { ok: false, error: message };

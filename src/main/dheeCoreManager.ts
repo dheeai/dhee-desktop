@@ -20,7 +20,11 @@
  */
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import { isLocalLlmUrl } from '../shared/localUrl';
-import type { OkResponse, RunnerCurrentResource } from '../shared/dheeIpc';
+import type {
+  HistoryAttachmentPreview,
+  OkResponse,
+  RunnerCurrentResource,
+} from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
 import {
@@ -29,9 +33,15 @@ import {
   readdirSync as fsReaddirSync,
   statSync as fsStatSync,
   readFileSync as fsReadFileSync,
+  appendFileSync as fsAppendFileSync,
 } from 'fs';
 import { app } from 'electron';
 import { clearProjectSessions } from './clearProjectSessions';
+import {
+  normalizeProjectDirForSession,
+  projectSessionsDirFromDir,
+  writeProjectSessionMeta,
+} from './projectSessionSlug';
 import {
   parseSessionToolCalls,
   type SessionToolCall,
@@ -128,6 +138,489 @@ function resolveCompletedRunOutput(projectDir: string): { filePath: string; kind
   }
 }
 
+function firstPositiveIndex(values: number[]): number {
+  const positive = values.filter((value) => value >= 0);
+  return positive.length > 0 ? Math.min(...positive) : -1;
+}
+
+function sanitizeLegacyWizardKickoff(text: string): string | null {
+  if (!text.startsWith('Create the dhee project "')) return null;
+  const storyMarker = '\nStory:\n';
+  const storyStart = text.indexOf(storyMarker);
+  if (storyStart < 0) return null;
+
+  const afterStory = text.slice(storyStart + storyMarker.length);
+  const storyEnd = firstPositiveIndex([
+    afterStory.indexOf('\n\nPass these copied project-local reference images'),
+    afterStory.indexOf('\n\nThen start the pipeline.'),
+  ]);
+  const story = (storyEnd >= 0 ? afterStory.slice(0, storyEnd) : afterStory).trim();
+  if (!story) return null;
+
+  const names = Array.from(afterStory.matchAll(/"name"\s*:\s*"([^"]+)"/g))
+    .map((match) => match[1])
+    .filter((name): name is string => Boolean(name));
+  return [
+    story,
+    names.length > 0 ? `Attached: ${Array.from(new Set(names)).join(', ')}` : '',
+  ].filter(Boolean).join('\n\n');
+}
+
+function shouldHideInternalUserTask(text: string): boolean {
+  return (
+    /^Run the pipeline for the current project to completion\./.test(text) ||
+    /^Continue running the dhee pipeline for project=/.test(text) ||
+    /^Continue running the bundle for the current project/.test(text) ||
+    /^The run paused because this project hit its \$/.test(text)
+  );
+}
+
+function sanitizeUserHistoryText(text: string): string | null {
+  if (text.startsWith('[SYSTEM EVENT]')) return null;
+  const stripped = text.replace(/^\(Active project:[^)]*\)\s*/, '').trim();
+  if (!stripped) return null;
+  if (shouldHideInternalUserTask(stripped)) return null;
+  return sanitizeLegacyWizardKickoff(stripped) ?? stripped;
+}
+
+function basenameFromMaybePath(value: string): string {
+  try {
+    return path.basename(value);
+  } catch {
+    return value;
+  }
+}
+
+function attachmentRoleFromSection(section: string): string | undefined {
+  if (/character/i.test(section)) return 'character';
+  if (/setting/i.test(section)) return 'setting';
+  return undefined;
+}
+
+function attachmentPurposeFromRole(role: string | undefined): string | undefined {
+  if (role === 'character') return 'character_ref';
+  if (role === 'setting') return 'setting_ref';
+  return 'reference_general';
+}
+
+function attachmentRoleFromPurpose(purpose: string | undefined): string | undefined {
+  if (purpose === 'character_ref') return 'character';
+  if (purpose === 'setting_ref') return 'setting';
+  return undefined;
+}
+
+function parseAttachmentPreviewsFromText(text: string): HistoryAttachmentPreview[] {
+  const previews: HistoryAttachmentPreview[] = [];
+  let currentSection = '';
+  for (const line of text.split('\n')) {
+    const section = line.trim().match(/^Attached .+ images:$/i);
+    if (section) {
+      currentSection = line.trim();
+      continue;
+    }
+
+    const match = line.trim().match(/^-\s+(.+?):\s+(.+)$/);
+    if (!match || !currentSection) continue;
+    const name = match[1]?.trim();
+    const filePath = match[2]?.trim();
+    if (!name || !filePath) continue;
+    const role = attachmentRoleFromSection(currentSection);
+	    previews.push({
+	      id: `history-att-${previews.length}-${name}`,
+	      kind: 'reference_image',
+	      name,
+	      path: filePath,
+	      ...(role ? { role } : {}),
+	      ...(attachmentPurposeFromRole(role)
+	        ? { purpose: attachmentPurposeFromRole(role) }
+	        : {}),
+	    });
+  }
+  return previews;
+}
+
+function parseStructuredAttachmentPreviews(
+  value: unknown,
+): HistoryAttachmentPreview[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!entry || typeof entry !== 'object') return [];
+    const attachment = entry as Record<string, unknown>;
+    const pathValue =
+      typeof attachment.path === 'string' ? attachment.path.trim() : '';
+    const nameValue =
+      typeof attachment.name === 'string' && attachment.name.trim().length > 0
+        ? attachment.name.trim()
+        : pathValue
+          ? basenameFromMaybePath(pathValue)
+          : '';
+    if (!nameValue) return [];
+    const kindValue =
+      typeof attachment.kind === 'string' && attachment.kind.trim().length > 0
+        ? attachment.kind.trim()
+        : 'reference_image';
+    const roleValue =
+      typeof attachment.role === 'string' && attachment.role.trim().length > 0
+        ? attachment.role.trim()
+        : undefined;
+    const purposeValue =
+      typeof attachment.purpose === 'string' &&
+      attachment.purpose.trim().length > 0
+        ? attachment.purpose.trim()
+        : undefined;
+    const mimeTypeValue =
+      typeof attachment.mimeType === 'string' &&
+      attachment.mimeType.trim().length > 0
+        ? attachment.mimeType.trim()
+        : undefined;
+    const replacementTargetId =
+      typeof attachment.replacementTargetId === 'string' &&
+      attachment.replacementTargetId.trim().length > 0
+        ? attachment.replacementTargetId.trim()
+        : undefined;
+    const replacementTargetName =
+      typeof attachment.replacementTargetName === 'string' &&
+      attachment.replacementTargetName.trim().length > 0
+        ? attachment.replacementTargetName.trim()
+        : undefined;
+
+    return [{
+      id:
+        typeof attachment.id === 'string' && attachment.id.trim().length > 0
+          ? attachment.id.trim()
+          : `history-att-${index}-${nameValue}`,
+      kind: kindValue,
+      name: nameValue,
+      ...(pathValue ? { path: pathValue } : {}),
+      ...(mimeTypeValue ? { mimeType: mimeTypeValue } : {}),
+      ...(roleValue ? { role: roleValue } : {}),
+      ...(purposeValue ? { purpose: purposeValue } : {}),
+      ...(replacementTargetId ? { replacementTargetId } : {}),
+      ...(replacementTargetName ? { replacementTargetName } : {}),
+    }];
+  });
+}
+
+function projectInputAttachmentPreviews(
+  projectDir: string,
+): HistoryAttachmentPreview[] {
+  try {
+    const raw = fsReadFileSync(path.join(projectDir, 'project.json'), 'utf8');
+    const project = JSON.parse(raw) as { inputs?: unknown[] };
+    if (!Array.isArray(project.inputs)) return [];
+
+    return project.inputs.flatMap((entry, index) => {
+      if (!entry || typeof entry !== 'object') return [];
+      const input = entry as Record<string, unknown>;
+      const purpose =
+        typeof input.purpose === 'string' && input.purpose.trim().length > 0
+          ? input.purpose.trim()
+          : undefined;
+      if (
+        purpose !== 'character_ref' &&
+        purpose !== 'setting_ref' &&
+        purpose !== 'reference_general'
+      ) {
+        return [];
+      }
+      if (input.mediaType !== undefined && input.mediaType !== 'image') {
+        return [];
+      }
+
+      const source = input.source as Record<string, unknown> | undefined;
+      const processing = input.processing as Record<string, unknown> | undefined;
+      const metadata = input.metadata as Record<string, unknown> | undefined;
+      const pathValue =
+        typeof source?.value === 'string' && source.value.trim().length > 0
+          ? source.value.trim()
+          : typeof processing?.localPath === 'string' &&
+              processing.localPath.trim().length > 0
+            ? processing.localPath.trim()
+            : '';
+      if (!pathValue) return [];
+
+      const originalFilename =
+        typeof metadata?.originalFilename === 'string' &&
+        metadata.originalFilename.trim().length > 0
+          ? metadata.originalFilename.trim()
+          : basenameFromMaybePath(pathValue);
+      const role =
+        typeof metadata?.referenceRole === 'string' &&
+        metadata.referenceRole.trim().length > 0
+          ? metadata.referenceRole.trim()
+          : attachmentRoleFromPurpose(purpose);
+      const mimeType =
+        typeof metadata?.mimeType === 'string' &&
+        metadata.mimeType.trim().length > 0
+          ? metadata.mimeType.trim()
+          : undefined;
+
+      return [{
+        id:
+          typeof input.id === 'string' && input.id.trim().length > 0
+            ? input.id.trim()
+            : `project-input-att-${index}-${originalFilename}`,
+        kind: 'reference_image',
+        name: originalFilename,
+        path: pathValue,
+        ...(mimeType ? { mimeType } : {}),
+        ...(role ? { role } : {}),
+        ...(purpose ? { purpose } : {}),
+      }];
+    });
+  } catch {
+    return [];
+  }
+}
+
+function extractTextContent(content: unknown): string | null {
+  if (typeof content === 'string') return content;
+  if (Array.isArray(content)) {
+    const text = content
+      .filter((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'text')
+      .map((c) => (c as { text?: string }).text ?? '')
+      .join('');
+    return text.length > 0 ? text : null;
+  }
+  return null;
+}
+
+function parseHistoryTimestamp(parsed: Record<string, unknown>, nested?: { timestamp?: number }): number {
+  if (typeof nested?.timestamp === 'number') return nested.timestamp;
+  if (typeof parsed['timestamp'] === 'string') {
+    const ts = Date.parse(parsed['timestamp'] as string);
+    if (Number.isFinite(ts)) return ts;
+  }
+  if (typeof parsed['timestamp'] === 'number') return parsed['timestamp'] as number;
+  return Date.now();
+}
+
+function historyRecordFromCustomMessage(
+  parsed: Record<string, unknown>,
+  projectDir: string,
+  fallbackId: string,
+): Record<string, unknown> | null {
+  const payload = (
+    parsed['message'] ??
+    parsed['data'] ??
+    parsed['payload'] ??
+    parsed['customMessage']
+  ) as Record<string, unknown> | undefined;
+  if (!payload || typeof payload !== 'object') return null;
+
+  const type = payload['type'];
+  const rawKind = payload['kind'] ?? payload['mediaKind'];
+  const rawPath = payload['path'] ?? payload['filePath'] ?? payload['outputPath'];
+  const ts = parseHistoryTimestamp(parsed);
+  if (type === 'media' || rawKind === 'image' || rawKind === 'video') {
+    if (rawKind !== 'image' && rawKind !== 'video') return null;
+    if (typeof rawPath !== 'string' || rawPath.length === 0) return null;
+    const source = typeof payload['source'] === 'string' ? payload['source'] : undefined;
+    const project =
+      typeof payload['project'] === 'string' && payload['project'].length > 0
+        ? payload['project']
+        : path.basename(projectDir);
+    return {
+      id: (parsed['id'] as string) ?? fallbackId,
+      type: 'media',
+      content: basenameFromMaybePath(rawPath),
+      timestamp: ts,
+      media: {
+        kind: rawKind,
+        path: rawPath,
+        project,
+        projectDir,
+        ...(source ? { source } : {}),
+      },
+    };
+  }
+
+  const rawText = payload['content'] ?? payload['message'] ?? payload['text'] ?? payload['progressText'];
+  const content = typeof rawText === 'string' ? rawText.trim() : '';
+  if (!content) return null;
+  if (type === 'progress') {
+    const toolCallId =
+      typeof payload['toolCallId'] === 'string' && payload['toolCallId'].trim().length > 0
+        ? payload['toolCallId'].trim()
+        : undefined;
+    return {
+      id: (parsed['id'] as string) ?? fallbackId,
+      type: 'progress',
+      content,
+      timestamp: ts,
+      ...(toolCallId ? { progressForToolCallId: toolCallId } : {}),
+    };
+  }
+  if (type === 'system' || type === 'notification') {
+    const rawLevel = typeof payload['level'] === 'string' ? payload['level'] : 'info';
+    const level =
+      rawLevel === 'error' || rawLevel === 'warning'
+        ? rawLevel
+        : rawLevel === 'warn'
+          ? 'warning'
+          : 'info';
+    return {
+      id: (parsed['id'] as string) ?? fallbackId,
+      type: 'system',
+      content,
+      timestamp: ts,
+      notificationLevel: level,
+    };
+  }
+
+  return null;
+}
+
+function latestSessionJsonl(sessionsDir: string): string | null {
+  let latest: { path: string; mtime: number } | null = null;
+  for (const f of fsReaddirSync(sessionsDir)) {
+    if (f.endsWith('.archived')) continue;
+    if (f.endsWith('.archived.jsonl')) continue;
+    if (!f.endsWith('.jsonl')) continue;
+    const full = path.join(sessionsDir, f);
+    const stat = fsStatSync(full);
+    if (!latest || stat.mtimeMs > latest.mtime) {
+      latest = { path: full, mtime: stat.mtimeMs };
+    }
+  }
+  return latest?.path ?? null;
+}
+
+function appendProjectSessionJsonl(params: {
+  userDataDir: string;
+  projectDir: string;
+  records: Array<Record<string, unknown>>;
+}): void {
+  if (params.records.length === 0) return;
+  const sessionsDir = projectSessionsDirFromDir(params.userDataDir, params.projectDir);
+  fsMkdirSync(sessionsDir, { recursive: true });
+  writeProjectSessionMeta(sessionsDir, params.projectDir);
+  const sessionFile =
+    latestSessionJsonl(sessionsDir) ??
+    path.join(sessionsDir, `run-${Date.now().toString(36)}.jsonl`);
+  const body = params.records.map((record) => JSON.stringify(record)).join('\n') + '\n';
+  fsAppendFileSync(sessionFile, body, 'utf8');
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function customMessageRecord(
+  payload: Record<string, unknown>,
+): Record<string, unknown> {
+  const timestamp = nowIso();
+  return {
+    type: 'custom_message',
+    id: `custom-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp,
+    message: {
+      ...payload,
+      timestamp: Date.parse(timestamp),
+    },
+  };
+}
+
+function toolCallRecord(args: {
+  toolCallId: string;
+  toolName: string;
+  arguments?: Record<string, unknown>;
+}): Record<string, unknown> {
+  const timestamp = nowIso();
+  return {
+    type: 'message',
+    id: `tool-call-${args.toolCallId}-${Date.now().toString(36)}`,
+    timestamp,
+    message: {
+      role: 'assistant',
+      timestamp: Date.parse(timestamp),
+      content: [{
+        type: 'toolCall',
+        id: args.toolCallId,
+        name: args.toolName,
+        arguments: args.arguments ?? {},
+      }],
+    },
+  };
+}
+
+function toolResultRecord(args: {
+  toolCallId: string;
+  resultText: string;
+  details?: Record<string, unknown>;
+  isError?: boolean;
+}): Record<string, unknown> {
+  const timestamp = nowIso();
+  return {
+    type: 'message',
+    id: `tool-result-${args.toolCallId}-${Date.now().toString(36)}`,
+    timestamp,
+    message: {
+      role: 'toolResult',
+      toolCallId: args.toolCallId,
+      timestamp: Date.parse(timestamp),
+      content: [{ type: 'text', text: args.resultText }],
+      ...(args.details ? { details: args.details } : {}),
+      ...(args.isError ? { isError: true } : {}),
+    },
+  };
+}
+
+function runnerTerminalMessage(
+  result: RunResult,
+  generatedCount: number,
+): string {
+  if (result.status === 'failed') {
+    return `Run failed${result.error ? ` — ${result.error}` : ''}.`;
+  }
+  if (result.status === 'cancelled') return 'Run cancelled.';
+  if (result.status === 'completed') {
+    const maybeGated = result as RunResult & { gatedAfter?: string; pendingAfterGate?: string[] };
+    if (maybeGated.gatedAfter) {
+      const pending = maybeGated.pendingAfterGate?.length
+        ? ` Pending: ${maybeGated.pendingAfterGate.join(', ')}.`
+        : '';
+      return `Run paused after ${maybeGated.gatedAfter}.${pending}`;
+    }
+    return generatedCount > 0
+      ? `Run finished — ${generatedCount} node${generatedCount === 1 ? '' : 's'} generated.`
+      : 'Run finished — nothing pending.';
+  }
+  return 'Run finished.';
+}
+
+function normalizeRunnerLevel(level: string | undefined): 'info' | 'warning' | 'error' {
+  if (level === 'error') return 'error';
+  if (level === 'warning' || level === 'warn') return 'warning';
+  return 'info';
+}
+
+function progressTextFromNotification(message: string): string | null {
+  const trimmed = message.trim();
+  if (!trimmed) return null;
+  if (
+    trimmed.startsWith('→ ') ||
+    trimmed.startsWith('✓ ') ||
+    trimmed.startsWith('✗ ') ||
+    trimmed.startsWith('◌ ') ||
+    trimmed.startsWith('walker:') ||
+    trimmed.startsWith('runProjectViaBundle:')
+  ) {
+    return trimmed;
+  }
+  return null;
+}
+
+function isMediaPath(filePath: string | undefined): boolean {
+  return typeof filePath === 'string' && /\.(png|jpg|jpeg|webp|gif|bmp|mp4|mov|webm|mkv|m4v)$/i.test(filePath);
+}
+
+function mediaKindFromRunner(kind: unknown, filePath: string | undefined): 'image' | 'video' {
+  if (kind === 'video') return 'video';
+  if (kind === 'image') return 'image';
+  return filePath && /\.(mp4|mov|webm|mkv|m4v)$/i.test(filePath) ? 'video' : 'image';
+}
+
 // Phase 6.4: narrowed to the host-helper surface that survives the
 // ConversationManager / workflow-registry deletion. The dhee-core
 // barrel still exports these so dheeCoreManager can configure analytics
@@ -168,6 +661,8 @@ type ManagerModule = {
     identity: { userId: string } & AnalyticsIdentity,
   ) => () => void;
   shutdownPostHog?: () => Promise<void>;
+  setPiOversight?: (enabled: boolean) => void;
+  setVLMJudge?: (enabled: boolean) => void;
   /**
    * Optional in tests where the loader injects a stub. In production
    * the real bundle always exports it.
@@ -266,12 +761,18 @@ export function __setManagerLoader(loader: () => Promise<ManagerModule>): void {
 type RunnersModule = {
   getBackgroundTaskRunner: () => {
     cancel: () => boolean;
-    getActive: () => null | {
-      id: string;
-      spec: { kind: string; projectName: string; sessionId: string };
-      startedAt: number;
-      currentResource?: RunnerCurrentResource | null;
-    };
+	    getActive: () => null | {
+	      id: string;
+	      spec: {
+	        kind: string;
+	        projectName: string;
+	        projectDir?: string;
+	        sessionId: string;
+	        params?: { projectDir?: string };
+	      };
+	      startedAt: number;
+	      currentResource?: RunnerCurrentResource | null;
+	    };
     isCancelling?: () => boolean;
   };
 };
@@ -460,6 +961,11 @@ export interface RunTaskOpts {
   stopAtStage?: string;
 }
 
+export interface StartRunOpts {
+  projectDir: string;
+  stopAtStage?: string;
+}
+
 export interface RedoNodeOpts {
   editedPrompt?: string;
   frame?: string;
@@ -488,6 +994,8 @@ export interface RunResult {
   status: 'completed' | 'failed' | 'cancelled' | 'awaiting_input';
   output?: string;
   error?: string;
+  gatedAfter?: string;
+  pendingAfterGate?: string[];
 }
 
 /**
@@ -545,26 +1053,31 @@ function tierConfigFromPrimarySettings(settings: AppSettings): LLMTierConfig {
  * gemini we set BASE_URL to its OpenAI-compatible endpoint so the
  * router can reuse the OpenAI client unchanged.
  */
-function writeTierEnv(tier: 'HEAVY' | 'MEDIUM' | 'LIGHT', cfg: LLMTierConfig): void {
-  if (cfg.provider === 'gemini') {
+function writeTierEnv(
+  tier: 'HEAVY' | 'MEDIUM' | 'LIGHT',
+  cfg: Partial<LLMTierConfig> | undefined,
+): void {
+  if (!cfg) return;
+  const provider = cfg.provider === 'gemini' ? 'gemini' : 'openai';
+  if (provider === 'gemini') {
     process.env[`LLM_TIER_${tier}_PROVIDER`] = 'gemini';
     process.env[`LLM_TIER_${tier}_BASE_URL`] = GEMINI_OPENAI_COMPAT_BASE_URL;
-    if (cfg.googleApiKey.trim()) {
+    if (cfg.googleApiKey?.trim()) {
       process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.googleApiKey.trim();
     }
-    if (cfg.geminiModel.trim()) {
+    if (cfg.geminiModel?.trim()) {
       process.env[`LLM_TIER_${tier}_MODEL`] = cfg.geminiModel.trim();
     }
     return;
   }
   process.env[`LLM_TIER_${tier}_PROVIDER`] = 'openai';
-  if (cfg.openaiBaseUrl.trim()) {
+  if (cfg.openaiBaseUrl?.trim()) {
     process.env[`LLM_TIER_${tier}_BASE_URL`] = cfg.openaiBaseUrl.trim();
   }
-  if (cfg.openaiApiKey.trim()) {
+  if (cfg.openaiApiKey?.trim()) {
     process.env[`LLM_TIER_${tier}_API_KEY`] = cfg.openaiApiKey.trim();
   }
-  if (cfg.openaiModel.trim()) {
+  if (cfg.openaiModel?.trim()) {
     process.env[`LLM_TIER_${tier}_MODEL`] = cfg.openaiModel.trim();
   }
 }
@@ -581,7 +1094,7 @@ function clearRoutingAndTierEnv(): void {
   }
 }
 
-function clearCloudProxyEnv(): void {
+function clearCloudProxyEnv(): boolean {
   const wasUsingDesktopCloudProxy = process.env.dhee_CLOUD === 'true';
   delete process.env.dhee_CLOUD;
   delete process.env.dhee_CLOUD_URL;
@@ -598,6 +1111,7 @@ function clearCloudProxyEnv(): void {
     delete process.env.COMFY_CLOUD_API_KEY;
     delete process.env.COMFYUI_BASE_URL;
   }
+  return wasUsingDesktopCloudProxy;
 }
 
 export function applyEnvFromSettings(
@@ -615,7 +1129,7 @@ export function applyEnvFromSettings(
     if (trimmed) process.env[key] = trimmed;
   };
 
-  clearCloudProxyEnv();
+  const wasUsingDesktopCloudProxy = clearCloudProxyEnv();
   clearRoutingAndTierEnv();
 
   const cloudToken = cloudAuth?.desktopToken.trim();
@@ -632,6 +1146,16 @@ export function applyEnvFromSettings(
   const useCloudComfy = settings.comfyBackend === 'cloud' && haveCloudAuth;
   const useCloudLLM = settings.llmBackend === 'cloud' && haveCloudAuth;
   const useCloudVLM = settings.vlmBackend === 'cloud' && haveCloudAuth;
+  if (wasUsingDesktopCloudProxy && !useCloudLLM) {
+    if (!settings.openaiApiKey?.trim()) delete process.env.OPENAI_API_KEY;
+    if (!settings.openaiBaseUrl?.trim()) delete process.env.OPENAI_BASE_URL;
+    if (!settings.openaiModel?.trim()) delete process.env.OPENAI_MODEL;
+  }
+  if (wasUsingDesktopCloudProxy && !useCloudVLM) {
+    if (!settings.vlmApiKey?.trim()) delete process.env.VLM_API_KEY;
+    if (!settings.vlmBaseUrl?.trim()) delete process.env.VLM_BASE_URL;
+    if (!settings.vlmModel?.trim()) delete process.env.VLM_MODEL;
+  }
 
   // Cloud identity env (consumed by analytics, billing, etc.) fires
   // whenever ANY lane is on cloud — they share the same desktop token
@@ -673,9 +1197,7 @@ export function applyEnvFromSettings(
     // Gating the key behind `isComfyCloudUrl(comfyuiUrl)` made those
     // per-node cloud calls fail with "COMFY_CLOUD_API_KEY is required"
     // even though the key was set in Settings.
-    if (settings.comfyCloudApiKey.trim()) {
-      process.env.COMFY_CLOUD_API_KEY = settings.comfyCloudApiKey.trim();
-    }
+    setIfPresent('COMFY_CLOUD_API_KEY', settings.comfyCloudApiKey);
   }
   setIfPresent('dhee_PROJECT_DIR', settings.projectDir);
 
@@ -776,45 +1298,24 @@ export function applyEnvFromSettings(
   setIfPresent('GEMINI_API_KEY', settings.googleApiKey);
   setIfPresent('GOOGLE_API_KEY', settings.googleApiKey);
 
-  // VLM (vision judge) env wiring:
-  //   - vlmJudge=false → leave VLM_* env alone. The .env-loaded fallback
-  //     (dev users with VLM_* in dhee-core/.env) survives. Production
-  //     users with vlmJudge off won't trigger VLM calls anyway, so the
-  //     stale env doesn't matter.
-  //   - vlmJudge=true + llmBackend='cloud' + cloudAuth → auto-route VLM
-  //     to the same dhee Cloud proxy as the LLM. The user doesn't
-  //     have to reconfigure.
-  //   - vlmJudge=true + local LLM → set VLM_* from Settings (skip-on-empty
-  //     so the .env fallback still fires for dev users who haven't filled
-  //     the VLM Settings fields).
-  if (settings.vlmJudge) {
-    if (useCloudVLM) {
-      process.env.VLM_PROVIDER = 'openai';
-      process.env.VLM_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
-      process.env.VLM_API_KEY = cloudToken!;
-      // Cloud mode: model selection is owned by the cloud proxy. The
-      // Settings UI no longer exposes a VLM Model ID field in cloud
-      // mode, so we send a vision-capable default and let the proxy
-      // map / override it.
-      process.env.VLM_MODEL = 'gpt-4o';
-    } else if (settings.vlmProvider === 'gemini') {
-      process.env.VLM_PROVIDER = 'gemini';
-      setIfPresent('VLM_API_KEY', settings.vlmApiKey);
-      setIfPresent('VLM_MODEL', settings.vlmModel);
-      // gemini's openai-compatible endpoint is the default-base-url
-      // table; setting VLM_BASE_URL explicitly here keeps the env
-      // self-describing for log-line readers.
-      process.env.VLM_BASE_URL =
-        'https://generativelanguage.googleapis.com/v1beta/openai/';
-    } else {
-      // openai-compatible (default). User-supplied baseUrl is the only
-      // way to point at a self-hosted vision model (LM Studio with
-      // qwen-vl, llama.cpp with llava, etc.).
-      setIfPresent('VLM_PROVIDER', 'openai');
-      setIfPresent('VLM_BASE_URL', settings.vlmBaseUrl);
-      setIfPresent('VLM_API_KEY', settings.vlmApiKey);
-      setIfPresent('VLM_MODEL', settings.vlmModel);
-    }
+  // VLM routing is configured from the VLM lane regardless of whether
+  // judging is enabled. The vlmJudge toggle controls use, not routing.
+  if (useCloudVLM) {
+    process.env.VLM_PROVIDER = 'openai';
+    process.env.VLM_BASE_URL = joinUrl(cloudWebsiteUrl!, '/openai/api/v1');
+    process.env.VLM_API_KEY = cloudToken!;
+    process.env.VLM_MODEL = 'gpt-4o';
+  } else if (settings.vlmProvider === 'gemini') {
+    process.env.VLM_PROVIDER = 'gemini';
+    setIfPresent('VLM_API_KEY', settings.vlmApiKey);
+    setIfPresent('VLM_MODEL', settings.vlmModel);
+    process.env.VLM_BASE_URL =
+      'https://generativelanguage.googleapis.com/v1beta/openai/';
+  } else {
+    setIfPresent('VLM_PROVIDER', 'openai');
+    setIfPresent('VLM_BASE_URL', settings.vlmBaseUrl);
+    setIfPresent('VLM_API_KEY', settings.vlmApiKey);
+    setIfPresent('VLM_MODEL', settings.vlmModel);
   }
 
   // Per-tier routing: when the user opted out of the
@@ -1285,11 +1786,12 @@ export class dheeCoreManager {
             eventName: 'media_generated',
             sessionId,
             data: {
-              kind: output.kind,
-              path: output.filePath,
-              project: path.basename(projectDir),
-            },
-          });
+	              kind: output.kind,
+	              path: output.filePath,
+	              project: path.basename(projectDir),
+	              projectDir,
+	            },
+	          });
         }
         // Do not wake the LLM for a successful end-to-end completion:
         // it already has enough context and may choose expensive or
@@ -1413,6 +1915,9 @@ export class dheeCoreManager {
   private async autoResumeRun(projectDir: string, specSessionId?: string): Promise<void> {
     try {
       const projectName = path.basename(projectDir);
+      if (this.lastSettings) {
+        applyEnvFromSettings(this.lastSettings, this.lastCloudAuth);
+      }
       const runnersMod = await loadRunnersModule();
       const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
         dispatch: (spec: {
@@ -1437,12 +1942,13 @@ export class dheeCoreManager {
       }
       log.info('[dheeCoreManager] auto-resumed transient-failed run', { projectDir, taskId: dispatch.taskId });
       if (this.lastEventCb) {
-        this.wireRunnerTaskEvents(
-          runner,
-          dispatch.taskId,
-          specSessionId ?? `auto-retry:${projectName}`,
-          this.lastEventCb,
-          () => {
+	        this.wireRunnerTaskEvents(
+	          runner,
+	          dispatch.taskId,
+	          specSessionId ?? `auto-retry:${projectName}`,
+	          projectDir,
+	          this.lastEventCb,
+	          () => {
             /* terminal handled by the global run-wake subscription */
           },
         );
@@ -1547,6 +2053,13 @@ export class dheeCoreManager {
       if (devEnv?.projectsDir) {
         // `<studiosDir>/bundles` — sibling of project directories.
         process.env.DHEE_USER_BUNDLES_DIR = path.join(devEnv.projectsDir, 'bundles');
+        // `<studiosDir>/runners` — where the bundle installer pulls EXTERNAL
+        // runner packages. Point both the installer (DHEE_RUNNERS_DIR) and the
+        // engine's npm-runner discovery (DHEE_NODE_MODULES_DIRS) at the same
+        // node_modules so an installed runner is found out of the box.
+        const runnersBase = path.join(devEnv.projectsDir, 'runners');
+        process.env.DHEE_RUNNERS_DIR = runnersBase;
+        process.env.DHEE_NODE_MODULES_DIRS = path.join(runnersBase, 'node_modules');
       }
     } catch {
       // best-effort; bundleSource still falls through to its source-tree
@@ -1793,20 +2306,28 @@ export class dheeCoreManager {
    * shows the empty intro card) or when no JSONL exists (fresh
    * project, never chatted).
    */
-  getSessionHistorySnapshot(sessionId: string): {
+  getSessionHistorySnapshot(sessionId: string, explicitProjectDir?: string): {
     messages: Array<Record<string, unknown>>;
     toolCalls: SessionToolCall[];
+    projectDirectory: string;
     focusedProject?: string;
     compactionCount: number;
   } | null {
-    const projectDir = this.sessionProjects.get(sessionId);
+    const mappedProjectDir = this.sessionProjects.get(sessionId);
+    const projectDir = (() => {
+      if (!explicitProjectDir) return mappedProjectDir;
+      if (!mappedProjectDir) return explicitProjectDir;
+      return normalizeProjectDirForSession(mappedProjectDir) ===
+        normalizeProjectDirForSession(explicitProjectDir)
+        ? explicitProjectDir
+        : null;
+    })();
     if (!projectDir) return null;
     let sessionsDir: string;
     try {
-      const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
       const userData = app.getPath?.('userData');
       if (!userData) return null;
-      sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+      sessionsDir = projectSessionsDirFromDir(userData, projectDir);
     } catch {
       return null;
     }
@@ -1834,59 +2355,91 @@ export class dheeCoreManager {
     try {
       const content = fsReadFileSync(latest.path, 'utf8');
       const lines = content.split('\n').filter((l) => l.trim().length > 0);
-      const messages: Array<Record<string, unknown>> = [];
-      let compactionCount = 0;
-      for (const line of lines) {
-        let parsed: Record<string, unknown>;
+      const projectReferenceAttachments =
+        projectInputAttachmentPreviews(projectDir);
+	      const messages: Array<Record<string, unknown>> = [];
+	      let compactionCount = 0;
+	      let visibleUserMessages = 0;
+	      for (const line of lines) {
+	        let parsed: Record<string, unknown>;
         try {
           parsed = JSON.parse(line) as Record<string, unknown>;
         } catch {
           continue;
         }
-        if (parsed['type'] === 'compaction') {
-          compactionCount += 1;
-          continue;
-        }
-        if (parsed['type'] !== 'message') continue;
-        const msg = parsed['message'] as
-          | { role?: string; content?: unknown; timestamp?: number }
-          | undefined;
-        if (!msg) continue;
-        const ts = typeof msg.timestamp === 'number'
-          ? msg.timestamp
-          : (typeof parsed['timestamp'] === 'string'
-              ? Date.parse(parsed['timestamp'] as string)
-              : Date.now());
-        // user content is a string; assistant content is an array of
-        // {type:'text'|'toolCall'|'thinking', text?}. Flatten to plain
-        // text — tool-call envelopes are dropped here (the new chat
-        // panel doesn't render them from history; only live events).
-        let content: string;
-        if (typeof msg.content === 'string') {
-          content = msg.content;
-        } else if (Array.isArray(msg.content)) {
-          content = msg.content
-            .filter((c) => c && typeof c === 'object' && (c as { type?: string }).type === 'text')
-            .map((c) => (c as { text?: string }).text ?? '')
-            .join('');
-        } else {
-          continue;
-        }
-        if (!content.trim()) continue;
-        // Synthetic system messages from prior runs are noise; skip
-        // anything starting with [SYSTEM EVENT] or (Active project: …).
-        if (msg.role === 'user' && /^\[SYSTEM EVENT\]|^\(Active project:/.test(content)) {
-          continue;
-        }
-        if (msg.role === 'user' || msg.role === 'assistant') {
-          messages.push({
-            id: (parsed['id'] as string) ?? `${ts}-${messages.length}`,
-            type: msg.role === 'user' ? 'user' : 'agent',
-            content,
-            timestamp: ts,
-          });
-        }
-      }
+	        const parsedType = parsed['type'];
+	        if (parsedType === 'compaction') {
+	          compactionCount += 1;
+	          const ts = parseHistoryTimestamp(parsed);
+	          messages.push({
+	            id: (parsed['id'] as string) ?? `compaction-${ts}-${compactionCount}`,
+	            type: 'system',
+	            content: 'Earlier conversation was summarized to keep context available.',
+	            timestamp: ts,
+	          });
+	          continue;
+	        }
+	        if (parsedType === 'custom_message') {
+	          const custom = historyRecordFromCustomMessage(
+	            parsed,
+	            projectDir,
+	            `custom-${messages.length}`,
+	          );
+	          if (custom) messages.push(custom);
+	          continue;
+	        }
+	        if (parsedType !== 'message') continue;
+	        const msg = parsed['message'] as
+	          | {
+	              role?: string;
+	              content?: unknown;
+	              timestamp?: number;
+	              attachments?: unknown;
+	            }
+	          | undefined;
+	        if (!msg) continue;
+	        const ts = parseHistoryTimestamp(parsed, msg);
+	        const extracted = extractTextContent(msg.content);
+	        if (extracted === null) continue;
+	        let content = extracted;
+	        if (!content.trim()) continue;
+	        if (msg.role === 'user') {
+	          const sanitized = sanitizeUserHistoryText(content);
+	          if (!sanitized) continue;
+	          content = sanitized;
+	        }
+	        if (msg.role === 'user' || msg.role === 'assistant') {
+	          const structuredAttachments =
+	            msg.role === 'user'
+	              ? parseStructuredAttachmentPreviews(msg.attachments)
+	              : [];
+	          const textAttachments =
+	            msg.role === 'user' && structuredAttachments.length === 0
+	              ? parseAttachmentPreviewsFromText(content)
+	              : [];
+	          const projectInputAttachments =
+	            msg.role === 'user' &&
+	            structuredAttachments.length === 0 &&
+	            textAttachments.length === 0 &&
+	            visibleUserMessages === 0
+	              ? projectReferenceAttachments
+	              : [];
+	          const attachments =
+	            structuredAttachments.length > 0
+	              ? structuredAttachments
+	              : textAttachments.length > 0
+	                ? textAttachments
+	                : projectInputAttachments;
+	          messages.push({
+	            id: (parsed['id'] as string) ?? `${ts}-${messages.length}`,
+	            type: msg.role === 'user' ? 'user' : 'agent',
+	            content,
+	            timestamp: ts,
+	            ...(attachments.length > 0 ? { attachments } : {}),
+	          });
+	          if (msg.role === 'user') visibleUserMessages += 1;
+	        }
+	      }
       return {
         messages,
         // Reconstruct the tool-call timeline (call + result, joined by id)
@@ -1894,6 +2447,7 @@ export class dheeCoreManager {
         // because the old chat panel couldn't render tool calls from
         // history; the #161 redesign can.
         toolCalls: parseSessionToolCalls(content),
+        projectDirectory: normalizeProjectDirForSession(projectDir),
         focusedProject: path.basename(projectDir),
         compactionCount,
       };
@@ -2012,6 +2566,9 @@ export class dheeCoreManager {
       };
     }
     const projectName = path.basename(projectDir);
+    if (this.lastSettings) {
+      applyEnvFromSettings(this.lastSettings, this.lastCloudAuth);
+    }
 
     // Fresh auto-retry budget — this is a user-initiated run.
     this.autoRetriedRuns.delete(projectDir);
@@ -2059,9 +2616,109 @@ export class dheeCoreManager {
 
     const taskId = dispatchResult.taskId;
 
-    return new Promise<RunResult>((resolve) => {
-      this.wireRunnerTaskEvents(runner, taskId, sessionId, eventCb, resolve);
+	    return new Promise<RunResult>((resolve) => {
+	      this.wireRunnerTaskEvents(runner, taskId, sessionId, projectDir, eventCb, resolve);
+	    });
+  }
+
+  /**
+   * Direct non-blocking runner dispatch for the primary Resume/Run
+   * button. Unlike runTask(), this does not wait for the terminal
+   * runner event, so the chat session stays available while runnerStatus
+   * remains the source of truth for Running/Stop UI.
+   */
+  async startRun(
+    sessionId: string,
+    opts: StartRunOpts,
+    eventCb: dheeCoreEventCallback,
+  ): Promise<{ ok: boolean; taskId?: string; error?: string }> {
+    const projectDir = opts.projectDir;
+    if (!projectDir) {
+      return {
+        ok: false,
+        error: 'projectDir is required to start a run',
+      };
+    }
+
+    const mappedProjectDir = this.sessionProjects.get(sessionId);
+    if (
+      mappedProjectDir &&
+      normalizeProjectDirForSession(mappedProjectDir) !==
+        normalizeProjectDirForSession(projectDir)
+    ) {
+      return {
+        ok: false,
+        error: `session ${sessionId} is focused on a different project`,
+      };
+    }
+    if (!mappedProjectDir) {
+      this.sessionProjects.set(sessionId, projectDir);
+    }
+
+    const projectName = path.basename(projectDir);
+    if (this.lastSettings) {
+      applyEnvFromSettings(this.lastSettings, this.lastCloudAuth);
+    }
+
+    // Fresh auto-retry budget — this is a user-initiated run.
+    this.autoRetriedRuns.delete(projectDir);
+
+    this.lastEventCb = eventCb;
+    void this.ensureRunWakeSubscription();
+
+    const runnersMod = await loadRunnersModule();
+    const runner = runnersMod.getBackgroundTaskRunner() as unknown as {
+      dispatch: (spec: {
+        kind: 'run_to';
+        projectName: string;
+        params: { projectDir: string; stage?: string };
+        sessionId: string;
+      }) =>
+        | { status: 'started'; taskId: string }
+        | {
+            status: 'rejected';
+            reason: 'task_already_running';
+            activeTaskId: string;
+            activeTaskKind: string;
+            activeProjectName: string;
+          };
+      on: (event: string, handler: (payload: unknown) => void) => () => void;
+    };
+
+    const dispatchResult = runner.dispatch({
+      kind: 'run_to',
+      projectName,
+      params: {
+        projectDir,
+        ...(opts.stopAtStage ? { stage: opts.stopAtStage } : {}),
+      },
+      sessionId,
     });
+
+    if (dispatchResult.status === 'rejected') {
+      return {
+        ok: false,
+        error: `task already running on project '${dispatchResult.activeProjectName}' (taskId ${dispatchResult.activeTaskId})`,
+      };
+    }
+
+    this.wireRunnerTaskEvents(
+      runner,
+      dispatchResult.taskId,
+      sessionId,
+      projectDir,
+      eventCb,
+      (result) => {
+        log.info('[startRun] runner task terminal', {
+          projectName,
+          projectDir,
+          taskId: dispatchResult.taskId,
+          result,
+        });
+      },
+    );
+
+    return { ok: true, taskId: dispatchResult.taskId };
   }
 
   /**
@@ -2079,10 +2736,48 @@ export class dheeCoreManager {
     runner: { on: (event: string, handler: (payload: unknown) => void) => () => void },
     taskId: string,
     sessionId: string,
+    projectDir: string | undefined,
     eventCb: dheeCoreEventCallback,
     onTerminal: (result: RunResult) => void,
   ): () => void {
-    const emit = (eventName: string, data: unknown) => eventCb({ eventName, sessionId, data });
+    const normalizedProjectDir = projectDir
+      ? normalizeProjectDirForSession(projectDir)
+      : undefined;
+    const projectName = normalizedProjectDir
+      ? path.basename(normalizedProjectDir)
+      : undefined;
+    const userDataDir = (() => {
+      if (!projectDir) return null;
+      try {
+        return app.getPath?.('userData') ?? null;
+      } catch {
+        return null;
+      }
+    })();
+    let generatedCount = 0;
+    const persist = (records: Array<Record<string, unknown>>): void => {
+      if (!userDataDir || !projectDir || records.length === 0) return;
+      try {
+        appendProjectSessionJsonl({
+          userDataDir,
+          projectDir,
+          records,
+        });
+      } catch (err) {
+        log.warn('[wireRunnerTaskEvents] failed to persist runner transcript:', err);
+      }
+    };
+    const emit = (eventName: string, data: Record<string, unknown>) =>
+      eventCb({
+        eventName,
+        sessionId,
+        data: {
+          ...data,
+          taskId,
+          ...(normalizedProjectDir ? { projectDir: normalizedProjectDir } : {}),
+          ...(projectName ? { project: projectName } : {}),
+        },
+      });
     const offs: Array<() => void> = [];
     const cleanup = () => {
       for (const off of offs) off();
@@ -2094,12 +2789,26 @@ export class dheeCoreManager {
       runner.on('tool', (e) => {
         if (!matches(e)) return;
         const evt = e as { toolName?: string; nodeId?: string };
+        const toolCallId = evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`;
+        const toolName = evt.toolName ?? '(unknown tool)';
+        const args = {
+          taskId,
+          ...(evt.nodeId ? { nodeId: evt.nodeId } : {}),
+          ...(normalizedProjectDir ? { projectDir: normalizedProjectDir } : {}),
+        };
         emit('tool_call', {
-          toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
-          toolName: evt.toolName,
-          arguments: {},
+          toolCallId,
+          toolName,
+          arguments: args,
           status: 'in_progress',
         });
+        persist([
+          toolCallRecord({
+            toolCallId,
+            toolName,
+            arguments: args,
+          }),
+        ]);
       }),
     );
     offs.push(
@@ -2112,52 +2821,148 @@ export class dheeCoreManager {
           status?: string;
           error?: string;
         };
+        const toolCallId = evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`;
+        const toolName = evt.toolName ?? '(unknown tool)';
+        const isError = evt.status === 'error' || !!evt.error;
+        if (!isError && evt.status === 'completed') generatedCount += 1;
+        const details = {
+          taskId,
+          toolName,
+          ...(evt.nodeId ? { nodeId: evt.nodeId } : {}),
+          ...(evt.filePath ? { filePath: evt.filePath, file_path: evt.filePath } : {}),
+          ...(evt.status ? { status: evt.status } : {}),
+          ...(evt.error ? { error: evt.error } : {}),
+        };
+        const resultText = isError
+          ? `error${evt.error ? `: ${evt.error}` : ''}`
+          : `completed${evt.filePath ? `: ${evt.filePath}` : ''}`;
         emit('tool_result', {
-          toolCallId: evt.nodeId ?? `${taskId}:${evt.toolName ?? 'tool'}`,
-          toolName: evt.toolName,
-          result: {
-            filePath: evt.filePath,
-            status: evt.status,
-            error: evt.error,
-          },
-          isError: evt.status === 'error' || !!evt.error,
+          toolCallId,
+          toolName,
+          result: details,
+          isError,
         });
+        persist([
+          toolResultRecord({
+            toolCallId,
+            resultText,
+            details,
+            isError,
+          }),
+        ]);
       }),
     );
     offs.push(
       runner.on('notification', (e) => {
         if (!matches(e)) return;
         const evt = e as { level?: string; message?: string };
-        emit('status', { status: 'info', level: evt.level, message: evt.message });
+        const message = evt.message?.trim();
+        if (!message) return;
+        const level = normalizeRunnerLevel(evt.level);
+        const progress = progressTextFromNotification(message);
+        if (progress && level === 'info') {
+          emit('progress', {
+            content: progress,
+            toolCallId: taskId,
+          });
+          persist([
+            customMessageRecord({
+              type: 'progress',
+              content: progress,
+              toolCallId: taskId,
+            }),
+          ]);
+          return;
+        }
+        emit('notification', { level, message });
+        persist([
+          customMessageRecord({
+            type: 'notification',
+            level,
+            content: message,
+          }),
+        ]);
       }),
     );
     offs.push(
       runner.on('asset', (e) => {
         if (!matches(e)) return;
-        const evt = e as { kind?: string; filePath?: string; nodeId?: string };
-        emit('asset', { kind: evt.kind, filePath: evt.filePath, nodeId: evt.nodeId });
+        const evt = e as { kind?: string; filePath?: string; nodeId?: string; toolName?: string };
+        if (!isMediaPath(evt.filePath)) return;
+        const kind = mediaKindFromRunner(evt.kind, evt.filePath);
+        emit('media_generated', {
+          kind,
+          path: evt.filePath,
+          filePath: evt.filePath,
+          ...(evt.nodeId ? { nodeId: evt.nodeId } : {}),
+          ...(evt.toolName ? { toolName: evt.toolName } : {}),
+        });
+        persist([
+          customMessageRecord({
+            type: 'media',
+            kind,
+            path: evt.filePath,
+            source: 'runner',
+            ...(projectName ? { project: projectName } : {}),
+          }),
+        ]);
       }),
     );
     offs.push(
       runner.on('completed', (e) => {
         if (!matches(e)) return;
+        const task = (e as { task?: { gatedAfter?: string; pendingAfterGate?: string[] } }).task;
+        const result: RunResult = {
+          status: 'completed',
+          ...(task?.gatedAfter ? { gatedAfter: task.gatedAfter } : {}),
+          ...(task?.pendingAfterGate ? { pendingAfterGate: task.pendingAfterGate } : {}),
+        };
+        const message = runnerTerminalMessage(result, generatedCount);
+        emit('notification', { level: 'info', message });
+        persist([
+          customMessageRecord({
+            type: 'notification',
+            level: 'info',
+            content: message,
+          }),
+        ]);
         cleanup();
-        onTerminal({ status: 'completed' });
+        onTerminal(result);
       }),
     );
     offs.push(
       runner.on('failed', (e) => {
         if (!matches(e)) return;
         const evt = e as { error?: string };
+        const result: RunResult = { status: 'failed', ...(evt.error ? { error: evt.error } : {}) };
+        const message = runnerTerminalMessage(result, generatedCount);
+        emit('notification', { level: 'error', message });
+        persist([
+          customMessageRecord({
+            type: 'notification',
+            level: 'error',
+            content: message,
+          }),
+        ]);
         cleanup();
-        onTerminal({ status: 'failed', error: evt.error });
+        onTerminal(result);
       }),
     );
     offs.push(
       runner.on('cancelled', (e) => {
         if (!matches(e)) return;
+        const result: RunResult = { status: 'cancelled' };
+        const message = runnerTerminalMessage(result, generatedCount);
+        emit('notification', { level: 'warning', message });
+        persist([
+          customMessageRecord({
+            type: 'notification',
+            level: 'warning',
+            content: message,
+          }),
+        ]);
         cleanup();
-        onTerminal({ status: 'cancelled' });
+        onTerminal(result);
       }),
     );
     return cleanup;
@@ -2309,19 +3114,28 @@ export class dheeCoreManager {
    * button so cancellation is instant even while the main session
    * is mid-reply.
    */
-  async cancelBackgroundTask(): Promise<boolean> {
-    const mod = await loadRunnersModule();
-    return mod.getBackgroundTaskRunner().cancel();
-  }
+	  async cancelBackgroundTask(projectDir?: string): Promise<boolean> {
+	    const mod = await loadRunnersModule();
+	    const runner = mod.getBackgroundTaskRunner();
+	    if (projectDir) {
+	      const active = runner.getActive();
+	      const activeProjectDir = active?.spec.params?.projectDir ?? active?.spec.projectDir;
+	      if (activeProjectDir !== projectDir) {
+	        return false;
+	      }
+	    }
+	    return runner.cancel();
+	  }
 
   /** Snapshot of the runner's current state (or `{ active: false }`). */
   async getBackgroundTaskStatus(): Promise<{
     active: boolean;
     cancelling?: boolean;
     taskId?: string;
-    kind?: string;
-    projectName?: string;
-    startedAt?: number;
+	    kind?: string;
+	    projectName?: string;
+	    projectDir?: string;
+	    startedAt?: number;
     sessionId?: string;
     currentResource?: RunnerCurrentResource | null;
   }> {
@@ -2329,13 +3143,15 @@ export class dheeCoreManager {
     const runner = mod.getBackgroundTaskRunner();
     const active = runner.getActive();
     if (!active) return { active: false };
-    return {
-      active: true,
-      cancelling: runner.isCancelling?.() ?? false,
-      taskId: active.id,
-      kind: active.spec.kind,
-      projectName: active.spec.projectName,
-      startedAt: active.startedAt,
+	    const activeProjectDir = active.spec.params?.projectDir ?? active.spec.projectDir;
+	    return {
+	      active: true,
+	      cancelling: runner.isCancelling?.() ?? false,
+	      taskId: active.id,
+	      kind: active.spec.kind,
+	      projectName: active.spec.projectName,
+	      ...(activeProjectDir ? { projectDir: activeProjectDir } : {}),
+	      startedAt: active.startedAt,
       sessionId: active.spec.sessionId,
       currentResource: active.currentResource ?? null,
     };
@@ -2456,6 +3272,7 @@ export class dheeCoreManager {
         runner,
         dispatchResult.taskId,
         sessionId ?? `inspector:${projectName}`,
+        projectDir,
         this.lastEventCb,
         (result) => {
           log.info('[redoNode] re-render task terminal', { key, result });
@@ -2468,6 +3285,7 @@ export class dheeCoreManager {
         runner,
         dispatchResult.taskId,
         sessionId ?? `inspector:${projectName}`,
+        projectDir,
         () => {
           /* no renderer sink */
         },
@@ -2523,12 +3341,14 @@ export class dheeCoreManager {
     const f = this.sessionFlags.get(sessionId) ?? {};
     f.piOversight = enabled;
     this.sessionFlags.set(sessionId, f);
+    this.managerModule?.setPiOversight?.(enabled);
   }
 
   setVlmJudge(sessionId: string, enabled: boolean): void {
     const f = this.sessionFlags.get(sessionId) ?? {};
     f.vlmJudge = enabled;
     this.sessionFlags.set(sessionId, f);
+    this.managerModule?.setVLMJudge?.(enabled);
   }
 
   // ── Custom ComfyUI workflow management ─────────────────────────────
@@ -2691,13 +3511,13 @@ export class dheeCoreManager {
         // session manager (no persistence; old behavior).
         let sessionsDir: string | undefined;
         try {
-          const projectSlug = path.basename(projectDir).replace(/[^A-Za-z0-9_\-]+/g, '_');
           const userData = app.getPath?.('userData');
           if (userData) {
-            sessionsDir = path.join(userData, 'pi-sessions', projectSlug);
+            sessionsDir = projectSessionsDirFromDir(userData, projectDir);
             if (!fsExistsSync(sessionsDir)) {
               fsMkdirSync(sessionsDir, { recursive: true });
             }
+            writeProjectSessionMeta(sessionsDir, projectDir);
           }
         } catch {
           sessionsDir = undefined;

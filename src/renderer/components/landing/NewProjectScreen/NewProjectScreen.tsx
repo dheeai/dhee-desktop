@@ -16,6 +16,18 @@
  * labels, single amber accent. Subtle film grain + vignette overlays.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ImagePlus } from 'lucide-react';
+import type {
+  Attachment,
+  ReferenceImagePayload,
+  ReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
+import {
+  attachmentsFromSelectResponse,
+  isReferenceImageLikeAttachment,
+  referenceImagesFromAttachments,
+  withReferenceImageRole,
+} from '../../../../shared/attachmentTypes';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import {
   buildDefaultWorkspaceFolder,
@@ -23,8 +35,10 @@ import {
   resolveDefaultWorkspacePath,
   writePersistedWorkspacePath,
 } from '../../../utils/workspacePathDefaults';
+import { markProjectForAutoStart } from '../../../utils/projectAutoStart';
 import BundleConfigurator from '../../BundleConfigurator/BundleConfigurator';
 import BundleInstall from '../../BundleConfigurator/BundleInstall';
+import AttachmentChip from '../../chat/ChatInput/AttachmentChip';
 import WorkflowImport from '../../BundleConfigurator/WorkflowImport';
 import styles from './NewProjectScreen.module.scss';
 
@@ -59,6 +73,8 @@ interface BundleInputDecl {
 interface BundleSummary {
   id: string;
   version: string;
+  bundleSource?: string;
+  sourceScheme?: 'built-in' | 'user';
   displayName: string;
   summary: string;
   techLine?: string;
@@ -145,6 +161,24 @@ function formatSeconds(s: number): string {
   return `${m}:${String(r).padStart(2, '0')}`;
 }
 
+function mergeSetupReferenceAttachments(
+  current: Attachment[],
+  picked: Attachment[],
+): Attachment[] {
+  const next = [...current];
+  for (const rawAttachment of picked) {
+    if (!isReferenceImageLikeAttachment(rawAttachment)) continue;
+    const attachment = withReferenceImageRole(rawAttachment, 'character');
+    const existingIndex = next.findIndex((item) => item.path === attachment.path);
+    if (existingIndex >= 0) {
+      next[existingIndex] = attachment;
+    } else {
+      next.push(attachment);
+    }
+  }
+  return next;
+}
+
 export default function NewProjectScreen({
   isOpen,
   onClose,
@@ -180,6 +214,35 @@ export default function NewProjectScreen({
   const [workspacePath, setWorkspacePath] = useState<string>('');
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isInstallingBundle, setIsInstallingBundle] = useState(false);
+  // Browse-published-bundles (npm registry search by `dhee-bundle` keyword).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHits, setSearchHits] = useState<
+    Array<{
+      name: string;
+      displayName: string;
+      version: string;
+      description: string;
+      spec: string;
+    }>
+  >([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  // Package names already installed (persisted) — so a published bundle that's
+  // already installed shows in the "Installed" grid, not the "Available" one.
+  const [installedPackageNames, setInstalledPackageNames] = useState<Set<string>>(
+    () => {
+      try {
+        const raw = window.localStorage.getItem('dhee.installedBundlePackages');
+        return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+      } catch {
+        return new Set<string>();
+      }
+    },
+  );
+  const [setupReferenceAttachments, setSetupReferenceAttachments] = useState<
+    Attachment[]
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [nounIndex, setNounIndex] = useState(0);
 
@@ -187,28 +250,33 @@ export default function NewProjectScreen({
   // hasn't picked a bundle yet. Once they pick, freeze the noun so it
   // doesn't distract during form filling.
   useEffect(() => {
-    if (!isOpen) return;
-    if (selectedBundleId) return;
+    if (!isOpen) return undefined;
+    if (selectedBundleId) return undefined;
     const t = setInterval(() => {
       setNounIndex((i) => (i + 1) % ROTATING_NOUNS.length);
     }, NOUN_ROTATE_MS);
     return () => clearInterval(t);
   }, [isOpen, selectedBundleId]);
 
+  const loadBundles = useCallback(async () => {
+    const list =
+      (await window.electron.project.listBundles()) as BundleSummary[];
+    // Picker-eligible bundles only: bundle.json must explicitly
+    // declare BOTH displayName AND summary. Falls back to the full
+    // list if nothing matches (dev environment with no curated
+    // bundles yet).
+    const eligible = list.filter((b) => b.pickerEligible);
+    setBundles(eligible.length > 0 ? eligible : list);
+  }, []);
+
   // Load bundles + initial workspace path on open.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     let cancelled = false;
     (async () => {
       try {
-        const list = (await window.electron.project.listBundles()) as BundleSummary[];
+        await loadBundles();
         if (cancelled) return;
-        // Picker-eligible bundles only: bundle.json must explicitly
-        // declare BOTH displayName AND summary. Falls back to the full
-        // list if nothing matches (dev environment with no curated
-        // bundles yet).
-        const eligible = list.filter((b) => b.pickerEligible);
-        setBundles(eligible.length > 0 ? eligible : list);
       } catch {
         if (!cancelled) setBundles([]);
       }
@@ -244,11 +312,11 @@ export default function NewProjectScreen({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, loadBundles]);
 
   // ESC closes.
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) return undefined;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && !isSubmitting) {
         onClose();
@@ -298,16 +366,21 @@ export default function NewProjectScreen({
   // Apply bundle defaults the moment a bundle is selected (so the form
   // is sensibly populated even before the user touches anything).
   useEffect(() => {
-    if (!selectedBundle) return;
+    if (!selectedBundle) return undefined;
     setInputValues((prev) => {
       const next: Record<string, unknown> = { ...prev };
-      for (const decl of selectedBundle.inputs ?? []) {
-        if (decl.kind === 'project' && next[decl.id] === undefined && decl.default !== undefined) {
+      (selectedBundle.inputs ?? []).forEach((decl) => {
+        if (
+          decl.kind === 'project' &&
+          next[decl.id] === undefined &&
+          decl.default !== undefined
+        ) {
           next[decl.id] = decl.default;
         }
-      }
+      });
       return next;
     });
+    return undefined;
   }, [selectedBundle]);
 
   const storyText = String(inputValues[STORY_INPUT_ID] ?? '');
@@ -332,6 +405,72 @@ export default function NewProjectScreen({
     setError(null);
   }, []);
 
+  const handleInstallBundle = useCallback(async (specArg?: string) => {
+    const packageSpec = (specArg ?? '').trim();
+    if (!packageSpec || isInstallingBundle) return;
+    setError(null);
+    setIsInstallingBundle(true);
+    try {
+      const result = await window.electron.project.installBundlePackage({
+        packageSpec,
+      });
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+      await loadBundles();
+      setSelectedBundleId(result.bundleId);
+      if (result.packageName) {
+        setInstalledPackageNames((prev) => {
+          const next = new Set(prev);
+          next.add(result.packageName);
+          try {
+            window.localStorage.setItem(
+              'dhee.installedBundlePackages',
+              JSON.stringify([...next]),
+            );
+          } catch {
+            /* best-effort persistence */
+          }
+          return next;
+        });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to install bundle package: ${message}`);
+    } finally {
+      setIsInstallingBundle(false);
+    }
+  }, [isInstallingBundle, loadBundles]);
+
+  const handleSearchNpm = useCallback(async () => {
+    setSearchError(null);
+    setIsSearching(true);
+    try {
+      const res = await window.electron.project.searchNpmBundles({
+        query: searchQuery.trim(),
+      });
+      if (res.ok) {
+        setSearchHits(res.hits);
+        if (res.hits.length === 0) setSearchError('No published bundles matched.');
+      } else {
+        setSearchHits([]);
+        setSearchError(res.error);
+      }
+    } catch (err) {
+      setSearchHits([]);
+      setSearchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSearching(false);
+    }
+  }, [searchQuery]);
+
+  // Show published bundles by default — search npm once when the picker opens.
+  useEffect(() => {
+    void handleSearchNpm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleInputChange = useCallback((id: string, value: unknown) => {
     setInputValues((prev) => ({ ...prev, [id]: value }));
   }, []);
@@ -352,12 +491,56 @@ export default function NewProjectScreen({
     }
   }, []);
 
+  const handleSelectReferenceImages = useCallback(async () => {
+    setError(null);
+    try {
+      const result = await window.electron.project.selectAttachment({
+        kinds: ['reference_image'],
+        title: 'Add character reference images',
+        multiple: true,
+      });
+      if (!result.ok) {
+        if (result.error) setError(result.error);
+        return;
+      }
+      const picked = attachmentsFromSelectResponse(result);
+      if (picked.length > 0) {
+        setSetupReferenceAttachments((prev) =>
+          mergeSetupReferenceAttachments(prev, picked),
+        );
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(`Failed to add character images: ${message}`);
+    }
+  }, []);
+
+  const handleRemoveSetupReference = useCallback((id: string) => {
+    setSetupReferenceAttachments((prev) =>
+      prev.filter((attachment) => attachment.id !== id),
+    );
+  }, []);
+
+  const handleSetupReferenceRoleChange = useCallback(
+    (id: string, role: ReferenceImageRole) => {
+      setSetupReferenceAttachments((prev) =>
+        prev.map((attachment) =>
+          attachment.id === id
+            ? withReferenceImageRole(attachment, role)
+            : attachment,
+        ),
+      );
+    },
+    [],
+  );
+
   const handleRoll = useCallback(async () => {
     if (!canRoll || !selectedBundleId || !selectedBundle) return;
     setError(null);
     setIsSubmitting(true);
     try {
-      const folderName = safeFolderName(title) || `production-${productionNumber}`;
+      const folderName =
+        safeFolderName(title) || `production-${productionNumber}`;
       // 1. Make sure parent workspace folder exists, then create the project folder.
       const created = await window.electron.project.createFolder(
         workspacePath,
@@ -365,9 +548,27 @@ export default function NewProjectScreen({
         { source: 'renderer', intent: 'new_project_parent' } as never,
       );
       if (!created) {
-        setError('Could not create the project folder. Check the workspace path and try again.');
+        setError(
+          'Could not create the project folder. Check the workspace path and try again.',
+        );
         setIsSubmitting(false);
         return;
+      }
+
+      let referenceImages: ReferenceImagePayload[] = [];
+      if (setupReferenceAttachments.length > 0) {
+        const imported = await window.electron.project.importReferenceImages({
+          projectDir: created,
+          attachments: setupReferenceAttachments,
+        });
+        if (!imported.ok) {
+          setError(imported.error ?? 'Failed to import character images.');
+          setIsSubmitting(false);
+          return;
+        }
+        referenceImages = referenceImagesFromAttachments(
+          imported.attachments ?? setupReferenceAttachments,
+        );
       }
 
       // 2. Populate project.json + bundle inputs.
@@ -375,7 +576,10 @@ export default function NewProjectScreen({
         projectDir: created,
         name: title.trim(),
         bundleId: selectedBundleId,
+        bundleSource:
+          selectedBundle.bundleSource ?? `built-in:${selectedBundleId}`,
         inputs: inputValues,
+        ...(referenceImages.length > 0 ? { referenceImages } : {}),
       });
       if (!result.ok) {
         setError(result.error);
@@ -385,7 +589,8 @@ export default function NewProjectScreen({
 
       // 3. Open the project. The workspace context flips routing to the
       //    workspace layout; the agent enters a fully-configured project.
-      await openProject(created);
+      markProjectForAutoStart(result.projectDir);
+      await openProject(result.projectDir);
       onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -400,6 +605,7 @@ export default function NewProjectScreen({
     workspacePath,
     productionNumber,
     inputValues,
+    setupReferenceAttachments,
     openProject,
     onClose,
   ]);
@@ -410,7 +616,12 @@ export default function NewProjectScreen({
     <div className={styles.screen}>
       <div className={styles.frame}>
         <header className={styles.header}>
-          <button type="button" className={styles.headerEsc} onClick={onClose} aria-label="Close">
+          <button
+            type="button"
+            className={styles.headerEsc}
+            onClick={onClose}
+            aria-label="Close"
+          >
             ESC
           </button>
           <div className={styles.headerCenter}>
@@ -431,7 +642,43 @@ export default function NewProjectScreen({
           {' ?'}
         </h1>
 
+        {/* Top: search published bundles (npm `dhee-bundle` keyword) or paste a
+            package name. Results merge into the grid below as "Available". */}
+        <div className={styles.bundleInstallRow}>
+          <input
+            type="text"
+            aria-label="search bundles"
+            placeholder="Search bundles, or paste an npm package name…"
+            className={styles.bundleInstallInput}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleSearchNpm();
+            }}
+          />
+          <button
+            type="button"
+            className={styles.bundleInstallButton}
+            disabled={isSearching}
+            onClick={() => void handleSearchNpm()}
+          >
+            {isSearching ? 'Searching' : 'Search'}
+          </button>
+        </div>
+        {searchError ? (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: 'var(--color-text-muted, #999)',
+            }}
+          >
+            {searchError}
+          </div>
+        ) : null}
+
         <div className={styles.bundleGrid}>
+          {/* Installed + built-in bundles — selectable. */}
           {bundles.map((bundle) => {
             const selected = bundle.id === selectedBundleId;
             return (
@@ -441,6 +688,18 @@ export default function NewProjectScreen({
                 onClick={() => handleSelectBundle(bundle.id)}
                 className={`${styles.bundleCard} ${selected ? styles.bundleCardSelected : ''}`}
               >
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-text-muted, #8a8a8a)',
+                    marginBottom: 4,
+                  }}
+                >
+                  Installed
+                </div>
                 <h2 className={styles.bundleName}>{bundle.displayName}</h2>
                 <p className={styles.bundleSummary}>{bundle.summary}</p>
                 {bundle.techLine ? (
@@ -461,6 +720,44 @@ export default function NewProjectScreen({
               </button>
             );
           })}
+
+          {/* Published on npm, not yet installed — install pulls bundle + runners. */}
+          {searchHits
+            .filter((hit) => !installedPackageNames.has(hit.name))
+            .map((hit) => (
+              <div
+                key={hit.name}
+                className={styles.bundleCard}
+                style={{ opacity: 0.7, borderStyle: 'dashed' }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-accent-primary)',
+                    marginBottom: 4,
+                  }}
+                >
+                  Available · npm
+                </div>
+                <h2 className={styles.bundleName}>{hit.displayName}</h2>
+                <p className={styles.bundleSummary}>{hit.description || '—'}</p>
+                <div className={styles.bundleSpec}>
+                  {hit.name} · v{hit.version}
+                </div>
+                <button
+                  type="button"
+                  className={styles.bundleInstallButton}
+                  style={{ marginTop: 10 }}
+                  disabled={isInstallingBundle}
+                  onClick={() => void handleInstallBundle(hit.spec)}
+                >
+                  {isInstallingBundle ? 'Installing…' : 'Install + runners'}
+                </button>
+              </div>
+            ))}
         </div>
 
         <div style={{ marginTop: 12 }}>
@@ -498,15 +795,46 @@ export default function NewProjectScreen({
                 <textarea
                   className={styles.storyTextarea}
                   placeholder={
-                    selectedBundle.inputs?.find((i) => i.id === STORY_INPUT_ID)?.placeholder ??
-                    'Type your story here...'
+                    selectedBundle.inputs?.find((i) => i.id === STORY_INPUT_ID)
+                      ?.placeholder ?? 'Type your story here...'
                   }
                   value={storyText}
-                  onChange={(e) => handleInputChange(STORY_INPUT_ID, e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange(STORY_INPUT_ID, e.target.value)
+                  }
                 />
               </div>
               <div className={styles.storyMeta}>
                 {wordCount} words · {formatSeconds(readSeconds)} read
+              </div>
+
+              <div className={styles.referenceSection}>
+                <div className={styles.referenceHeader}>
+                  <span className={styles.rowLabel}>Characters</span>
+                  <button
+                    type="button"
+                    className={styles.referenceAttachButton}
+                    onClick={handleSelectReferenceImages}
+                    disabled={isSubmitting}
+                    aria-label="Add character reference images"
+                  >
+                    <ImagePlus size={14} />
+                    <span>Add images</span>
+                  </button>
+                </div>
+                {setupReferenceAttachments.length > 0 ? (
+                  <div className={styles.referenceChipRow}>
+                    {setupReferenceAttachments.map((attachment) => (
+                      <AttachmentChip
+                        key={attachment.id}
+                        attachment={attachment}
+                        onRemove={handleRemoveSetupReference}
+                        onReferenceRoleChange={handleSetupReferenceRoleChange}
+                        disabled={isSubmitting}
+                      />
+                    ))}
+                  </div>
+                ) : null}
               </div>
 
               <hr className={styles.divider} style={{ marginTop: '40px' }} />
@@ -588,7 +916,14 @@ export default function NewProjectScreen({
 
               <div className={styles.row}>
                 <span className={styles.rowLabel}>Workspace</span>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center', flex: 1 }}>
+                <div
+                  style={{
+                    display: 'flex',
+                    gap: 12,
+                    alignItems: 'center',
+                    flex: 1,
+                  }}
+                >
                   <input
                     type="text"
                     className={styles.textInput}
@@ -630,7 +965,9 @@ export default function NewProjectScreen({
             disabled={!canRoll}
             onClick={handleRoll}
           >
-            <span className={`${styles.recDot} ${canRoll ? styles.recDotReady : ''}`} />
+            <span
+              className={`${styles.recDot} ${canRoll ? styles.recDotReady : ''}`}
+            />
             <span>{isSubmitting ? 'Rolling…' : 'Roll'}</span>
             <span className={styles.arrow}>→</span>
           </button>

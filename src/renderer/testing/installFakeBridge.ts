@@ -19,6 +19,8 @@ import type {
   ConfigureProjectRequest,
   OkResponse,
   RunTaskRequest,
+  StartRunRequest,
+  StartRunResponse,
   SendResponseRequest,
   CancelTaskRequest,
   CancelTaskResponse,
@@ -32,6 +34,7 @@ import type {
 
 export type ScenarioChannel =
   | 'runTask'
+  | 'startRun'
   | 'sendResponse'
   | 'redoNode'
   | 'focusProject';
@@ -290,6 +293,11 @@ const fakedhee = {
     await whenLastEventFires('runTask', req.task);
     return { ok: true };
   },
+  async startRun(req: StartRunRequest): Promise<StartRunResponse> {
+    record('startRun', req);
+    applyMatchingRules('startRun', req.projectDir);
+    return { ok: true, taskId: 'fake-start-run' };
+  },
   async sendResponse(req: SendResponseRequest): Promise<OkResponse> {
     record('sendResponse', req);
     applyMatchingRules('sendResponse', req.response);
@@ -485,6 +493,37 @@ const fakeElectron = {
       record('project.createFolder', { parent, name, opts });
       return Promise.resolve(
         bridgeReturn('project.createFolder', `${parent}/${name}`),
+      );
+    },
+    initialize: (payload: unknown) => {
+      record('project.initialize', payload);
+      return Promise.resolve(
+        bridgeReturn('project.initialize', {
+          ok: true,
+          projectDir: state.project.directory ?? '/tmp/fake-project.dhee',
+        }),
+      );
+    },
+    listBundles: () => {
+      record('project.listBundles', undefined);
+      return Promise.resolve(bridgeReturn('project.listBundles', []));
+    },
+    installBundlePackage: (payload: unknown) => {
+      record('project.installBundlePackage', payload);
+      return Promise.resolve(
+        bridgeReturn('project.installBundlePackage', {
+          ok: true,
+          packageName: '@dhee/fake-bundle',
+          version: '0.1.0',
+          bundleId: 'fake_bundle',
+          bundleDir: '/tmp/bundles/fake_bundle',
+        }),
+      );
+    },
+    getDefaultWorkspacePath: () => {
+      record('project.getDefaultWorkspacePath', undefined);
+      return Promise.resolve(
+        bridgeReturn('project.getDefaultWorkspacePath', '/tmp/dhee-studios'),
       );
     },
     rename: (p: string) => Promise.resolve(p),

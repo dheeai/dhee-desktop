@@ -21,11 +21,14 @@ import {
   type dheeEventName,
   type CreateSessionRequest,
   type CreateSessionResponse,
+  type RunnerCancelRequest,
   type RunnerCancelResponse,
   type RunnerStatusResponse,
   type ConfigureProjectRequest,
   type OkResponse,
   type RunTaskRequest,
+  type StartRunRequest,
+  type StartRunResponse,
   type ChatPromptRequest,
   type ChatPromptResponse,
   type SendResponseRequest,
@@ -63,8 +66,33 @@ import {
   type GetHistoryRequest,
   type GetHistoryResponse,
 } from '../shared/dheeIpc';
-import { prefixAttachmentsToTask } from '../shared/attachmentTypes';
+import {
+  appendReferenceImagesToTask,
+  prefixAttachmentsToTask,
+  referenceImagesFromAttachments,
+  type Attachment,
+} from '../shared/attachmentTypes';
 import type { dheeCoreManager, dheeCoreEvent } from './dheeCoreManager';
+import { addReferenceImageInputsToProject } from './characterReferenceImport';
+
+async function prepareTaskWithAttachments(
+  task: string,
+  attachments: Attachment[] | undefined,
+  projectDir: string | undefined,
+): Promise<string> {
+  const referenceImages = referenceImagesFromAttachments(attachments);
+  if (projectDir && referenceImages.length > 0) {
+    await addReferenceImageInputsToProject({
+      projectDir,
+      images: referenceImages,
+    });
+  }
+
+  return appendReferenceImagesToTask(
+    prefixAttachmentsToTask(task, attachments),
+    referenceImages,
+  );
+}
 
 /**
  * Wire the bridge. Idempotent — if the channels are already registered
@@ -113,7 +141,10 @@ export function registerdheeIpcBridge(
   ipcMain.handle(
     dhee_CHANNELS.GET_HISTORY,
     (_event, req: GetHistoryRequest): GetHistoryResponse => {
-      const snapshot = manager.getSessionHistorySnapshot(req.sessionId);
+      const snapshot = manager.getSessionHistorySnapshot(
+        req.sessionId,
+        req.projectDir,
+      );
       const history =
         snapshot && (snapshot.messages.length > 0 || snapshot.toolCalls.length > 0)
           ? (snapshot as GetHistoryResponse['history'])
@@ -148,7 +179,11 @@ export function registerdheeIpcBridge(
       // pi-agent's skill prompts (e.g. comfyui-workflow-integration)
       // see a one-line marker per attachment and call the right tool
       // without us having to extend dhee-core's runTask signature.
-      const finalTask = prefixAttachmentsToTask(req.task, req.attachments);
+      const finalTask = await prepareTaskWithAttachments(
+        req.task,
+        req.attachments,
+        req.projectDir,
+      );
       const result = await manager.runTask(
         req.sessionId,
         finalTask,
@@ -158,6 +193,17 @@ export function registerdheeIpcBridge(
       return result.status === 'failed'
         ? { ok: false, ...(result.error ? { error: result.error } : {}) }
         : { ok: true };
+    },
+  );
+
+  ipcMain.handle(
+    dhee_CHANNELS.START_RUN,
+    async (_event, req: StartRunRequest): Promise<StartRunResponse> => {
+      const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
+      return manager.startRun(req.sessionId, {
+        projectDir: req.projectDir,
+        ...(req.stopAtStage ? { stopAtStage: req.stopAtStage } : {}),
+      }, eventCb);
     },
   );
 
@@ -173,7 +219,12 @@ export function registerdheeIpcBridge(
     dhee_CHANNELS.CHAT_PROMPT,
     async (_event, req: ChatPromptRequest): Promise<ChatPromptResponse> => {
       const eventCb = (e: dheeCoreEvent) => publishEvent(window, e);
-      return manager.chatPrompt(req.sessionId, req.message, eventCb);
+      const finalMessage = await prepareTaskWithAttachments(
+        req.message,
+        req.attachments,
+        req.projectDir,
+      );
+      return manager.chatPrompt(req.sessionId, finalMessage, eventCb);
     },
   );
 
@@ -206,8 +257,8 @@ export function registerdheeIpcBridge(
 
   ipcMain.handle(
     dhee_CHANNELS.RUNNER_CANCEL,
-    async (): Promise<RunnerCancelResponse> => {
-      return { cancelled: await manager.cancelBackgroundTask() };
+    async (_event, req?: RunnerCancelRequest): Promise<RunnerCancelResponse> => {
+      return { cancelled: await manager.cancelBackgroundTask(req?.projectDir) };
     },
   );
 
