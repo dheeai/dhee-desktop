@@ -215,6 +215,13 @@ export default function NewProjectScreen({
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInstallingBundle, setIsInstallingBundle] = useState(false);
+  // Browse-published-bundles (npm registry search by `dhee-bundle` keyword).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHits, setSearchHits] = useState<
+    Array<{ name: string; version: string; description: string; spec: string }>
+  >([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
   const [setupReferenceAttachments, setSetupReferenceAttachments] = useState<
     Attachment[]
   >([]);
@@ -383,8 +390,8 @@ export default function NewProjectScreen({
     setError(null);
   }, []);
 
-  const handleInstallBundle = useCallback(async () => {
-    const packageSpec = npmBundleSpec.trim();
+  const handleInstallBundle = useCallback(async (specArg?: string) => {
+    const packageSpec = (specArg ?? npmBundleSpec).trim();
     if (!packageSpec || isInstallingBundle) return;
     setError(null);
     setIsInstallingBundle(true);
@@ -412,6 +419,28 @@ export default function NewProjectScreen({
       setError(`Failed to install bundle package: ${message}`);
     });
   }, [handleInstallBundle]);
+
+  const handleSearchNpm = useCallback(async () => {
+    setSearchError(null);
+    setIsSearching(true);
+    try {
+      const res = await window.electron.project.searchNpmBundles({
+        query: searchQuery.trim(),
+      });
+      if (res.ok) {
+        setSearchHits(res.hits);
+        if (res.hits.length === 0) setSearchError('No published bundles matched.');
+      } else {
+        setSearchHits([]);
+        setSearchError(res.error);
+      }
+    } catch (err) {
+      setSearchHits([]);
+      setSearchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSearching(false);
+    }
+  }, [searchQuery]);
 
   const handleInputChange = useCallback((id: string, value: unknown) => {
     setInputValues((prev) => ({ ...prev, [id]: value }));
@@ -637,6 +666,66 @@ export default function NewProjectScreen({
               </button>
             );
           })}
+        </div>
+
+        {/* Browse + install published bundles from npm (keyword `dhee-bundle`). */}
+        <div style={{ marginTop: 24 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              type="text"
+              aria-label="search published bundles"
+              placeholder="Search published bundles on npm…"
+              className={styles.bundleInstallInput}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void handleSearchNpm();
+              }}
+            />
+            <button
+              type="button"
+              className={styles.bundleInstallButton}
+              disabled={isSearching}
+              onClick={() => void handleSearchNpm()}
+            >
+              {isSearching ? 'Searching' : 'Search npm'}
+            </button>
+          </div>
+          {searchError ? (
+            <div
+              style={{
+                marginTop: 8,
+                fontSize: 12,
+                color: 'var(--color-text-muted, #999)',
+              }}
+            >
+              {searchError}
+            </div>
+          ) : null}
+          {searchHits.length > 0 ? (
+            <div className={styles.bundleGrid} style={{ marginTop: 12 }}>
+              {searchHits.map((hit) => (
+                <div key={hit.name} className={styles.bundleCard}>
+                  <h2 className={styles.bundleName}>{hit.name}</h2>
+                  <p className={styles.bundleSummary}>
+                    {hit.description || '—'}
+                  </p>
+                  <div className={styles.bundleSpec}>npm · v{hit.version}</div>
+                  <button
+                    type="button"
+                    className={styles.bundleInstallButton}
+                    style={{ marginTop: 10 }}
+                    disabled={isInstallingBundle}
+                    onClick={() => void handleInstallBundle(hit.spec)}
+                  >
+                    {isInstallingBundle
+                      ? 'Installing…'
+                      : 'Install bundle + runners'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
 
         <div style={{ marginTop: 12 }}>

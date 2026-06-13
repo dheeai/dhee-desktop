@@ -82,8 +82,29 @@ import {
 import fileSystemManager from './fileSystemManager';
 import {
   defaultUserBundlesDir,
+  defaultRunnersNodeModulesDir,
   installDheeBundleFromNpm,
 } from './services/npmBundleInstaller';
+import { searchNpmBundles } from './services/npmBundleSearch';
+
+/**
+ * Tool ids the engine provides built-in (mirrors dhee-core src/dag/runners/index.ts).
+ * A bundle's runnerPackages entry for any of these is skipped on install — only
+ * EXTERNAL runners get pulled. Drift here is non-fatal: a missed built-in just
+ * causes a (failed, non-blocking) install attempt of its package hint.
+ */
+const BUILTIN_RUNNER_TOOLS = [
+  'llm.generate',
+  'comfy.tti',
+  'comfy.fl2v',
+  'comfy.klein',
+  'comfy.qwen_edit_chain',
+  'comfy.ltx_director',
+  'ffmpeg.kenburns',
+  'ffmpeg.shot_clip',
+  'ffmpeg.concat',
+  'vlm.judge',
+] as const;
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import type {
@@ -1618,23 +1639,22 @@ ipcMain.handle(
   async (
     _event,
     payload: { packageSpec: string; registryUrl?: string },
-  ): Promise<
-    | {
-        ok: true;
-        packageName: string;
-        version: string;
-        bundleId: string;
-        bundleDir: string;
-      }
-    | { ok: false; error: string }
-  > => {
-    const targetBundlesDir = defaultUserBundlesDir(app.getPath('home'));
+  ) => {
+    const home = app.getPath('home');
     return installDheeBundleFromNpm({
       packageSpec: payload.packageSpec,
       registryUrl: payload.registryUrl,
-      targetBundlesDir,
+      targetBundlesDir: defaultUserBundlesDir(home),
+      runnersNodeModulesDir: defaultRunnersNodeModulesDir(home),
+      builtinTools: BUILTIN_RUNNER_TOOLS,
     });
   },
+);
+
+ipcMain.handle(
+  'bundle:search-npm',
+  async (_event, payload: { query?: string; registryUrl?: string }) =>
+    searchNpmBundles({ query: payload?.query, registryUrl: payload?.registryUrl }),
 );
 
 ipcMain.handle(
