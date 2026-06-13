@@ -2053,6 +2053,13 @@ export class dheeCoreManager {
       if (devEnv?.projectsDir) {
         // `<studiosDir>/bundles` — sibling of project directories.
         process.env.DHEE_USER_BUNDLES_DIR = path.join(devEnv.projectsDir, 'bundles');
+        // `<studiosDir>/runners` — where the bundle installer pulls EXTERNAL
+        // runner packages. Point both the installer (DHEE_RUNNERS_DIR) and the
+        // engine's npm-runner discovery (DHEE_NODE_MODULES_DIRS) at the same
+        // node_modules so an installed runner is found out of the box.
+        const runnersBase = path.join(devEnv.projectsDir, 'runners');
+        process.env.DHEE_RUNNERS_DIR = runnersBase;
+        process.env.DHEE_NODE_MODULES_DIRS = path.join(runnersBase, 'node_modules');
       }
     } catch {
       // best-effort; bundleSource still falls through to its source-tree

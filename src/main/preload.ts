@@ -330,6 +330,28 @@ const projectBridge = {
     return ipcRenderer.invoke('bundle:install-npm', payload);
   },
   /**
+   * Search the npm registry for published Dhee bundles (keyword `dhee-bundle`).
+   * Powers the picker's "browse published bundles" section.
+   */
+  searchNpmBundles(payload?: {
+    query?: string;
+    registryUrl?: string;
+  }): Promise<
+    | {
+        ok: true;
+        hits: Array<{
+          name: string;
+          displayName: string;
+          version: string;
+          description: string;
+          spec: string;
+        }>;
+      }
+    | { ok: false; error: string }
+  > {
+    return ipcRenderer.invoke('bundle:search-npm', payload ?? {});
+  },
+  /**
    * Enumerate every available bundle's metadata for the Production
    * Slate's bundle picker. Pre-agent, pure read of bundle.json files
    * across the search-root chain.

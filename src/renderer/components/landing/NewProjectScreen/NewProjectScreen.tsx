@@ -215,12 +215,34 @@ export default function NewProjectScreen({
   const [productionNumber, setProductionNumber] = useState<number>(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isInstallingBundle, setIsInstallingBundle] = useState(false);
+  // Browse-published-bundles (npm registry search by `dhee-bundle` keyword).
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchHits, setSearchHits] = useState<
+    Array<{
+      name: string;
+      displayName: string;
+      version: string;
+      description: string;
+      spec: string;
+    }>
+  >([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  // Package names already installed (persisted) — so a published bundle that's
+  // already installed shows in the "Installed" grid, not the "Available" one.
+  const [installedPackageNames, setInstalledPackageNames] = useState<Set<string>>(
+    () => {
+      try {
+        const raw = window.localStorage.getItem('dhee.installedBundlePackages');
+        return new Set(raw ? (JSON.parse(raw) as string[]) : []);
+      } catch {
+        return new Set<string>();
+      }
+    },
+  );
   const [setupReferenceAttachments, setSetupReferenceAttachments] = useState<
     Attachment[]
   >([]);
-  const [npmBundleSpec, setNpmBundleSpec] = useState(
-    '@dhee_ai/youtube-short-bundle',
-  );
   const [error, setError] = useState<string | null>(null);
   const [nounIndex, setNounIndex] = useState(0);
 
@@ -383,8 +405,8 @@ export default function NewProjectScreen({
     setError(null);
   }, []);
 
-  const handleInstallBundle = useCallback(async () => {
-    const packageSpec = npmBundleSpec.trim();
+  const handleInstallBundle = useCallback(async (specArg?: string) => {
+    const packageSpec = (specArg ?? '').trim();
     if (!packageSpec || isInstallingBundle) return;
     setError(null);
     setIsInstallingBundle(true);
@@ -398,20 +420,56 @@ export default function NewProjectScreen({
       }
       await loadBundles();
       setSelectedBundleId(result.bundleId);
+      if (result.packageName) {
+        setInstalledPackageNames((prev) => {
+          const next = new Set(prev);
+          next.add(result.packageName);
+          try {
+            window.localStorage.setItem(
+              'dhee.installedBundlePackages',
+              JSON.stringify([...next]),
+            );
+          } catch {
+            /* best-effort persistence */
+          }
+          return next;
+        });
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       setError(`Failed to install bundle package: ${message}`);
     } finally {
       setIsInstallingBundle(false);
     }
-  }, [isInstallingBundle, loadBundles, npmBundleSpec]);
+  }, [isInstallingBundle, loadBundles]);
 
-  const queueInstallBundle = useCallback(() => {
-    handleInstallBundle().catch((err) => {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(`Failed to install bundle package: ${message}`);
-    });
-  }, [handleInstallBundle]);
+  const handleSearchNpm = useCallback(async () => {
+    setSearchError(null);
+    setIsSearching(true);
+    try {
+      const res = await window.electron.project.searchNpmBundles({
+        query: searchQuery.trim(),
+      });
+      if (res.ok) {
+        setSearchHits(res.hits);
+        if (res.hits.length === 0) setSearchError('No published bundles matched.');
+      } else {
+        setSearchHits([]);
+        setSearchError(res.error);
+      }
+    } catch (err) {
+      setSearchHits([]);
+      setSearchError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsSearching(false);
+    }
+  }, [searchQuery]);
+
+  // Show published bundles by default — search npm once when the picker opens.
+  useEffect(() => {
+    void handleSearchNpm();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleInputChange = useCallback((id: string, value: unknown) => {
     setInputValues((prev) => ({ ...prev, [id]: value }));
@@ -584,30 +642,43 @@ export default function NewProjectScreen({
           {' ?'}
         </h1>
 
+        {/* Top: search published bundles (npm `dhee-bundle` keyword) or paste a
+            package name. Results merge into the grid below as "Available". */}
         <div className={styles.bundleInstallRow}>
           <input
             type="text"
-            aria-label="npm bundle package"
+            aria-label="search bundles"
+            placeholder="Search bundles, or paste an npm package name…"
             className={styles.bundleInstallInput}
-            value={npmBundleSpec}
-            onChange={(e) => setNpmBundleSpec(e.target.value)}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                queueInstallBundle();
-              }
+              if (e.key === 'Enter') void handleSearchNpm();
             }}
           />
           <button
             type="button"
             className={styles.bundleInstallButton}
-            disabled={isInstallingBundle || npmBundleSpec.trim().length === 0}
-            onClick={queueInstallBundle}
+            disabled={isSearching}
+            onClick={() => void handleSearchNpm()}
           >
-            {isInstallingBundle ? 'Installing' : 'Install bundle'}
+            {isSearching ? 'Searching' : 'Search'}
           </button>
         </div>
+        {searchError ? (
+          <div
+            style={{
+              marginTop: 8,
+              fontSize: 12,
+              color: 'var(--color-text-muted, #999)',
+            }}
+          >
+            {searchError}
+          </div>
+        ) : null}
 
         <div className={styles.bundleGrid}>
+          {/* Installed + built-in bundles — selectable. */}
           {bundles.map((bundle) => {
             const selected = bundle.id === selectedBundleId;
             return (
@@ -617,6 +688,18 @@ export default function NewProjectScreen({
                 onClick={() => handleSelectBundle(bundle.id)}
                 className={`${styles.bundleCard} ${selected ? styles.bundleCardSelected : ''}`}
               >
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-text-muted, #8a8a8a)',
+                    marginBottom: 4,
+                  }}
+                >
+                  Installed
+                </div>
                 <h2 className={styles.bundleName}>{bundle.displayName}</h2>
                 <p className={styles.bundleSummary}>{bundle.summary}</p>
                 {bundle.techLine ? (
@@ -637,6 +720,44 @@ export default function NewProjectScreen({
               </button>
             );
           })}
+
+          {/* Published on npm, not yet installed — install pulls bundle + runners. */}
+          {searchHits
+            .filter((hit) => !installedPackageNames.has(hit.name))
+            .map((hit) => (
+              <div
+                key={hit.name}
+                className={styles.bundleCard}
+                style={{ opacity: 0.7, borderStyle: 'dashed' }}
+              >
+                <div
+                  style={{
+                    fontSize: 10,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    textTransform: 'uppercase',
+                    color: 'var(--color-accent-primary)',
+                    marginBottom: 4,
+                  }}
+                >
+                  Available · npm
+                </div>
+                <h2 className={styles.bundleName}>{hit.displayName}</h2>
+                <p className={styles.bundleSummary}>{hit.description || '—'}</p>
+                <div className={styles.bundleSpec}>
+                  {hit.name} · v{hit.version}
+                </div>
+                <button
+                  type="button"
+                  className={styles.bundleInstallButton}
+                  style={{ marginTop: 10 }}
+                  disabled={isInstallingBundle}
+                  onClick={() => void handleInstallBundle(hit.spec)}
+                >
+                  {isInstallingBundle ? 'Installing…' : 'Install + runners'}
+                </button>
+              </div>
+            ))}
         </div>
 
         <div style={{ marginTop: 12 }}>
