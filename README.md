@@ -174,3 +174,16 @@ npm test            # Jest unit tests
 npm run test:e2e    # Playwright end-to-end
 npm run lint
 ```
+
+## Release downloads
+
+![Installer downloads per release](data/downloads.png)
+
+GitHub exposes only a cumulative download counter per release asset (no history),
+and counts uploaded assets — not `git clone` or the auto-generated source
+archives. The [`track-downloads`](.github/workflows/track-downloads.yml) workflow
+snapshots the counter daily into [`data/downloads.jsonl`](data/downloads.jsonl)
+and regenerates the chart above (real installer downloads — `.dmg`/`.exe`/`.AppImage`,
+excluding `.yml`/`.blockmap` auto-updater traffic). The trend builds from the day
+the workflow was enabled.
+

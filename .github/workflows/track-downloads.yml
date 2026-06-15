@@ -1,0 +1,65 @@
+name: Track release downloads
+
+# GitHub stores only a cumulative download counter per release asset — no history.
+# This job snapshots the counter daily into data/downloads.jsonl (a long-format
+# time series), renders data/downloads.png, and commits both. The trend is built
+# from the day this is turned on; GitHub cannot backfill history it never stored.
+
+on:
+  schedule:
+    - cron: '17 3 * * *'   # daily 03:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: track-downloads
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Snapshot download counts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p data
+          DATE=$(date -u +%F)
+          if [ -f data/downloads.jsonl ] && grep -q "\"date\":\"$DATE\"" data/downloads.jsonl; then
+            echo "Already snapshotted for $DATE — skipping append."
+          else
+            # installers = real human downloads (.dmg/.exe/.AppImage); total = all assets
+            # (incl. .yml / .blockmap auto-updater machinery). Store both, plot installers.
+            gh api --paginate repos/${{ github.repository }}/releases \
+              --jq '.[] | {
+                      tag: .tag_name,
+                      installers: ([.assets[] | select(.name | test("\\.(dmg|exe|AppImage)$")) | .download_count] | add // 0),
+                      total: ([.assets[].download_count] | add // 0)
+                    }' \
+            | jq -c --arg d "$DATE" '. + {date: $d}' >> data/downloads.jsonl
+            echo "Appended snapshot for $DATE."
+          fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - run: pip install --quiet matplotlib
+
+      - run: python scripts/plot_downloads.py
+
+      - name: Commit data + chart
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/downloads.jsonl data/downloads.png
+          if git diff --staged --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "chore: snapshot release downloads $(date -u +%F)"
+            git push
+          fi
