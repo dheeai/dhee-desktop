@@ -421,6 +421,13 @@ export function CardDetailModal({ instance, projectDir, headlineField, onClose, 
       void startEdit();
       return;
     }
+    if (a === 'download') {
+      if (projectDir && instance.outputPath) {
+        const srcPath = `${projectDir}/${instance.outputPath}`;
+        void window.electron.project.saveMediaFile(srcPath, instance.outputPath);
+      }
+      return;
+    }
     onAction(a, instance);
   }
 
