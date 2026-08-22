@@ -3,7 +3,7 @@
  * `.dhee/events.jsonl` into the `{nodes: {key: {status,outputPath}}}`
  * shape that `resolveTileDisplay` reads to find a project's thumbnail.
  *
- * Why this exists separately from kshana-core's full `projectWalkState`:
+ * Why this exists separately from dhee-core's full `projectWalkState`:
  * the desktop's landing tile only needs to know "what's completed,
  * what's its outputPath." It does NOT need branches, versions, costs,
  * the full event-source machinery. A 30-line fold beats coupling the

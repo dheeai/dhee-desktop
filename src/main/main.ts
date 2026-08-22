@@ -86,25 +86,8 @@ import {
   installDheeBundleFromNpm,
 } from './services/npmBundleInstaller';
 import { searchNpmBundles } from './services/npmBundleSearch';
-
-/**
- * Tool ids the engine provides built-in (mirrors dhee-core src/dag/runners/index.ts).
- * A bundle's runnerPackages entry for any of these is skipped on install — only
- * EXTERNAL runners get pulled. Drift here is non-fatal: a missed built-in just
- * causes a (failed, non-blocking) install attempt of its package hint.
- */
-const BUILTIN_RUNNER_TOOLS = [
-  'llm.generate',
-  'comfy.tti',
-  'comfy.fl2v',
-  'comfy.klein',
-  'comfy.qwen_edit_chain',
-  'comfy.ltx_director',
-  'ffmpeg.kenburns',
-  'ffmpeg.shot_clip',
-  'ffmpeg.concat',
-  'vlm.judge',
-] as const;
+import { BUILTIN_RUNNER_TOOLS } from './builtinRunnerTools';
+import { ensureProjectExternalRunners } from './services/ensureBundleRunners';
 import type { FileChangeEvent } from '../shared/fileSystemTypes';
 import type { ChatExportPayload, ChatExportResult } from '../shared/chatTypes';
 import type {
@@ -1675,7 +1658,7 @@ ipcMain.handle(
   ): Promise<{ ok: true; projectDir: string } | { ok: false; error: string }> => {
     try {
       // Indirect the module path through a variable so the TS compiler
-      // doesn't try to resolve types statically — kshana-core's dist
+      // doesn't try to resolve types statically — dhee-core's dist
       // ships without .d.ts (tsup `dts: false`). Same pattern as
       // dheeCoreManager.ts's `loadDagModule`.
       const dagModulePath = 'dhee-core/dag';
@@ -1690,6 +1673,13 @@ ipcMain.handle(
         typeof cap === 'number' && cap > 0 ? { ...payload, budgetCapUsd: cap } : payload;
       const result = mod.initializeProject(enriched);
       if (result.ok) {
+        const runnerEnsure = await ensureProjectExternalRunners(
+          result.projectDir,
+          app.getPath('home'),
+        );
+        if (!runnerEnsure.ok) {
+          return { ok: false, error: runnerEnsure.error };
+        }
         try {
           await seedInitialProjectChatHistory({
             userDataDir: app.getPath('userData'),
@@ -2124,6 +2114,58 @@ ipcMain.handle('project:save-video-file', async () => {
   }
   return result.filePath;
 });
+
+// ── Save individual media file (image, video, audio) ─────────────────
+ipcMain.handle(
+  'project:save-media-file',
+  async (
+    _event,
+    sourcePath: string,
+    defaultName?: string,
+  ): Promise<string | null> => {
+    if (!mainWindow) return null;
+    const ext = path.extname(defaultName || sourcePath).toLowerCase();
+    const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    const videoExts = ['.mp4', '.webm', '.mov', '.avi', '.mkv'];
+    const audioExts = ['.wav', '.mp3', '.ogg', '.flac', '.m4a'];
+
+    let filterName = 'Media Files';
+    let filterExts = ['*'];
+    if (imageExts.includes(ext)) {
+      filterName = 'Image Files';
+      filterExts = ext === '.jpeg' ? ['jpg', 'jpeg'] : [ext.replace('.', '')];
+    } else if (videoExts.includes(ext)) {
+      filterName = 'Video Files';
+      filterExts = [ext.replace('.', '')];
+    } else if (audioExts.includes(ext)) {
+      filterName = 'Audio Files';
+      filterExts = [ext.replace('.', '')];
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+    const baseName = defaultName
+      ? `${path.basename(defaultName, ext)}-${timestamp}${ext}`
+      : `dhee-media-${timestamp}${ext || '.png'}`;
+
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Save Media',
+      defaultPath: baseName,
+      filters: [
+        { name: filterName, extensions: filterExts },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    });
+    if (result.canceled || !result.filePath) return null;
+
+    try {
+      await fs.copyFile(sourcePath, result.filePath);
+      return result.filePath;
+    } catch (err) {
+      console.error('[save-media-file] copy failed', err);
+      return null;
+    }
+  },
+);
 
 ipcMain.handle(
   'project:export-chat-json',
