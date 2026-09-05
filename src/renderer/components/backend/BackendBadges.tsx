@@ -1,6 +1,6 @@
 /**
  * Three little pills — LLM / Comfy / VLM — each showing whether the
- * lane is hitting Kshana Cloud or running locally. Used in the
+ * lane is hitting dhee Cloud or running locally. Used in the
  * landing-screen sidebar AND the in-project StatusBar so the user
  * doesn't have to leave the project view to see what mode they're
  * running against.

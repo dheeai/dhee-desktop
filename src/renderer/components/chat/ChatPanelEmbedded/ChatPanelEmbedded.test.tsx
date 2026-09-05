@@ -1278,7 +1278,7 @@ describe('ChatPanelEmbedded', () => {
     // Without this filter, every line of `bash ls -la` and every
     // file Read by pi-agent would dump its contents into the chat
     // as progress rows. The user only wants to see dhee_run_to /
-    // kshana_render_* progress; everything else is internal noise.
+    // dhee_render_* progress; everything else is internal noise.
     const { container } = renderPanel();
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(() => {

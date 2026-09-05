@@ -228,7 +228,7 @@ describe('renderBreakdownAsMarkdown — assembled scene shape', () => {
 });
 
 describe('renderBreakdownAsMarkdown — firstFrameAnchor surfacing', () => {
-  // The visual-continuity anchor is written by kshana-core's
+  // The visual-continuity anchor is written by dhee-core's
   // sceneVideoPromptAssembler. It tells the user (and the image-edit
   // pipeline) whether this shot's first frame chains on a prior
   // shot's last frame. Surface it on every shot's markdown card so

@@ -13,8 +13,8 @@
  *   - breakdowns — scene shot plan, per-shot breakdown, assembled
  *                  scene breakdown JSONs (the three layers of the
  *                  hierarchical scene-breakdown flow added in
- *                  kshana-core's feat/hierarchical-shot-breakdown).
- *   - failures   — `.failed` sidecars produced by kshana-core when
+ *                  dhee-core's feat/hierarchical-shot-breakdown).
+ *   - failures   — `.failed` sidecars produced by dhee-core when
  *                  an LLM output failed validation + repair + retry.
  *                  Contains the raw broken content so the user can
  *                  inspect what the model actually produced.
@@ -49,7 +49,7 @@ export interface PlanFile {
 
 const MD_RE = /\.md$/i;
 
-// Hierarchical scene-breakdown JSONs (kshana-core feat/hierarchical-shot-breakdown).
+// Hierarchical scene-breakdown JSONs (dhee-core feat/hierarchical-shot-breakdown).
 // Three flavors all live under `prompts/videos/scenes/`:
 //
 //   scene_N.plan.json          — Stage A: the lightweight shot plan
@@ -62,7 +62,7 @@ const PLAN_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.plan\.json$/;
 const SHOT_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.shots\/(\d+)\.json$/;
 const ASSEMBLED_SCENE_JSON_RE = /^prompts\/videos\/scenes\/scene_(\d+)\.json$/;
 
-// `.failed` sidecars: kshana-core writes these next to any artifact
+// `.failed` sidecars: dhee-core writes these next to any artifact
 // whose LLM output failed validation + repair + retry. The companion
 // `.failed.error` carries the validation message; we surface the
 // .failed file as the entry and co-read .failed.error at view time
