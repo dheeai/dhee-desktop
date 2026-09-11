@@ -266,7 +266,7 @@ describe('resolveTileDisplay', () => {
     ]);
   });
 
-  it('whacky bundle: music album shape works without any kshana-core code changes', async () => {
+  it('whacky bundle: music album shape works without any dhee-core code changes', async () => {
     const album = bundle({
       nodes: [
         { id: 'cover_art', kind: 'stage', displayCapability: 'music.cover_art', outputs: { format: 'image', pattern: 'cover.png' } },

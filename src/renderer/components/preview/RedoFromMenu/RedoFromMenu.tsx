@@ -99,7 +99,7 @@ export default function RedoFromMenu() {
       return;
     }
 
-    // source='redo_from_menu' tells kshana-core to SKIP emitting the
+    // source='redo_from_menu' tells dhee-core to SKIP emitting the
     // supervisor `user_invalidate` event. Without that skip, pi-agent
     // receives a "DO NOT auto-dispatch" instruction in the same turn
     // as the runTask we send next, and the dispatch silently fails.
@@ -128,10 +128,10 @@ export default function RedoFromMenu() {
     // project was already "complete" and skipped the dispatch. "Redo"
     // should mean "redo".
     const projectDirName =
-      projectDirectory.split('/').pop()?.replace(/\.kshana$/i, '') || 'project';
+      projectDirectory.split('/').pop()?.replace(/\.dhee$/i, '') || 'project';
     const params = `project="${projectDirName}" projectDir="${projectDirectory}"`;
     const task =
-      `Continue running the kshana pipeline for ${params} all the way to ` +
+      `Continue running the dhee pipeline for ${params} all the way to ` +
       'completion. Call dhee_run_to with no stage so it runs every pending ' +
       'node to the end — DO NOT skip the call even if status appears complete, ' +
       'because invalidation just flipped node(s) back to pending. Stream progress ' +

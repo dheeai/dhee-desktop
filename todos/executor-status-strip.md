@@ -42,7 +42,7 @@ Timeline + opens the matching Prompts card.
 - `src/renderer/components/layout/WorkspaceLayout/WorkspaceLayout.tsx:45-71` —
   polls `window.dhee.runnerStatus()` every 1500ms; returns `{ active: boolean }`
   only. No per-node phase information.
-- `src/core/planner/ExecutorAgent.ts` (in kshana-core) — emits `stream_chunk`
+- `src/core/planner/ExecutorAgent.ts` (in dhee-core) — emits `stream_chunk`
   lines like `[2/5] Working on shot 2...`; does not emit structured per-node
   state transitions.
 - Mockup: `todos/mockups/executor-status-strip.html` — open in any browser,
@@ -84,7 +84,7 @@ Timeline + opens the matching Prompts card.
 
 ## Required core-side change
 
-A new structured event channel from `kshana-core`'s `ExecutorAgent` to
+A new structured event channel from `dhee-core`'s `ExecutorAgent` to
 `dhee-desktop`'s main process, emitted *alongside* the existing
 `stream_chunk` text. Proposed shape:
 
@@ -142,7 +142,7 @@ demo video. Building it cold now decorates the desktop app for the existing
 user base only; building it bundled with the push gives it the audience it
 needs to matter.
 
-Predecessor: the `executor:node-state` IPC event in kshana-core. That core
+Predecessor: the `executor:node-state` IPC event in dhee-core. That core
 change can land independently and is also useful for telemetry/logging — so
 ship the core event ahead of the renderer work if convenient.
 
