@@ -105,7 +105,7 @@ export interface AppSettings {
    *
    * dheeCoreManager forwards every entry as `ENDPOINT_<name>` env var
    * (dots in the name → underscores in the key) before spawning the
-   * kshana-core process. Empty / missing entries are not forwarded.
+   * dhee-core process. Empty / missing entries are not forwarded.
    *
    * Defaults to a record seeded with public.cloud (when normalized).
    * Optional in the type so legacy settings.json blobs without the

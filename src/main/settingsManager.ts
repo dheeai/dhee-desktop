@@ -304,7 +304,7 @@ function decryptCredentialFields(s: AppSettings): AppSettings {
 
 /**
  * Encrypt credential fields before persisting. The on-disk copy ends
- * up with `__kshana_enc_v1__<base64>` envelopes for every API key;
+ * up with `__dhee_enc_v1__<base64>` envelopes for every API key;
  * URLs / model names / etc. stay plaintext for debuggability.
  */
 function encryptCredentialFields(s: AppSettings): AppSettings {
