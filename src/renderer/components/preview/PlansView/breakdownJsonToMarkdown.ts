@@ -65,7 +65,7 @@ interface Shot {
   characters?: string[];
   setting?: string | null;
   shotType?: string;
-  // First-frame visual-continuity anchor (kshana-core feat/hierarchical-
+  // First-frame visual-continuity anchor (dhee-core feat/hierarchical-
   // shot-breakdown). Tells the image-edit pipeline whether this shot
   // chains on a prior frame or starts fresh.
   firstFrameAnchor?: FirstFrameAnchor | null;

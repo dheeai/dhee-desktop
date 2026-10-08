@@ -53,7 +53,7 @@ references, (c) if not, can we **download / install / remap** to close the gap, 
   (node-class→node-class, per-workflow/per-node, validated against `/object_info`). Persisted at
   `~/.dhee/workflow-aliases/<endpoint-slug>/aliases.json`.
 - **Bundle discovery** — `src/dag/listBundles.ts` (searches `DHEE_USER_BUNDLES_DIR`,
-  `DHEE_APP_BUNDLES_DIR`, `~/.kshana/bundles`, repo `src/dag/bundles`). `pickerEligible` gate.
+  `DHEE_APP_BUNDLES_DIR`, `~/.dhee/bundles`, repo `src/dag/bundles`). `pickerEligible` gate.
 - **Bundle resolution** — `src/dag/bundleSource.ts` (`built-in:` / `user:` / reserved `registry:`).
 - **Desktop wiring** — `settings:update` (applies `Partial<AppSettings>` + restarts engine +
   rebroadcasts), `provider-diagnostics:run`, `account:sign-in`, `bundle:list`, `project:initialize`.

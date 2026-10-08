@@ -3,7 +3,7 @@
  *
  * The dropdown in the PreviewPanel header uses these labels — internal
  * stage names (scene_video_prompt, shot_image_prompt, …) NEVER appear
- * in the UI. Each entry maps to the kshana-core typeId(s) that get
+ * in the UI. Each entry maps to the dhee-core typeId(s) that get
  * marked pending plus a friendly downstream description for the
  * confirmation modal.
  *
@@ -20,7 +20,7 @@ export interface RedoFromStage {
   /** One-line plain-English description for the confirmation modal. */
   description: string;
   /**
-   * kshana-core typeIds to invalidate. Per-item nodes of these types
+   * dhee-core typeIds to invalidate. Per-item nodes of these types
    * (e.g. `scene_video_prompt:scene_1`, `scene_video_prompt:scene_2`,
    * …) are all marked pending. Cascade-invalidation through the
    * dependents chain takes care of everything downstream.

@@ -115,6 +115,22 @@ export function defaultRunnersNodeModulesDir(
   return path.join(base, 'node_modules');
 }
 
+/**
+ * Point installer + engine discovery at the same external-runners tree.
+ * Default layout: `~/dhee-studios/runners/node_modules`.
+ */
+export function wireRunnersDiscoveryEnv(
+  homeDir: string,
+  env: EnvLike = process.env,
+): { runnersBase: string; nodeModulesDir: string } {
+  const configured = env.DHEE_RUNNERS_DIR?.trim();
+  const runnersBase = configured || path.join(homeDir, 'dhee-studios', 'runners');
+  const nodeModulesDir = path.join(runnersBase, 'node_modules');
+  env.DHEE_RUNNERS_DIR = runnersBase;
+  env.DHEE_NODE_MODULES_DIRS = nodeModulesDir;
+  return { runnersBase, nodeModulesDir };
+}
+
 export async function installDheeBundleFromNpm(
   params: InstallNpmBundleParams,
 ): Promise<InstallNpmBundleResult> {
@@ -173,30 +189,15 @@ export async function installDheeBundleFromNpm(
       }),
     );
 
-    // ── Pull external runner packages the bundle declares ──
-    const installedRunners: InstalledRunner[] = [];
-    const runnerErrors: Array<{ tool: string; packageName: string; error: string }> =
-      [];
-    const runnerPackages = extractRunnerPackages(bundleJson);
-    if (runnerPackages.length > 0 && params.runnersNodeModulesDir) {
-      const builtins = new Set(params.builtinTools ?? []);
-      const installedNames = new Set<string>();
-      for (const { tool, packageName: runnerPkg } of runnerPackages) {
-        if (builtins.has(tool)) continue; // engine provides it already
-        const r = await installNpmPackageTree(
+    const { installedRunners, runnerErrors } = params.runnersNodeModulesDir
+      ? await installMissingBundleRunners({
+          bundleJson,
+          runnersNodeModulesDir: params.runnersNodeModulesDir,
+          builtinTools: params.builtinTools,
           fetchImpl,
-          registry,
-          runnerPkg,
-          params.runnersNodeModulesDir,
-          installedNames,
-        );
-        if (r.ok) {
-          installedRunners.push({ tool, packageName: runnerPkg, version: r.version });
-        } else {
-          runnerErrors.push({ tool, packageName: runnerPkg, error: r.error });
-        }
-      }
-    }
+          registryUrl: registry,
+        })
+      : { installedRunners: [], runnerErrors: [] };
 
     return {
       ok: true,
@@ -278,35 +279,61 @@ async function installNpmPackageTree(
 ): Promise<{ ok: true; version: string } | { ok: false; error: string }> {
   if (installed.has(packageName)) return { ok: true, version: 'cached' };
   installed.add(packageName);
-  let dl;
-  try {
-    dl = await downloadPackage(fetchImpl, registry, packageName, undefined);
-  } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
-  }
-  if (!dl.ok) return dl;
 
   const dest = path.join(nodeModulesDir, ...packageName.split('/'));
-  await fs.rm(dest, { recursive: true, force: true });
-  await fs.mkdir(dest, { recursive: true });
-  await Promise.all(
-    dl.entries.map(async (entry) => {
-      const out = path.join(dest, entry.path);
-      assertInside(dest, out);
-      await fs.mkdir(path.dirname(out), { recursive: true });
-      await fs.writeFile(out, entry.data);
-    }),
-  );
+
+  // "Install missing": if the package is already on disk (any version), keep
+  // it. Wiping + re-downloading on every project run would clobber
+  // locally-patched builds and needlessly re-fetch from the registry. We still
+  // recurse into the declared dependencies below so a missing transitive
+  // package is still ensured. Force an upgrade by deleting the package dir
+  // (or reinstalling its bundle via the install UI).
+  const existingPj = await readInstalledPackageJson(dest);
+  let version: string;
+  let deps: Record<string, string>;
+  let optionalDeps: Record<string, string>;
+
+  if (existingPj) {
+    version = existingPj.version ?? 'installed';
+    deps = existingPj.dependencies ?? {};
+    optionalDeps = existingPj.optionalDependencies ?? {};
+  } else {
+    let dl;
+    try {
+      dl = await downloadPackage(fetchImpl, registry, packageName, undefined);
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    }
+    if (!dl.ok) return dl;
+
+    await fs.rm(dest, { recursive: true, force: true });
+    await fs.mkdir(dest, { recursive: true });
+    await Promise.all(
+      dl.entries.map(async (entry) => {
+        const out = path.join(dest, entry.path);
+        assertInside(dest, out);
+        await fs.mkdir(path.dirname(out), { recursive: true });
+        await fs.writeFile(out, entry.data);
+      }),
+    );
+
+    version = dl.version;
+    deps =
+      (dl.meta.versions?.[dl.version]?.dependencies as
+        | Record<string, string>
+        | undefined) ??
+      ((dl.packageJson as { dependencies?: Record<string, string> })
+        .dependencies ||
+        {});
+    optionalDeps =
+      (dl.packageJson as { optionalDependencies?: Record<string, string> })
+        .optionalDependencies || {};
+  }
 
   // Recurse into runtime dependencies (shallow for runner packages — typically
-  // just @dheeai/runner-sdk, which itself has no runtime deps).
-  const deps =
-    (dl.meta.versions?.[dl.version]?.dependencies as
-      | Record<string, string>
-      | undefined) ??
-    ((dl.packageJson as { dependencies?: Record<string, string> })
-      .dependencies ||
-      {});
+  // just @dhee_ai/runner-sdk, which itself has no runtime deps). Done for BOTH
+  // the freshly-installed and already-present branches so a missing transitive
+  // package is always ensured.
   for (const depName of Object.keys(deps)) {
     const depResult = await installNpmPackageTree(
       fetchImpl,
@@ -317,7 +344,124 @@ async function installNpmPackageTree(
     );
     if (!depResult.ok) return depResult;
   }
-  return { ok: true, version: dl.version };
+
+  // Platform-specific native bindings (e.g. @napi-rs/canvas-darwin-arm64) are
+  // declared as OPTIONAL deps — npm resolves only the one matching the current
+  // OS/arch. Mirror that: install optional deps whose name encodes this
+  // platform + arch. Best-effort — a missing optional binary is non-fatal.
+  for (const optName of Object.keys(optionalDeps)) {
+    if (!matchesCurrentPlatform(optName)) continue;
+    await installNpmPackageTree(
+      fetchImpl,
+      registry,
+      optName,
+      nodeModulesDir,
+      installed,
+    ); // ignore failures — optional by definition
+  }
+  return { ok: true, version };
+}
+
+/** Read a package's own package.json from disk, or null if not installed. */
+async function readInstalledPackageJson(
+  dest: string,
+): Promise<{
+  version?: string;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+} | null> {
+  try {
+    const raw = await fs.readFile(path.join(dest, 'package.json'), 'utf-8');
+    const parsed = JSON.parse(raw) as {
+      version?: unknown;
+      dependencies?: Record<string, string>;
+      optionalDependencies?: Record<string, string>;
+    };
+    if (typeof parsed.version !== 'string' || !parsed.version.trim()) {
+      return null;
+    }
+    return {
+      version: parsed.version.trim(),
+      dependencies: parsed.dependencies,
+      optionalDependencies: parsed.optionalDependencies,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Does an optional-dependency package name target the current OS + arch?
+ * Native-binding packages (napi-rs, esbuild, sharp, …) encode the platform and
+ * arch in their name, e.g. `@napi-rs/canvas-darwin-arm64`,
+ * `@napi-rs/canvas-linux-x64-gnu`, `esbuild-win32-x64`.
+ */
+function matchesCurrentPlatform(packageName: string): boolean {
+  const name = packageName.toLowerCase();
+  const platformToken: Record<string, string> = {
+    darwin: 'darwin',
+    win32: 'win32',
+    linux: 'linux',
+  };
+  const archToken: Record<string, string> = {
+    x64: 'x64',
+    arm64: 'arm64',
+    arm: 'arm',
+    ia32: 'ia32',
+  };
+  const plat = platformToken[process.platform];
+  const arch = archToken[process.arch];
+  if (!plat || !arch) return false;
+  return name.includes(plat) && name.includes(arch);
+}
+
+/** Install external runner npm packages declared in a bundle.json. */
+export async function installMissingBundleRunners(params: {
+  bundleJson: Record<string, unknown>;
+  runnersNodeModulesDir: string;
+  builtinTools?: readonly string[];
+  registryUrl?: string;
+  fetchImpl?: FetchLike;
+}): Promise<{
+  installedRunners: InstalledRunner[];
+  runnerErrors: Array<{ tool: string; packageName: string; error: string }>;
+}> {
+  const fetchImpl = params.fetchImpl ?? getRuntimeFetch();
+  if (!fetchImpl) {
+    return {
+      installedRunners: [],
+      runnerErrors: [
+        {
+          tool: '*',
+          packageName: '*',
+          error: 'No fetch implementation is available in this runtime.',
+        },
+      ],
+    };
+  }
+  const registry = (params.registryUrl ?? DEFAULT_REGISTRY_URL).replace(/\/+$/, '');
+  const installedRunners: InstalledRunner[] = [];
+  const runnerErrors: Array<{ tool: string; packageName: string; error: string }> =
+    [];
+  const runnerPackages = extractRunnerPackages(params.bundleJson);
+  const builtins = new Set(params.builtinTools ?? []);
+  const installedNames = new Set<string>();
+  for (const { tool, packageName: runnerPkg } of runnerPackages) {
+    if (builtins.has(tool)) continue;
+    const r = await installNpmPackageTree(
+      fetchImpl,
+      registry,
+      runnerPkg,
+      params.runnersNodeModulesDir,
+      installedNames,
+    );
+    if (r.ok) {
+      installedRunners.push({ tool, packageName: runnerPkg, version: r.version });
+    } else {
+      runnerErrors.push({ tool, packageName: runnerPkg, error: r.error });
+    }
+  }
+  return { installedRunners, runnerErrors };
 }
 
 /** Pull `dependencies.runnerPackages` (tool → npm package) out of a bundle.json. */
@@ -458,6 +602,10 @@ function listSubBundles(
 
 function normalizeRel(p: string): string {
   const norm = p.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '');
+  // `.` (or `./`, or empty) means the package root — flat single-bundle
+  // layout where bundle.json sits beside package.json (`dhee.bundles: "."`).
+  // Return '' so readBundleJson/collectBundleFiles target the tar root.
+  if (norm === '.' || norm === '') return '';
   if (path.isAbsolute(norm) || norm.split('/').includes('..')) {
     throw new Error(`Invalid package path '${p}'.`);
   }

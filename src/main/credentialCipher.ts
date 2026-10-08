@@ -1,8 +1,8 @@
 /**
- * Credential encryption for kshana-settings.
+ * Credential encryption for dhee-settings.
  *
  * `electron-store` writes settings as plaintext JSON at
- * `~/Library/Application Support/kshana/kshana-settings.json` (and the
+ * `~/Library/Application Support/dhee/dhee-settings.json` (and the
  * Windows / Linux equivalents). Anything that lives in there — including
  * the user's paid OpenAI / Gemini / OpenRouter / ComfyUI-Cloud API keys
  * — is readable by every other process on the box. That's a security
@@ -16,7 +16,7 @@
  * keeping them readable simplifies debugging.
  *
  * On disk, an encrypted credential looks like:
- *   "__kshana_enc_v1__<base64-ciphertext>"
+ *   "__dhee_enc_v1__<base64-ciphertext>"
  *
  * The prefix lets us cleanly detect legacy plaintext values and migrate
  * them on next save. Versioned so a future cipher swap (e.g. envelope
@@ -31,7 +31,7 @@
 import { safeStorage } from 'electron';
 import log from 'electron-log';
 
-const ENC_PREFIX = '__kshana_enc_v1__';
+const ENC_PREFIX = '__dhee_enc_v1__';
 
 /**
  * Settings fields that hold credentials and must be encrypted at rest.

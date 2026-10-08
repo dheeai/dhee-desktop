@@ -27,6 +27,7 @@ import type {
 } from '../shared/dheeIpc';
 import log from 'electron-log';
 import path from 'path';
+import { installComfyCloudFetchAuth } from './comfyCloudFetchAuth';
 import {
   existsSync as fsExistsSync,
   mkdirSync as fsMkdirSync,
@@ -54,6 +55,9 @@ import {
   freeComfyBeforeLocalLlm,
   unloadLocalLlmBeforeLocalComfy,
 } from './singleGpuCoordinator';
+import { ensureProjectExternalRunners } from './services/ensureBundleRunners';
+import { wireRunnersDiscoveryEnv } from './services/npmBundleInstaller';
+import { getAccount, refreshBalance } from './accountManager';
 
 export interface dheeCloudAuthRuntime {
   websiteUrl: string;
@@ -1268,6 +1272,13 @@ export function applyEnvFromSettings(
   // keeps its comfy.org meaning (a user with their own comfy.org key).
   if (useCloudComfy && comfyBaseUrl.trim()) {
     process.env.ENDPOINT_public_cloud = comfyBaseUrl.trim();
+    // The upsc_explainer bundle tags every Comfy node `endpoint:"self.public"`.
+    // Built-in runners (comfy.tti) resolve it via the COMFYUI_BASE_URL
+    // fallback in runner-sdk >=0.1.0, but the npm-ecosystem comfy.tts runner
+    // pulls a stale runner-sdk@0.1.1 whose cloud branch dropped that fallback
+    // and only honors ENDPOINT_self_public directly. Set it explicitly so
+    // ecosystem runners resolve the same proxy as the built-ins.
+    process.env.ENDPOINT_self_public = comfyBaseUrl.trim();
   }
 
   // LLM routing — gated by the dedicated `llmBackend` lane (set above
@@ -1387,6 +1398,8 @@ export function applyEnvFromSettings(
   // DefinePlugin replaces process.env.NODE_ENV at compile time);
   // setting it at runtime is both redundant and triggers a terser
   // "Invalid assignment" because the LHS gets constant-folded.
+
+  installComfyCloudFetchAuth();
 
   log.info(
     `[applyEnvFromSettings] LLM_PROVIDER=${process.env.LLM_PROVIDER} ` +
@@ -1995,6 +2008,42 @@ export class dheeCoreManager {
     return this.dagModule;
   }
 
+  private async ensureCloudSessionFresh(
+    settings: AppSettings,
+    cloudAuth?: dheeCloudAuthRuntime | null,
+  ): Promise<
+    { ok: true; cloudAuth: dheeCloudAuthRuntime | null } | { ok: false; error: string }
+  > {
+    const needsCloud =
+      settings.comfyBackend === 'cloud' ||
+      settings.llmBackend === 'cloud' ||
+      settings.vlmBackend === 'cloud';
+    if (!needsCloud) {
+      return { ok: true, cloudAuth: cloudAuth ?? null };
+    }
+    const account = getAccount();
+    const token = cloudAuth?.desktopToken?.trim() || account?.token?.trim();
+    const websiteUrl = cloudAuth?.websiteUrl?.trim();
+    if (!token || !websiteUrl) {
+      return {
+        ok: false,
+        error:
+          'Dhee Cloud is enabled but you are not signed in. Open Settings → Account and sign in.',
+      };
+    }
+    const probe = await refreshBalance(websiteUrl);
+    if (probe.status === 'expired') {
+      return {
+        ok: false,
+        error: 'Dhee Cloud session expired. Sign in again under Settings → Account.',
+      };
+    }
+    return {
+      ok: true,
+      cloudAuth: { websiteUrl, desktopToken: token },
+    };
+  }
+
   /**
    * Construct the embedded ConversationManager. Sets process.env
    * from settings BEFORE constructing the manager so any tool that
@@ -2030,6 +2079,10 @@ export class dheeCoreManager {
     // model). In packaged builds the .env doesn't ship, so this is
     // a no-op there.
     const devEnv = this.managerModule.loadDevEnv?.();
+    // External runners always install under ~/dhee-studios/runners so
+    // discovery matches ensureProjectExternalRunners (independent of
+    // where devEnv places project dirs).
+    wireRunnersDiscoveryEnv(app.getPath('home'));
     // dhee-ink's filesystem helpers (projectFileIO, loadProject)
     // default basePath to `process.cwd()`. Embedded in Electron, cwd
     // points at dhee-desktop/ — not where projects live.
@@ -2047,14 +2100,14 @@ export class dheeCoreManager {
       process.env.dhee_PROJECTS_DIR = devEnv.projectsDir;
     }
 
-    // Externalized bundle resolution. kshana-core's bundleSource.ts
-    // searches roots in precedence order: USER → APP → ~/.kshana →
+    // Externalized bundle resolution. dhee-core's bundleSource.ts
+    // searches roots in precedence order: USER → APP → ~/.dhee →
     // <dev-source>. Set the two env vars so a packaged build (and
     // dev launches) find the right bundles without code changes.
     //
     //   APP  = first-party defaults shipped inside the .app, lifted
     //          via electron-builder extraResources from
-    //          kshana-core/dist/bundles → <app>/Resources/bundles.
+    //          dhee-core/dist/bundles → <app>/Resources/bundles.
     //          In dev there is no `process.resourcesPath/bundles`
     //          yet, so we point at the source tree's dist/bundles
     //          (still produced by `pnpm tsup`).
@@ -2082,13 +2135,6 @@ export class dheeCoreManager {
       if (devEnv?.projectsDir) {
         // `<studiosDir>/bundles` — sibling of project directories.
         process.env.DHEE_USER_BUNDLES_DIR = path.join(devEnv.projectsDir, 'bundles');
-        // `<studiosDir>/runners` — where the bundle installer pulls EXTERNAL
-        // runner packages. Point both the installer (DHEE_RUNNERS_DIR) and the
-        // engine's npm-runner discovery (DHEE_NODE_MODULES_DIRS) at the same
-        // node_modules so an installed runner is found out of the box.
-        const runnersBase = path.join(devEnv.projectsDir, 'runners');
-        process.env.DHEE_RUNNERS_DIR = runnersBase;
-        process.env.DHEE_NODE_MODULES_DIRS = path.join(runnersBase, 'node_modules');
       }
     } catch {
       // best-effort; bundleSource still falls through to its source-tree
@@ -2596,7 +2642,23 @@ export class dheeCoreManager {
     }
     const projectName = path.basename(projectDir);
     if (this.lastSettings) {
-      applyEnvFromSettings(this.lastSettings, this.lastCloudAuth);
+      const cloudCheck = await this.ensureCloudSessionFresh(
+        this.lastSettings,
+        this.lastCloudAuth,
+      );
+      if (!cloudCheck.ok) {
+        return { status: 'failed', error: cloudCheck.error };
+      }
+      this.lastCloudAuth = cloudCheck.cloudAuth;
+      applyEnvFromSettings(this.lastSettings, cloudCheck.cloudAuth);
+    }
+
+    const runnerEnsure = await ensureProjectExternalRunners(
+      projectDir,
+      app.getPath('home'),
+    );
+    if (!runnerEnsure.ok) {
+      return { status: 'failed', error: runnerEnsure.error };
     }
 
     // Fresh auto-retry budget — this is a user-initiated run.
@@ -2686,7 +2748,23 @@ export class dheeCoreManager {
 
     const projectName = path.basename(projectDir);
     if (this.lastSettings) {
-      applyEnvFromSettings(this.lastSettings, this.lastCloudAuth);
+      const cloudCheck = await this.ensureCloudSessionFresh(
+        this.lastSettings,
+        this.lastCloudAuth,
+      );
+      if (!cloudCheck.ok) {
+        return { ok: false, error: cloudCheck.error };
+      }
+      this.lastCloudAuth = cloudCheck.cloudAuth;
+      applyEnvFromSettings(this.lastSettings, cloudCheck.cloudAuth);
+    }
+
+    const runnerEnsure = await ensureProjectExternalRunners(
+      projectDir,
+      app.getPath('home'),
+    );
+    if (!runnerEnsure.ok) {
+      return { ok: false, error: runnerEnsure.error };
     }
 
     // Fresh auto-retry budget — this is a user-initiated run.

@@ -85,9 +85,9 @@ describe('availableActions', () => {
     expect(acts).toEqual(expect.arrayContaining(['open-file', 'regenerate', 'invalidate', 'edit', 'show-versions']));
   });
 
-  it('9. completed image → no edit', () => {
+  it('9. completed image → no edit, has download', () => {
     const acts = availableActions({ nodeId: 'shot_image', itemId: 's1', status: 'completed', outputPath: 'shots/s1.png' });
-    expect(acts).toEqual(expect.arrayContaining(['open-file', 'regenerate', 'invalidate', 'show-versions']));
+    expect(acts).toEqual(expect.arrayContaining(['open-file', 'regenerate', 'invalidate', 'show-versions', 'download']));
     expect(acts).not.toContain('edit');
   });
 
@@ -131,7 +131,7 @@ describe('availableActions', () => {
 
 describe('actionLabel', () => {
   it('16. every CardAction has a non-empty label', () => {
-    const all: CardAction[] = ['open-file', 'regenerate', 'edit', 'invalidate', 'show-versions'];
+    const all: CardAction[] = ['open-file', 'regenerate', 'edit', 'invalidate', 'show-versions', 'download'];
     for (const a of all) {
       const label = actionLabel(a);
       expect(label).toBeTruthy();
