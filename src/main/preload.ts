@@ -1,3 +1,4 @@
+import type { ProductionReviewRequest, RecordProductionReviewRequest, ProductionReviewResponse } from '../shared/productionReview';
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
@@ -719,6 +720,12 @@ const dheeBridge = {
   },
   runTask(req: RunTaskRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUN_TASK, req);
+  },
+  readProductionReview(req: ProductionReviewRequest): Promise<ProductionReviewResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.READ_PRODUCTION_REVIEW, req);
+  },
+  recordProductionReview(req: RecordProductionReviewRequest): Promise<ProductionReviewResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.RECORD_PRODUCTION_REVIEW, req);
   },
   startRun(req: StartRunRequest): Promise<StartRunResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.START_RUN, req);

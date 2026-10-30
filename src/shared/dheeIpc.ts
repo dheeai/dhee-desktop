@@ -22,6 +22,8 @@ export const dhee_CHANNELS = {
    * immediately instead of waiting for a chat agent turn to call a tool.
    */
   START_RUN: 'dhee:startRun',
+  READ_PRODUCTION_REVIEW: 'dhee:readProductionReview',
+  RECORD_PRODUCTION_REVIEW: 'dhee:recordProductionReview',
   /**
    * Phase 6.5: send a user message to the chat session's pi-agent
    * and return {assistant_text, tool_calls}. Distinct from RUN_TASK

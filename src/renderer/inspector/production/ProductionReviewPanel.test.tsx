@@ -25,7 +25,7 @@ describe('ProductionReviewPanel', () => {
     expect(navigate).toHaveBeenCalledWith('story');
     expect(screen.queryByRole('button', { name: 'Scene plan' })).toBeNull();
     expect(
-      screen.getByText(/approval decisions are not yet recorded/),
+      screen.getByText(/review decisions apply to the listed artifacts/),
     ).toBeTruthy();
     expect(screen.queryByRole('button', { name: /approve/i })).toBeNull();
   });

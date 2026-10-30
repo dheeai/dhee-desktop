@@ -13,6 +13,7 @@
  * type — the bridge is mostly plumbing and stays thin.
  */
 import path from 'path';
+import { registerProductionReviewIpc } from './productionReviewIpc';
 import { ipcMain, type BrowserWindow } from 'electron';
 import {
   dhee_CHANNELS,
@@ -114,6 +115,8 @@ export function registerdheeIpcBridge(
       ipcMain.removeHandler(channel);
     } catch { /* ignore — handler may not be registered yet */ }
   }
+
+  registerProductionReviewIpc(ipcMain);
 
   ipcMain.handle(
     dhee_CHANNELS.CREATE_SESSION,

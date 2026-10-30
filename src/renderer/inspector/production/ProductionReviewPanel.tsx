@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import type {
   ReviewCheckpoint,
   ReviewItemStatus,
@@ -20,8 +21,10 @@ const checkpointLabels = {
 export function ProductionReviewPanel({
   checkpoints,
   onNavigate,
+  renderDecision,
 }: {
   checkpoints: ReviewCheckpoint[];
+  renderDecision?: (checkpoint: ReviewCheckpoint) => ReactNode;
   onNavigate: (sectionId: string) => void;
 }) {
   if (!checkpoints.length) return null;
@@ -30,7 +33,7 @@ export function ProductionReviewPanel({
       <h2>Three creative reviews</h2>
       <p>
         Check the story, references and rough cut before moving forward.
-        Availability is shown here; approval decisions are not yet recorded.
+        Availability is shown here; review decisions apply to the listed artifacts.
       </p>
       <ol className={styles.cards}>
         {checkpoints.map((checkpoint) => (
@@ -56,6 +59,7 @@ export function ProductionReviewPanel({
                 </li>
               ))}
             </ul>
+            {renderDecision?.(checkpoint)}
           </li>
         ))}
       </ol>

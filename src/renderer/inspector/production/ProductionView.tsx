@@ -26,6 +26,7 @@ import type { InstanceGraphNode } from '../../../shared/dheeIpc';
 import { toFileUrl } from '../../utils/pathResolver';
 import { ReadableArtifact } from './ReadableArtifact';
 import { buildProductionReview } from '../../lib/runCockpit/productionReview';
+import { ProductionReviewDecision } from './ProductionReviewDecision';
 import { ProductionReviewPanel } from './ProductionReviewPanel';
 import { ShotSheetCard } from './ShotSheetCard';
 import { CardDetailModal } from '../CardDetailModal';
@@ -193,6 +194,17 @@ export function ProductionView() {
         <ProductionReviewPanel
           checkpoints={reviews}
           onNavigate={scrollToSection}
+          renderDecision={(checkpoint) => {
+            const stages = model.stages.filter((stage) => checkpoint.items.some((item) => item.id === stage.id));
+            const items = stages.flatMap((stage) => stage.items);
+            if (!items.length) return null;
+            return <ProductionReviewDecision
+              request={{projectDir: dir, gate: checkpoint.id as 'storyboard' | 'references' | 'rough-cut', targets: items.map((item) => ({nodeId:item.nodeId, ...(item.itemId ? {itemId:item.itemId} : {})}))}}
+              revision={JSON.stringify(items)}
+              ready={checkpoint.status === 'ready'}
+              title={checkpoint.title}
+            />;
+          }}
         />
         {doc.sections.map((section, i) => (
           <section key={section.id} data-section-id={section.id} ref={registerSection(section.id)} className={styles.docSection}>
