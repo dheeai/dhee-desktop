@@ -37,6 +37,8 @@ jest.mock('../../hooks/useRunModel', () => ({ useRunModel: () => ({ model: mockM
 jest.mock('../../contexts/WorkspaceContext', () => ({ useWorkspace: () => ({ projectDirectory: '/proj/Set In The 1970s' }) }));
 jest.mock('../../contexts/ProjectContext', () => ({ useProject: () => ({ bundle: { id: 'narr', nodes: mockNarrative } }) }));
 jest.mock('../CardDetailModal', () => ({ CardDetailModal: () => null }));
+// Preparation interactions have their own real-component tests.
+jest.mock('./GpuPreparationPanel', () => ({ GpuPreparationPanel: () => null }));
 jest.mock('./ReadableArtifact', () => ({ ReadableArtifact: () => <div data-testid="readable" /> }));
 jest.mock('./ShotSheetCard', () => ({
   ShotSheetCard: ({ entity }: any) => <div data-testid="sheet">{entity.label}</div>,

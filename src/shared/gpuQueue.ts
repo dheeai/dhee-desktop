@@ -30,3 +30,43 @@ export interface QueueJobsRequest {
 export type QueueJobsResponse =
   | { ok: true; jobs: QueueJobSummary[] }
   | { ok: false; error: string };
+
+export interface GpuTarget {
+  nodeId: string;
+  itemId?: string;
+  format: string;
+  status: string;
+  tool: string;
+  unsupported: boolean;
+  selectionId: string | null;
+  selection?: Record<string, unknown>;
+}
+export type GpuPreparationRequest =
+  | { action: 'gpu.catalog' }
+  | { action: 'gpu.targets'; projectDir: string; branchId: string }
+  | {
+      action: 'gpu.prepare';
+      projectDir: string;
+      branchId: string;
+      nodeId: string;
+      itemId?: string;
+      requestId: string;
+      expectedSelectionId: string | null;
+      workflow: string;
+      workflowVersion: string;
+      inputs: Record<string, unknown>;
+      primaryOutput: number;
+    };
+export type GpuPreparationResponse =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      result: {
+        targets?: GpuTarget[];
+        branches?: { branchId: string; label?: string }[];
+        workflows?: GpuWorkflow[];
+        selectionId?: string;
+        attemptKey?: string;
+        active?: boolean;
+      };
+    };

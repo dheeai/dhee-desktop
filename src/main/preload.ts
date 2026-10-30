@@ -1,3 +1,4 @@
+import type { GpuPreparationRequest, GpuPreparationResponse } from '../shared/gpuQueue';
 import type { QueueJobsRequest, QueueJobsResponse } from '../shared/gpuQueue';
 import type { GpuCatalogResponse } from '../shared/gpuQueue';
 import type { ReviewPolicyResponse } from '../shared/productionReview';
@@ -715,6 +716,9 @@ const accountBridge = {
 };
 
 const dheeBridge = {
+  gpuPreparation(req: GpuPreparationRequest): Promise<GpuPreparationResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.GPU_PREPARATION, req);
+  },
   queueJobs(req: QueueJobsRequest): Promise<QueueJobsResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.QUEUE_JOBS, req);
   },

@@ -1,3 +1,5 @@
+import { registerGpuPreparationIpc } from './gpuPreparationIpc';
+import { getSettings } from './settingsManager';
 import { registerQueueJobsIpc } from './queueJobsIpc';
 import { registerGpuQueueIpc } from './gpuQueueIpc';
 /**
@@ -121,6 +123,7 @@ export function registerdheeIpcBridge(
   registerProductionReviewIpc(ipcMain);
   registerGpuQueueIpc(ipcMain);
   registerQueueJobsIpc(ipcMain);
+  registerGpuPreparationIpc(ipcMain, getSettings);
 
   ipcMain.handle(
     dhee_CHANNELS.CREATE_SESSION,

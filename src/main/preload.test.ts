@@ -155,6 +155,7 @@ describe('preload context-isolation contract', () => {
       'deleteSession',
       'focusProject',
       'getHistory',
+      'gpuPreparation',
       'gpuQueueCatalog',
       'queueJobs',
       'invalidateNodes',
@@ -195,6 +196,7 @@ describe('preload context-isolation contract', () => {
     // unregistered handler.
     const dhee = exposed.get('dhee') as Record<string, unknown>;
     const channelToMethod: Record<string, string> = {
+      [dhee_CHANNELS.GPU_PREPARATION]: 'gpuPreparation',
       [dhee_CHANNELS.QUEUE_JOBS]: 'queueJobs',
       [dhee_CHANNELS.GPU_QUEUE_CATALOG]: 'gpuQueueCatalog',
       [dhee_CHANNELS.CREATE_SESSION]: 'createSession',
