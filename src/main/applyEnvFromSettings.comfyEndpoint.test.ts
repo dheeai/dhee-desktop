@@ -195,3 +195,44 @@ describe('applyEnvFromSettings — ComfyUI endpoint routing (Settings wins over 
     expect(process.env.ENDPOINT_public_cloud).toBe('https://cloud.comfy.org/api');
   });
 });
+
+it('uses the saved GPU queue endpoint and clears stale values when disconnected', () => {
+  const prior = process.env.DHEE_GPU_QUEUE_URL;
+  try {
+    applyEnvFromSettings({ ...base, gpuQueueUrl: ' http://gpu/mcp ' } as never);
+    expect(process.env.DHEE_GPU_QUEUE_URL).toBe('http://gpu/mcp');
+    applyEnvFromSettings({ ...base, gpuQueueUrl: '' } as never);
+    expect(process.env.DHEE_GPU_QUEUE_URL).toBeUndefined();
+  } finally {
+    if (prior === undefined) delete process.env.DHEE_GPU_QUEUE_URL;
+    else process.env.DHEE_GPU_QUEUE_URL = prior;
+  }
+});
+
+it('updates the saved runtime endpoint without restarting the engine', async () => {
+  const { dheeCoreManager: Manager } = await import('./dheeCoreManager');
+  const manager = new Manager();
+  const restart = jest.spyOn(manager, 'restart');
+  const original = process.env.DHEE_GPU_QUEUE_URL;
+  try {
+    manager.__setLastSettingsForTesting({
+      ...base,
+      gpuQueueUrl: 'http://old/mcp',
+    } as never);
+    manager.updateGpuQueueEndpoint('http://new/mcp');
+    expect(process.env.DHEE_GPU_QUEUE_URL).toBe('http://new/mcp');
+    // A later run reapplies this snapshot, so it must retain the new endpoint.
+    const snapshot = (
+      manager as unknown as {
+        lastSettings: Parameters<typeof applyEnvFromSettings>[0];
+      }
+    ).lastSettings;
+    applyEnvFromSettings(snapshot);
+    expect(process.env.DHEE_GPU_QUEUE_URL).toBe('http://new/mcp');
+    expect(restart).not.toHaveBeenCalled();
+  } finally {
+    restart.mockRestore();
+    if (original === undefined) delete process.env.DHEE_GPU_QUEUE_URL;
+    else process.env.DHEE_GPU_QUEUE_URL = original;
+  }
+});

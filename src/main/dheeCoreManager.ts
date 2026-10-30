@@ -1118,10 +1118,17 @@ function clearCloudProxyEnv(): boolean {
   return wasUsingDesktopCloudProxy;
 }
 
+function applyGpuQueueEndpoint(value?: string): void {
+  const endpoint = value?.trim();
+  if (endpoint) process.env.DHEE_GPU_QUEUE_URL = endpoint;
+  else delete process.env.DHEE_GPU_QUEUE_URL;
+}
+
 export function applyEnvFromSettings(
   settings: AppSettings,
   cloudAuth?: dheeCloudAuthRuntime | null,
 ): void {
+  applyGpuQueueEndpoint(settings.gpuQueueUrl);
   // Set env vars from settings, but only when the setting has a
   // non-empty value. Empty strings are treated as "use whatever is
   // already in process.env" — so dev users with dhee-ink/.env
@@ -1583,6 +1590,14 @@ export class dheeCoreManager {
    */
   private lastCloudAuth: dheeCloudAuthRuntime | null = null;
   private unsubscribeLocalResourceStart: (() => void) | null = null;
+
+  /** Queue settings take effect for subsequent jobs without restarting sessions. */
+  updateGpuQueueEndpoint(value: string): void {
+    if (this.lastSettings) {
+      this.lastSettings = { ...this.lastSettings, gpuQueueUrl: value };
+    }
+    applyGpuQueueEndpoint(value);
+  }
 
   /**
    * Test seam — seed `lastSettings` without going through start().

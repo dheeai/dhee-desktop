@@ -426,6 +426,9 @@ ipcMain.handle(
   'settings:update',
   async (_event, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const updated = updateSettings(patch);
+    if (Object.prototype.hasOwnProperty.call(patch, 'gpuQueueUrl')) {
+      dheeCoreManager.updateGpuQueueEndpoint(updated.gpuQueueUrl ?? '');
+    }
     try {
       await restartForSettingsPatch(patch, async () => {
         await dheeCoreManager.restart(
