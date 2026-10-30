@@ -136,7 +136,7 @@ Final-ready requires no unresolved blockers, all required human checks recorded,
 
 ## Benchmarks and delivery sequence
 
-1. **Local baseline and evidence ledger.** Build the inspected pair, run current checks, open a copied historical project, record which reported bugs still reproduce. Preserve originals. Identify installed external runner capabilities without modifying their repositories.
+1. **Production workflow and UX specification first.** Reuse existing test evidence and source inspection. Map missing user-facing actions and provider integration seams; do not make a new broad baseline test cycle a prerequisite for planning. At implementation time, run checks relevant to the changed paths and a local end-to-end check of that feature. Preserve historical projects and reference existing external runners without modifying their repositories.
 2. **First complete slice.** A proposed 20–30-second, three-shot film: two-speaker exchange, narrated action shot, branded ending. Import or generate refs/voices inside Desktop, exercise all three gates, repair one line, replace one take, export clean master. No terminal/file surgery in the production path.
 3. **Brilliant Care workflow.** Expand to the approved full narrative, without inheriting the obsolete 120-second limit. Validate recurring characters, phone/dialogue scenes, glasses/cuff/monitor continuity, voice identity and natural performance. Historical review copy is a failure-reference set, not an accepted quality target.
 4. **Shipyard workflow.** Demonstrate required camera placement and coverage, pipeline geometry, full technician/work area framing, readable alerts and leak → response → repair → verification. Obtain exact approved reference cut/brief before using factual proportions as acceptance requirements; the located MD1 work is the provisional reference.
@@ -169,3 +169,64 @@ Verification is layered: focused behavior tests for each change; existing core b
 - [Desktop IPC](https://github.com/dheeai/dhee-desktop/blob/2cf8b7a648274295a0c222cc379db766fa5e85cd/src/shared/dheeIpc.ts)
 - [Production canvas](https://github.com/dheeai/dhee-desktop/blob/2cf8b7a648274295a0c222cc379db766fa5e85cd/src/renderer/inspector/production/ProductionView.tsx)
 - Local historical evidence: September 28 `Dhee-Desktop-Review.md` and `Dhee-Local-Workflow-Changes.md`; October 23 Brilliant Care `MASTER_REPAIR_CHECKLIST.md`; MD1 `final-qa-report.json` and the “Regenerate barge video” chat. These were read for planning; the films were not freshly reviewed in this task.
+
+## Planning refinement: RTX 5090 and the actual production experience
+
+User clarification on 30 October: focus on the automation and Desktop UX plan, not another broad environment/test setup exercise. Core is presumed largely complete; tests establish specific changes, not a reason to postpone the design. No production source changes were made during planning. A local dependency setup attempt encountered a native-module install failure; that is recorded as setup evidence, not a product defect or the next product priority.
+
+### Two interfaces, one production state
+
+`Codex → Dhee MCP → Core project operations` and `Desktop → typed IPC → Core project operations` are alternate control paths. Core runners invoke the RTX 5090 workflow queue for generation and local assembly services for editing/export. GPU MCP tools available to Codex do not automatically become available inside Desktop: an explicit client/runner integration is required unless an existing installed runner already provides it.
+
+Keep generation calls behind the queue. Do not bypass it with direct ComfyUI submissions: the GPU is shared with other work and owner LLM use. Map queue states into Desktop, preserve job IDs across restarts, and download completed assets into the project promptly; the service describes output retention as 14 days. Tailnet access is required for upload/download. Project metadata should record workflow/version, ordered references, requested settings, seed, returned job ID and local asset checksum.
+
+The catalog was read successfully on 30 October. All listed workflows report `available: true` but `status: unchecked`; no generation was run to validate quality. An empty own-jobs list does not establish that the GPU is globally idle.
+
+| Production need | Catalog candidates | Product requirement |
+|---|---|---|
+| Reference/storyboard images | `krea2_image`, `flux3_klein_image`, `qwen_image`, `zimage_image`, `moss_image` | Let the user choose a quality preset; retain exact recipe behind it |
+| Image correction | `krea2_edit`, `flux3_klein_edit`, `qwen_image_edit` | Target one image; preserve original and compare candidate |
+| Dialogue/action video | `h3_video_draft`, `h3_video_final`, `h3_video_final_x2`, `h3_prism` | Ordered visual/audio refs; capability-valid clip lengths; draft before final |
+| Narration/voice performance | `drama3_speech`, `drama3_scene` | Audition actual lines and scenes, stable speaker mapping, pronunciation notes |
+| Music | `music_instrumental` | Keep cue and generated ABC score for thematic variations; measure actual duration |
+| Optional repair/finishing | SAM masks/tracking, depth, neural look pass, RTX upscale | Explicit opt-in per need; preserve source audio and verify changed format |
+
+Audio references in an H3 request are not proof of exact speech timing or lip synchronization. The initial dialogue strategy is to evaluate H3 native audiovisual candidates with approved speaker references, preserving generated audio/video pairs. Drama3 is a candidate for narration and voice auditions; replacing visible on-camera speech requires a separately validated synchronization path. The exposed catalog does not establish a standalone lip-sync repair workflow, so the UI must not promise one.
+
+Finishing is not mandatory: do not silently turn an SDR 24fps approved film into HDR 48fps merely because that is an upscale recipe's default. The export brief controls resolution, frame rate and dynamic range.
+
+### First feature: storyboard and approval workspace
+
+Branch recommendation: Desktop `feat/storyboard-review-workspace`, created when implementation begins. Extend the existing ProductionView and shot sheet components. Core work is restricted to a missing read/write/review contract demonstrated during implementation.
+
+The user enters a project and sees:
+
+1. A concise brief with attached script, references, required facts and desired output.
+2. Scene cards containing story purpose, dialogue/narration, visual action, duration, reference assignments and generation readiness.
+3. An editable script/storyboard with a visible approval record. “Approve storyboard” is distinct from “Generate.”
+4. Cast and voice previews attached to named characters, with approval status and a clear reason if generation is blocked.
+5. “Generate approved scenes” showing draft/final quality, queued work, estimated effort/cost where known and the items that will change.
+6. A review queue where “voice sounds unnatural,” “wrong prop,” or “scene doesn't match” opens the exact candidate and offers the smallest supported repair.
+
+Acceptance: the ordinary workflow needs no node names, hand-edited JSON, copied file paths or external chat instructions. Advanced controls remain accessible. The first feature can be reviewed with fixture media before scheduling real GPU work.
+
+### Concrete pilot for discussing the workflow
+
+Use a small excerpt of Brilliant Care rather than inventing an unrelated demo. Proposed three-shot structure, still subject to storyboard approval:
+
+- Clinic exchange: Bennett asks “Any questions?” and Thomas gives the approved response. Judge connected delivery, listening, stable identity and complete words.
+- At-home follow-up beat: an approved patient/care-team action, with a short narration line from the approved script. Judge phone/prop continuity, voice fit and readable visual information.
+- Resolution/end card: an approved outcome beat and controlled brand typography. Judge pacing, music balance, legibility and clean export.
+
+Target roughly 20–30 seconds only if the complete dialogue and action fit naturally; do not truncate speech to satisfy the demo length. Exact scene text and references must come from the chosen script revision. This is a workflow acceptance fixture, not authorization to replace the full film's creative plan.
+
+### Implementation order after this design
+
+1. Storyboard/review workspace and three approval states, using current artifacts.
+2. RTX 5090 runner/client integration only where missing, including queue status and durable local output retrieval.
+3. Voice auditions, speaker assignments, scene generation and focused repair controls.
+4. Rough-cut editing, audio mix, review findings and clean export.
+5. Dhee MCP adapter over those same operations; bring its minimum dispatch/status surface forward if needed for Codex-assisted integration testing.
+6. Full Brilliant Care and shipyard workflows, then deeper polish based on actual use.
+
+For each feature: write its detailed implementation tasks, make the smallest local change, verify that feature locally, record evidence and iterate. Broader regression checks happen when the affected integration warrants them and before delivery; setup work must not displace the product objective. All commits remain local until the user explicitly requests a push or PR.
