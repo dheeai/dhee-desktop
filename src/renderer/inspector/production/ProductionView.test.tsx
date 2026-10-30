@@ -105,6 +105,23 @@ describe('ProductionView', () => {
     expect(Element.prototype.scrollIntoView).toHaveBeenCalled();
   });
 
+  it('connects creative review navigation to the actual section', () => {
+    render(<ProductionView />);
+    const spy = jest.spyOn(Element.prototype, 'scrollIntoView');
+    spy.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'Script' }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect((spy.mock.instances[0] as unknown as HTMLElement).dataset.sectionId).toBe('story');
+  });
+
+  it('labels generated video as needing review', () => {
+    mockModel = buildModel([inst('final_video', 'completed', { outputPath: 'final.mp4' })]);
+    render(<ProductionView />);
+    expect(screen.getByRole('button', { name: 'Review generated cut' })).toBeTruthy();
+    expect(screen.getByText('Generated cut · review needed')).toBeTruthy();
+    expect(screen.queryByText(/Finished —/)).toBeNull();
+  });
+
   it('renders a blank canvas without crashing when the run has no instances yet', () => {
     // Zero instances → deriveRunModel yields no stages → no sections/pills.
     // The point of this case is that the real component (IntersectionObserver

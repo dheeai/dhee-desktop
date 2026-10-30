@@ -25,6 +25,8 @@ import type { RunDeliverable } from '../../lib/runCockpit/deriveRunModel';
 import type { InstanceGraphNode } from '../../../shared/dheeIpc';
 import { toFileUrl } from '../../utils/pathResolver';
 import { ReadableArtifact } from './ReadableArtifact';
+import { buildProductionReview } from '../../lib/runCockpit/productionReview';
+import { ProductionReviewPanel } from './ProductionReviewPanel';
 import { ShotSheetCard } from './ShotSheetCard';
 import { CardDetailModal } from '../CardDetailModal';
 import type { CardAction } from '../cardDetailModel';
@@ -59,6 +61,11 @@ export function ProductionView() {
 
   // THE shape — computed once per model change. The render below is dumb.
   const doc = useMemo(() => buildProductionDoc(model, headlineFields), [model, headlineFields]);
+
+  const reviews = useMemo(
+    () => buildProductionReview(model, bundle?.nodes ?? [], doc),
+    [model, bundle, doc],
+  );
 
   // flat key → deliverable, for the detail modal (across all stages)
   const itemByKey = useMemo(() => {
@@ -173,7 +180,7 @@ export function ProductionView() {
                   <span className={styles.pillName}>{p.label}</span>
                   <span className={styles.pillCount}>
                     <strong>{p.done}/{p.total}</strong>
-                    <span>{running ? 'running' : done ? 'done' : 'queued'}</span>
+                    <span>{running ? 'running' : done ? 'done' : p.status === 'failed' ? 'failed' : 'queued'}</span>
                   </span>
                 </span>
               </button>
@@ -183,6 +190,10 @@ export function ProductionView() {
       </div>
 
       <div className={styles.bodyWrap}>
+        <ProductionReviewPanel
+          checkpoints={reviews}
+          onNavigate={scrollToSection}
+        />
         {doc.sections.map((section, i) => (
           <section key={section.id} data-section-id={section.id} ref={registerSection(section.id)} className={styles.docSection}>
             {renderSection(section, i + 1)}
@@ -323,9 +334,9 @@ export function ProductionView() {
   function renderFilm(section: Extract<Section, { kind: 'film' }>, no: number) {
     const { phase, final, recent } = section;
     const sprock = (cls: string) => <div className={`${styles.heroSprock} ${cls}`}>{Array.from({ length: 22 }, (_, i) => <i key={i} />)}</div>;
-    const kicker = phase === 'finished' ? 'Final Cut' : phase === 'assembling' ? 'Final Cut · assembling' : phase === 'rendering' ? 'Rough cut · not yet assembled' : phase === 'writing' ? 'Final Cut · pre-production' : 'Final Cut';
+    const kicker = phase === 'finished' ? 'Generated cut · review needed' : phase === 'assembling' ? 'Final Cut · assembling' : phase === 'rendering' ? 'Rough cut · not yet assembled' : phase === 'writing' ? 'Final Cut · pre-production' : 'Final Cut';
     const sub =
-      phase === 'finished' ? 'Finished — click to play.'
+      phase === 'finished' ? 'Generated — ready for your review.'
       : phase === 'assembling' ? 'Relaying shots → final video…'
       : phase === 'rendering' ? `${model.overall.done} of ${model.overall.total} nodes in · the final assembles once every shot is ready`
       : phase === 'writing' ? 'Writing the screenplay — the storyboard fills in as the plan is ready.'
@@ -358,7 +369,7 @@ export function ProductionView() {
               <div className={styles.reeltag}>Reel 01{phase !== 'finished' && phase !== 'new' ? ` · ${phase}` : ''}</div>
               {phase === 'finished' && final ? (
                 <>
-                  <button type="button" className={styles.heroPlay} aria-label="Play final cut" onClick={playHero} />
+                  <button type="button" className={styles.heroPlay} aria-label="Review generated cut" onClick={playHero} />
                   <button type="button" className={styles.heroFs} aria-label="Play fullscreen" onClick={fullscreenHero}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />
@@ -369,7 +380,7 @@ export function ProductionView() {
               <div className={styles.heroMeta}>
                 <div className={styles.heroKicker}>{kicker}</div>
                 <div className={styles.heroTtl}>{projectTitle()}</div>
-                <div className={styles.heroSub}>{phase === 'finished' ? 'Finished — click to play, or ⛶ for fullscreen.' : sub}</div>
+                <div className={styles.heroSub}>{phase === 'finished' ? 'Generated — review playback or open fullscreen.' : sub}</div>
                 {phase === 'assembling' ? <div className={styles.hbar}><i /></div> : null}
               </div>
             </>

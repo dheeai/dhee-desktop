@@ -1,0 +1,36 @@
+@import '../../styles/tokens';
+
+.root {
+  padding: 24px;
+  margin-bottom: 32px;
+  border: 1px solid rgba(128, 128, 128, 0.3);
+  border-radius: 12px;
+  background: $color-bg-panel;
+  color: $color-text-primary;
+  h2 { font-size: 20px; margin: 0 0 8px; }
+  > p { color: $color-text-secondary; line-height: 1.6; font-size: 13px; }
+}
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: 24px;
+  padding: 0;
+  list-style: none;
+  counter-reset: review;
+}
+.card {
+  min-width: 0;
+  counter-increment: review;
+  h3 { font-size: 15px; margin: 8px 0; }
+  h3::before { content: counter(review) '. '; color: $color-text-secondary; }
+  ul { list-style: none; padding: 0; }
+  li { margin: 14px 0; font-size: 13px; overflow-wrap: anywhere; }
+  small { display: block; margin-top: 4px; color: $color-text-secondary; }
+  button {
+    padding: 0; border: 0; background: none; color: inherit;
+    font: inherit; text-align: left; text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+    &:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 2px; }
+  }
+}
+.status { font-size: 12px; font-weight: 600; color: $color-text-secondary; }
+.note { margin-bottom: 0; }
