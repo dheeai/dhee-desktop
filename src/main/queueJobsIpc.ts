@@ -2,18 +2,15 @@ import { isAbsolute } from 'node:path';
 import { dhee_CHANNELS as channels } from '../shared/dheeIpc';
 import type { QueueJobSummary, QueueJobsResponse } from '../shared/gpuQueue';
 
-interface StoredJob extends QueueJobSummary {
-  job?: { state: string; error?: string | null };
-}
 interface QueueCore {
-  QueueJobs: new (projectDir: string) => {
-    list(): StoredJob[];
-    refresh(id: string): Promise<unknown>;
-    cancel(id: string): Promise<unknown>;
-    download(id: string): Promise<unknown>;
-  };
+  executeProductionRequest(
+    request: unknown,
+  ): Promise<
+    | { ok: true; result: { jobs: QueueJobSummary[] } }
+    | { ok: false; error: string }
+  >;
 }
-const coreDagModule = 'dhee-core/dag';
+const coreControlModule = 'dhee-core/control';
 export function registerQueueJobsIpc(
   ipc: {
     handle(
@@ -25,7 +22,7 @@ export function registerQueueJobsIpc(
     ): void;
   },
   load: () => Promise<QueueCore> = () =>
-    import(/* webpackIgnore: true */ coreDagModule),
+    import(/* webpackIgnore: true */ coreControlModule),
 ) {
   ipc.handle(channels.QUEUE_JOBS, async (_event, request) => {
     try {
@@ -50,34 +47,17 @@ export function registerQueueJobsIpc(
       )
         throw new Error('A saved queue record id is required.');
       const core = await load();
-      if (!core.QueueJobs)
+      if (typeof core.executeProductionRequest !== 'function')
         throw new Error(
           'Build the matching Core version to manage saved GPU jobs.',
         );
-      const store = new core.QueueJobs(req.projectDir);
-      if (
-        req.action === 'refresh' ||
-        req.action === 'cancel' ||
-        req.action === 'download'
-      )
-        await store[req.action](req.id as string);
-      return {
-        ok: true,
-        jobs: store.list().map((record) => ({
-          id: record.id,
-          workflow: record.workflow,
-          phase: record.phase,
-          jobId: record.jobId,
-          state: record.job?.state,
-          cancelRequested: record.cancelRequested,
-          error: record.error || record.job?.error || undefined,
-          files: record.files?.map((file) => ({
-            path: file.path,
-            sha256: file.sha256,
-            bytes: file.bytes,
-          })),
-        })),
-      };
+      const result = await core.executeProductionRequest({
+        action: 'gpu.jobs',
+        projectDir: req.projectDir,
+        operation: req.action,
+        ...(req.id ? { id: req.id } : {}),
+      });
+      return result.ok ? { ok: true, jobs: result.result.jobs } : result;
     } catch (error) {
       return {
         ok: false,

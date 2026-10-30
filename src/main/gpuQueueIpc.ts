@@ -2,11 +2,14 @@ import { dhee_CHANNELS as channels } from '../shared/dheeIpc';
 import type { GpuWorkflow, GpuCatalogResponse } from '../shared/gpuQueue';
 
 interface QueueCore {
-  GpuQueueClient: new (endpoint: string) => {
-    listWorkflows(): Promise<GpuWorkflow[]>;
-  };
+  executeProductionRequest(
+    request: unknown,
+  ): Promise<
+    | { ok: true; result: { workflows: GpuWorkflow[] } }
+    | { ok: false; error: string }
+  >;
 }
-const coreDagModule = 'dhee-core/dag';
+const coreControlModule = 'dhee-core/control';
 export function registerGpuQueueIpc(
   ipc: {
     handle(
@@ -18,7 +21,7 @@ export function registerGpuQueueIpc(
     ): void;
   },
   load: () => Promise<QueueCore> = () =>
-    import(/* webpackIgnore: true */ coreDagModule),
+    import(/* webpackIgnore: true */ coreControlModule),
 ) {
   ipc.handle(channels.GPU_QUEUE_CATALOG, async (_event, request) => {
     try {
@@ -30,16 +33,17 @@ export function registerGpuQueueIpc(
       )
         throw new Error('Enter the GPU queue MCP endpoint.');
       const core = await load();
-      if (typeof core.GpuQueueClient !== 'function')
+      if (typeof core.executeProductionRequest !== 'function')
         throw new Error(
           'Build the matching Core version to connect the GPU queue.',
         );
-      return {
-        ok: true,
-        workflows: await new core.GpuQueueClient(
-          endpoint.trim(),
-        ).listWorkflows(),
-      };
+      const result = await core.executeProductionRequest({
+        action: 'gpu.catalog',
+        endpoint: endpoint.trim(),
+      });
+      return result.ok
+        ? { ok: true, workflows: result.result.workflows }
+        : result;
     } catch (error) {
       return {
         ok: false,

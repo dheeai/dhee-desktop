@@ -1,3 +1,4 @@
+import { it, expect, jest } from '@jest/globals';
 import { registerGpuQueueIpc } from './gpuQueueIpc';
 import { dhee_CHANNELS as channels } from '../shared/dheeIpc';
 
@@ -13,9 +14,10 @@ it('checks the catalog through Core and returns failures without claiming connec
     },
   ]);
   const load = async () => ({
-    GpuQueueClient: class {
-      listWorkflows = list;
-    },
+    executeProductionRequest: async () => ({
+      ok: true as const,
+      result: { workflows: await list() },
+    }),
   });
   registerGpuQueueIpc(
     {
@@ -36,7 +38,9 @@ it('checks the catalog through Core and returns failures without claiming connec
 });
 it('rejects malformed IPC input before loading Core', async () => {
   let handler: any;
-  const load = jest.fn();
+  const load = jest.fn(async () => {
+    throw new Error('must not load');
+  });
   registerGpuQueueIpc(
     {
       handle: (_name, fn) => {
