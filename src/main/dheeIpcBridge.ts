@@ -1,3 +1,4 @@
+import { registerQueueJobsIpc } from './queueJobsIpc';
 import { registerGpuQueueIpc } from './gpuQueueIpc';
 /**
  * Typed IPC bridge between the renderer's `window.dhee.*` API and
@@ -119,6 +120,7 @@ export function registerdheeIpcBridge(
 
   registerProductionReviewIpc(ipcMain);
   registerGpuQueueIpc(ipcMain);
+  registerQueueJobsIpc(ipcMain);
 
   ipcMain.handle(
     dhee_CHANNELS.CREATE_SESSION,

@@ -1,3 +1,4 @@
+import type { QueueJobsRequest, QueueJobsResponse } from '../shared/gpuQueue';
 import type { GpuCatalogResponse } from '../shared/gpuQueue';
 import type { ReviewPolicyResponse } from '../shared/productionReview';
 import type { ProductionReviewRequest, RecordProductionReviewRequest, ProductionReviewResponse } from '../shared/productionReview';
@@ -714,6 +715,9 @@ const accountBridge = {
 };
 
 const dheeBridge = {
+  queueJobs(req: QueueJobsRequest): Promise<QueueJobsResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.QUEUE_JOBS, req);
+  },
   gpuQueueCatalog(req: { endpoint: string }): Promise<GpuCatalogResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.GPU_QUEUE_CATALOG, req);
   },
