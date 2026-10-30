@@ -13,6 +13,7 @@ import type { Attachment } from './attachmentTypes';
 
 /** Channel names for `ipcMain.handle` / `ipcRenderer.invoke` request/response calls. */
 export const dhee_CHANNELS = {
+  GPU_QUEUE_CATALOG: 'dhee:gpuQueueCatalog',
   CREATE_SESSION: 'dhee:createSession',
   CONFIGURE_PROJECT: 'dhee:configureProject',
   RUN_TASK: 'dhee:runTask',

@@ -34,6 +34,7 @@ const DEFAULT_TIER_CONFIG: LLMTierConfig = {
 };
 
 const defaults: AppSettings = {
+  gpuQueueUrl: '',
   backendMode: 'local',
   llmBackend: 'local',
   comfyBackend: 'local',
@@ -241,6 +242,7 @@ function normalizeSettings(value: Partial<AppSettings> | undefined): AppSettings
   }
 
   const normalized: AppSettings = {
+    gpuQueueUrl: normalizeString(value?.gpuQueueUrl),
     backendMode,
     llmBackend,
     comfyBackend,

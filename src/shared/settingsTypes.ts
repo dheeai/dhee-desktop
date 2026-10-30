@@ -61,6 +61,8 @@ export interface AccountInfo {
 }
 
 export interface AppSettings {
+  /** Shared GPU gateway MCP endpoint. Empty until explicitly configured. */
+  gpuQueueUrl?: string;
   /**
    * Coarse "is at least one lane on cloud" indicator. Derived from
    * llmBackend / comfyBackend at normalize time (cloud if either is

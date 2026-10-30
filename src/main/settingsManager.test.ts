@@ -127,3 +127,8 @@ describe('settingsManager theme normalization', () => {
     }
   });
 });
+
+ it('preserves the configured queue endpoint through settings normalization', () => {
+  expect(normalizeSettings({ ...baseSettings, gpuQueueUrl: ' http://localhost:9000/mcp ' }).gpuQueueUrl).toBe('http://localhost:9000/mcp');
+  expect(normalizeSettings(baseSettings).gpuQueueUrl).toBe('');
+ });

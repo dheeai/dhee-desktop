@@ -1,3 +1,4 @@
+import type { GpuCatalogResponse } from '../shared/gpuQueue';
 import type { ReviewPolicyResponse } from '../shared/productionReview';
 import type { ProductionReviewRequest, RecordProductionReviewRequest, ProductionReviewResponse } from '../shared/productionReview';
 // Disable no-unused-vars, broken for spread args
@@ -713,6 +714,9 @@ const accountBridge = {
 };
 
 const dheeBridge = {
+  gpuQueueCatalog(req: { endpoint: string }): Promise<GpuCatalogResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.GPU_QUEUE_CATALOG, req);
+  },
   createSession(req?: CreateSessionRequest): Promise<CreateSessionResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.CREATE_SESSION, req);
   },

@@ -1,3 +1,4 @@
+import GpuQueuePanel from './GpuQueuePanel';
 import { useCallback, useEffect, useState } from 'react';
 import { Trash2, Pencil, AlertCircle, Info, RefreshCw } from 'lucide-react';
 import type {
@@ -15,9 +16,10 @@ interface WorkflowsTabProps {
    * user has uploaded some.
    */
   isCloudMode?: boolean;
+  gpuQueueUrl?: string;
 }
 
-export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps) {
+export default function WorkflowsTab({ isCloudMode = false, gpuQueueUrl = '' }: WorkflowsTabProps) {
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -102,6 +104,7 @@ export default function WorkflowsTab({ isCloudMode = false }: WorkflowsTabProps)
 
   return (
     <>
+      <GpuQueuePanel savedEndpoint={gpuQueueUrl} />
       <div className={styles.sectionHeader}>
         <h3>Custom Workflows</h3>
         <p className={styles.sectionDescription}>

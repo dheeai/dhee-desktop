@@ -1,3 +1,4 @@
+import { restartForSettingsPatch } from './settingsRestart';
 /* eslint global-require: off, no-console: off, promise/always-return: off */
 
 /**
@@ -426,16 +427,18 @@ ipcMain.handle(
   async (_event, patch: Partial<AppSettings>): Promise<AppSettings> => {
     const updated = updateSettings(patch);
     try {
-      await dheeCoreManager.restart(
-        updated,
-        await getCloudAuthRuntime(updated),
-      );
-      // Backend may have toggled cloud↔local — re-sync cloud usage
-      // analytics so it follows the LLM lane.
-      syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(updated));
-      if (mainWindow) {
-        registerdheeIpcBridge(dheeCoreManager, mainWindow);
-      }
+      await restartForSettingsPatch(patch, async () => {
+        await dheeCoreManager.restart(
+          updated,
+          await getCloudAuthRuntime(updated),
+        );
+        // Backend may have toggled cloud↔local — re-sync cloud usage
+        // analytics so it follows the LLM lane.
+        syncCloudUsageAnalytics(dheeCoreManager, cloudLlmUsageIdentity(updated));
+        if (mainWindow) {
+          registerdheeIpcBridge(dheeCoreManager, mainWindow);
+        }
+      });
     } catch (error) {
       log.error(
         `Failed to restart embedded engine after settings update: ${(error as Error).message}`,

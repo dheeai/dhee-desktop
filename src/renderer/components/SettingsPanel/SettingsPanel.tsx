@@ -908,7 +908,7 @@ export default function SettingsPanel({
             {activeTab === 'account' ? (
               <AccountTab />
             ) : activeTab === 'workflows' ? (
-              <WorkflowsTab isCloudMode={settings?.comfyBackend === 'cloud'} />
+              <WorkflowsTab gpuQueueUrl={settings?.gpuQueueUrl} isCloudMode={settings?.comfyBackend === 'cloud'} />
             ) : activeTab === 'diagnostics' ? (
               <>
                 <div className={styles.sectionHeader}>
