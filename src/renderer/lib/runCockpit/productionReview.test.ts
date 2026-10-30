@@ -77,7 +77,7 @@ describe('creative review readiness', () => {
   it('keeps voice reference coverage explicit', () => {
     const refs = review([done('character_image')])[1];
     expect(refs.status).toBe('incomplete');
-    expect(refs.items.find((i) => i.id === 'voice-reference')?.status).toBe(
+    expect(refs.items.find((i) => i.id === 'voice_reference')?.status).toBe(
       'unconfigured',
     );
   });

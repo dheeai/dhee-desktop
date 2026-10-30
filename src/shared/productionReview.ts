@@ -15,6 +15,7 @@ export interface ProductionReviewPreview {
   format: 'text' | 'md' | 'json' | 'image' | 'video' | 'audio';
 }
 export interface ProductionReviewState {
+  authoritative?: boolean;
   previews?: ProductionReviewPreview[];
   status:
     | 'approved'
@@ -35,3 +36,5 @@ export interface RecordProductionReviewRequest extends ProductionReviewRequest {
 export type ProductionReviewResponse =
   | { ok: true; review: ProductionReviewState }
   | { ok: false; error: string };
+
+export type ReviewPolicyResponse = {ok:true;enabled:boolean} | {ok:false;error:string};

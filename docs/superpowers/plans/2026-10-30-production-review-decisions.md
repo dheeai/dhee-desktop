@@ -35,11 +35,10 @@ Never accept an empty snapshot or missing/failed dependency. Track selected hist
 - Ruling: dependency freshness follows recorded event lineage. Legacy artifacts without dependency metadata only bind to available targets and recorded dependencies. Cost: a future authoritative gate policy must require complete lineage/membership before accepting such a review for execution.
 - Ruling: no automatic agent/MCP approval tool is exposed; the shared Core API is ready for later controlled integration. The actor is the local user, not an authenticated multi-user identity.
 
-## Integration blockers and remaining work
+## Integration status (updated after gate enforcement)
 
-1. Core's existing runner registry imports src/dag/runners/cvCaptions.js, but cvCaptions.ts is absent in the checked-out commit. The existing projectWalkLock integration suite cannot load the walker. No placeholder runner or disabled production behavior was introduced to conceal this.
-2. Matching built Core + Electron app verification remains pending. IPC tests inject the actual API contract or test doubles; they do not prove a packaged local build works.
-3. Visual QA remains pending from the earlier browser limitation. No screenshot or packaged visual acceptance is claimed.
-4. Authoritative expected-membership/checkpoint policy and enforcement across run/regen/MCP paths remain to implement; voice-reference configuration is still missing. Frozen-artifact approval is not approval of a complete film or export QC.
+The dangling caption registry import has been removed after history inspection; Core now builds. Authoritative current-membership, dependency-lineage validation and shared walker gate enforcement are implemented. Desktop production builds and isolated Electron startup with the matching Core pass; review preload methods are available. See Dhee-Gates-Implementation-Plan.md for targeted verification and fresh-review fixes.
+
+Visual/media acceptance and representative end-to-end project verification remain pending. Existing built-in bundles still need voice-reference configuration. Frozen-artifact approval is not final export QC, and the entire first feature is not yet declared fully accepted.
 
 No GPU generation, push, GitHub branch creation or PR was performed. Local work stays on feat/storyboard-review-workspace in both repositories. Notify the user before publishing once the full first feature is locally verified.

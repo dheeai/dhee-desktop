@@ -63,3 +63,45 @@ describe('production review IPC', () => {
     ).toMatch(/Core build/);
   });
 });
+
+it('reads and changes policy through Core and rejects a non-boolean choice', async () => {
+  const handlers = new Map<
+    string,
+    (event: unknown, req: any) => Promise<any>
+  >();
+  const set = jest.fn<any>().mockReturnValue({ enabled: true });
+  registerProductionReviewIpc(
+    {
+      handle: (channel, listener) => {
+        handlers.set(channel, listener);
+      },
+    },
+    async () => ({
+      productionReviewsRequired: () => false,
+      setProductionReviewsRequired: set,
+      readProductionReview: jest.fn<any>(),
+      recordProductionReview: jest.fn<any>(),
+    }),
+  );
+  expect(
+    await handlers.get(channels.READ_REVIEW_POLICY)!(null, {
+      projectDir: '/one',
+    }),
+  ).toEqual({ ok: true, enabled: false });
+  expect(
+    await handlers.get(channels.SET_REVIEW_POLICY)!(null, {
+      projectDir: '/one',
+      enabled: true,
+    }),
+  ).toEqual({ ok: true, enabled: true });
+  expect(set).toHaveBeenCalledWith({ projectDir: '/one', enabled: true });
+  expect(
+    (
+      await handlers.get(channels.SET_REVIEW_POLICY)!(null, {
+        projectDir: '/one',
+        enabled: 'yes',
+      })
+    ).ok,
+  ).toBe(false);
+  expect(set).toHaveBeenCalledTimes(1);
+});

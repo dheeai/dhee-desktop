@@ -1,12 +1,18 @@
 import { dhee_CHANNELS as channels } from '../shared/dheeIpc';
 import type {
   ProductionReviewRequest,
+  ReviewPolicyResponse,
   ProductionReviewState,
   RecordProductionReviewRequest,
   ProductionReviewResponse,
 } from '../shared/productionReview';
 
 interface ReviewCore {
+  productionReviewsRequired?: (projectDir: string) => boolean;
+  setProductionReviewsRequired?: (input: {
+    projectDir: string;
+    enabled: boolean;
+  }) => { enabled: boolean };
   readProductionReview: (
     input: ProductionReviewRequest,
   ) => Promise<ProductionReviewState>;
@@ -20,19 +26,23 @@ interface IpcRegistrar {
     listener: (
       event: unknown,
       request: any,
-    ) => Promise<ProductionReviewResponse>,
+    ) => Promise<ProductionReviewResponse | ReviewPolicyResponse>,
   ) => void;
 }
 const coreDagModule = 'dhee-core/dag';
 export function registerProductionReviewIpc(
   ipc: IpcRegistrar,
-  load: () => Promise<ReviewCore> = async () =>
-    import(
-      /* webpackIgnore: true */ coreDagModule
-    ) as unknown as Promise<ReviewCore>,
+  load: () => Promise<ReviewCore> = async () => {
+    const core = await import(/* webpackIgnore: true */ coreDagModule);
+    return {
+      ...core,
+      readProductionReview: core.readProjectProductionReview,
+      recordProductionReview: core.recordProjectProductionReview,
+    } as ReviewCore;
+  },
 ) {
   const invoke = async (
-    method: keyof ReviewCore,
+    method: 'readProductionReview' | 'recordProductionReview',
     input: RecordProductionReviewRequest,
   ): Promise<ProductionReviewResponse> => {
     try {
@@ -51,6 +61,40 @@ export function registerProductionReviewIpc(
       };
     }
   };
+  const policy = async (
+    input: { projectDir: string; enabled?: boolean },
+    write: boolean,
+  ): Promise<ReviewPolicyResponse> => {
+    try {
+      const core = await load();
+      if (!core.productionReviewsRequired || !core.setProductionReviewsRequired)
+        throw new Error(
+          'This Core build does not support required creative reviews.',
+        );
+      if (write) {
+        if (typeof input.enabled !== 'boolean')
+          throw new Error('An explicit review policy is required.');
+        return {
+          ok: true,
+          ...core.setProductionReviewsRequired({
+            projectDir: input.projectDir,
+            enabled: input.enabled,
+          }),
+        };
+      }
+      return {
+        ok: true,
+        enabled: core.productionReviewsRequired(input.projectDir),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  };
+  ipc.handle(channels.READ_REVIEW_POLICY, (_event, req) => policy(req, false));
+  ipc.handle(channels.SET_REVIEW_POLICY, (_event, req) => policy(req, true));
   ipc.handle(channels.READ_PRODUCTION_REVIEW, (_event, req) =>
     invoke('readProductionReview', req),
   );

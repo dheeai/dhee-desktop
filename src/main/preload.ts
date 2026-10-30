@@ -1,3 +1,4 @@
+import type { ReviewPolicyResponse } from '../shared/productionReview';
 import type { ProductionReviewRequest, RecordProductionReviewRequest, ProductionReviewResponse } from '../shared/productionReview';
 // Disable no-unused-vars, broken for spread args
 /* eslint no-unused-vars: off */
@@ -720,6 +721,12 @@ const dheeBridge = {
   },
   runTask(req: RunTaskRequest): Promise<OkResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.RUN_TASK, req);
+  },
+  readReviewPolicy(req:{projectDir:string}):Promise<ReviewPolicyResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.READ_REVIEW_POLICY,req);
+  },
+  setReviewPolicy(req:{projectDir:string;enabled:boolean}):Promise<ReviewPolicyResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.SET_REVIEW_POLICY,req);
   },
   readProductionReview(req: ProductionReviewRequest): Promise<ProductionReviewResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.READ_PRODUCTION_REVIEW, req);

@@ -189,3 +189,27 @@ describe('saved review controls', () => {
     expect(record).not.toHaveBeenCalled();
   });
 });
+
+it('uses authoritative current membership even when the graph contains removed invalidated items', async () => {
+  read.mockResolvedValue({
+    ok: true,
+    review: {
+      status: 'unreviewed',
+      fingerprint: 'current',
+      previews,
+      authoritative: true,
+    },
+  });
+  render(
+    <ProductionReviewDecision
+      request={request}
+      revision="removed-item"
+      ready={false}
+      title="Script & storyboard"
+    />,
+  );
+  fireEvent.load(await screen.findByAltText('story (v1)'));
+  fireEvent.click(screen.getByRole('checkbox'));
+  fireEvent.click(screen.getByRole('button', { name: 'Record approval' }));
+  await waitFor(() => expect(record).toHaveBeenCalled());
+});

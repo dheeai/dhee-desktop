@@ -129,6 +129,6 @@ describe('ProductionView', () => {
     mockModel = buildModel([]);
     const { container } = render(<ProductionView />);
     expect(container.firstChild).toBeTruthy(); // mounted, no throw
-    expect(screen.queryAllByRole('button')).toHaveLength(0); // no stage pills
+    expect(screen.getByRole('region', { name: 'Creative approval policy' })).toBeTruthy(); // policy is available before generation
   });
 });

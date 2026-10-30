@@ -82,7 +82,7 @@ function Decision({
       busy ||
       !review?.fingerprint ||
       (decision === 'approved' &&
-        (!ready ||
+        ((!ready && !review?.authoritative) ||
           !acknowledged ||
           !review.previews?.length ||
           !review.previews.every((p) => loaded[p.key])))
@@ -163,7 +163,7 @@ function Decision({
           type="button"
           disabled={
             busy ||
-            !ready ||
+            (!ready && !review?.authoritative) ||
             !review?.fingerprint ||
             !acknowledged ||
             !review.previews?.length ||
@@ -189,7 +189,8 @@ function Decision({
         </button>
       </div>
       <small>
-        Saved for these artifacts. Automatic run gates are not enabled yet.
+        Saved for these artifacts. The project review policy controls when runs
+        pause.
       </small>
     </div>
   );

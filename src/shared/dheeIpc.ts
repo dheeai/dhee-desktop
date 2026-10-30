@@ -22,6 +22,8 @@ export const dhee_CHANNELS = {
    * immediately instead of waiting for a chat agent turn to call a tool.
    */
   START_RUN: 'dhee:startRun',
+  READ_REVIEW_POLICY: 'dhee:readReviewPolicy',
+  SET_REVIEW_POLICY: 'dhee:setReviewPolicy',
   READ_PRODUCTION_REVIEW: 'dhee:readProductionReview',
   RECORD_PRODUCTION_REVIEW: 'dhee:recordProductionReview',
   /**

@@ -53,6 +53,12 @@ describe('buildCompletedNudge', () => {
 });
 
 describe('buildGatedNudge', () => {
+  it('never treats required human review as an automatic collection resume', () => {
+    const n = buildGatedNudge({gatedAfter:'review:rough-cut'});
+    expect(n).toMatch(/record approval/i);
+    expect(n).toMatch(/do not automatically resume/i);
+    expect(n).toMatch(/cannot bypass/i);
+  });
   it('frames the pause as the by-design gate, names the collection, and is a [system] message', () => {
     const n = buildGatedNudge({ gatedAfter: 'shot_image_prompt' });
     expect(n).toMatch(/^\[system\]/);

@@ -26,6 +26,7 @@ import type { InstanceGraphNode } from '../../../shared/dheeIpc';
 import { toFileUrl } from '../../utils/pathResolver';
 import { ReadableArtifact } from './ReadableArtifact';
 import { buildProductionReview } from '../../lib/runCockpit/productionReview';
+import { ProductionReviewPolicy } from './ProductionReviewPolicy';
 import { ProductionReviewDecision } from './ProductionReviewDecision';
 import { ProductionReviewPanel } from './ProductionReviewPanel';
 import { ShotSheetCard } from './ShotSheetCard';
@@ -191,13 +192,13 @@ export function ProductionView() {
       </div>
 
       <div className={styles.bodyWrap}>
+        {reviews.length > 0 && <ProductionReviewPolicy projectDir={dir} voiceConfigured={!!bundle?.nodes.some((node) => node.id === 'voice_reference' && node.outputs.format === 'audio')} />}
         <ProductionReviewPanel
           checkpoints={reviews}
           onNavigate={scrollToSection}
           renderDecision={(checkpoint) => {
             const stages = model.stages.filter((stage) => checkpoint.items.some((item) => item.id === stage.id));
             const items = stages.flatMap((stage) => stage.items);
-            if (!items.length) return null;
             return <ProductionReviewDecision
               request={{projectDir: dir, gate: checkpoint.id as 'storyboard' | 'references' | 'rough-cut', targets: items.map((item) => ({nodeId:item.nodeId, ...(item.itemId ? {itemId:item.itemId} : {})}))}}
               revision={JSON.stringify(items)}

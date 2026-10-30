@@ -76,6 +76,7 @@ export function buildStopAtReviewNudge(opts: { projectDir: string; stopAt: strin
  * blamed an unconfigured ComfyUI and offered to set it up).
  */
 export function buildGatedNudge(opts: { gatedAfter?: string; pendingAfterGate?: string[] }): string {
+  if (opts.gatedAfter?.startsWith('review:')) return `[system] Required creative review: ${opts.gatedAfter.slice(7)}. Tell the user to review the current artifacts in Desktop and record approval. Do NOT automatically resume, change review policy, or call this final completion. Resume cannot bypass the required review.`;
   const after = opts.gatedAfter ? ` after collection '${opts.gatedAfter}'` : '';
   const pending = opts.pendingAfterGate ?? [];
   const pendingLine =

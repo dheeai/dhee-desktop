@@ -37,7 +37,7 @@ export function buildProductionReview(
   const item = (id: string, label: string): ReviewItem => {
     const stage = model.stages.find((s) => s.id === id);
     let status: ReviewItemStatus = 'missing';
-    if (!nodes.some((n) => n.id === id)) status = 'unconfigured';
+    if (!nodes.some((n) => n.id === id && (id !== 'voice_reference' || n.outputs?.format === 'audio'))) status = 'unconfigured';
     else if (stage) {
       if (stage.failed > 0) status = 'failed';
       else if (stage.invalidated > 0) status = 'stale';
@@ -80,13 +80,7 @@ export function buildProductionReview(
     checkpoint('references', 'Character & voice references', [
       item('character_image', 'Character references'),
       ...optional(['setting_image']),
-      // Audio output alone cannot establish voice identity or reference intent.
-      // No current narrative bundle declares an explicit voice-reference contract.
-      {
-        id: 'voice-reference',
-        label: 'Voice reference — not configured; review speech in clips',
-        status: 'unconfigured',
-      },
+      item('voice_reference', 'Voice reference audition'),
     ]),
     checkpoint('rough-cut', 'Rough cut', [
       ...optional([
