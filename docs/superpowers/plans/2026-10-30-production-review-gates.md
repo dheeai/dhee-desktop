@@ -33,3 +33,12 @@ Verification: 53 targeted Core tests across walker approvals, saved decisions, l
 ## Remaining acceptance
 
 Visual layout, actual media playback and a representative production-project walkthrough remain unverified. The earlier browser restriction on opening the generated local preview was not bypassed. No live GPU generation, model downloads, push, remote branch creation, PR, or Slack send. Do not mark the whole first feature fully accepted until the remaining UI/media check is done. The RTX 5090 remains the intended generation backend; this checkpoint feature does not implement voice generation or final-video QC.
+
+
+## Native Desktop acceptance completed
+
+The built Electron app was opened through the native app controls using an isolated profile and local studio directory. A synthetic two-second fixture supplied script, scene plan, image references, an audio audition, scene clip and final video with recorded dependencies. No live model or GPU generation was used.
+
+Verified visually: policy control and checkpoint layout at the default Desktop window size; frozen script/image previews; native audio and video controls. The audio audition and video scrubbers reached their two-second end. This verifies playback operation, not subjective sound quality or production-video quality. All three decisions were recorded through the UI and remained approved after closing/reopening the project. The shared Core walker returned the final-video goal using those saved UI decisions. After editing the script, refreshing showed all three decisions stale and the walker paused at review:storyboard without returning a goal.
+
+The review-gate feature is now locally verified. RTX 5090 end-to-end generation, built-in voice-reference integration, production-scale UX and final export QC remain later workflow work. Nothing has been pushed and no PR or remote branch has been created. The isolated fixture is test data and does not represent a creative approval of a user production.

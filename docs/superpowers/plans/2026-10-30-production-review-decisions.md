@@ -42,3 +42,12 @@ The dangling caption registry import has been removed after history inspection; 
 Visual/media acceptance and representative end-to-end project verification remain pending. Existing built-in bundles still need voice-reference configuration. Frozen-artifact approval is not final export QC, and the entire first feature is not yet declared fully accepted.
 
 No GPU generation, push, GitHub branch creation or PR was performed. Local work stays on feat/storyboard-review-workspace in both repositories. Notify the user before publishing once the full first feature is locally verified.
+
+
+## Native Desktop acceptance completed
+
+The built Electron app was opened through the native app controls using an isolated profile and local studio directory. A synthetic two-second fixture supplied script, scene plan, image references, an audio audition, scene clip and final video with recorded dependencies. No live model or GPU generation was used.
+
+Verified visually: policy control and checkpoint layout at the default Desktop window size; frozen script/image previews; native audio and video controls. The audio audition and video scrubbers reached their two-second end. This verifies playback operation, not subjective sound quality or production-video quality. All three decisions were recorded through the UI and remained approved after closing/reopening the project. The shared Core walker returned the final-video goal using those saved UI decisions. After editing the script, refreshing showed all three decisions stale and the walker paused at review:storyboard without returning a goal.
+
+The review-gate feature is now locally verified. RTX 5090 end-to-end generation, built-in voice-reference integration, production-scale UX and final export QC remain later workflow work. Nothing has been pushed and no PR or remote branch has been created. The isolated fixture is test data and does not represent a creative approval of a user production.
