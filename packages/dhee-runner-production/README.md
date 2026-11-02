@@ -24,6 +24,6 @@ A successful response may stop at a creative gate. Read its preview and obtain t
 
 ## Verified companion revision
 
-This feature branch was verified with `dheeai/dhee-core` commit `ab515fc8834cbfad7ee138b824526d1ab0e45b14` on `feat/rtx-5090-queue`. Use that companion revision when reproducing the local acceptance; unchanged upstream Core is not an equivalent dependency. The Desktop packaging scripts pack the companion Core checkout and this extension into vendor tarballs.
+This feature branch was verified with `dheeai/dhee-core` commit `97bd360883ba946fef6dcbc6a1d7cf80582418f8` on `feat/rtx-5090-queue`. Use that companion revision when reproducing the local acceptance; unchanged upstream Core is not an equivalent dependency. The Desktop packaging scripts pack the companion Core checkout and this extension into vendor tarballs.
 
 The bounded acceptance is a four-second real scene, including approved narration preservation, normalization, assembly and checks. Full materials-to-film automation, persisted final-delivery readiness and signed/cross-platform packaged acceptance remain separate backlog work.
