@@ -1,3 +1,5 @@
+> Superseded ownership decision: user approved Core-owned MCP. Desktop retains UI/runners and a compatibility launcher only. See companion Core `docs/core-mcp-ownership.md`. Correction verified locally and approved for branch push; no PR requested.
+
 # Desktop production MCP adapter implementation plan
 
 > Execute inline with superpowers:executing-plans. This is F09 from the existing approved production plan, not a new video engine.

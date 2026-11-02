@@ -58,8 +58,7 @@
     "build:production": "tsc -p packages/dhee-runner-production/tsconfig.json",
     "prebuild": "npm run build:production",
     "production-control": "node packages/dhee-runner-production/dist/cli.js",
-    "production-mcp": "node packages/dhee-runner-production/dist/mcpStdio.js",
-    "test:production-mcp": "npm run build:production && node --test packages/dhee-runner-production/test/mcp.test.cjs"
+    "production-mcp": "node packages/dhee-runner-production/dist/mcpStdio.js"
   },
   "browserslist": [
     "defaults"

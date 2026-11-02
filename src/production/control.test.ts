@@ -20,14 +20,17 @@ it('routes execution and cancellation to the existing engine', async () => {
   ).toEqual({ ok: true, result: { gatedAfter: 'review:references' } });
   expect(execute).toHaveBeenCalledWith(request, { signal });
 });
-it('checks scene observations locally without loading the engine', async () => {
-  const execute = jest.fn(async () => ({ ok: true as const, result: null }));
-  const result = await createDesktopProductionControl(execute)({
+it('routes scene validation through the shared Core controller', async () => {
+  const response = { ok: false as const, error: 'Invalid scene intent' };
+  const execute = jest.fn(async () => response);
+  const request = {
     action: 'scene.check',
     sceneIntent: { requirements: [], sources: [] },
-  });
-  expect(result.ok).toBe(false);
-  expect(execute).not.toHaveBeenCalled();
+  };
+  expect(await createDesktopProductionControl(execute)(request)).toEqual(
+    response,
+  );
+  expect(execute).toHaveBeenCalledWith(request, {});
 });
 it('preserves external runner locations and adds the Desktop package location once', () => {
   const before = process.env.DHEE_NODE_MODULES_DIRS;

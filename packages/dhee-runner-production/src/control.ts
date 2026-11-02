@@ -1,6 +1,5 @@
 import { resolve, dirname, join } from 'node:path';
 import { existsSync } from 'node:fs';
-import { checkSceneIntent } from './sceneIntent.js';
 
 export interface ProductionOptions {
   signal?: AbortSignal;
@@ -60,22 +59,6 @@ export function createDesktopProductionControl(
     try {
       options.signal?.throwIfAborted();
       configureProductionRuntime();
-      if (
-        request &&
-        typeof request === 'object' &&
-        'action' in request &&
-        request.action === 'scene.check'
-      ) {
-        const keys = Object.keys(request);
-        if (keys.some((key) => !['action', 'sceneIntent'].includes(key)))
-          throw new Error('Unknown scene check field.');
-        return {
-          ok: true,
-          result: checkSceneIntent(
-            (request as { sceneIntent?: unknown }).sceneIntent,
-          ),
-        };
-      }
       return await execute(request, options);
     } catch (error) {
       return {
