@@ -17,6 +17,17 @@ export interface MediaCheckReport {
   };
   technicalStatus: 'issues' | 'unavailable' | 'review' | 'passed';
   checks: { code: string; status: string; message: string }[];
+  media?: {
+    durationSec?: number;
+    video?: { width: number; height: number; fps: number | null };
+    audio?: {
+      channels: number;
+      sampleRate: number;
+      peakDb?: number | null;
+      meanDb?: number | null;
+    };
+    silenceIntervals?: { start: number; end?: number }[];
+  };
   manualChecks: string[];
   creativeApproval: 'required';
 }

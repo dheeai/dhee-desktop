@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { GpuTarget } from '../../../shared/gpuQueue';
 import type { MediaCheckReport } from '../../../shared/mediaChecks';
 import styles from './GpuPreparationPanel.module.scss';
+import { MediaMeasurements } from './MediaMeasurements';
 
 export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
   const [branch, setBranch] = useState('main');
@@ -202,6 +203,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
               </li>
             ))}
           </ul>
+          <MediaMeasurements media={report.media} />
           <p>Creative review still required</p>
           <ul>
             {report.manualChecks.map((c) => (
