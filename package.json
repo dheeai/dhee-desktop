@@ -33,7 +33,7 @@
     "verify:dhee-core": "ts-node ./.erb/scripts/verify-dhee-core.ts",
     "ensure:dhee-core-dist": "node .erb/scripts/ensure-dhee-core-dist.js",
     "prepare:app-deps": "ts-node ./.erb/scripts/install-app-deps.ts",
-    "postinstall": "ts-node .erb/scripts/check-native-dep.js && node .erb/scripts/ensure-dhee-core-dist.js && node .erb/scripts/conditional-install-app-deps.js && npm run build:dll",
+    "postinstall": "npm run build:production && ts-node .erb/scripts/check-native-dep.js && node .erb/scripts/ensure-dhee-core-dist.js && node .erb/scripts/conditional-install-app-deps.js && npm run build:dll",
     "lint": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx",
     "lint:fix": "cross-env NODE_ENV=development eslint . --ext .js,.jsx,.ts,.tsx --fix",
     "package": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --mac --win --publish never && npm run build:dll",
@@ -43,7 +43,7 @@
     "package:all": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --mac --win --publish never && npm run build:dll",
     "release": "npm run verify:dhee-core && ts-node ./.erb/scripts/clean.js dist && npm run prepare:app-deps && npm run build && node .erb/scripts/stage-bundles.js && electron-builder build --publish always",
     "rebuild": "electron-rebuild --parallel --types prod,dev,optional --module-dir release/app",
-    "prestart": "cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
+    "prestart": "npm run build:production && cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true NODE_OPTIONS=\"-r ts-node/register --no-warnings\" webpack --config ./.erb/configs/webpack.config.main.dev.ts",
     "dev": "npm start",
     "start": "ts-node ./.erb/scripts/check-port-in-use.js && npm run prestart && npm run start:renderer",
     "start:main": "concurrently -k -P \"cross-env NODE_ENV=development TS_NODE_TRANSPILE_ONLY=true webpack --watch --config ./.erb/configs/webpack.config.main.dev.ts\" \"electronmon . -- {@}\" --",
@@ -54,7 +54,12 @@
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test": "jest",
-    "desktop-drive": "ts-node --transpile-only ./src/dev/desktopDrive.ts"
+    "desktop-drive": "ts-node --transpile-only ./src/dev/desktopDrive.ts",
+    "build:production": "tsc -p packages/dhee-runner-production/tsconfig.json",
+    "prebuild": "npm run build:production",
+    "production-control": "node packages/dhee-runner-production/dist/cli.js",
+    "production-mcp": "node packages/dhee-runner-production/dist/mcpStdio.js",
+    "test:production-mcp": "npm run build:production && node --test packages/dhee-runner-production/test/mcp.test.cjs"
   },
   "browserslist": [
     "defaults"
@@ -143,7 +148,8 @@
     "react-router-dom": "^7.3.0",
     "react-syntax-highlighter": "^16.1.0",
     "remark-gfm": "^4.0.1",
-    "zod": "3.22.3"
+    "zod": "3.22.3",
+    "dhee-runner-production": "file:packages/dhee-runner-production"
   },
   "devDependencies": {
     "@electron/rebuild": "^3.7.1",

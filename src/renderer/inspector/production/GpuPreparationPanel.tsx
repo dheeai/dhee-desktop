@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useId } from 'react';
+import { SceneIntentSummary } from './SceneIntentSummary';
 import type { GpuTarget, GpuWorkflow } from '../../../shared/gpuQueue';
 import styles from './GpuPreparationPanel.module.scss';
 
@@ -173,6 +174,9 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
         workflowVersion: workflow.version,
         inputs: values(workflow, draft),
         primaryOutput: 0,
+        ...(target.selection?.sceneIntent
+          ? { sceneIntent: target.selection.sceneIntent }
+          : {}),
       };
       const serialized = JSON.stringify(body);
       if (retry.current?.body !== serialized)
@@ -310,6 +314,7 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
             {String(target.selection.workflowVersion)}
           </p>
         )}
+        {target && <SceneIntentSummary value={target.selection?.sceneIntent} />}
         {target && blocked && (
           <p>
             This output is complete, running, or needs adaptive chunk planning.

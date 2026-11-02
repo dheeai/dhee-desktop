@@ -67,6 +67,7 @@ export type GpuPreparationRequest =
       workflowVersion: string;
       inputs: Record<string, unknown>;
       primaryOutput: number;
+      sceneIntent?: unknown;
     };
 export type GpuPreparationResponse =
   | { ok: false; error: string }

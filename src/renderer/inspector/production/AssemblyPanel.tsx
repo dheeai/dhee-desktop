@@ -99,9 +99,9 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
     <details className={styles.root}>
       <summary>Assemble completed clips</summary>
       <p>
-        Run one local FFmpeg assembly stage using the project’s configured order
-        and transitions. All source stages must already be complete. Existing
-        creative approvals still apply.
+        Combine completed clips or preserve selected narration using the
+        project’s configured assembly stages. All source stages must already be
+        complete. Existing creative approvals still apply.
       </p>
       <fieldset disabled={busy}>
         <label htmlFor="assembly-branch">
@@ -142,7 +142,14 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
             {targets.map((t, i) => (
               <option key={`${t.nodeId}:${t.itemId ?? ''}`} value={i}>
                 {t.nodeId}
-                {t.itemId ? ` · ${t.itemId}` : ''} · {t.status}
+                {t.itemId ? ` · ${t.itemId}` : ''} ·{' '}
+                {(
+                  {
+                    'ffmpeg.replace_audio': 'Preserve narration',
+                    'ffmpeg.normalize': 'Normalize clip',
+                  } as Record<string, string>
+                )[t.tool] ?? 'Combine clips'}{' '}
+                · {t.status}
               </option>
             ))}
           </select>
@@ -151,13 +158,27 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
           Assemble selected stage
         </button>
       </fieldset>
+      {target?.tool === 'ffmpeg.normalize' && (
+        <p>
+          Uses the stage’s explicit duration, framing and audio settings.
+          Trimming removes the tail; padding freezes the last frame. Cropping
+          removes edges; fitting adds bars. Review the result before approval.
+        </p>
+      )}
+      {target?.tool === 'ffmpeg.replace_audio' && (
+        <p>
+          Generated audio is removed, including background sound. The configured
+          narration recording and timing are used. MOV preserves PCM samples;
+          MP4 uses AAC encoding. Check playback before approving the cut.
+        </p>
+      )}
       {busy && <p role="status">Assembling selected stage…</p>}
       {message && <p role="status">{message}</p>}
       {error && <p role="alert">{error}</p>}
       <p>
         Completed output is reused. This does not regenerate source clips or
-        mark the video delivery-ready. No supported stage listed? This project
-        needs an ffmpeg.concat stage in its bundle.
+        mark the video delivery-ready. No supported stage listed? Add a clip
+        assembly or narration preservation stage to the project workflow.
       </p>
     </details>
   );

@@ -297,3 +297,9 @@ test-results/
 
 # Build-time staging for dhee-core first-party bundles (see .erb/scripts/stage-bundles.js)
 dhee-core-bundles/
+
+# Local implementation ledger
+.superpowers/
+
+# Unpackaged native test launch artifacts
+release/app/.erb/

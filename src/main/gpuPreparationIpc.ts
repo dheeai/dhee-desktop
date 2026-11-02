@@ -4,7 +4,7 @@ import type { GpuPreparationResponse } from '../shared/gpuQueue';
 interface Core {
   executeProductionRequest(request: unknown): Promise<GpuPreparationResponse>;
 }
-const coreModule = 'dhee-core/control';
+const coreModule = 'dhee-runner-production';
 export function registerGpuPreparationIpc(
   ipc: {
     handle(

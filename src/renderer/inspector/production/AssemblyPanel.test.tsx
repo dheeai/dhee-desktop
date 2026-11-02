@@ -134,3 +134,47 @@ it('discards an old assembly result after switching projects', async () => {
   });
   expect(screen.queryByText(/old.mp4/)).toBeNull();
 });
+it('identifies narration replacement and explains removal of generated audio', async () => {
+  const call = setup();
+  call.mockResolvedValue({
+    ok: true,
+    result: {
+      targets: [
+        {
+          nodeId: 'narrated',
+          tool: 'ffmpeg.replace_audio',
+          selectionId: 'audio-selection',
+          status: 'pending',
+        },
+      ],
+    },
+  });
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /narrated.*Preserve narration/ });
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {
+    target: { value: '0' },
+  });
+  expect(await screen.findByText(/Generated audio is removed/)).not.toBeNull();
+});
+it('identifies normalization with explicit edit guidance', async () => {
+  const call = setup();
+  call.mockResolvedValue({
+    ok: true,
+    result: {
+      targets: [
+        {
+          nodeId: 'normalized',
+          tool: 'ffmpeg.normalize',
+          selectionId: null,
+          status: 'pending',
+        },
+      ],
+    },
+  });
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /normalized.*Normalize clip/ });
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {
+    target: { value: '0' },
+  });
+  expect(await screen.findByText(/Trimming removes the tail/)).not.toBeNull();
+});

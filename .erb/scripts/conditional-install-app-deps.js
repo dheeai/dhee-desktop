@@ -5,8 +5,7 @@ const { execSync } = require('child_process');
 function syncAppPackageJson(mainPackageJson, existingAppPackageJson = {}) {
   const appPackageJson = {
     ...existingAppPackageJson,
-    name:
-      existingAppPackageJson.name || mainPackageJson.name || 'dhee-desktop',
+    name: existingAppPackageJson.name || mainPackageJson.name || 'dhee-desktop',
     version:
       mainPackageJson.version || existingAppPackageJson.version || '1.0.0',
     description:
@@ -19,7 +18,13 @@ function syncAppPackageJson(mainPackageJson, existingAppPackageJson = {}) {
 
   if (mainPackageJson.dependencies) {
     Object.keys(mainPackageJson.dependencies).forEach((dep) => {
-      appPackageJson.dependencies[dep] = mainPackageJson.dependencies[dep];
+      const spec = mainPackageJson.dependencies[dep];
+      appPackageJson.dependencies[dep] =
+        typeof spec === 'string' &&
+        spec.startsWith('file:') &&
+        !path.isAbsolute(spec.slice(5))
+          ? `file:${path.join('../..', spec.slice(5)).split(path.sep).join('/')}`
+          : spec;
     });
   }
 

@@ -15,7 +15,7 @@ interface QueueCore {
     | { ok: false; error: string }
   >;
 }
-const coreControlModule = 'dhee-core/control';
+const coreControlModule = 'dhee-runner-production';
 export function registerQueueJobsIpc(
   ipc: {
     handle(

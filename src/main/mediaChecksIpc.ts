@@ -4,7 +4,7 @@ import type { MediaCheckResponse } from '../shared/mediaChecks';
 interface Core {
   executeProductionRequest(request: unknown): Promise<MediaCheckResponse>;
 }
-const coreModule = 'dhee-core/control';
+const coreModule = 'dhee-runner-production';
 export function registerMediaChecksIpc(
   ipc: {
     handle(

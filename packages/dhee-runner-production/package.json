@@ -1,0 +1,33 @@
+{
+  "name": "dhee-runner-production",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-or-later",
+  "type": "commonjs",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "keywords": [
+    "dhee-runner"
+  ],
+  "dhee": {
+    "runners": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test:mcp": "node --test test/mcp.test.cjs"
+  },
+  "dependencies": {
+    "@dheeai/runner-sdk": "0.1.0",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "@ffprobe-installer/ffprobe": "^2.1.2",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "zod": "^4.6.7"
+  },
+  "bin": {
+    "dhee-desktop-control": "dist/cli.js",
+    "dhee-desktop-mcp": "dist/mcpStdio.js"
+  }
+}

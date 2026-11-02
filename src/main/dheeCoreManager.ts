@@ -18,6 +18,7 @@
  * `dheeCoreEvent` stream the IPC bridge can re-publish over
  * `webContents.send`.
  */
+import { configureProductionRuntime } from 'dhee-runner-production';
 import type { AppSettings, LLMTierConfig } from '../shared/settingsTypes';
 import { isLocalLlmUrl } from '../shared/localUrl';
 import type {
@@ -2117,6 +2118,7 @@ export class dheeCoreManager {
     //   - construct a ConversationManager (the embed-host helpers
     //     we still use are pure functions exported from dhee-core).
 
+    configureProductionRuntime();
     applyEnvFromSettings(settings, cloudAuth);
 
     // Phase 6.5b: cache settings so chatPrompt can derive

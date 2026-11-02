@@ -4,7 +4,7 @@ import type { AssemblyResponse } from '../shared/assembly';
 interface Core {
   executeProductionRequest(request: unknown): Promise<AssemblyResponse>;
 }
-const coreModule = 'dhee-core/control';
+const coreModule = 'dhee-runner-production';
 export function registerAssemblyIpc(
   ipc: {
     handle(

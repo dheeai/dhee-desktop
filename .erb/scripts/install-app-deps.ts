@@ -67,7 +67,7 @@ function isBundledIntoRenderer(depName: string): boolean {
   );
 }
 
-function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: string) {
+function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: string, productionTarballRelativePath: string) {
   const mainPackage = JSON.parse(
     fs.readFileSync(mainPackagePath, 'utf-8'),
   ) as {
@@ -91,6 +91,7 @@ function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: str
     dependencies: {
       ...runtimeDependencies,
       'dhee-core': `file:${tarballRelativePath}`,
+      'dhee-runner-production': `file:${productionTarballRelativePath}`,
     },
   };
 
@@ -101,9 +102,9 @@ function syncReleaseAppPackage(mainPackagePath: string, tarballRelativePath: str
   );
 }
 
-function packdheeInk(dheeInkPath: string): string {
+function packdheeInk(dheeInkPath: string, clearVendor = true): string {
   const vendorPath = path.join(webpackPaths.appPath, 'vendor');
-  fs.rmSync(vendorPath, { recursive: true, force: true });
+  if (clearVendor) fs.rmSync(vendorPath, { recursive: true, force: true });
   fs.mkdirSync(vendorPath, { recursive: true });
 
   const rawOutput = runNpm(
@@ -190,7 +191,9 @@ function installAppDeps(): void {
   builddheeInk(dheeInkPath);
   const tarballPath = packdheeInk(dheeInkPath);
   const tarballRelativePath = path.relative(webpackPaths.appPath, tarballPath);
-  syncReleaseAppPackage(mainPackagePath, tarballRelativePath);
+  runNpm(['run', 'build:production'], {cwd: webpackPaths.rootPath, stdio: 'inherit'});
+  const productionTarball = packdheeInk(path.join(webpackPaths.rootPath, 'packages', 'dhee-runner-production'), false);
+  syncReleaseAppPackage(mainPackagePath, tarballRelativePath, path.relative(webpackPaths.appPath, productionTarball));
 
   removeDirectoryForFreshInstall(webpackPaths.appNodeModulesPath);
 
