@@ -1,3 +1,4 @@
+import { MediaChecksPanel } from './MediaChecksPanel';
 import { GpuPreparationPanel } from './GpuPreparationPanel';
 import { GpuJobsPanel } from './GpuJobsPanel';
 /**
@@ -196,6 +197,7 @@ export function ProductionView() {
       <div className={styles.bodyWrap}>
         {reviews.length > 0 && <ProductionReviewPolicy projectDir={dir} voiceConfigured={!!bundle?.nodes.some((node) => node.id === 'voice_reference' && node.outputs.format === 'audio')} />}
         <GpuPreparationPanel key={`prepare:${dir}`} projectDir={dir} />
+        <MediaChecksPanel key={`media:${dir}`} projectDir={dir} />
         <GpuJobsPanel key={dir} projectDir={dir} />
         <ProductionReviewPanel
           checkpoints={reviews}

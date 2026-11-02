@@ -1,3 +1,4 @@
+jest.mock('./MediaChecksPanel', () => ({ MediaChecksPanel: () => null }));
 /**
  * ProductionView — render coverage (exercises the real component).
  *

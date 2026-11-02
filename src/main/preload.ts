@@ -1,3 +1,4 @@
+import type { MediaCheckRequest, MediaCheckResponse } from '../shared/mediaChecks';
 import type { GpuPreparationRequest, GpuPreparationResponse } from '../shared/gpuQueue';
 import type { QueueJobsRequest, QueueJobsResponse } from '../shared/gpuQueue';
 import type { GpuCatalogResponse } from '../shared/gpuQueue';
@@ -716,6 +717,9 @@ const accountBridge = {
 };
 
 const dheeBridge = {
+  mediaCheck(req: MediaCheckRequest): Promise<MediaCheckResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.MEDIA_CHECK, req);
+  },
   gpuPreparation(req: GpuPreparationRequest): Promise<GpuPreparationResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.GPU_PREPARATION, req);
   },

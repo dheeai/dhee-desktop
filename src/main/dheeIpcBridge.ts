@@ -1,3 +1,4 @@
+import { registerMediaChecksIpc } from './mediaChecksIpc';
 import { registerGpuPreparationIpc } from './gpuPreparationIpc';
 import { getSettings } from './settingsManager';
 import { registerQueueJobsIpc } from './queueJobsIpc';
@@ -124,6 +125,7 @@ export function registerdheeIpcBridge(
   registerGpuQueueIpc(ipcMain);
   registerQueueJobsIpc(ipcMain);
   registerGpuPreparationIpc(ipcMain, getSettings);
+  registerMediaChecksIpc(ipcMain);
 
   ipcMain.handle(
     dhee_CHANNELS.CREATE_SESSION,
