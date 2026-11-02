@@ -79,3 +79,44 @@ it('preserves structured Core errors', async () => {
     }),
   ).toEqual({ ok: false, error: 'Job still running' });
 });
+
+it('forwards recovery evidence and acknowledgement through Core', async () => {
+  let handler: any;
+  const recovery = { fingerprint: 'b'.repeat(64) };
+  const executeProductionRequest = jest.fn(async () => ({
+    ok: true,
+    result: { jobs: [], recovery },
+  }));
+  registerQueueJobsIpc(
+    {
+      handle: (_channel, fn) => {
+        handler = fn;
+      },
+    },
+    async () => ({ executeProductionRequest }) as any,
+  );
+  expect(
+    await handler(null, {
+      projectDir: '/project',
+      action: 'inspect-recovery',
+      id: 'a'.repeat(64),
+      jobId: 'job1',
+    }),
+  ).toMatchObject({ ok: true, recovery });
+  await handler(null, {
+    projectDir: '/project',
+    action: 'link-existing',
+    id: 'a'.repeat(64),
+    jobId: 'job1',
+    expectedFingerprint: 'b'.repeat(64),
+    humanAcknowledged: true,
+  });
+  expect(executeProductionRequest).toHaveBeenLastCalledWith({
+    action: 'gpu.recovery.link',
+    projectDir: '/project',
+    id: 'a'.repeat(64),
+    jobId: 'job1',
+    expectedFingerprint: 'b'.repeat(64),
+    humanAcknowledged: true,
+  });
+});

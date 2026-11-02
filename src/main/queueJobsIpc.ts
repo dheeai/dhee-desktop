@@ -1,12 +1,17 @@
 import { isAbsolute } from 'node:path';
 import { dhee_CHANNELS as channels } from '../shared/dheeIpc';
-import type { QueueJobSummary, QueueJobsResponse } from '../shared/gpuQueue';
+import type {
+  QueueJobSummary,
+  QueueJobsResponse,
+  QueueRecoveryPreview,
+} from '../shared/gpuQueue';
 
 interface QueueCore {
-  executeProductionRequest(
-    request: unknown,
-  ): Promise<
-    | { ok: true; result: { jobs: QueueJobSummary[] } }
+  executeProductionRequest(request: unknown): Promise<
+    | {
+        ok: true;
+        result: { jobs: QueueJobSummary[]; recovery?: QueueRecoveryPreview };
+      }
     | { ok: false; error: string }
   >;
 }
@@ -30,6 +35,9 @@ export function registerQueueJobsIpc(
         projectDir?: unknown;
         action?: unknown;
         id?: unknown;
+        jobId?: unknown;
+        expectedFingerprint?: unknown;
+        humanAcknowledged?: unknown;
       } | null;
       if (
         !req ||
@@ -38,7 +46,14 @@ export function registerQueueJobsIpc(
       )
         throw new Error('An absolute project directory is required.');
       if (
-        !['list', 'refresh', 'cancel', 'download'].includes(String(req.action))
+        ![
+          'list',
+          'refresh',
+          'cancel',
+          'download',
+          'inspect-recovery',
+          'link-existing',
+        ].includes(String(req.action))
       )
         throw new Error('Unknown queue operation.');
       if (
@@ -51,6 +66,32 @@ export function registerQueueJobsIpc(
         throw new Error(
           'Build the matching Core version to manage saved GPU jobs.',
         );
+      if (req.action === 'inspect-recovery' || req.action === 'link-existing') {
+        const result = await core.executeProductionRequest({
+          action:
+            req.action === 'inspect-recovery'
+              ? 'gpu.recovery.inspect'
+              : 'gpu.recovery.link',
+          projectDir: req.projectDir,
+          id: req.id,
+          jobId: req.jobId,
+          ...(req.action === 'link-existing'
+            ? {
+                expectedFingerprint: req.expectedFingerprint,
+                humanAcknowledged: req.humanAcknowledged,
+              }
+            : {}),
+        });
+        return result.ok
+          ? {
+              ok: true,
+              jobs: result.result.jobs,
+              ...(result.result.recovery
+                ? { recovery: result.result.recovery }
+                : {}),
+            }
+          : result;
+      }
       const result = await core.executeProductionRequest({
         action: 'gpu.jobs',
         projectDir: req.projectDir,

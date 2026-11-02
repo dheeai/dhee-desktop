@@ -4,6 +4,7 @@ import type {
   QueueJobsRequest,
 } from '../../../shared/gpuQueue';
 import styles from './ProductionReviewPanel.module.scss';
+import { GpuRecoveryForm } from './GpuRecoveryForm';
 
 export function GpuJobsPanel({ projectDir }: { projectDir: string }) {
   const [jobs, setJobs] = useState<QueueJobSummary[]>([]);
@@ -82,6 +83,15 @@ export function GpuJobsPanel({ projectDir }: { projectDir: string }) {
                 Submission outcome is unknown. Check gateway history before
                 starting a new attempt to avoid a duplicate render.
               </p>
+            )}
+            {!job.jobId && ['unknown', 'submitting'].includes(job.phase) && (
+              <GpuRecoveryForm
+                key={`${projectDir}:${job.id}`}
+                projectDir={projectDir}
+                id={job.id}
+                disabled={busy}
+                onLinked={() => invoke('list')}
+              />
             )}
             {job.error && <p>{job.error}</p>}
             {job.files && (

@@ -24,11 +24,21 @@ export interface QueueJobSummary {
 }
 export interface QueueJobsRequest {
   projectDir: string;
-  action: 'list' | 'refresh' | 'cancel' | 'download';
+  action: 'list' | 'refresh' | 'cancel' | 'download' | 'inspect-recovery' | 'link-existing';
+  jobId?:string;
+  expectedFingerprint?:string;
+  humanAcknowledged?:true;
   id?: string;
 }
+export interface QueueRecoveryPreview {
+  id:string;
+  fingerprint:string;
+  evidence:'matched'|'incomplete';
+  local:{workflow:string;version:string;createdAt:string;inputs:Record<string,unknown>};
+  job:{jobId:string;state:string;workflow?:string;inputs?:unknown};
+}
 export type QueueJobsResponse =
-  | { ok: true; jobs: QueueJobSummary[] }
+  | { ok: true; jobs: QueueJobSummary[]; recovery?:QueueRecoveryPreview }
   | { ok: false; error: string };
 
 export interface GpuTarget {
