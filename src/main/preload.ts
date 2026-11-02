@@ -1,3 +1,4 @@
+import type { AssemblyRequest, AssemblyResponse } from '../shared/assembly';
 import type { MediaCheckRequest, MediaCheckResponse } from '../shared/mediaChecks';
 import type { GpuPreparationRequest, GpuPreparationResponse } from '../shared/gpuQueue';
 import type { QueueJobsRequest, QueueJobsResponse } from '../shared/gpuQueue';
@@ -717,6 +718,9 @@ const accountBridge = {
 };
 
 const dheeBridge = {
+  assembly(req: AssemblyRequest): Promise<AssemblyResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.ASSEMBLY, req);
+  },
   mediaCheck(req: MediaCheckRequest): Promise<MediaCheckResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.MEDIA_CHECK, req);
   },
