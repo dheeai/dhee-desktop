@@ -42,6 +42,7 @@ export interface GpuTarget {
   selection?: Record<string, unknown>;
 }
 export type GpuPreparationRequest =
+  | {action:'gpu.run';projectDir:string;branchId:string;nodeId:string;itemId?:string;expectedSelectionId:string}
   | { action: 'gpu.catalog' }
   | { action: 'gpu.targets'; projectDir: string; branchId: string }
   | {
@@ -68,5 +69,8 @@ export type GpuPreparationResponse =
         selectionId?: string;
         attemptKey?: string;
         active?: boolean;
+        gatedAfter?: string;
+        budgetExceeded?: {capUsd:number;spentUsd:number};
+        selectedOutput?: {nodeId:string;itemId?:string;outputAbs:string;outputRel:string};
       };
     };

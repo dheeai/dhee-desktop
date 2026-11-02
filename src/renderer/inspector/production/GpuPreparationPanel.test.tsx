@@ -165,3 +165,112 @@ it('ignores a late target response after switching projects', async () => {
   await act(async () => finish({ ok: true, result: { targets: [target] } }));
   expect(screen.queryByRole('option', { name: /scene_clip/ })).toBeNull();
 });
+
+it('runs only the saved target and reports a creative pause without claiming completion', async () => {
+  const call = setup();
+  call.mockImplementation(async (req: any) =>
+    req.action === 'gpu.run'
+      ? { ok: true, result: { gatedAfter: 'review:references' } }
+      : {
+          ok: true,
+          result: {
+            targets: [
+              {
+                ...target,
+                tool: 'gpu.queue',
+                selectionId: 'saved',
+                selection: {
+                  workflow: 'video',
+                  workflowVersion: 'v1',
+                  preparationFingerprint: 'fingerprint',
+                },
+              },
+            ],
+            branches: [{ branchId: 'main' }],
+          },
+        },
+  );
+  render(<GpuPreparationPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /scene_clip/ });
+  fireEvent.change(screen.getByLabelText('Scene or reference'), {
+    target: { value: JSON.stringify(['scene_clip', 'scene_1']) },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Run saved attempt' }));
+  await screen.findByText(/Approval required: references/);
+  expect(call).toHaveBeenCalledWith({
+    action: 'gpu.run',
+    projectDir: '/project',
+    branchId: 'main',
+    nodeId: 'scene_clip',
+    itemId: 'scene_1',
+    expectedSelectionId: 'saved',
+  });
+  expect(screen.queryByText(/Selected output is ready/)).toBeNull();
+});
+
+it('allows resuming the saved attempt after interrupted in-progress work but forbids replacement', async () => {
+  const call = setup();
+  call.mockImplementation(async () => ({
+    ok: true,
+    result: {
+      targets: [
+        {
+          ...target,
+          status: 'in_progress',
+          selectionId: 'saved',
+          tool: 'gpu.queue',
+          selection: {
+            preparationFingerprint: 'fingerprint',
+            workflow: 'video',
+          },
+        },
+      ],
+      branches: [{ branchId: 'main' }],
+    },
+  }));
+  render(<GpuPreparationPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /scene_clip/ });
+  fireEvent.change(screen.getByLabelText('Scene or reference'), {
+    target: { value: JSON.stringify(['scene_clip', 'scene_1']) },
+  });
+  expect(
+    screen
+      .getByRole('button', { name: 'Run saved attempt' })
+      .matches(':disabled'),
+  ).toBe(false);
+  expect(
+    screen
+      .getByRole('button', { name: 'Save generation attempt' })
+      .matches(':disabled'),
+  ).toBe(true);
+});
+
+it('clears running feedback when the saved attempt fails', async () => {
+  const call = setup();
+  call.mockImplementation(async (req: any) =>
+    req.action === 'gpu.run'
+      ? { ok: false, error: 'Gateway unavailable' }
+      : {
+          ok: true,
+          result: {
+            targets: [
+              {
+                ...target,
+                selectionId: 'saved',
+                tool: 'gpu.queue',
+                selection: { preparationFingerprint: 'fingerprint' },
+              },
+            ],
+            branches: [{ branchId: 'main' }],
+          },
+        },
+  );
+  render(<GpuPreparationPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /scene_clip/ });
+  fireEvent.change(screen.getByLabelText('Scene or reference'), {
+    target: { value: JSON.stringify(['scene_clip', 'scene_1']) },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Run saved attempt' }));
+  await screen.findByText('Gateway unavailable');
+  expect(screen.queryByText(/Running the saved attempt/)).toBeNull();
+});

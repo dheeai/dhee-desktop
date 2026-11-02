@@ -24,7 +24,7 @@ export function registerGpuPreparationIpc(
       const req = input as Record<string, unknown> | null;
       if (
         !req ||
-        !['gpu.targets', 'gpu.catalog', 'gpu.prepare'].includes(
+        !['gpu.targets', 'gpu.catalog', 'gpu.prepare', 'gpu.run'].includes(
           String(req.action),
         )
       )

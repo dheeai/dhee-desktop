@@ -30,7 +30,7 @@ it('routes preparation through Core using the saved Desktop endpoint', async () 
     endpoint: 'http://gpu/mcp',
   });
 });
-it('does not expose rendering or arbitrary control operations', async () => {
+it('does not expose broad project runs or arbitrary control operations', async () => {
   let handler: any;
   const load = jest.fn(async () => {
     throw new Error('must not load');
@@ -48,4 +48,29 @@ it('does not expose rendering or arbitrary control operations', async () => {
     await handler(null, { action: 'project.run', projectDir: '/project' }),
   ).toMatchObject({ ok: false });
   expect(load).not.toHaveBeenCalled();
+});
+
+it('routes exact saved-attempt execution without replacing its saved endpoint', async () => {
+  let handler: any;
+  const executeProductionRequest = jest.fn(async () => ({
+    ok: true as const,
+    result: {},
+  }));
+  registerGpuPreparationIpc(
+    {
+      handle: (_channel, fn) => {
+        handler = fn;
+      },
+    },
+    () => ({ gpuQueueUrl: 'http://changed/mcp' }),
+    async () => ({ executeProductionRequest }),
+  );
+  const request = {
+    action: 'gpu.run',
+    projectDir: '/project',
+    nodeId: 'clip',
+    expectedSelectionId: 'saved',
+  };
+  expect(await handler(null, request)).toMatchObject({ ok: true });
+  expect(executeProductionRequest).toHaveBeenCalledWith(request);
 });

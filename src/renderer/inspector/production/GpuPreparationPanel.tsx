@@ -73,6 +73,7 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
+  const [unsaved, setUnsaved] = useState(false);
   const revision = useRef(0);
   const retry = useRef<{ body: string; requestId: string } | null>(null);
   const target = targets.find((item) => targetKey(item) === selected);
@@ -94,6 +95,7 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
     revision.current += 1;
     const token = revision.current;
     setTargets([]);
+    setUnsaved(false);
     setSelected('');
     setWorkflowName('');
     setDraft({});
@@ -116,6 +118,7 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
   }, [projectDir, branchId]);
   function chooseWorkflow(name: string, nextTarget = target) {
     setWorkflowName(name);
+    setUnsaved(!!name);
     setMessage('');
     setError('');
     const chosen = workflows.find((item) => item.name === name);
@@ -188,10 +191,55 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
           ? 'This attempt was superseded. Reload the target to see the current selection.'
           : 'Attempt saved. No job has been submitted; creative approvals still apply.',
       );
+      setUnsaved(false);
       await refreshTargets(token);
     } catch (failure) {
       if (revision.current === token)
         setError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      if (revision.current === token) setBusy(false);
+    }
+  }
+  async function runSaved() {
+    if (!target?.selectionId || unsaved) return;
+    const token = revision.current;
+    setBusy(true);
+    setError('');
+    setMessage(
+      'Running the saved attempt. Queue progress and cancellation are available in GPU jobs.',
+    );
+    try {
+      const response = await window.dhee.gpuPreparation({
+        action: 'gpu.run',
+        projectDir,
+        branchId,
+        nodeId: target.nodeId,
+        ...(target.itemId ? { itemId: target.itemId } : {}),
+        expectedSelectionId: target.selectionId,
+      });
+      if (revision.current !== token) return;
+      if (!response.ok) throw new Error(response.error);
+      const { result } = response;
+      if (result.gatedAfter)
+        setMessage(
+          `Approval required: ${result.gatedAfter.replace('review:', '')}. Review the creative previews before resuming.`,
+        );
+      else if (result.budgetExceeded)
+        setMessage('Paused at the project budget limit.');
+      else if (result.selectedOutput)
+        setMessage(
+          `Selected output is ready: ${result.selectedOutput.outputRel}. The full video still needs its remaining steps and review.`,
+        );
+      else
+        throw new Error(
+          'No completed output was reported. Check GPU jobs before retrying.',
+        );
+      await refreshTargets(token);
+    } catch (failure) {
+      if (revision.current === token) {
+        setMessage('');
+        setError(failure instanceof Error ? failure.message : String(failure));
+      }
     } finally {
       if (revision.current === token) setBusy(false);
     }
@@ -265,7 +313,8 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
         {target && blocked && (
           <p>
             This output is complete, running, or needs adaptive chunk planning.
-            Stop or explicitly invalidate it before preparing a replacement.
+            A running attempt can be resumed below after interruption. Stop or
+            explicitly invalidate it before preparing a replacement.
           </p>
         )}
         <button type="button" onClick={loadWorkflows}>
@@ -308,9 +357,10 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
                     id={`${formId}-${name}`}
                     aria-label={`${name}${schema.required === true ? ' *' : ''}`}
                     value={draft[name] ?? ''}
-                    onChange={(event) =>
-                      setDraft({ ...draft, [name]: event.target.value })
-                    }
+                    onChange={(event) => {
+                      setUnsaved(true);
+                      setDraft({ ...draft, [name]: event.target.value });
+                    }}
                   >
                     <option value="">Choose</option>
                     {optionsFor(schema).map((option) => (
@@ -325,9 +375,10 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
                     id={`${formId}-${name}`}
                     aria-label={`${name}${schema.required === true ? ' *' : ''}`}
                     value={draft[name] ?? ''}
-                    onChange={(event) =>
-                      setDraft({ ...draft, [name]: event.target.value })
-                    }
+                    onChange={(event) => {
+                      setUnsaved(true);
+                      setDraft({ ...draft, [name]: event.target.value });
+                    }}
                   />
                 )}
                 {typeof schema.description === 'string' && (
@@ -364,6 +415,25 @@ export function GpuPreparationPanel({ projectDir }: { projectDir: string }) {
         >
           Save generation attempt
         </button>
+        <button
+          type="button"
+          disabled={
+            !target ||
+            target.unsupported ||
+            target.status === 'completed' ||
+            unsaved ||
+            !target?.selectionId ||
+            !target.selection?.preparationFingerprint
+          }
+          onClick={runSaved}
+        >
+          Run saved attempt
+        </button>
+        {unsaved && <p>Save your workflow edits before running.</p>}
+        <p>
+          Runs only this saved scene or reference. Its prerequisites and
+          creative approvals must already be ready.
+        </p>
       </fieldset>
       {busy && <p role="status">Working…</p>}
       {error && <p role="alert">{error}</p>}
