@@ -1,5 +1,5 @@
 export interface MediaCheckRequest {
-  action: 'media.check';
+  action: 'media.check' | 'media.read';
   projectDir: string;
   branchId: string;
   nodeId: string;
@@ -31,6 +31,11 @@ export interface MediaCheckReport {
   manualChecks: string[];
   creativeApproval: 'required';
 }
+export interface SavedMediaCheckResult {
+  status: 'missing' | 'current' | 'stale';
+  reason?: string;
+  report?: MediaCheckReport;
+}
 export type MediaCheckResponse =
-  | { ok: true; result: MediaCheckReport }
+  | { ok: true; result: MediaCheckReport | SavedMediaCheckResult }
   | { ok: false; error: string };

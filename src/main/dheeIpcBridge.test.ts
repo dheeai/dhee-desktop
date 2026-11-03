@@ -46,6 +46,8 @@ const browserWindowMock = {
   webContents: webContentsMock,
 };
 
+jest.mock('./settingsManager', () => ({getSettings: jest.fn(() => ({}))}));
+
 jest.mock('electron', () => ({
   ipcMain: ipcMainMock,
   app: { isPackaged: false },

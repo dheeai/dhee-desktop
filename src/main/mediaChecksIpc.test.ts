@@ -21,4 +21,6 @@ it('only allows selected-media checks and delegates to Core', async () => {
   const req = { action: 'media.check', projectDir: '/project', nodeId: 'clip' };
   expect(await handler(null, req)).toMatchObject({ ok: true });
   expect(executeProductionRequest).toHaveBeenCalledWith(req);
+  expect(await handler(null,{...req,action:'media.read'})).toMatchObject({ok:true});
+  expect(executeProductionRequest).toHaveBeenLastCalledWith({...req,action:'media.read'});
 });

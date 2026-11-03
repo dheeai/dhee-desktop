@@ -100,17 +100,55 @@ it('shows measured media and actionable silence intervals without granting appro
   Object.defineProperty(window, 'dhee', {
     configurable: true,
     value: {
-      gpuPreparation: async () => ({ ok: true, result: { targets: [{ nodeId: 'final_video', format: 'video', status: 'completed' }] } }),
-      mediaCheck: async () => ({ ok: true, result: {
-        technicalStatus: 'review', checkedAt: 'now', source: { versionId: 'real-v1', outputPath: 'final_video.mp4', sha256: 'abc' },
-        checks: [{ code: 'silence', status: 'warning', message: 'Review intentional pauses.' }], manualChecks: ['Listen manually.'],
-        media: { durationSec: 4, video: { width: 1280, height: 720, fps: 24 }, audio: { channels: 1, sampleRate: 44100, peakDb: -4.3, meanDb: -23.3 }, silenceIntervals: [{ start: 1.45048, end: 4.01705 }, { start: 12.1 }] },
-      } }),
+      gpuPreparation: async () => ({
+        ok: true,
+        result: {
+          targets: [
+            { nodeId: 'final_video', format: 'video', status: 'completed' },
+          ],
+        },
+      }),
+      mediaCheck: async () => ({
+        ok: true,
+        result: {
+          technicalStatus: 'review',
+          checkedAt: 'now',
+          source: {
+            versionId: 'real-v1',
+            outputPath: 'final_video.mp4',
+            sha256: 'abc',
+          },
+          checks: [
+            {
+              code: 'silence',
+              status: 'warning',
+              message: 'Review intentional pauses.',
+            },
+          ],
+          manualChecks: ['Listen manually.'],
+          media: {
+            durationSec: 4,
+            video: { width: 1280, height: 720, fps: 24 },
+            audio: {
+              channels: 1,
+              sampleRate: 44100,
+              peakDb: -4.3,
+              meanDb: -23.3,
+            },
+            silenceIntervals: [
+              { start: 1.45048, end: 4.01705 },
+              { start: 12.1 },
+            ],
+          },
+        },
+      }),
     },
   });
   render(<MediaChecksPanel projectDir="/project" />);
   await screen.findByRole('option', { name: 'final_video' });
-  fireEvent.change(screen.getByLabelText('Media to check'), { target: { value: '0' } });
+  fireEvent.change(screen.getByLabelText('Media to check'), {
+    target: { value: '0' },
+  });
   fireEvent.click(screen.getByRole('button', { name: 'Check selected media' }));
   await screen.findByText('1.450–4.017 s');
   expect(screen.getByText('12.100 s–end not detected')).not.toBeNull();
@@ -126,8 +164,80 @@ it('shows measured media and actionable silence intervals without granting appro
 it('does not invent measured details for older reports or unavailable levels', () => {
   const view = render(<MediaMeasurements media={undefined} />);
   expect(screen.queryByRole('region', { name: 'Measured media' })).toBeNull();
-  view.rerender(<MediaMeasurements media={{ video: { width: 1280, height: 720, fps: null }, audio: { channels: 2, sampleRate: 48000, peakDb: null }, silenceIntervals: [] }} />);
+  view.rerender(
+    <MediaMeasurements
+      media={{
+        video: { width: 1280, height: 720, fps: null },
+        audio: { channels: 2, sampleRate: 48000, peakDb: null },
+        silenceIntervals: [],
+      }}
+    />,
+  );
   expect(screen.getByText('1280 × 720 · unknown fps')).not.toBeNull();
-  expect(screen.getByText('Peak not available · mean not available')).not.toBeNull();
+  expect(
+    screen.getByText('Peak not available · mean not available'),
+  ).not.toBeNull();
   expect(screen.queryByRole('list', { name: 'Silence intervals' })).toBeNull();
 });
+it.each(['current', 'stale', 'missing'])(
+  'loads %s saved results without running analysis',
+  async (status) => {
+    const mediaCheck = jest.fn(
+      async (): Promise<any> => ({
+        ok: true,
+        result: {
+          status,
+          reason: 'Media bytes changed.',
+          ...(status === 'missing'
+            ? {}
+            : {
+                report: {
+                  technicalStatus: 'passed',
+                  checkedAt: 'saved date',
+                  source: {
+                    versionId: 'v1',
+                    outputPath: 'clip.mp4',
+                    sha256: 'hash',
+                  },
+                  checks: [],
+                  manualChecks: [],
+                },
+              }),
+        },
+      }),
+    );
+    Object.defineProperty(window, 'dhee', {
+      configurable: true,
+      value: {
+        mediaCheck,
+        gpuPreparation: async () => ({
+          ok: true,
+          result: {
+            targets: [{ nodeId: 'clip', format: 'video', status: 'completed' }],
+          },
+        }),
+      },
+    });
+    render(<MediaChecksPanel projectDir="/project" />);
+    await screen.findByRole('option', { name: 'clip' });
+    fireEvent.change(screen.getByLabelText('Media to check'), {
+      target: { value: '0' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Load saved result' }));
+    await screen.findByText(
+      status === 'current'
+        ? 'Saved result matches the selected file.'
+        : status === 'missing'
+          ? 'No saved result for this target.'
+          : 'Saved result is stale. Media bytes changed.',
+    );
+    expect(mediaCheck).toHaveBeenCalledTimes(1);
+    expect(mediaCheck).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'media.read' }),
+    );
+    if (status === 'stale')
+      expect(
+        screen.getByText('Previous technical result: passed'),
+      ).not.toBeNull();
+  },
+);

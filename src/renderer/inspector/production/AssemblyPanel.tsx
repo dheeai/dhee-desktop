@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import type { AssemblyVerification } from '../../../shared/assembly';
 import type { GpuTarget } from '../../../shared/gpuQueue';
 import styles from './GpuPreparationPanel.module.scss';
 
@@ -8,6 +9,7 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
   const [targets, setTargets] = useState<GpuTarget[]>([]);
   const [choice, setChoice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [verification, setVerification] = useState<AssemblyVerification>();
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
@@ -15,6 +17,7 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
   function clear() {
     epoch.current += 1;
     setMessage('');
+    setVerification(undefined);
     setError('');
     setBusy(false);
   }
@@ -24,6 +27,7 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
     setTargets([]);
     setChoice('');
     setMessage('');
+    setVerification(undefined);
     setError('');
     setBusy(false);
     window.dhee
@@ -57,6 +61,7 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
     const id = epoch.current;
     setBusy(true);
     setMessage('');
+    setVerification(undefined);
     setError('');
     try {
       const response = await window.dhee.assembly({
@@ -73,6 +78,13 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
         return;
       }
       const { result } = response;
+      setVerification(
+        result.verification ?? {
+          status: 'unavailable',
+          deliveryReady: false,
+          reason: 'This response contains no automatic check result.',
+        },
+      );
       if (result.gatedAfter)
         setMessage(
           `Creative review required: ${result.gatedAfter.replace('review:', '')}. Complete that review, then reload assembly.`,
@@ -175,10 +187,36 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
       {busy && <p role="status">Assembling selected stage…</p>}
       {message && <p role="status">{message}</p>}
       {error && <p role="alert">{error}</p>}
+      {verification && (
+        <section aria-label="Automatic assembly check">
+          <p role={verification.status === 'fail' ? 'alert' : 'status'}>
+            Automatic check: {verification.status}. Delivery is not approved.
+          </p>
+          {verification.reason && <p>{verification.reason}</p>}
+          {verification.reportPath && (
+            <p>Saved report: {verification.reportPath}</p>
+          )}
+          {verification.checks && (
+            <ul>
+              {verification.checks.map((check) => (
+                <li key={check.id}>
+                  {check.status} · {check.id}
+                  {check.atSec === undefined
+                    ? ''
+                    : ` at ${check.atSec.toFixed(2)}s`}
+                  : {check.detail}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      )}
       <p>
         Completed output is reused. This does not regenerate source clips or
-        mark the video delivery-ready. No supported stage listed? Add a clip
-        assembly or narration preservation stage to the project workflow.
+        mark the video delivery-ready. Configured automatic checks run after
+        assembly; missing or stale checks remain unresolved. No supported stage
+        listed? Add a clip assembly or narration preservation stage to the
+        project workflow.
       </p>
     </details>
   );

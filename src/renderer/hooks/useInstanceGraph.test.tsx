@@ -50,3 +50,9 @@ describe('useInstanceGraph', () => {
     expect(result.current.graph).toBeNull();
   });
 });
+it('refreshes idle graph after an edit to this project, ignoring other projects',async()=>{
+ const spy=jest.fn(async()=>({ok:true,graph:{instances:[],edges:[]}}));stubDhee(spy);
+ renderHook(()=>useInstanceGraph('/proj',{pollMs:0}));await waitFor(()=>expect(spy).toHaveBeenCalledTimes(1));
+ window.dispatchEvent(new CustomEvent('dhee:production-changed',{detail:{projectDir:'/other'}}));expect(spy).toHaveBeenCalledTimes(1);
+ window.dispatchEvent(new CustomEvent('dhee:production-changed',{detail:{projectDir:'/proj'}}));await waitFor(()=>expect(spy).toHaveBeenCalledTimes(2));
+});

@@ -158,6 +158,7 @@ describe('preload context-isolation contract', () => {
       'gpuPreparation',
       'mediaCheck',
       'assembly',
+      'productionEditing',
       'gpuQueueCatalog',
       'queueJobs',
       'invalidateNodes',
@@ -198,6 +199,7 @@ describe('preload context-isolation contract', () => {
     // unregistered handler.
     const dhee = exposed.get('dhee') as Record<string, unknown>;
     const channelToMethod: Record<string, string> = {
+      [dhee_CHANNELS.PRODUCTION_EDITING]: 'productionEditing',
       [dhee_CHANNELS.ASSEMBLY]: 'assembly',
       [dhee_CHANNELS.MEDIA_CHECK]: 'mediaCheck',
       [dhee_CHANNELS.GPU_PREPARATION]: 'gpuPreparation',

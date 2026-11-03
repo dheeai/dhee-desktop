@@ -12,6 +12,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
   const [audio, setAudio] = useState(false);
   const [duration, setDuration] = useState('');
   const [report, setReport] = useState<MediaCheckReport>();
+  const [savedState, setSavedState] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
@@ -19,6 +20,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
   function invalidate() {
     epoch.current += 1;
     setReport(undefined);
+    setSavedState('');
     setError('');
     setBusy(false);
   }
@@ -26,6 +28,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
     epoch.current += 1;
     let cancelled = false;
     setReport(undefined);
+    setSavedState('');
     setTargets([]);
     setChoice('');
     setError('');
@@ -59,22 +62,36 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
       epoch.current += 1;
     };
   }, [projectDir, branch, revision]);
+  useEffect(() => {
+    const changed = (event: Event) => {
+      if (
+        (event as CustomEvent<{ projectDir: string }>).detail?.projectDir ===
+        projectDir
+      ) {
+        invalidate();
+        setRevision((v) => v + 1);
+      }
+    };
+    window.addEventListener('dhee:production-changed', changed);
+    return () => window.removeEventListener('dhee:production-changed', changed);
+  }, [projectDir]);
   const target = choice === '' ? undefined : targets[Number(choice)];
   const validDuration =
     duration === '' ||
     (Number.isFinite(Number(duration)) &&
       Number(duration) > 0 &&
       Number(duration) <= 86400);
-  async function check() {
+  async function check(saved = false) {
     if (!target || !validDuration) return;
     epoch.current += 1;
     const id = epoch.current;
     setBusy(true);
     setError('');
     setReport(undefined);
+    setSavedState('');
     try {
       const response = await window.dhee.mediaCheck({
-        action: 'media.check',
+        action: saved ? 'media.read' : 'media.check',
         projectDir,
         branchId: branch,
         nodeId: target.nodeId,
@@ -83,8 +100,22 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
         ...(duration === '' ? {} : { expectedDurationSec: Number(duration) }),
       });
       if (id !== epoch.current) return;
-      if (response.ok) setReport(response.result);
-      else setError(response.error);
+      if (response.ok) {
+        if ('status' in response.result) {
+          const result = response.result;
+          setSavedState(
+            result.status === 'current'
+              ? 'Saved result matches the selected file.'
+              : result.status === 'stale'
+                ? `Saved result is stale. ${result.reason ?? 'Run checks again.'}`
+                : 'No saved result for this target.',
+          );
+          setReport(result.report);
+        } else {
+          setReport(response.result);
+          setSavedState('Result saved for this media version.');
+        }
+      } else setError(response.error);
     } catch (reason) {
       if (id === epoch.current) setError(String(reason));
     } finally {
@@ -178,9 +209,16 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
         <button
           type="button"
           disabled={!target || !validDuration}
-          onClick={check}
+          onClick={() => check()}
         >
           Check selected media
+        </button>
+        <button
+          type="button"
+          disabled={!target || !validDuration}
+          onClick={() => check(true)}
+        >
+          Load saved result
         </button>
       </fieldset>
       <p>
@@ -190,10 +228,16 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
       </p>
       {busy && <p role="status">Checking media…</p>}
       {error && <p role="alert">{error}</p>}
+      {savedState && <p role="status">{savedState}</p>}
       {report && (
         <section aria-label="Media check results">
           <p>
-            <strong>Technical result: {report.technicalStatus}</strong>
+            <strong>
+              {savedState.startsWith('Saved result is stale.')
+                ? 'Previous technical result'
+                : 'Technical result'}
+              : {report.technicalStatus}
+            </strong>
           </p>
           <ul>
             {report.checks.map((c) => (

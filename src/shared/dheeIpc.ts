@@ -13,6 +13,7 @@ import type { Attachment } from './attachmentTypes';
 
 /** Channel names for `ipcMain.handle` / `ipcRenderer.invoke` request/response calls. */
 export const dhee_CHANNELS = {
+  PRODUCTION_EDITING: 'dhee:production-editing',
   ASSEMBLY: 'dhee:assembly',
   MEDIA_CHECK: 'dhee:mediaCheck',
   GPU_PREPARATION: 'dhee:gpuPreparation',
@@ -745,6 +746,7 @@ export interface ResolveBundleResponse {
     version: string;
     description?: string;
     goal: string;
+    fileInputs?: Array<{id:string;path:string}>;
     nodes: Array<{
       id: string;
       kind: 'stage' | 'collection';

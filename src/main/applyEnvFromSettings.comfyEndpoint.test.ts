@@ -210,7 +210,7 @@ it('uses the saved GPU queue endpoint and clears stale values when disconnected'
 });
 
 it('updates the saved runtime endpoint without restarting the engine', async () => {
-  const { dheeCoreManager: Manager } = await import('./dheeCoreManager');
+  const { dheeCoreManager: Manager } = await import('./dheeCoreManager.js');
   const manager = new Manager();
   const restart = jest.spyOn(manager, 'restart');
   const original = process.env.DHEE_GPU_QUEUE_URL;

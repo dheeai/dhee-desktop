@@ -20,7 +20,12 @@ export function registerMediaChecksIpc(
 ) {
   ipc.handle(channels.MEDIA_CHECK, async (_event, input) => {
     try {
-      if (!input || (input as { action?: unknown }).action !== 'media.check')
+      if (
+        !input ||
+        !['media.check', 'media.read'].includes(
+          String((input as { action?: unknown }).action),
+        )
+      )
         throw new Error('Unknown media check operation.');
       return await (await load()).executeProductionRequest(input);
     } catch (error) {

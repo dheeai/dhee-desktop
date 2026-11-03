@@ -73,5 +73,13 @@ export function useInstanceGraph(
     return () => clearInterval(id);
   }, [refresh, pollMs]);
 
+  useEffect(() => {
+    const onChange = (event: Event) => {
+      if ((event as CustomEvent<{projectDir:string}>).detail?.projectDir === projectDir) void refresh();
+    };
+    window.addEventListener('dhee:production-changed', onChange);
+    return () => window.removeEventListener('dhee:production-changed', onChange);
+  }, [projectDir, refresh]);
+
   return { graph, error, refresh };
 }

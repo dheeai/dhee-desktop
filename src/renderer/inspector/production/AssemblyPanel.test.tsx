@@ -178,3 +178,69 @@ it('identifies normalization with explicit edit guidance', async () => {
   });
   expect(await screen.findByText(/Trimming removes the tail/)).not.toBeNull();
 });
+it('shows automatic check failures alongside the creative review pause', async () => {
+  setup({
+    ok: true,
+    result: {
+      gatedAfter: 'review:rough-cut',
+      deliveryReady: false,
+      verification: {
+        status: 'fail',
+        deliveryReady: false,
+        reportPath: 'audit.json',
+        checks: [
+          {
+            id: 'voice:1',
+            status: 'fail',
+            detail: 'Narration timing differs',
+            atSec: 4.4,
+          },
+        ],
+      },
+    },
+  });
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /final/ });
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {
+    target: { value: '0' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assemble selected stage' }),
+  );
+  await screen.findByText(/Automatic check: fail/);
+  expect(screen.getByText(/Narration timing differs/)).not.toBeNull();
+  expect(
+    screen.getByText(/Creative review required: rough-cut/),
+  ).not.toBeNull();
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {
+    target: { value: '' },
+  });
+  expect(screen.queryByText(/Automatic check: fail/)).toBeNull();
+});
+it('labels a missing automatic check and never substitutes success', async () => {
+  setup({
+    ok: true,
+    result: {
+      selectedOutput: {
+        nodeId: 'final',
+        outputRel: 'final.mp4',
+        outputAbs: '/project/final.mp4',
+      },
+      verification: {
+        status: 'not-configured',
+        deliveryReady: false,
+        reason: 'No automatic check is configured.',
+      },
+    },
+  });
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /final/ });
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {
+    target: { value: '0' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assemble selected stage' }),
+  );
+  await screen.findByText(/Automatic check: not-configured/);
+  expect(screen.getByText('No automatic check is configured.')).not.toBeNull();
+});

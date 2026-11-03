@@ -42,6 +42,8 @@ There is no Python backend. In a packaged build, ffmpeg ships with the app (via 
 
 ## Development
 
+For `feat/rtx-5090-queue`, use the [paired-branch setup and verification guide](docs/research/feature-branch-handoff.md). It describes the required Core revision, Codex/MCP setup and known limitations.
+
 ### 1. Build the sibling `dhee-core`
 
 ```bash

@@ -1,3 +1,4 @@
+import type {EditingRequest, EditingResponse} from '../shared/productionEditing';
 import type { AssemblyRequest, AssemblyResponse } from '../shared/assembly';
 import type { MediaCheckRequest, MediaCheckResponse } from '../shared/mediaChecks';
 import type { GpuPreparationRequest, GpuPreparationResponse } from '../shared/gpuQueue';
@@ -718,6 +719,9 @@ const accountBridge = {
 };
 
 const dheeBridge = {
+  productionEditing(req: EditingRequest): Promise<EditingResponse> {
+    return ipcRenderer.invoke(dhee_CHANNELS.PRODUCTION_EDITING, req);
+  },
   assembly(req: AssemblyRequest): Promise<AssemblyResponse> {
     return ipcRenderer.invoke(dhee_CHANNELS.ASSEMBLY, req);
   },

@@ -11,12 +11,12 @@ jest.mock('./debugLogger', () => ({
 // The module holds two module-level caches (`pathCache` and a memoized
 // `cachedResourcesPath`). To keep tests independent we re-import a FRESH
 // copy of the module per test via jest.resetModules() + dynamic import.
-type PathResolverModule = typeof import('./pathResolver');
+type PathResolverModule = typeof import('./pathResolver.js');
 
 async function loadModule(): Promise<PathResolverModule> {
   let mod!: PathResolverModule;
   await jest.isolateModulesAsync(async () => {
-    mod = await import('./pathResolver');
+    mod = await import('./pathResolver.js');
   });
   return mod;
 }

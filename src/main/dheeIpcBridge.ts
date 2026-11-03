@@ -1,3 +1,4 @@
+import {registerProductionEditingIpc} from './productionEditingIpc';
 import { registerAssemblyIpc } from './assemblyIpc';
 import { registerMediaChecksIpc } from './mediaChecksIpc';
 import { registerGpuPreparationIpc } from './gpuPreparationIpc';
@@ -128,6 +129,7 @@ export function registerdheeIpcBridge(
   registerGpuPreparationIpc(ipcMain, getSettings);
   registerMediaChecksIpc(ipcMain);
   registerAssemblyIpc(ipcMain);
+  registerProductionEditingIpc(ipcMain);
 
   ipcMain.handle(
     dhee_CHANNELS.CREATE_SESSION,
@@ -482,6 +484,7 @@ export function registerdheeIpcBridge(
           version: string;
           description?: string;
           goal: string;
+          inputs?: Array<{id:string;kind:string;path?:string}>;
           nodes: Array<{
             id: string;
             kind: 'stage' | 'collection';
@@ -509,6 +512,7 @@ export function registerdheeIpcBridge(
             version: bundle.version,
             ...(bundle.description ? { description: bundle.description } : {}),
             goal: bundle.goal,
+            fileInputs: (bundle.inputs ?? []).filter(i=>i.kind==='file' && typeof i.path==='string').map(i=>({id:i.id,path:i.path!})),
             nodes: bundle.nodes.map((n) => ({
               id: n.id,
               kind: n.kind,
