@@ -2,6 +2,7 @@ import type {
   Runner,
   RunnerManifest,
 } from '@dheeai/runner-sdk' with { 'resolution-mode': 'import' };
+import { mixSoundtrackRunner } from './mixSoundtrack.js';
 import { voiceQualityRunner } from './voiceQualityRunner.js';
 import { continuityPreflightRunner } from './continuityRunner.js';
 import { prepareNarrationRunner } from './prepareNarration.js';
@@ -17,6 +18,16 @@ export {
   assertSceneIntent,
 } from './sceneIntent.js';
 export const runners: Array<{ manifest: RunnerManifest; runner: Runner }> = [
+  {
+    manifest: {
+      tool: 'audio.mix_soundtrack',
+      version: '0.1.0',
+      engineCompat: '>=0.1.0',
+      credentials: [],
+      displayName: 'Mix soundtrack with approved dialogue',
+    },
+    runner: mixSoundtrackRunner,
+  },
   {
     manifest: {
       tool: 'audio.check_voice',

@@ -197,3 +197,24 @@ Use the existing workflow in this order:
 5. Assemble selected clips, run `media.verify_assembly` and Core `media.check`, and inspect the picture. Present the rough cut for the third creative approval. Changes after approval require renewed review of the changed cut.
 
 See [the 60-second film benchmark and release scope](../../docs/research/2026-11-04-return-to-sender-release.md) for demonstrated results and remaining work. These operations reduce repeated orchestration but do not yet constitute an unattended brief-to-film pipeline.
+
+## Reusable soundtrack mixing
+
+`audio.mix_soundtrack` adds a selected PCM16 bed under a full-timeline PCM16 dialogue stem. It preserves the dialogue's gain and timing, rejects clipping, requires at least 14 dB RMS dialogue-over-bed margin per declared spoken interval, and refuses intervals that omit dialogue samples louder than -45 dBFS. These are technical checks, not perceptual or lip-sync judgments. A combined mix is not sample-identical to its dialogue stem.
+
+Declare a bundle stage using this runner after the selected dialogue and music inputs, before `ffmpeg.replace_audio`. The latter already supports sample-based `offsetSec`, PCM MOV masters and explicitly lossy AAC MP4 delivery. Use `audio.prepare_narration` for pause-based splitting; do not resynthesize approved voices for timing corrections.
+
+Runner config (keys name upstream inputs):
+
+```json
+{
+  "dialogueInput": "dialogue",
+  "bedInput": "music",
+  "planInput": "mix_plan",
+  "outputPath": "film/mixed-v1.wav"
+}
+```
+
+The JSON plan contains `dialogueSha256`, `bedSha256`, `bedGain` (0–1), optional `duckGain` (0–1, default 0.1), `fadeSec` (0.01–5, default 0.15), and ordered non-overlapping `speech` intervals with `startSec` / `endSec`. Fades apply at soundtrack ends and around speech. Both inputs must have identical sample rate/channels, be confined to the project, and be at most 128 MiB each. Dialogue may be at most 300 seconds; the bed must cover it. Longer beds are trimmed to that declared dialogue timeline, with the removed frame count recorded. The output parent must exist; outputs are never overwritten.
+
+Core JSON snapshots and confined JSON plan files (64 KiB maximum) are supported. Sources are hashed again before publication. The runner saves source/mix hashes, measured speech margins, peak level and trim count in completion metadata. It never grants creative approval. Call it through Core `project.run` in a bundle with the existing narrative review gates and approved inputs; it is not a standalone MCP action. Existing bundles need an explicit stage declaration. Music/effect generation and creative selection remain upstream operations.

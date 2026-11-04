@@ -106,7 +106,7 @@ export function readPcm(wav: Buffer) {
     );
   return { pcm, rate, channels, stride, frames: pcm.length / stride };
 }
-function writePcm(pcm: Buffer, rate: number, channels: number) {
+export function writePcm(pcm: Buffer, rate: number, channels: number) {
   const out = Buffer.alloc(44 + pcm.length);
   out.write('RIFF');
   out.writeUInt32LE(out.length - 8, 4);
