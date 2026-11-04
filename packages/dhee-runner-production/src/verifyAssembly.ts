@@ -1,4 +1,3 @@
-import { checkSpeech } from './speechCheck.js';
 /* eslint-disable no-await-in-loop -- Bound subprocess and snapshot memory by processing inputs sequentially. */
 /** Read-only assembly audit. A completed report is not a passed film or approval. */
 import { execFile } from 'node:child_process';
@@ -16,6 +15,8 @@ import {
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { z } from 'zod';
 import type { Runner } from '@dheeai/runner-sdk' with { 'resolution-mode': 'import' };
+import { reviewFrames, type ReviewFrame } from './visualReview.js';
+import { checkSpeech } from './speechCheck.js';
 import { ffmpegBin, ffprobeBin } from './ffmpegBin.js';
 
 const configSchema = z
@@ -27,6 +28,11 @@ const configSchema = z
       .array(
         z
           .object({
+            visualRequirements: z
+              .array(z.string().trim().min(1).max(500))
+              .min(1)
+              .max(10)
+              .optional(),
             videoInput: z.string().min(1),
             durationSec: z.number().finite().positive().max(120),
             audioInput: z.string().min(1).optional(),
@@ -95,7 +101,11 @@ export const verifyAssemblyRunner: Runner = {
       properties: {
         videoInput: { type: 'string' },
         outputPath: { type: 'string' },
-        expectedScript: {type: 'string', description: 'Expected English narration; compared using configured offline ASR.'},
+        expectedScript: {
+          type: 'string',
+          description:
+            'Expected English narration; compared using configured offline ASR.',
+        },
         segments: {
           type: 'array',
           minItems: 1,
@@ -104,6 +114,12 @@ export const verifyAssemblyRunner: Runner = {
             type: 'object',
             required: ['videoInput', 'durationSec'],
             properties: {
+              visualRequirements: {
+                type: 'array',
+                minItems: 1,
+                maxItems: 10,
+                items: { type: 'string', minLength: 1, maxLength: 500 },
+              },
               videoInput: { type: 'string' },
               durationSec: {
                 type: 'number',
@@ -123,6 +139,16 @@ export const verifyAssemblyRunner: Runner = {
     try {
       ctx.signal?.throwIfAborted();
       const cfg = configSchema.parse(ctx.node.runner.config);
+      const reviewEnv = { ...process.env };
+      // Shared report contract with Core; never persist endpoint credentials.
+      const visualReviewConfigSha256 = createHash('sha256')
+        .update(
+          JSON.stringify([
+            reviewEnv.DHEE_REVIEW_VLM_BASE_URL?.trim().replace(/\/$/, '') ?? '',
+            reviewEnv.DHEE_REVIEW_VLM_MODEL?.trim() ?? '',
+          ]),
+        )
+        .digest('hex');
       const duration = cfg.segments.reduce((sum, s) => sum + s.durationSec, 0);
       if (duration > 120)
         throw new Error(
@@ -338,14 +364,93 @@ export const verifyAssemblyRunner: Runner = {
         }
         offset += segment.durationSec;
       }
-      const speech = await checkSpeech(finalAudio, cfg.expectedScript, ctx.signal);
+      const visualReviews: Array<{
+        segmentIndex: number;
+        result: Awaited<ReturnType<typeof reviewFrames>>;
+      }> = [];
+      let visualOffset = 0;
+      for (const [segmentIndex, segment] of cfg.segments.entries()) {
+        if (segment.visualRequirements) {
+          const frames: ReviewFrame[] = [];
+          let extractionFailed = false;
+          if (
+            reviewEnv.DHEE_REVIEW_VLM_BASE_URL &&
+            reviewEnv.DHEE_REVIEW_VLM_MODEL
+          ) {
+            try {
+              for (const fraction of [0.1, 0.5, 0.9]) {
+                const atSec = visualOffset + segment.durationSec * fraction;
+                const jpeg = await execute(
+                  ffmpegBin(),
+                  [
+                    '-v',
+                    'error',
+                    '-ss',
+                    String(atSec),
+                    '-i',
+                    final,
+                    '-map',
+                    '0:v:0',
+                    '-frames:v',
+                    '1',
+                    '-vf',
+                    'scale=640:640:force_original_aspect_ratio=decrease',
+                    '-f',
+                    'image2pipe',
+                    '-c:v',
+                    'mjpeg',
+                    'pipe:1',
+                  ],
+                  ctx.signal,
+                );
+                frames.push({ atSec, jpeg });
+              }
+            } catch {
+              ctx.signal?.throwIfAborted();
+              extractionFailed = true;
+            }
+          }
+          const result = extractionFailed
+            ? {
+                finding: {
+                  id: 'scene-meaning' as const,
+                  status: 'unchecked' as const,
+                  detail:
+                    'Could not extract the requested visual samples; semantic review remains unchecked.',
+                },
+              }
+            : await reviewFrames(
+                segment.visualRequirements,
+                frames,
+                ctx.signal,
+                reviewEnv,
+              );
+          visualReviews.push({ segmentIndex, result });
+        }
+        visualOffset += segment.durationSec;
+      }
+      const speech = await checkSpeech(
+        finalAudio,
+        cfg.expectedScript,
+        ctx.signal,
+      );
       checks.push(
         speech.finding,
         {
           id: 'scene-meaning',
-          status: 'unchecked',
-          detail:
-            'No semantic vision assessment integrated; source matching does not prove actor action, continuity or storyboard intent.',
+          status: visualReviews.some((v) => v.result.finding.status === 'fail')
+            ? 'fail'
+            : 'unchecked',
+          detail: visualReviews.length
+            ? `${visualReviews
+                .map(
+                  (v) =>
+                    `Scene ${v.segmentIndex + 1}: ${v.result.finding.detail}`,
+                )
+                .join(
+                  '\n',
+                )}\nOnly configured scene requirements were reviewed; other scenes remain unchecked.`
+            : 'No visual requirements configured; scene meaning remains unchecked.',
         },
         {
           id: 'creative-approval',
@@ -368,7 +473,8 @@ export const verifyAssemblyRunner: Runner = {
         ? 'fail'
         : 'review';
       const report = {
-        analyzerVersion: 2,
+        analyzerVersion: 3,
+        visualReviewConfigSha256,
         createdAt: new Date().toISOString(),
         status,
         deliveryReady: false,
@@ -376,9 +482,15 @@ export const verifyAssemblyRunner: Runner = {
         criteria: cfg,
         checks,
         speech,
+        visualReviews,
       };
       const reportPath = join(scratch, 'report.json');
-      await writeFile(reportPath, JSON.stringify(report, null, 2));
+      const serializedReport = JSON.stringify(report, null, 2);
+      if (Buffer.byteLength(serializedReport) > 8 * 1024 * 1024)
+        throw new Error(
+          'Verification report exceeds 8 MiB; split the review into smaller cuts',
+        );
+      await writeFile(reportPath, serializedReport);
       // No overwrite of media or an existing report. Reruns need a fresh artifact path.
       await link(reportPath, output);
       return {

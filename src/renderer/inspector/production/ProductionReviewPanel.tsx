@@ -33,9 +33,12 @@ export function ProductionReviewPanel({
       <h2>Three creative reviews</h2>
       <p>
         Check the story, references and rough cut before moving forward.
-        Availability is shown here; review decisions apply to the listed artifacts.
+        Availability is shown here; review decisions apply to the listed
+        artifacts.
       </p>
-      <ol className={styles.cards}>
+      <ol
+        className={`${styles.cards} ${renderDecision ? styles.reviewCards : ''}`}
+      >
         {checkpoints.map((checkpoint) => (
           <li key={checkpoint.id} className={styles.card}>
             <h3>{checkpoint.title}</h3>
@@ -70,5 +73,7 @@ export function ProductionReviewPanel({
     </section>
   );
 }
+
+ProductionReviewPanel.defaultProps = { renderDecision: undefined };
 
 export default ProductionReviewPanel;

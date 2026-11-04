@@ -56,7 +56,7 @@ function fileUrl(projectDir: string, outputPath: string, ts?: number): string {
 
 export function ProductionView() {
   const { model } = useRunModel();
-  const { projectDirectory } = useWorkspace();
+  const { projectDirectory, projectName } = useWorkspace();
   const { bundle } = useProject();
   const projectDir = projectDirectory ?? null;
 
@@ -414,6 +414,7 @@ export function ProductionView() {
   }
 
   function projectTitle(): string {
+    if (projectName?.trim()) return projectName.trim();
     const base = dir.replace(/\\/g, '/').split('/').pop() ?? 'Production';
     return base.replace(/\.dhee$/i, '').replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }

@@ -37,6 +37,7 @@ export interface EditVersion {
   bytes?: number;
 }
 export interface EditResult {
+  versionId?: string;
   versions?: EditVersion[];
   text?: string;
   absolutePath?: string;

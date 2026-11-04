@@ -6,6 +6,8 @@ import type {
   EditResult,
   EditVersion,
 } from '../../../shared/productionEditing';
+import { VoiceTakeComparison } from './VoiceTakeComparison';
+import { SceneImageLinkEditor } from './SceneImageLinkEditor';
 import { toFileUrl } from '../../utils/pathResolver';
 import styles from './ProductionEditingPanel.module.scss';
 
@@ -36,12 +38,14 @@ export function ProductionEditingPanel({
     [bundle],
   );
   const [choice, setChoice] = useState('');
+  const [storyboardInput, setStoryboardInput] = useState('');
   const target = targets.find((t) => t.id === choice);
   const [draft, setDraft] = useState<string>();
   const [file, setFile] = useState<EditPayload>();
   const [versions, setVersions] = useState<EditVersion[]>([]);
   const [version, setVersion] = useState('');
   const [asset, setAsset] = useState<EditResult>();
+  const [currentAsset, setCurrentAsset] = useState<EditResult>();
   const [history, setHistory] = useState<EditResult>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -62,6 +66,7 @@ export function ProductionEditingPanel({
     setDraft(undefined);
     setFile(undefined);
     setAsset(undefined);
+    setCurrentAsset(undefined);
     setHistory(undefined);
     setError('');
     if (!nodeId) {
@@ -88,6 +93,7 @@ export function ProductionEditingPanel({
         if (read.ok) {
           setDraft(read.result.text);
           setAsset(read.result);
+          setCurrentAsset(read.result);
         } else setError(read.error);
       })
       .catch((e) => {
@@ -162,7 +168,11 @@ export function ProductionEditingPanel({
         setMessage(
           'Saved. Previous files are preserved. Review affected materials again before continuing generation.',
         );
-        window.dispatchEvent(new CustomEvent('dhee:production-changed', {detail:{projectDir}}));
+        window.dispatchEvent(
+          new CustomEvent('dhee:production-changed', {
+            detail: { projectDir },
+          }),
+        );
         setRevision((r) => r + 1);
       },
     );
@@ -200,8 +210,55 @@ export function ProductionEditingPanel({
               ))}
             </select>
           </label>
+          {storyboardInput && choice !== storyboardInput ? (
+            <button
+              type="button"
+              onClick={() => {
+                setPending(undefined);
+                setMessage('');
+                setChoice(storyboardInput);
+                setStoryboardInput('');
+              }}
+            >
+              {file
+                ? 'Discard replacement and return to storyboard'
+                : 'Back to storyboard'}
+            </button>
+          ) : null}
           {target && (
             <>
+              {target.format === 'json' && draft !== undefined ? (
+                <SceneImageLinkEditor
+                  key={`${projectDir}:${target.nodeId}:${revision}`}
+                  projectDir={projectDir}
+                  nodeId={target.nodeId}
+                  bundle={bundle}
+                  content={draft}
+                  editImage={{
+                    nodeIds: targets
+                      .filter((input) => input.format === 'image')
+                      .map((input) => input.nodeId),
+                    disabled: draft !== asset?.text,
+                    onSelect: (imageNodeId) => {
+                      const imageInput = targets.find(
+                        (input) =>
+                          input.nodeId === imageNodeId &&
+                          input.format === 'image',
+                      );
+                      if (!imageInput || draft !== asset?.text) return;
+                      setStoryboardInput(target.id);
+                      setPending(undefined);
+                      setMessage('');
+                      setChoice(imageInput.id);
+                    },
+                  }}
+                  onChange={(content) => {
+                    setDraft(content);
+                    setPending(undefined);
+                    setMessage('');
+                  }}
+                />
+              ) : null}
               {textKind ? (
                 <label>
                   Script or storyboard text
@@ -219,13 +276,14 @@ export function ProductionEditingPanel({
                 </label>
               ) : (
                 <>
-                  {asset?.absolutePath && target.format === 'audio' && (
-                    <audio
-                      controls
-                      src={`${toFileUrl(asset.absolutePath)}?v=${asset.sha256 ?? ''}`}
-                      aria-label="Reference preview"
+                  {target.format === 'audio' ? (
+                    <VoiceTakeComparison
+                      key={`${projectDir}:${target.nodeId}:${revision}`}
+                      current={currentAsset}
+                      candidate={file ? asset : undefined}
+                      saved={history}
                     />
-                  )}
+                  ) : null}
                   {asset?.absolutePath && target.format === 'image' && (
                     <img
                       style={{
@@ -319,7 +377,7 @@ export function ProductionEditingPanel({
               >
                 Preview restore
               </button>
-              {history && (
+              {history && target.format !== 'audio' && (
                 <section aria-label="Inspected saved version">
                   <p>
                     Saved version:{' '}
@@ -335,13 +393,6 @@ export function ProductionEditingPanel({
                     >
                       {history.text}
                     </pre>
-                  )}
-                  {history.absolutePath && target.format === 'audio' && (
-                    <audio
-                      aria-label="Saved version preview"
-                      controls
-                      src={`${toFileUrl(history.absolutePath)}?v=${history.sha256 ?? ''}`}
-                    />
                   )}
                   {history.absolutePath && target.format === 'image' && (
                     <img
@@ -381,7 +432,8 @@ export function ProductionEditingPanel({
               <ul>
                 {pending.result.downstream.map((d) => (
                   <li key={`${d.nodeId}:${d.itemId ?? ''}`}>
-                    {bundle?.nodes.find(n => n.id === d.nodeId)?.displayName ?? d.nodeId.replace(/_/g, ' ')}
+                    {bundle?.nodes.find((n) => n.id === d.nodeId)
+                      ?.displayName ?? d.nodeId.replace(/_/g, ' ')}
                     {d.itemId ? ` · ${d.itemId}` : ''}
                   </li>
                 ))}

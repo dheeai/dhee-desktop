@@ -128,6 +128,7 @@ function Decision({
               key={preview.previewPath + preview.key}
               projectDir={request.projectDir}
               preview={preview}
+              relatedPreviews={review.previews}
               onLoaded={onLoaded}
             />
           ))}

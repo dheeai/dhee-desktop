@@ -14,6 +14,7 @@
  */
 import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { prepareReadableView, type ReadableView } from '../nodeTextEdit';
 import styles from './ProductionView.module.scss';
 
@@ -52,19 +53,6 @@ function headlineOf(o: Record<string, unknown>): { text: string; key: string } |
   }
   return null;
 }
-/** A small flat object (≤3 scalar fields) — render as a chip, not a card. */
-function isThinObject(v: unknown): v is Record<string, unknown> {
-  return isPlainObject(v) && Object.keys(v).length <= 3 && Object.values(v).every((x) => scalarText(x) !== null);
-}
-/** "leo · character" — headline plus its remaining scalar fields. */
-function thinObjectText(o: Record<string, unknown>): string {
-  const h = headlineOf(o);
-  const rest = Object.entries(o)
-    .filter(([k]) => k !== h?.key)
-    .map(([, v]) => scalarText(v))
-    .filter((s): s is string => !!s && s !== '—');
-  return [h?.text, ...rest].filter(Boolean).join(' · ');
-}
 
 function Chips({ items }: { items: string[] }) {
   const shown = items.slice(0, MAX_ITEMS);
@@ -84,8 +72,6 @@ function ValueView({ value, depth }: { value: unknown; depth: number }) {
     if (value.length === 0) return <span className={styles.fieldVal}>—</span>;
     const scalars = value.map(scalarText);
     if (scalars.every((x) => x !== null)) return <Chips items={scalars as string[]} />;
-    // arrays of thin objects (e.g. references {id,type}) → compact chips, not cards
-    if (value.every(isThinObject)) return <Chips items={(value as Record<string, unknown>[]).map(thinObjectText)} />;
     if (depth >= MAX_DEPTH) return <span className={styles.fieldVal}>{value.length} items</span>;
     const shown = value.slice(0, MAX_ITEMS);
     return (
@@ -163,12 +149,30 @@ export function ReadableArtifact({ projectDir, outputPath, headlineField, compac
   if (content === null) return <div className={styles.docLoading}>Loading…</div>;
   if (content.trim() === '') return <div className={styles.docLoading}>Not written yet.</div>;
 
+  return (
+    // eslint-disable-next-line no-use-before-define -- Pure renderer shares the existing file-reading wrapper.
+    <ReadableArtifactContent
+      content={content}
+      outputPath={outputPath}
+      headlineField={headlineField}
+      compact={compact}
+    />
+  );
+}
+
+/** Render already-loaded snapshot bytes without re-reading a mutable artifact. */
+export function ReadableArtifactContent({
+  content,
+  outputPath,
+  headlineField,
+  compact,
+}: Pick<Props, 'outputPath' | 'headlineField' | 'compact'> & { content: string }) {
   const view: ReadableView = prepareReadableView({ content, outputPath: outputPath ?? undefined, headlineField });
 
   if (view.kind === 'text') {
     return (
       <div className={styles.prose}>
-        <ReactMarkdown>{view.text}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{view.text}</ReactMarkdown>
       </div>
     );
   }

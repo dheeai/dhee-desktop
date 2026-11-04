@@ -20,3 +20,20 @@
   [role='alert'] { color: $color-text-primary; }
 }
 .row { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 16px; }
+
+.sceneLinks { margin: 18px 0; padding: 16px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; h4 { margin: 0 0 8px; } }
+.sceneLink { padding: 8px 0 16px; border-bottom: 1px solid rgba(128,128,128,.2); &:last-child { border: 0; padding-bottom: 0; } img { display: block; width: 100%; max-height: 220px; object-fit: contain; object-position: left; border-radius: 6px; } }
+
+// Keep reference media on its own row between navigation and replacement actions.
+.root fieldset > img,
+.root fieldset > audio {
+  display: block;
+  margin: 12px 0;
+}
+
+.sceneTextFields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 12px; label { margin: 8px 0; } }
+.sceneLink h5 { margin: 12px 0 4px; font: inherit; font-weight: 600; }
+
+.voiceComparison { margin: 18px 0; h4 { margin: 0 0 8px; } }
+.voiceTakes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 12px; }
+.voiceTake { min-width: 0; padding: 14px; border: 1px solid rgba(128,128,128,.3); border-radius: 8px; h5 { margin: 0; font: inherit; font-weight: 600; } p { overflow-wrap: anywhere; } audio { display: block; width: 100%; margin: 10px 0; } details { font-size: 12px; } }

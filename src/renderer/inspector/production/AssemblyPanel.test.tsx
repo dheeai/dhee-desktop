@@ -244,3 +244,35 @@ it('labels a missing automatic check and never substitutes success', async () =>
   await screen.findByText(/Automatic check: not-configured/);
   expect(screen.getByText('No automatic check is configured.')).not.toBeNull();
 });
+it('keeps long findings collapsed with their status visible and full evidence available', async () => {
+  const detail = 'Observed actor position. '.repeat(30);
+  setup({
+    ok: true,
+    result: {
+      verification: {
+        status: 'review',
+        deliveryReady: false,
+        checks: [{ id: 'scene-meaning', status: 'unchecked', detail }],
+      },
+    },
+  });
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /final/ });
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {
+    target: { value: '0' },
+  });
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Assemble selected stage' }),
+  );
+  const evidence = await screen.findByText(
+    (_, element) =>
+      !!element?.textContent?.includes(detail.trim()) &&
+      element.children.length === 0,
+  );
+  const disclosure = evidence.closest('details');
+  expect(disclosure).not.toBeNull();
+  expect(disclosure?.hasAttribute('open')).toBe(false);
+  expect(disclosure?.querySelector('summary')?.textContent).toContain(
+    'unchecked',
+  );
+});

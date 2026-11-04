@@ -251,6 +251,13 @@
 .scriptDocBody { max-width: 860px; border: 1px solid $color-border-subtle; border-radius: $radius-md; background: $color-bg-panel; padding: 16px 20px; }
 
 /* full markdown prose (treatment + reading docs) */
+.prose { min-width: 0; overflow-wrap: anywhere; }
+.prose :global(table) { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; margin: 16px 0; font-size: 14px; line-height: 1.6; }
+.prose :global(th), .prose :global(td) { border: 1px solid $color-border-subtle; padding: 10px 14px; text-align: left; vertical-align: top; min-width: 90px; }
+.prose :global(th) { color: $color-text-primary; font-weight: 600; }
+.prose :global(td) { color: $color-text-secondary; }
+.prose :global(.task-list-item) { list-style: none; }
+.prose :global(input[type='checkbox']) { margin-right: 8px; }
 .prose :global(h1) { font-family: $font-family-base; font-size: 22px; font-weight: 600; color: $color-text-primary; margin: 0 0 10px; }
 .prose :global(h2) { font-family: $font-family-base; font-size: 18px; font-weight: 600; color: $color-text-primary; margin: 22px 0 8px; }
 .prose :global(h3) { font-family: $font-family-base; font-size: 15px; font-weight: 600; color: $color-text-secondary; margin: 18px 0 6px; letter-spacing: 0.02em; }

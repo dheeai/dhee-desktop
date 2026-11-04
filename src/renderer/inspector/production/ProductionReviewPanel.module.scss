@@ -18,6 +18,8 @@
   list-style: none;
   counter-reset: review;
 }
+// Artifact previews need the panel width; compact readiness-only cards stay in a grid.
+.reviewCards { grid-template-columns: minmax(0, 1fr); }
 .card {
   min-width: 0;
   counter-increment: review;
@@ -77,4 +79,110 @@
   button:disabled { opacity: .5; cursor: default; }
   summary { cursor: pointer; }
   pre { max-height: 220px; overflow: auto; }
+}
+
+.previewDocument {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  div { min-width: 0; }
+  p, h1, h2, h3 { font-family: inherit; }
+  div p:first-of-type::first-letter {
+    float: none;
+    font: inherit;
+    padding: 0;
+    color: inherit;
+  }
+}
+
+.previewVersion {
+  display: inline-block;
+  margin: 0 0 8px 12px;
+  color: $color-text-secondary;
+  font-size: 11px;
+  summary { cursor: pointer; }
+  span { display: block; overflow-wrap: anywhere; padding: 4px 0; }
+}
+.sceneReview { margin-top: 18px; }
+.sceneOverview { display: flex; gap: 12px; align-items: center; font-size: 12px; color: $color-text-secondary; }
+.sceneOverview span + span { border-left: 1px solid rgba(128,128,128,.35); padding-left: 12px; }
+.sceneScope { font-size: 12px; line-height: 1.6; color: $color-text-secondary; }
+.sceneList { display: grid; gap: 14px; margin: 16px 0; }
+.sceneReviewCard {
+  min-width: 0;
+  padding: 18px;
+  background: rgba(128,128,128,.055);
+  border: 1px solid rgba(128,128,128,.24);
+  border-radius: 10px;
+  > header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  h4 { margin: 0; font: inherit; font-weight: 600; flex: 1; }
+}
+.sceneNumber { font-size: 12px; color: $color-text-secondary; font-variant-numeric: tabular-nums; }
+.sceneTiming { font-size: 12px; padding: 4px 9px; border-radius: 6px; background: rgba(128,128,128,.12); }
+.sceneFields {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr)); gap: 20px; margin-top: 18px;
+  h5 { margin: 0 0 7px; font-size: 11px; font-weight: 600; color: $color-text-secondary; }
+  p { margin: 0; font-size: 14px; line-height: 1.65; overflow-wrap: anywhere; }
+}
+.sceneDetails { margin: 16px 0 4px; font-size: 12px; color: $color-text-secondary; summary { cursor: pointer; } }
+
+// Visual language follows the original polished Brilliant Care HTML storyboard.
+.sceneReview {
+  container-type: inline-size;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f3f5f9;
+  color: #152036;
+  border: 1px solid #dce1ea;
+  border-radius: 16px;
+  overflow: hidden;
+}
+.boardHero {
+  padding: 30px 28px 24px;
+  background: radial-gradient(ellipse at 90% 0%, rgba(93,83,215,.35), transparent 60%), linear-gradient(125deg,#111a31,#25265f 68%,#173f57);
+  color: #fff;
+  h3 { margin: 10px 0 8px; font-size: clamp(26px,4cqi,42px); line-height: 1.08; letter-spacing: -.035em; }
+  h3::before { content: none; }
+  p { margin: 0 0 22px; color: #d8deed; font-size: 13px; line-height: 1.6; }
+}
+.boardEyebrow { color: #8de1dc; font-size: 10px; letter-spacing: .16em; font-weight: 700; }
+.sceneOverview { color: #e5e8ff; font-size: 12px; }
+.sceneOverview span + span { border-color: rgba(255,255,255,.3); }
+.sceneScope { color: #697386; padding: 0 24px; margin: 18px 0 0; }
+.sceneList { margin: 0; padding: 22px; gap: 22px; }
+.sceneReviewCard {
+  padding: 0;
+  border: 1px solid #dce1ea;
+  border-radius: 12px;
+  background: #fff;
+  box-shadow: 0 6px 20px rgba(20,32,56,.055);
+  overflow: hidden;
+  > header { padding: 14px 18px; border-bottom: 1px solid #e8ebf2; }
+  h4 { font-size: 15px; color: #152036; }
+}
+.sceneNumber { color: #3f36b7; font-weight: 700; letter-spacing: .05em; }
+.sceneTiming { background: #eeecfc; color: #3f36b7; font-weight: 600; font-variant-numeric: tabular-nums; }
+.sceneBody { display: grid; grid-template-columns: minmax(0,1.15fr) minmax(0,1fr); }
+.sceneFrame {
+  min-width: 0;
+  background: #172039;
+  display: flex;
+  align-items: center;
+  img { display: block; width: 100%; height: auto; max-height: none; margin: 0; object-fit: contain; }
+}
+.sceneFrameEmpty { min-height: 230px; padding: 28px; color: #c6cfe4; display: flex; flex-direction: column; justify-content: center; }
+.sceneFrameEmpty span { font-size: 10px; letter-spacing: .14em; color: #8de1dc; }
+.sceneFrameEmpty p { font-size: 14px; line-height: 1.6; }
+.sceneFields {
+  display: flex; flex-direction: column; gap: 24px; margin: 0; padding: 24px;
+  h5 { font-size: 10px; letter-spacing: .12em; text-transform: uppercase; color: #697386; }
+  p { font-size: 14px; line-height: 1.65; color: #25324b; }
+  > div:first-child { border-left: 3px solid #5d53d7; padding-left: 13px; }
+  > div:first-child p { font-size: 17px; letter-spacing: -.015em; color: #152036; }
+}
+.sceneDetails { color: #697386; margin: 0; padding: 0 24px 22px; }
+@container (max-width: 560px) {
+  .sceneBody { grid-template-columns: minmax(0,1fr); }
+  .sceneList { padding: 12px; gap: 16px; }
+  .boardHero { padding: 24px 18px; }
+  .sceneFields { padding: 20px; }
+  .sceneFrameEmpty { min-height: 140px; }
 }

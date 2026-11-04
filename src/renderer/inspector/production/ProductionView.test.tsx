@@ -35,8 +35,9 @@ const mockNarrative = [
 ];
 
 let mockModel: RunModel;
+let mockProjectName: string | null = null;
 jest.mock('../../hooks/useRunModel', () => ({ useRunModel: () => ({ model: mockModel, stop: jest.fn() }) }));
-jest.mock('../../contexts/WorkspaceContext', () => ({ useWorkspace: () => ({ projectDirectory: '/proj/Set In The 1970s' }) }));
+jest.mock('../../contexts/WorkspaceContext', () => ({ useWorkspace: () => ({ projectDirectory: '/proj/Set In The 1970s', projectName: mockProjectName }) }));
 jest.mock('../../contexts/ProjectContext', () => ({ useProject: () => ({ bundle: { id: 'narr', nodes: mockNarrative } }) }));
 jest.mock('../CardDetailModal', () => ({ CardDetailModal: () => null }));
 // Preparation interactions have their own real-component tests.
@@ -80,6 +81,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  mockProjectName = null;
   mockModel = buildModel(MID_RUN);
 });
 
@@ -94,6 +96,13 @@ describe('ProductionView', () => {
   it('renders the Final Cut hero with the project title', () => {
     render(<ProductionView />);
     expect(screen.getByText('Set In The 1970s')).toBeTruthy();
+  });
+
+  it('uses the saved project name instead of guessing from the folder', () => {
+    mockProjectName = 'Brilliant Care — a patient’s story';
+    render(<ProductionView />);
+    expect(screen.getByText(mockProjectName)).toBeTruthy();
+    expect(screen.queryByText('Set In The 1970s')).toBeNull();
   });
 
   it('renders media-only stages as a board of their items, and pill clicks scroll without crashing', () => {

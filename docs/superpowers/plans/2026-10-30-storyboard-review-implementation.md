@@ -33,3 +33,7 @@ Spec: Dhee-Production-Design.md, including the 30 October planning refinement. T
 - Ruling: pre-existing generic film classification and entity-card status behavior remain out of scope; the new panel is restricted to known narrative contracts. Cost: generic views retain existing limitations.
 - Ruling: visual acceptance and full runtime/GPU/export verification remain pending; this slice does not alter execution. Cost: layout and packaged-runtime behavior still require verification before release.
 - No Core changes, GPU jobs, remote pushes or PRs.
+
+## 3 November continuation: review-preview correctness
+
+Following the approved Desktop UX plan, fixed missing/blank text previews counting as loaded, stale text while a new version loads, and old errors surviving a successful new-version load. Three tests reproduced the bugs before fixes. Nine focused preview/decision tests pass; full Desktop suite 195 suites / 1,673 tests passes. Typecheck passes. Local only; native visual acceptance remains separate.

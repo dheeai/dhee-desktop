@@ -218,10 +218,27 @@ export function WorkspaceProvider({ children }: WorkspaceProviderProps) {
 
         // Read only first level to prevent freeze
         const tree = await window.electron.project.readTree(path, 1);
-        const projectName = (normalizedPath.split('/').pop() || path).replace(
+        let projectName = (normalizedPath.split('/').pop() || path).replace(
           /\.dhee$/i,
           '',
         );
+        const metadataPath = hasRootProjectFile
+          ? `${normalizedPath}/project.json`
+          : hasLegacyAgentProjectFile
+            ? `${normalizedPath}/.dhee/agent/project.json`
+            : null;
+        if (metadataPath) {
+          try {
+            const raw = await window.electron.project.readFile(metadataPath);
+            const metadata: unknown = raw ? JSON.parse(raw) : null;
+            if (metadata && typeof metadata === 'object' && 'name' in metadata
+              && typeof metadata.name === 'string' && metadata.name.trim()) {
+              projectName = metadata.name.trim();
+            }
+          } catch {
+            // Missing or malformed metadata must not prevent opening a folder.
+          }
+        }
 
         if (
           previousProjectDirectory &&

@@ -1,6 +1,6 @@
 /** @jest-environment node */
 /* eslint-disable import/no-relative-packages */
-import { it, expect, afterEach } from '@jest/globals';
+import { it, expect, afterEach, jest } from '@jest/globals';
 import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -177,11 +177,105 @@ it('does not overwrite a prior report and honors cancellation', async () => {
   expect(await run(ctx)).toMatchObject({ ok: false });
 });
 it('accepts an expected script but reports missing ASR configuration instead of a pass', async () => {
-  const ctx=fixture();ctx.node.runner.config.expectedScript="A doctor's visit ends.";
-  const previous=process.env.DHEE_ASR_MODEL_PATH;delete process.env.DHEE_ASR_MODEL_PATH;
+  const ctx = fixture();
+  ctx.node.runner.config.expectedScript = "A doctor's visit ends.";
+  const previous = process.env.DHEE_ASR_MODEL_PATH;
+  delete process.env.DHEE_ASR_MODEL_PATH;
   try {
-    expect(await run(ctx)).toMatchObject({ok:true});
-    const report=JSON.parse(readFileSync(join(ctx.projectDir,'check.json'),'utf8'));
-    expect(report.checks).toContainEqual(expect.objectContaining({id:'transcript',status:'unchecked',detail:expect.stringMatching(/model/i)}));
-  } finally {if(previous!==undefined)process.env.DHEE_ASR_MODEL_PATH=previous;}
+    expect(await run(ctx)).toMatchObject({ ok: true });
+    const report = JSON.parse(
+      readFileSync(join(ctx.projectDir, 'check.json'), 'utf8'),
+    );
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'transcript',
+        status: 'unchecked',
+        detail: expect.stringMatching(/model/i),
+      }),
+    );
+  } finally {
+    if (previous !== undefined) process.env.DHEE_ASR_MODEL_PATH = previous;
+  }
+});
+it('accepts scene requirements but keeps an unconfigured vision service unchecked', async () => {
+  const ctx = fixture();
+  (
+    ctx.node.runner.config.segments as Array<Record<string, unknown>>
+  )[0].visualRequirements = ['Doctor stays seated; patient exits.'];
+  const previous = process.env.DHEE_REVIEW_VLM_BASE_URL;
+  delete process.env.DHEE_REVIEW_VLM_BASE_URL;
+  try {
+    expect(await run(ctx)).toMatchObject({ ok: true });
+    const report = JSON.parse(
+      readFileSync(join(ctx.projectDir, 'check.json'), 'utf8'),
+    );
+    expect(report.analyzerVersion).toBe(3);
+    expect(report.visualReviewConfigSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        id: 'scene-meaning',
+        status: 'unchecked',
+        detail: expect.stringMatching(/configured/),
+      }),
+    );
+    expect(report.deliveryReady).toBe(false);
+  } finally {
+    if (previous !== undefined) process.env.DHEE_REVIEW_VLM_BASE_URL = previous;
+  }
+});
+
+it('extracts timestamped final-video frames and surfaces a modeled visual contradiction', async () => {
+  const ctx = fixture();
+  (
+    ctx.node.runner.config.segments as Array<Record<string, unknown>>
+  )[0].visualRequirements = ['Doctor stays seated.'];
+  const oldUrl = process.env.DHEE_REVIEW_VLM_BASE_URL;
+  const oldModel = process.env.DHEE_REVIEW_VLM_MODEL;
+  process.env.DHEE_REVIEW_VLM_BASE_URL = 'http://vision.invalid/v1';
+  process.env.DHEE_REVIEW_VLM_MODEL = 'fixture-model';
+  const fetchMock = jest.spyOn(global, 'fetch').mockResolvedValue(
+    new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                observations: [
+                  {
+                    requirementIndex: 0,
+                    verdict: 'contradicted',
+                    confidence: 0.95,
+                    frameIndices: [2],
+                    evidence: 'Fixture observation for propagation test.',
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+    ),
+  );
+  try {
+    expect(await run(ctx)).toMatchObject({ ok: true });
+    const request = JSON.parse(fetchMock.mock.calls[0][1]?.body as string);
+    expect(request.messages[0].content).toHaveLength(4);
+    expect(request.messages[0].content[1].image_url.url).toMatch(
+      /^data:image\/jpeg;base64,\/9j/,
+    );
+    const report = JSON.parse(
+      readFileSync(join(ctx.projectDir, 'check.json'), 'utf8'),
+    );
+    expect(report.status).toBe('fail');
+    expect(report.deliveryReady).toBe(false);
+    expect(report.visualReviews[0].result.observations[0].atSeconds).toEqual([
+      0.9,
+    ]);
+  } finally {
+    fetchMock.mockRestore();
+    if (oldUrl === undefined) delete process.env.DHEE_REVIEW_VLM_BASE_URL;
+    else process.env.DHEE_REVIEW_VLM_BASE_URL = oldUrl;
+    if (oldModel === undefined) delete process.env.DHEE_REVIEW_VLM_MODEL;
+    else process.env.DHEE_REVIEW_VLM_MODEL = oldModel;
+  }
 });

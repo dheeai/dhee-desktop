@@ -200,11 +200,33 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
             <ul>
               {verification.checks.map((check) => (
                 <li key={check.id}>
-                  {check.status} · {check.id}
-                  {check.atSec === undefined
-                    ? ''
-                    : ` at ${check.atSec.toFixed(2)}s`}
-                  : {check.detail}
+                  {check.detail.length > 240 ? (
+                    <details>
+                      <summary>
+                        {check.status} · {check.id}
+                        {check.atSec === undefined
+                          ? ''
+                          : ` at ${check.atSec.toFixed(2)}s`}
+                        {' — Show evidence'}
+                      </summary>
+                      <p
+                        style={{
+                          whiteSpace: 'pre-wrap',
+                          overflowWrap: 'anywhere',
+                        }}
+                      >
+                        {check.detail}
+                      </p>
+                    </details>
+                  ) : (
+                    <>
+                      {check.status} · {check.id}
+                      {check.atSec === undefined
+                        ? ''
+                        : ` at ${check.atSec.toFixed(2)}s`}
+                      : {check.detail}
+                    </>
+                  )}
                 </li>
               ))}
             </ul>

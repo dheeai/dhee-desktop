@@ -25,6 +25,7 @@ interface ProjectStub {
   addRecent: jest.Mock;
   checkFileExists: jest.Mock;
   readTree: jest.Mock;
+  readFile: jest.Mock;
   watchDirectory: jest.Mock;
   unwatchDirectory: jest.Mock;
   onFileChange: jest.Mock;
@@ -35,6 +36,7 @@ let project: ProjectStub;
 
 function installElectron() {
   project = {
+    readFile: jest.fn().mockResolvedValue(null),
     getRecent: jest.fn().mockResolvedValue([]),
     addRecent: jest.fn().mockResolvedValue(undefined),
     checkFileExists: jest.fn().mockResolvedValue(true),
@@ -119,6 +121,39 @@ describe('WorkspaceContext — openProject', () => {
     expect(result.current.isLoading).toBe(false);
     expect(project.watchDirectory).toHaveBeenCalledWith('/proj/');
     expect(project.addRecent).toHaveBeenCalledWith('/proj/');
+  });
+
+  it('uses the saved name without changing the project directory', async () => {
+    project.readFile.mockResolvedValue(JSON.stringify({ name: '  Brilliant Care — illustrated storyboard  ' }));
+    const { result } = renderHook(() => useWorkspace(), { wrapper });
+    await act(async () => { await result.current.openProject('/projects/project'); });
+    expect(result.current.projectName).toBe('Brilliant Care — illustrated storyboard');
+    expect(result.current.projectDirectory).toBe('/projects/project');
+    expect(project.readFile).toHaveBeenCalledWith('/projects/project/project.json');
+  });
+
+  it('reads the legacy metadata location when the root project file is absent', async () => {
+    project.checkFileExists.mockImplementation(async (path: string) => path !== '/projects/legacy/project.json');
+    project.readFile.mockResolvedValue('{"name":"Legacy film"}');
+    const { result } = renderHook(() => useWorkspace(), { wrapper });
+    await act(async () => { await result.current.openProject('/projects/legacy'); });
+    expect(result.current.projectName).toBe('Legacy film');
+    expect(project.readFile).toHaveBeenCalledWith('/projects/legacy/.dhee/agent/project.json');
+  });
+
+  it.each(['invalid json', '{"name":42}', '{"name":" "}', 'null'])('falls back safely for invalid project metadata: %s', async (content) => {
+    project.readFile.mockResolvedValue(content);
+    const { result } = renderHook(() => useWorkspace(), { wrapper });
+    await act(async () => { await result.current.openProject('/projects/my-film.dhee'); });
+    expect(result.current.projectName).toBe('my-film');
+  });
+
+  it('still opens when project metadata cannot be read', async () => {
+    project.readFile.mockRejectedValue(new Error('read denied'));
+    const { result } = renderHook(() => useWorkspace(), { wrapper });
+    await act(async () => { await result.current.openProject('/projects/my-film'); });
+    expect(result.current.projectName).toBe('my-film');
+    expect(result.current.isLoading).toBe(false);
   });
 
   it('throws and stays closed when the folder no longer exists', async () => {
