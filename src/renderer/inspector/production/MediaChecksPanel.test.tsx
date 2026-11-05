@@ -241,3 +241,17 @@ it.each(['current', 'stale', 'missing'])(
       ).not.toBeNull();
   },
 );
+
+it('does not present loading or a failed lookup as an empty media library', async () => {
+  let resolve: (value: any) => void = () => {};
+  Object.defineProperty(window,'dhee',{configurable:true,value:{gpuPreparation:()=>new Promise(r=>{resolve=r;})}});
+  render(<MediaChecksPanel projectDir="/project" />);
+  expect(screen.getByText('Loading completed media…')).not.toBeNull();
+  expect(screen.queryByText(/No completed audio or video/)).toBeNull();
+  await act(async()=>{resolve({ok:false,error:'Cannot reach Core'});});
+  expect(screen.queryByText('Loading completed media…')).toBeNull();
+  expect(screen.queryByText(/No completed audio or video/)).toBeNull();
+  fireEvent.click(screen.getByRole('button',{name:'Reload media'}));
+  await act(async()=>{resolve({ok:true,result:{targets:[]}});});
+  expect(screen.getByText(/No completed audio or video/)).not.toBeNull();
+});

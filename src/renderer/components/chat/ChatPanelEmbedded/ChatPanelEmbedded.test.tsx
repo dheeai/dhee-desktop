@@ -377,7 +377,7 @@ describe('ChatPanelEmbedded', () => {
     await waitFor(() => screen.getByRole('textbox'));
     await waitFor(
       () => {
-        expect(screen.queryByText(/Your project is ready/i)).not.toBeNull();
+        expect(screen.queryByText(/Your video is available/i)).not.toBeNull();
       },
       { timeout: 1500 },
     );

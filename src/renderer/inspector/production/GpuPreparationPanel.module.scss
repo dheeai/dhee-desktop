@@ -6,15 +6,19 @@
   border-radius: 12px;
   background: $color-bg-panel;
   color: $color-text-primary;
+  font-family: $font-ui-sans;
+  min-width: 0;
+  overflow-wrap: anywhere;
   summary { cursor: pointer; font-weight: 600; }
   p, small { font-size: 13px; line-height: 1.5; color: $color-text-secondary; }
   fieldset { padding: 0; border: 0; min-width: 0; }
   label { display: block; margin: 16px 0; font-size: 13px; }
-  select, textarea { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; padding: 9px; border: 1px solid rgba(128,128,128,.5); border-radius: 6px; background: $color-bg-app; color: $color-text-primary; font: inherit; }
+  select, textarea, input[type="number"] { display: block; width: 100%; box-sizing: border-box; margin: 6px 0; padding: 9px; border: 1px solid rgba(128,128,128,.5); border-radius: 6px; background: $color-bg-app; color: $color-text-primary; font: inherit; }
   textarea { resize: vertical; }
   small { display: block; }
-  button { padding: 8px 12px; border: 1px solid currentColor; border-radius: 6px; cursor: pointer; }
+  button { padding: 8px 12px; margin: 4px 6px 4px 0; border: 1px solid $color-border-subtle; border-radius: 6px; cursor: pointer; background: $color-bg-app; color: $color-text-primary; font: inherit; font-size: 13px; }
+  button:focus-visible, select:focus-visible, input:focus-visible, textarea:focus-visible, summary:focus-visible { outline: 2px solid $color-accent-primary; outline-offset: 3px; }
   button:disabled { opacity: .5; cursor: default; }
   [role='alert'] { color: $color-text-primary; }
 }
-.row { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 16px; }
+.row { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(220px,100%),1fr)); gap: 16px; }

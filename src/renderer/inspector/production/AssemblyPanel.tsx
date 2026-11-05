@@ -9,6 +9,8 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
   const [targets, setTargets] = useState<GpuTarget[]>([]);
   const [choice, setChoice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [verification, setVerification] = useState<AssemblyVerification>();
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -24,6 +26,8 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
   useEffect(() => {
     epoch.current += 1;
     let cancelled = false;
+    setLoading(true);
+    setLoaded(false);
     setTargets([]);
     setChoice('');
     setMessage('');
@@ -34,10 +38,12 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
       .assembly({ action: 'assembly.targets', projectDir, branchId: branch })
       .then((response) => {
         if (cancelled) return undefined;
+        setLoading(false);
         if (!response.ok) {
           setError(response.error);
           return undefined;
         }
+        setLoaded(true);
         setTargets(response.result.targets ?? []);
         setBranches(
           (response.result.branches ?? [{ branchId: 'main' }]).map(
@@ -47,13 +53,22 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
         return undefined;
       })
       .catch((reason) => {
-        if (!cancelled) setError(String(reason));
+        if (!cancelled) { setError(String(reason)); setLoading(false); }
       });
     return () => {
       cancelled = true;
       epoch.current += 1;
     };
   }, [projectDir, branch, revision]);
+  useEffect(() => {
+    const changed = (event: Event) => {
+      if ((event as CustomEvent<{ projectDir: string }>).detail?.projectDir !== projectDir) return;
+      clear();
+      setRevision((value) => value + 1);
+    };
+    window.addEventListener('dhee:production-changed', changed);
+    return () => window.removeEventListener('dhee:production-changed', changed);
+  }, [projectDir]);
   const target = choice === '' ? undefined : targets[Number(choice)];
   async function run() {
     if (!target) return;
@@ -95,7 +110,7 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
         );
       else if (result.selectedOutput)
         setMessage(
-          `Assembly available: ${result.selectedOutput.outputRel}. Reload media below and check this file before delivery.`,
+          `Assembly available: ${result.selectedOutput.outputRel}. Open the Checks tab, reload media and check this file before delivery.`,
         );
       else
         setError(
@@ -109,13 +124,16 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
   }
   return (
     <details className={styles.root}>
-      <summary>Assemble completed clips</summary>
+      <summary>Assemble and finish the cut</summary>
       <p>
         Combine completed clips or preserve selected narration using the
         project’s configured assembly stages. All source stages must already be
-        complete. Existing creative approvals still apply.
+        complete. Finish required soundtrack stages through Codex first; this action
+        assembles only the selected stage. Existing creative approvals still apply.
       </p>
-      <fieldset disabled={busy}>
+      {loading && <p role="status">Loading assembly stages…</p>}
+      {loaded && targets.length === 0 && <p>No assembly stages available in this branch. The workflow needs a clip assembly, normalization or audio-preservation stage.</p>}
+      <fieldset disabled={busy || loading}>
         <label htmlFor="assembly-branch">
           Assembly branch
           <select
@@ -189,6 +207,9 @@ export function AssemblyPanel({ projectDir }: { projectDir: string }) {
       {error && <p role="alert">{error}</p>}
       {verification && (
         <section aria-label="Automatic assembly check">
+          {verification.checks && <p>
+            {verification.checks.filter(check => check.status === 'pass').length} passed · {verification.checks.filter(check => check.status === 'fail').length} failed · {verification.checks.filter(check => check.status === 'unchecked').length} unchecked
+          </p>}
           <p role={verification.status === 'fail' ? 'alert' : 'status'}>
             Automatic check: {verification.status}. Delivery is not approved.
           </p>

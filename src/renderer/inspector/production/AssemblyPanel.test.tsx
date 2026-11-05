@@ -276,3 +276,47 @@ it('keeps long findings collapsed with their status visible and full evidence av
     'unchecked',
   );
 });
+
+it('distinguishes loading, failure and an empty assembly workflow', async () => {
+  const call = setup();
+  let resolve: (value: any) => void = () => {};
+  call.mockImplementation(() => new Promise(r => { resolve = r; }));
+  render(<AssemblyPanel projectDir="/project" />);
+  expect(screen.getByText('Loading assembly stages…')).not.toBeNull();
+  expect(screen.queryByText(/No assembly stages available/)).toBeNull();
+  await act(async () => { resolve({ ok: false, error: 'Core unavailable' }); });
+  expect(screen.queryByText('Loading assembly stages…')).toBeNull();
+  expect(screen.queryByText(/No assembly stages available/)).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Reload assembly' }));
+  await act(async () => { resolve({ ok: true, result: { targets: [] } }); });
+  expect(screen.getByText(/No assembly stages available/)).not.toBeNull();
+});
+
+it('invalidates assembly evidence when production materials change and ignores the old response', async () => {
+  const call = setup();
+  let finish: (value: any) => void = () => {};
+  const original = call.getMockImplementation()!;
+  call.mockImplementation((req: any) => req.action === 'assembly.targets' ? original(req) : new Promise(r => { finish = r; }));
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', { name: /final/ });
+  fireEvent.change(screen.getByLabelText('Assembly stage'), { target: { value: '0' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Assemble selected stage' }));
+  act(() => window.dispatchEvent(new CustomEvent('dhee:production-changed', { detail: { projectDir: '/project' } })));
+  await screen.findByRole('option', { name: /final/ });
+  await act(async () => { finish({ok: true, result: { selectedOutput: {outputRel: 'stale.mov'}, verification: { status: 'review', checks: [] } }}); });
+  expect(screen.queryByText(/stale.mov/)).toBeNull();
+  expect(screen.queryByText(/Automatic check:/)).toBeNull();
+  expect((screen.getByRole('button', {name:'Assemble selected stage'}) as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('summarizes passed, failed and unresolved checks without granting approval', async () => {
+  setup({ok:true,result:{gatedAfter:'review:rough-cut',verification:{status:'fail',deliveryReady:false,checks:[
+    {id:'decode',status:'pass',detail:'Decoded'}, {id:'voice',status:'fail',detail:'Wrong voice'}, {id:'visual',status:'unchecked',detail:'No service'},
+  ]}}});
+  render(<AssemblyPanel projectDir="/project" />);
+  await screen.findByRole('option', {name:/final/});
+  fireEvent.change(screen.getByLabelText('Assembly stage'), {target:{value:'0'}});
+  fireEvent.click(screen.getByRole('button', {name:'Assemble selected stage'}));
+  expect(await screen.findByText('1 passed · 1 failed · 1 unchecked')).not.toBeNull();
+  expect(screen.getByText(/Delivery is not approved/)).not.toBeNull();
+});

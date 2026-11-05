@@ -15,6 +15,8 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
   const [savedState, setSavedState] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [revision, setRevision] = useState(0);
   const epoch = useRef(0);
   function invalidate() {
@@ -27,6 +29,8 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
   useEffect(() => {
     epoch.current += 1;
     let cancelled = false;
+    setLoading(true);
+    setLoaded(false);
     setReport(undefined);
     setSavedState('');
     setTargets([]);
@@ -37,10 +41,12 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
       .gpuPreparation({ action: 'gpu.targets', projectDir, branchId: branch })
       .then((response) => {
         if (cancelled) return undefined;
+        setLoading(false);
         if (!response.ok) {
           setError(response.error);
           return undefined;
         }
+        setLoaded(true);
         setTargets(
           (response.result.targets ?? []).filter(
             (t) =>
@@ -55,7 +61,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
         return undefined;
       })
       .catch((reason) => {
-        if (!cancelled) setError(String(reason));
+        if (!cancelled) { setError(String(reason)); setLoading(false); }
       });
     return () => {
       cancelled = true;
@@ -130,6 +136,8 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
         point-in-time technical check, not creative approval or final export
         approval. Recheck after changing media.
       </p>
+      {loading && <p role="status">Loading completed media…</p>}
+      {loaded && targets.length === 0 && <p>No completed audio or video in this branch yet. Finish a media stage, then reload media.</p>}
       <label htmlFor="media-check-branch">
         Media branch
         <select
@@ -147,7 +155,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
       </label>
       <button
         type="button"
-        disabled={busy}
+        disabled={busy || loading}
         onClick={() => {
           invalidate();
           setRevision((v) => v + 1);
@@ -155,7 +163,7 @@ export function MediaChecksPanel({ projectDir }: { projectDir: string }) {
       >
         Reload media
       </button>
-      <fieldset disabled={busy}>
+      <fieldset disabled={busy || loading}>
         <label htmlFor="media-check-target">
           Media to check
           <select

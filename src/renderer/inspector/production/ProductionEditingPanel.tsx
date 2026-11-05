@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { BundleSnapshot } from '../../lib/bundleCapability';
 import type {
   EditingRequest,
@@ -6,6 +6,7 @@ import type {
   EditResult,
   EditVersion,
 } from '../../../shared/productionEditing';
+import { SoundtrackEditor } from './SoundtrackEditor';
 import { VoiceTakeComparison } from './VoiceTakeComparison';
 import { SceneImageLinkEditor } from './SceneImageLinkEditor';
 import { toFileUrl } from '../../utils/pathResolver';
@@ -38,6 +39,7 @@ export function ProductionEditingPanel({
     [bundle],
   );
   const [choice, setChoice] = useState('');
+  const [soundtrackDirty, setSoundtrackDirty] = useState(false);
   const [storyboardInput, setStoryboardInput] = useState('');
   const target = targets.find((t) => t.id === choice);
   const [draft, setDraft] = useState<string>();
@@ -57,10 +59,18 @@ export function ProductionEditingPanel({
     restore: boolean;
   }>();
   const epoch = useRef(0);
+  const onSoundtrackPending = useCallback((value: boolean) => {
+    setSoundtrackDirty(value);
+    if (value) {
+      setPending(undefined);
+      setMessage('');
+    }
+  }, []);
   const nodeId = target?.nodeId;
   useEffect(() => {
     const id = ++epoch.current;
     setPending(undefined);
+    setSoundtrackDirty(false);
     setVersions([]);
     setVersion('');
     setDraft(undefined);
@@ -131,7 +141,7 @@ export function ProductionEditingPanel({
   const textKind =
     target && ['md', 'json', 'text', 'txt'].includes(target.format);
   function preview(restore: boolean) {
-    if (!target) return;
+    if (!target || soundtrackDirty) return;
     const request: EditingRequest = restore
       ? {
           action: 'version.restorePreview',
@@ -179,11 +189,16 @@ export function ProductionEditingPanel({
   }
   return (
     <details className={styles.root}>
-      <summary>Edit storyboard and references</summary>
+      <summary>Edit production materials</summary>
       <p>
-        Revise a script, replace a reference, or bring back a saved version.
-        Preview the affected stages before saving.
+        Update your script, references, voices or soundtrack. Preview what will
+        be affected before saving; previous versions stay available.
       </p>
+      <ol className={styles.editingSteps} aria-label="Editing workflow">
+        <li>Choose a material</li>
+        <li>Edit and preview</li>
+        <li>Review impact and save</li>
+      </ol>
       {!targets.length ? (
         <p>
           This bundle has no declared editable stage inputs. Its existing
@@ -228,36 +243,48 @@ export function ProductionEditingPanel({
           {target && (
             <>
               {target.format === 'json' && draft !== undefined ? (
-                <SceneImageLinkEditor
-                  key={`${projectDir}:${target.nodeId}:${revision}`}
-                  projectDir={projectDir}
-                  nodeId={target.nodeId}
-                  bundle={bundle}
-                  content={draft}
-                  editImage={{
-                    nodeIds: targets
-                      .filter((input) => input.format === 'image')
-                      .map((input) => input.nodeId),
-                    disabled: draft !== asset?.text,
-                    onSelect: (imageNodeId) => {
-                      const imageInput = targets.find(
-                        (input) =>
-                          input.nodeId === imageNodeId &&
-                          input.format === 'image',
-                      );
-                      if (!imageInput || draft !== asset?.text) return;
-                      setStoryboardInput(target.id);
+                <>
+                  <SoundtrackEditor
+                    key={`soundtrack:${projectDir}:${target.nodeId}:${revision}`}
+                    content={draft}
+                    onPendingChange={onSoundtrackPending}
+                    onChange={(content) => {
+                      setDraft(content);
                       setPending(undefined);
                       setMessage('');
-                      setChoice(imageInput.id);
-                    },
-                  }}
-                  onChange={(content) => {
-                    setDraft(content);
-                    setPending(undefined);
-                    setMessage('');
-                  }}
-                />
+                    }}
+                  />
+                  <SceneImageLinkEditor
+                    key={`${projectDir}:${target.nodeId}:${revision}`}
+                    projectDir={projectDir}
+                    nodeId={target.nodeId}
+                    bundle={bundle}
+                    content={draft}
+                    editImage={{
+                      nodeIds: targets
+                        .filter((input) => input.format === 'image')
+                        .map((input) => input.nodeId),
+                      disabled: draft !== asset?.text,
+                      onSelect: (imageNodeId) => {
+                        const imageInput = targets.find(
+                          (input) =>
+                            input.nodeId === imageNodeId &&
+                            input.format === 'image',
+                        );
+                        if (!imageInput || draft !== asset?.text) return;
+                        setStoryboardInput(target.id);
+                        setPending(undefined);
+                        setMessage('');
+                        setChoice(imageInput.id);
+                      },
+                    }}
+                    onChange={(content) => {
+                      setDraft(content);
+                      setPending(undefined);
+                      setMessage('');
+                    }}
+                  />
+                </>
               ) : null}
               {textKind ? (
                 <label>
@@ -266,7 +293,7 @@ export function ProductionEditingPanel({
                     aria-label="Script or storyboard text"
                     rows={10}
                     value={draft ?? ''}
-                    disabled={draft === undefined}
+                    disabled={draft === undefined || soundtrackDirty}
                     onChange={(e) => {
                       setDraft(e.target.value);
                       setPending(undefined);
@@ -319,8 +346,11 @@ export function ProductionEditingPanel({
                 </>
               )}
               <button
+                className={styles.primaryAction}
                 type="button"
-                disabled={textKind ? draft === undefined : !file}
+                disabled={
+                  soundtrackDirty || (textKind ? draft === undefined : !file)
+                }
                 onClick={() => preview(false)}
               >
                 Preview change
@@ -372,7 +402,7 @@ export function ProductionEditingPanel({
               </button>
               <button
                 type="button"
-                disabled={!version}
+                disabled={!version || soundtrackDirty}
                 onClick={() => preview(true)}
               >
                 Preview restore
@@ -413,7 +443,7 @@ export function ProductionEditingPanel({
       )}
       {busy && <p role="status">Loading…</p>}
       {pending && (
-        <section aria-label="Change preview">
+        <section className={styles.changePreview} aria-label="Change preview">
           <h4>
             {pending.restore
               ? 'Restore saved version'
@@ -442,7 +472,12 @@ export function ProductionEditingPanel({
           ) : (
             <p>No downstream stages reported.</p>
           )}
-          <button type="button" disabled={busy} onClick={save}>
+          <button
+            className={styles.primaryAction}
+            type="button"
+            disabled={busy}
+            onClick={save}
+          >
             {pending.restore ? 'Restore this version' : 'Save this change'}
           </button>
           <button

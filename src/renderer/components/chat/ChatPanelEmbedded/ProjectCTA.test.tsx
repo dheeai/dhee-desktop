@@ -1,9 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import { fireEvent, render, screen } from '@testing-library/react';
-import ProjectCTA, {
-  __testing__,
-  type CTAAction,
-} from './ProjectCTA';
+import ProjectCTA, { __testing__, type CTAAction } from './ProjectCTA';
 
 const PROJECT_DIR = '/Users/me/projects/BurgerEating';
 const PROJECT_NAME = 'BurgerEating';
@@ -66,7 +63,7 @@ describe('ProjectCTA — completed', () => {
         onAction={onAction}
       />,
     );
-    expect(screen.queryByText(/Your project is ready/i)).not.toBeNull();
+    expect(screen.queryByText(/Your video is available/i)).not.toBeNull();
     expect(
       screen.queryByRole('button', { name: /Show me the final video/i }),
     ).not.toBeNull();
@@ -137,10 +134,12 @@ describe('buildActions contract', () => {
       PROJECT_DIR,
     );
     expect(
-      inProgress.actions.filter((a: CTAAction) => a.variant === 'primary').length,
+      inProgress.actions.filter((a: CTAAction) => a.variant === 'primary')
+        .length,
     ).toBe(1);
     expect(
-      completed.actions.filter((a: CTAAction) => a.variant === 'primary').length,
+      completed.actions.filter((a: CTAAction) => a.variant === 'primary')
+        .length,
     ).toBe(1);
   });
 });

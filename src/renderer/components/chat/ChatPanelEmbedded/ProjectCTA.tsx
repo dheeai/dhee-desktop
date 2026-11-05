@@ -5,7 +5,7 @@
  * (`classifyProjectState`) decides which variant to render:
  *
  *   in_progress → "Continue where you left off"
- *   completed   → "Your project is ready"
+ *   completed   → "Your video is available"
  *
  * Each action carries a pre-formatted natural-language task that the
  * caller dispatches via session.runTask. The task strings include the
@@ -14,7 +14,14 @@
  * `<basePath>/<name>.dhee` probe and operate on the host's path.
  */
 import type { CSSProperties } from 'react';
-import { ArrowRight, Edit3, FileText, Play, RotateCcw, Wand2 } from 'lucide-react';
+import {
+  ArrowRight,
+  Edit3,
+  FileText,
+  Play,
+  RotateCcw,
+  Wand2,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ProjectLifecycleState } from './classifyProjectState';
 
@@ -56,12 +63,13 @@ function buildActions(
   if (state === 'in_progress') {
     return {
       title: 'Continue where you left off',
-      body: `${projectName} is set up and partially generated. Pick up the pipeline, inspect the current state, or jump in and edit.`,
+      body: `${projectName} has work in progress. Continue production, check what needs attention, or edit a scene.`,
       actions: [
         {
           id: 'continue_pipeline',
           label: 'Continue the pipeline',
-          helper: 'Run dhee_run_to until the final video is rendered.',
+          helper:
+            'Continue production, pausing for required approvals or blockers.',
           task: `Continue running the dhee pipeline for ${params} all the way to completion. Use dhee_run_to with no stage so it runs to the end. Stream progress as nodes finish.`,
           variant: 'primary',
           icon: Play,
@@ -77,8 +85,7 @@ function buildActions(
         {
           id: 'edit_scene',
           label: 'I want to edit a scene or shot',
-          helper:
-            'Pick a specific scene/shot and either edit its prompt or regenerate it.',
+          helper: 'Choose a scene or shot to review and revise.',
           task: `For ${params}, list the scenes and shots that exist so I can choose one to edit. Use dhee_list_items.`,
           variant: 'secondary',
           icon: Edit3,
@@ -89,13 +96,13 @@ function buildActions(
 
   // state === 'completed'
   return {
-    title: 'Your project is ready',
-    body: `${projectName} has a final video. You can preview it, polish a specific shot, or rerun a stage with new inputs.`,
+    title: 'Your video is available',
+    body: `${projectName} has a generated video to review. Check the cut and its quality reports before delivery, or refine a shot.`,
     actions: [
       {
         id: 'show_final_video',
         label: 'Show me the final video',
-        helper: 'Render the assembled cut inline.',
+        helper: 'Play the assembled video for review.',
         task: `Use dhee_show_final_video with ${params}.`,
         variant: 'primary',
         icon: Play,
@@ -154,13 +161,23 @@ export default function ProjectCTA({
         >
           {blueprint.title}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5 }}>
+        <div
+          style={{
+            fontSize: 12,
+            color: 'var(--color-text-secondary)',
+            lineHeight: 1.5,
+          }}
+        >
           {blueprint.body}
         </div>
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
         {blueprint.actions.map((action) => (
-          <ActionRow key={action.id} action={action} onClick={() => onAction(action)} />
+          <ActionRow
+            key={action.id}
+            action={action}
+            onClick={() => onAction(action)}
+          />
         ))}
       </div>
     </div>

@@ -135,6 +135,32 @@ describe('ProductionView', () => {
     expect(screen.queryByText(/Finished —/)).toBeNull();
   });
 
+  it('jumps directly to a declared stage and focuses its section', () => {
+    render(<ProductionView />);
+    const spy = jest.spyOn(Element.prototype, 'scrollIntoView');
+    spy.mockClear();
+    fireEvent.change(screen.getByRole('combobox', { name: 'Go to production stage' }), { target: { value: 'story' } });
+    expect(spy).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Go to selected stage' }));
+    expect(spy).toHaveBeenCalledTimes(1);
+    const target = spy.mock.instances[0] as unknown as HTMLElement;
+    expect(target.dataset.sectionId).toBe('story');
+    expect(document.activeElement).toBe(target);
+  });
+
+  it('respects reduced motion when navigating to a stage', () => {
+    const original = window.matchMedia;
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: jest.fn(() => ({ matches: true })) });
+    try {
+      render(<ProductionView />);
+      const spy = jest.spyOn(Element.prototype, 'scrollIntoView');
+      spy.mockClear();
+      fireEvent.change(screen.getByRole('combobox', { name: 'Go to production stage' }), { target: { value: 'story' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Go to selected stage' }));
+      expect(spy).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' });
+    } finally { Object.defineProperty(window, 'matchMedia', { configurable: true, value: original }); }
+  });
+
   it('renders a blank canvas without crashing when the run has no instances yet', () => {
     // Zero instances → deriveRunModel yields no stages → no sections/pills.
     // The point of this case is that the real component (IntersectionObserver

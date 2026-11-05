@@ -1,6 +1,7 @@
 @import '../../styles/tokens';
 
 .root {
+  font-family: $font-ui-sans;
   padding: 24px;
   margin-bottom: 32px;
   border: 1px solid rgba(128, 128, 128, 0.3);
@@ -49,7 +50,20 @@
 }
 .actions {
   display: flex; flex-wrap: wrap; gap: 8px;
-  button { padding: 7px 9px; border: 1px solid currentColor; border-radius: 5px; text-decoration: none; }
+  margin-top: 16px;
+  button {
+    padding: 9px 12px;
+    border: 1px solid rgba(160,130,85,.5);
+    border-radius: 6px;
+    background: $color-bg-app;
+    color: $color-text-primary;
+    font: inherit;
+    font-size: 13px;
+    text-decoration: none;
+    cursor: pointer;
+    &:not(:disabled):hover { border-color: #e6ac50; }
+    &:focus-visible { outline: 2px solid #e6ac50; outline-offset: 3px; }
+  }
   button:disabled { opacity: .5; cursor: default; }
 }
 
@@ -185,4 +199,54 @@
   .boardHero { padding: 24px 18px; }
   .sceneFields { padding: 20px; }
   .sceneFrameEmpty { min-height: 140px; }
+}
+
+.policyStages {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 10px;
+  padding: 0;
+  margin: 18px 0;
+  list-style: none;
+  counter-reset: approval-stage;
+  li {
+    min-width: 0;
+    padding: 14px;
+    border: 1px solid rgba(160,130,85,.25);
+    border-radius: 8px;
+    background: rgba(160,130,85,.045);
+    counter-increment: approval-stage;
+    &::before { content: '0' counter(approval-stage); display: block; margin-bottom: 10px; color: $color-text-secondary; font-size: 11px; }
+  }
+  strong { display: block; font-size: 13px; font-weight: 600; }
+  span { display: block; margin-top: 6px; font-size: 12px; line-height: 1.5; color: $color-text-secondary; }
+}
+
+.gpuOutputs { list-style: none; padding: 0; margin: 14px 0; display: grid; gap: 10px; }
+.gpuOutput {
+  padding: 14px; min-width: 0; border: 1px solid rgba(128,128,128,.3); border-radius: 8px;
+  background: rgba(128,128,128,.04);
+  p, code { overflow-wrap: anywhere; }
+  details { margin-top: 10px; color: $color-text-secondary; }
+  summary { cursor: pointer; }
+  summary:focus-visible { outline: 2px solid #e6ac50; outline-offset: 3px; }
+  .actions { margin-top: 8px; }
+}
+.gpuOutputHeading { display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; strong { overflow-wrap: anywhere; min-width: 0; } span { color: $color-text-secondary; white-space: nowrap; } }
+
+.queueFilters {
+  display: flex; flex-wrap: wrap; gap: 8px; margin: 20px 0 12px;
+  button {
+    padding: 7px 10px; font: inherit; font-size: 12px; border: 1px solid $color-border-subtle;
+    border-radius: 20px; background: $color-bg-app; color: $color-text-secondary; cursor: pointer;
+    &[aria-pressed='true'] { background: $color-accent-primary-soft; border-color: $color-accent-primary; color: $color-accent-primary; }
+    &:focus-visible { outline: 2px solid $color-accent-primary; outline-offset: 3px; }
+  }
+}
+.queueError {
+  border-left: 2px solid $color-accent-primary; padding-left: 12px; margin: 12px 0;
+  p { color: $color-text-secondary; }
+  summary { cursor: pointer; }
+  summary:focus-visible { outline: 2px solid $color-accent-primary; outline-offset: 3px; }
+  pre { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 220px; overflow-y: auto; font-size: 11px; }
 }

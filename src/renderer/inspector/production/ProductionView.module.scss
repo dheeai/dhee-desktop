@@ -6,6 +6,7 @@
    Bundle-agnostic: sections are chosen by stage kind, never hardcoded. */
 
 .root {
+  container-type: inline-size;
   position: relative;
   width: 100%;
   height: 100%;
@@ -288,7 +289,7 @@
 /* ============================ stage pill bar ============================ */
 /* Every stage gets a pill carrying its OWN live status. The running stage
    radiates (indicate-only). Clicking scrolls to the stage's section. */
-.pillbar { display: flex; align-items: stretch; gap: 9px; flex: 1; overflow-x: auto; scrollbar-width: thin; }
+.pillbar { min-width: 0; display: flex; align-items: stretch; gap: 9px; flex: 1; overflow-x: auto; scrollbar-width: thin; }
 .pillbar::-webkit-scrollbar { height: 5px; }
 .pill {
   position: relative; flex: 0 0 auto; min-width: 112px;
@@ -322,7 +323,7 @@
 @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(var(--color-accent-primary-rgb), 0.55); } 70% { box-shadow: 0 0 0 7px rgba(var(--color-accent-primary-rgb), 0); } 100% { box-shadow: 0 0 0 0 rgba(var(--color-accent-primary-rgb), 0); } }
 
 /* scroll anchor offset under the sticky pill bar */
-.docSection { scroll-margin-top: 64px; margin-bottom: 14px; }
+.docSection { scroll-margin-top: 100px; margin-bottom: 14px; }
 
 /* ============================ shot sheets ============================ */
 .sheetIntro {
@@ -419,3 +420,33 @@
 .rawBlock > summary::before { content: '▸ '; }
 .rawBlock[open] > summary::before { content: '▾ '; }
 .rawBlock .jsonBlock { border-radius: 0; border-top: 1px solid $color-border-subtle; }
+
+.stageJump {
+  display: flex; align-items: flex-end; gap: 6px; flex: 0 1 230px; min-width: 0;
+  label { display: grid; gap: 5px; min-width: 0; flex: 1; }
+  button {
+    padding: 8px 10px; border: 1px solid $color-border-subtle; border-radius: 6px;
+    background: $color-bg-app; color: $color-text-primary; font: inherit; cursor: pointer;
+    &:disabled { opacity: .45; cursor: default; }
+    &:focus-visible { outline: 2px solid $color-accent-primary; outline-offset: 3px; }
+  }
+  color: $color-text-secondary; font-family: $font-ui-sans; font-size: 11px;
+  select {
+    min-width: 0; width: 100%; box-sizing: border-box; padding: 8px;
+    border: 1px solid $color-border-subtle; border-radius: 6px;
+    background: $color-bg-app; color: $color-text-primary; font: inherit;
+    &:focus-visible { outline: 2px solid $color-accent-primary; outline-offset: 3px; }
+  }
+}
+.docSection:focus-visible { outline: 1px solid $color-accent-primary; outline-offset: 5px; border-radius: 6px; }
+@container (max-width: 700px) { .pillbar { display: none; } }
+@container (max-width: 500px) {
+  .head { padding: 50px 16px 12px; }
+  .stageJump { flex: 1 1 100%; }
+  .docSection { scroll-margin-top: 150px; }
+  .bodyWrap { padding: 20px 16px 40px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bodyWrap > * { animation: none; }
+  .pill { transition: none; }
+}

@@ -1,0 +1,22 @@
+@import '../../styles/tokens';
+.root { margin-bottom: 28px; font-family: $font-ui-sans; min-width: 0; }
+.header {
+  margin-bottom: 16px;
+  h2 { margin: 0 0 6px; color: $color-text-primary; font-size: 20px; }
+  p { margin: 0; color: $color-text-secondary; font-size: 13px; line-height: 1.6; }
+}
+.tabs {
+  display: flex; flex-wrap: wrap; gap: 6px; padding: 6px;
+  border: 1px solid $color-border-subtle; border-radius: 10px; background: $color-bg-panel;
+  button {
+    flex: 1 0 auto; font: inherit; font-size: 12px; padding: 10px 12px;
+    border: 1px solid transparent; border-radius: 6px; background: transparent;
+    color: $color-text-secondary; cursor: pointer;
+    &:hover { background: rgba(var(--color-text-muted-rgb), .08); color: $color-text-primary; }
+    &[aria-selected='true'] { background: $color-accent-primary-soft; border-color: rgba(var(--color-accent-primary-rgb), .35); color: $color-accent-primary; font-weight: 600; }
+    &:focus-visible { outline: 2px solid $color-accent-primary; outline-offset: 2px; }
+  }
+}
+.description { color: $color-text-secondary; font-size: 12px; line-height: 1.6; margin: 14px 4px; }
+.panel > details { margin-bottom: 0; }
+@media (prefers-reduced-motion: reduce) { .root { animation: none; } }

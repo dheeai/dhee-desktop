@@ -41,13 +41,10 @@ function runNpm(
   });
 }
 
-function resolvedheeInkPath(): string {
-  const configured = process.env['dhee_INK_PATH'];
-  if (configured && configured.trim()) {
-    return path.resolve(configured);
-  }
+const { resolveCorePath } = require('./core-path');
 
-  return path.resolve(webpackPaths.rootPath, '../dhee-core');
+function resolvedheeInkPath(): string {
+  return resolveCorePath(webpackPaths.rootPath);
 }
 
 /**

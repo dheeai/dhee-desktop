@@ -3,6 +3,7 @@ import { AssemblyPanel } from './AssemblyPanel';
 import { MediaChecksPanel } from './MediaChecksPanel';
 import { GpuPreparationPanel } from './GpuPreparationPanel';
 import { GpuJobsPanel } from './GpuJobsPanel';
+import ProductionTools from './ProductionTools';
 /**
  * ProductionView — the cinematic canvas (default workspace view).
  *
@@ -82,6 +83,9 @@ export function ProductionView() {
   }, [model.stages]);
 
   const [openKey, setOpenKey] = useState<string | null>(null);
+  const [jumpStage, setJumpStage] = useState('');
+  useEffect(() => setJumpStage(''), [projectDir]);
+  const selectedStage = doc.pills.find((pill) => pill.stageId === jumpStage);
   const [viewingId, setViewingId] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionEls = useRef(new Map<string, HTMLElement>());
@@ -101,7 +105,11 @@ export function ProductionView() {
   }, [doc.sections.length]);
 
   const scrollToSection = useCallback((id: string) => {
-    sectionEls.current.get(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const target = sectionEls.current.get(id);
+    if (!target) return;
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+    target.scrollIntoView({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    target.focus({ preventScroll: true });
   }, []);
 
   // Inline Final Cut playback.
@@ -169,6 +177,16 @@ export function ProductionView() {
   return (
     <div className={styles.root} ref={scrollRef}>
       <div className={styles.head}>
+        <div className={styles.stageJump}>
+          <label>
+            Go to stage
+            <select aria-label="Go to production stage" value={selectedStage?.stageId ?? ''} disabled={!doc.pills.length} onChange={(event) => setJumpStage(event.target.value)}>
+              <option value="">{doc.pills.length ? 'Choose a stage…' : 'No stages available'}</option>
+              {doc.pills.map((pill) => <option key={pill.stageId} value={pill.stageId}>{pill.label} · {pill.done}/{pill.total} complete</option>)}
+            </select>
+          </label>
+          <button type="button" aria-label="Go to selected stage" disabled={!selectedStage} onClick={() => { if (selectedStage) scrollToSection(selectedStage.sectionId); }}>Go</button>
+        </div>
         <div className={styles.pillbar}>
           {doc.pills.map((p) => {
             const running = p.status === 'active';
@@ -198,11 +216,13 @@ export function ProductionView() {
 
       <div className={styles.bodyWrap}>
         {reviews.length > 0 && <ProductionReviewPolicy projectDir={dir} voiceConfigured={!!bundle?.nodes.some((node) => node.id === 'voice_reference' && node.outputs.format === 'audio')} />}
-        <ProductionEditingPanel key={`editing:${dir}`} projectDir={dir} bundle={bundle} />
-        <GpuPreparationPanel key={`prepare:${dir}`} projectDir={dir} />
-        <AssemblyPanel key={`assembly:${dir}`} projectDir={dir} />
-        <MediaChecksPanel key={`media:${dir}`} projectDir={dir} />
-        <GpuJobsPanel key={dir} projectDir={dir} />
+        <ProductionTools key={`tools:${dir}`} panels={[
+          { id: 'edit', label: 'Edit materials', description: 'Revise inputs and preview affected stages before saving.', content: <ProductionEditingPanel projectDir={dir} bundle={bundle} /> },
+          { id: 'generate', label: 'Generate', description: 'Prepare the exact scene or reference for the RTX workflow. Required creative approvals still apply.', content: <GpuPreparationPanel projectDir={dir} /> },
+          { id: 'jobs', label: 'RTX jobs', description: 'Track existing renders, recover interrupted jobs and save their outputs.', content: <GpuJobsPanel projectDir={dir} /> },
+          { id: 'assemble', label: 'Assemble', description: 'Bring completed clips and approved audio together.', content: <AssemblyPanel projectDir={dir} /> },
+          { id: 'checks', label: 'Checks', description: 'Inspect media and saved technical results. Creative approval remains a separate step.', content: <MediaChecksPanel projectDir={dir} /> },
+        ]} />
         <ProductionReviewPanel
           checkpoints={reviews}
           onNavigate={scrollToSection}
@@ -218,7 +238,7 @@ export function ProductionView() {
           }}
         />
         {doc.sections.map((section, i) => (
-          <section key={section.id} data-section-id={section.id} ref={registerSection(section.id)} className={styles.docSection}>
+          <section key={section.id} data-section-id={section.id} aria-label={section.label} tabIndex={-1} ref={registerSection(section.id)} className={styles.docSection}>
             {renderSection(section, i + 1)}
           </section>
         ))}

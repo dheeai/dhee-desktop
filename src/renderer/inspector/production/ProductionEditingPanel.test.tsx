@@ -200,7 +200,20 @@ it('links scenes through preview/save and invalidates a preview after another im
             : { absolutePath: '/project/frame.png', sha256: 'hash' },
       };
     if (req.action === 'version.list')
-      return { ok: true, result: { versions: [] } };
+      return {
+        ok: true,
+        result: {
+          versions: [
+            {
+              versionId: 'old-mix',
+              path: 'mix-old.json',
+              available: true,
+              kind: 'preserved',
+              selected: false,
+            },
+          ],
+        },
+      };
     if (req.action === 'input.preview')
       return {
         ok: true,
@@ -278,7 +291,20 @@ it('opens the exact editable image input from a scene, protects drafts, and retu
             : { absolutePath: '/project/frame.png', sha256: 'hash' },
       };
     if (req.action === 'version.list')
-      return { ok: true, result: { versions: [] } };
+      return {
+        ok: true,
+        result: {
+          versions: [
+            {
+              versionId: 'old-mix',
+              path: 'mix-old.json',
+              available: true,
+              kind: 'preserved',
+              selected: false,
+            },
+          ],
+        },
+      };
     return { ok: true, result: {} };
   });
   const imageBundle: any = {
@@ -353,7 +379,20 @@ it('keeps scene text edits as drafts and requires a fresh preview after a furthe
     if (req.action === 'artifact.read')
       return { ok: true, result: { text: JSON.stringify(original) } };
     if (req.action === 'version.list')
-      return { ok: true, result: { versions: [] } };
+      return {
+        ok: true,
+        result: {
+          versions: [
+            {
+              versionId: 'old-mix',
+              path: 'mix-old.json',
+              available: true,
+              kind: 'preserved',
+              selected: false,
+            },
+          ],
+        },
+      };
     return {
       ok: true,
       result: {
@@ -406,4 +445,97 @@ it('keeps scene text edits as drafts and requires a fresh preview after a furthe
     ],
   });
   expect(write.expectedFingerprint).toBe('text-edit');
+});
+it('blocks material preview while soundtrack settings are unapplied and saves the exact applied draft', async () => {
+  const plan = {
+    dialogueSha256: 'a'.repeat(64),
+    bedSha256: 'b'.repeat(64),
+    bedGain: 0.5,
+    duckGain: 0.1,
+    fadeSec: 0.15,
+    speech: [{ startSec: 1, endSec: 3 }],
+  };
+  const call = setup();
+  call.mockImplementation(async (req: any): Promise<any> => {
+    if (req.action === 'artifact.read')
+      return { ok: true, result: { text: JSON.stringify(plan) } };
+    if (req.action === 'version.list')
+      return {
+        ok: true,
+        result: {
+          versions: [
+            {
+              versionId: 'old-mix',
+              path: 'mix-old.json',
+              available: true,
+              kind: 'preserved',
+              selected: false,
+            },
+          ],
+        },
+      };
+    if (req.action === 'input.preview')
+      return {
+        ok: true,
+        result: {
+          fingerprint: 'mix-fingerprint',
+          downstream: [{ nodeId: 'soundtrack' }, { nodeId: 'final_video' }],
+        },
+      };
+    return { ok: true, result: { started: false } };
+  });
+  const mixBundle: any = {
+    fileInputs: [{ id: 'mix_plan', path: 'inputs/mix.json' }],
+    nodes: [
+      {
+        id: 'mix_plan',
+        kind: 'stage',
+        outputs: { format: 'json', pattern: 'inputs/mix.json' },
+      },
+    ],
+  };
+  render(<ProductionEditingPanel projectDir="/project" bundle={mixBundle} />);
+  fireEvent.change(screen.getByLabelText('Material'), {
+    target: { value: 'mix_plan' },
+  });
+  await screen.findByLabelText('Music level (%)');
+  fireEvent.change(screen.getByLabelText('Saved version'), {
+    target: { value: 'old-mix' },
+  });
+  fireEvent.click(screen.getByRole('button', { name: 'Preview change' }));
+  await screen.findByRole('button', { name: 'Save this change' });
+  fireEvent.change(screen.getByLabelText('Music level (%)'), {
+    target: { value: '35' },
+  });
+  expect(screen.queryByRole('button', { name: 'Save this change' })).toBeNull();
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Preview change',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByLabelText('Script or storyboard text') as HTMLTextAreaElement)
+      .disabled,
+  ).toBe(true);
+  expect(
+    (
+      screen.getByRole('button', {
+        name: 'Preview restore',
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Apply settings to draft' }),
+  );
+  fireEvent.click(screen.getByRole('button', { name: 'Preview change' }));
+  await screen.findByRole('button', { name: 'Save this change' });
+  fireEvent.click(screen.getByRole('button', { name: 'Save this change' }));
+  await screen.findByText(/Saved. Previous files/);
+  const req = call.mock.calls
+    .map(([r]: any) => r)
+    .find((r) => r.action === 'input.write');
+  expect(req.expectedFingerprint).toBe('mix-fingerprint');
+  expect(JSON.parse(req.payload.content)).toEqual({ ...plan, bedGain: 0.35 });
 });

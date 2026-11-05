@@ -12,13 +12,10 @@ interface VersionMetadata {
   commitDate?: string;
 }
 
-function resolvedheeCorePath(): string {
-  const configured = process.env['dhee_CORE_PATH'] ?? process.env['dhee_INK_PATH'];
-  if (configured && configured.trim()) {
-    return path.resolve(configured);
-  }
+const { resolveCorePath } = require('./core-path');
 
-  return path.resolve(webpackPaths.rootPath, '../dhee-core');
+function resolvedheeCorePath(): string {
+  return resolveCorePath(webpackPaths.rootPath);
 }
 
 function runGit(repoPath: string, command: string): string | undefined {

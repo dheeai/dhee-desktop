@@ -68,9 +68,27 @@ function Policy({ projectDir, voiceConfigured }: Props) {
     <section className={styles.root} aria-label="Creative approval policy">
       <h2>{heading}</h2>
       <p>
-        Pause for script and storyboard, character and voice references, and the
-        rough cut. Approvals in this workspace apply to the reviewed versions on
-        the main project branch.
+        {enabled === true
+          ? 'Production pauses at these three creative checkpoints.'
+          : 'These are the three creative checkpoints for this workflow.'}
+      </p>
+      <ol className={styles.policyStages} aria-label="Creative approval stages">
+        <li>
+          <strong>Script and storyboard</strong>
+          <span>Confirm the story and scene direction.</span>
+        </li>
+        <li>
+          <strong>Characters and voices</strong>
+          <span>Confirm the visual references and voice auditions.</span>
+        </li>
+        <li>
+          <strong>Rough cut</strong>
+          <span>Review picture, dialogue and pacing together.</span>
+        </li>
+      </ol>
+      <p className={styles.note}>
+        Approvals apply to the reviewed versions on the main project branch.
+        Technical checks do not replace creative approval.
       </p>
       {!voiceConfigured && (
         <p>

@@ -28,17 +28,10 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..', '..');
 const STAGING_DIR = path.join(ROOT, 'dhee-core-bundles');
 
-function resolveDheeCorePath() {
-  const configured = process.env.dhee_CORE_PATH || process.env.dhee_INK_PATH;
-  if (configured && configured.trim()) {
-    return path.resolve(configured.trim());
-  }
-  // Local dev fallback: dhee-core is a sibling of the desktop repo.
-  return path.resolve(ROOT, '..', 'dhee-core');
-}
+const { resolveCorePath } = require('./core-path');
 
 function stageBundles() {
-  const corePath = resolveDheeCorePath();
+  const corePath = resolveCorePath(ROOT);
   const srcBundles = path.join(corePath, 'dist', 'bundles');
 
   if (!fs.existsSync(srcBundles)) {
