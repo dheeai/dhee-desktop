@@ -14,3 +14,7 @@ The Desktop extension now registers `audio.mix_soundtrack`. The film-specific mi
 ## Remaining
 
 Automatic semantic/lip-sync evaluation, reusable visual repairs, multi-track/effect creation, fresh-checkout and packaged-app acceptance remain separate work. The mixer checks per-interval aggregate RMS balance, not moment-by-moment intelligibility or artistic quality. Parent identity is rechecked before publication; this is not a guarantee against hostile filesystem changes in the final system-call race.
+
+## Follow-up: gated MCP execution
+
+The missing production-bundle setup was resolved in the local [gated soundtrack acceptance](2026-11-04-gated-soundtrack-verification.md). Core MCP now successfully ran mixing and lossless master assembly with reviews enabled and stopped at rough-cut approval. The earlier bare-bundle refusal above is retained as historical evidence.

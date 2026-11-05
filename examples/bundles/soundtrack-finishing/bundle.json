@@ -1,0 +1,290 @@
+{
+  "id": "soundtrack-finishing",
+  "version": "1",
+  "displayName": "Gated soundtrack finishing",
+  "description": "Finish existing picture and dialogue with a selected music/effects bed; preserves creative review gates. No generation is started for imported sources.",
+  "goal": "final_video",
+  "dependencies": {
+    "runners": {
+      "gpu.queue": "*",
+      "audio.mix_soundtrack": "*",
+      "ffmpeg.replace_audio": "*"
+    }
+  },
+  "inputs": [
+    {
+      "id": "story",
+      "kind": "file",
+      "path": "inputs/story.md",
+      "required": true
+    },
+    {
+      "id": "scenes_plan",
+      "kind": "file",
+      "path": "inputs/scenes_plan.json",
+      "required": false
+    },
+    {
+      "id": "character_image",
+      "kind": "file",
+      "path": "inputs/character_image.png",
+      "required": false
+    },
+    {
+      "id": "setting_image",
+      "kind": "file",
+      "path": "inputs/setting_image.png",
+      "required": false
+    },
+    {
+      "id": "voice_reference",
+      "kind": "file",
+      "path": "inputs/voice_reference.wav",
+      "required": false
+    },
+    {
+      "id": "picture",
+      "kind": "file",
+      "path": "inputs/picture.mp4",
+      "required": true
+    },
+    {
+      "id": "dialogue",
+      "kind": "file",
+      "path": "inputs/dialogue.wav",
+      "required": true
+    },
+    {
+      "id": "bed",
+      "kind": "file",
+      "path": "inputs/bed.wav",
+      "required": true
+    },
+    {
+      "id": "mix_plan",
+      "kind": "file",
+      "path": "inputs/mix_plan.json",
+      "required": true
+    }
+  ],
+  "nodes": [
+    {
+      "id": "story",
+      "kind": "stage",
+      "inputs": [],
+      "outputs": {
+        "format": "md",
+        "pattern": "inputs/story.md"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "scenes_plan",
+      "kind": "stage",
+      "inputs": [
+        {
+          "from": "story",
+          "usage": "context"
+        }
+      ],
+      "outputs": {
+        "format": "json",
+        "pattern": "inputs/scenes_plan.json"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "character_image",
+      "kind": "stage",
+      "inputs": [
+        {
+          "from": "story",
+          "usage": "context"
+        },
+        {
+          "from": "scenes_plan",
+          "usage": "context"
+        }
+      ],
+      "outputs": {
+        "format": "image",
+        "pattern": "inputs/character_image.png"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "setting_image",
+      "kind": "stage",
+      "inputs": [
+        {
+          "from": "story",
+          "usage": "context"
+        },
+        {
+          "from": "scenes_plan",
+          "usage": "context"
+        }
+      ],
+      "outputs": {
+        "format": "image",
+        "pattern": "inputs/setting_image.png"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "voice_reference",
+      "kind": "stage",
+      "inputs": [
+        {
+          "from": "story",
+          "usage": "context"
+        },
+        {
+          "from": "scenes_plan",
+          "usage": "context"
+        }
+      ],
+      "outputs": {
+        "format": "audio",
+        "pattern": "inputs/voice_reference.wav"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "picture",
+      "kind": "stage",
+      "inputs": [],
+      "outputs": {
+        "format": "video",
+        "pattern": "inputs/picture.mp4"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "dialogue",
+      "kind": "stage",
+      "inputs": [],
+      "outputs": {
+        "format": "audio",
+        "pattern": "inputs/dialogue.wav"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "bed",
+      "kind": "stage",
+      "inputs": [],
+      "outputs": {
+        "format": "audio",
+        "pattern": "inputs/bed.wav"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "mix_plan",
+      "kind": "stage",
+      "inputs": [],
+      "outputs": {
+        "format": "json",
+        "pattern": "inputs/mix_plan.json"
+      },
+      "runner": {
+        "tool": "gpu.queue",
+        "config": {}
+      }
+    },
+    {
+      "id": "soundtrack",
+      "kind": "stage",
+      "inputs": [
+        {
+          "from": "dialogue",
+          "usage": "input"
+        },
+        {
+          "from": "bed",
+          "usage": "input"
+        },
+        {
+          "from": "mix_plan",
+          "usage": "input"
+        },
+        {
+          "from": "character_image",
+          "usage": "context"
+        },
+        {
+          "from": "setting_image",
+          "usage": "context"
+        },
+        {
+          "from": "voice_reference",
+          "usage": "context"
+        }
+      ],
+      "outputs": {
+        "format": "audio",
+        "pattern": "mixed.wav"
+      },
+      "runner": {
+        "tool": "audio.mix_soundtrack",
+        "config": {
+          "dialogueInput": "dialogue",
+          "bedInput": "bed",
+          "planInput": "mix_plan",
+          "outputPath": "mixed.wav"
+        }
+      }
+    },
+    {
+      "id": "final_video",
+      "kind": "stage",
+      "inputs": [
+        {
+          "from": "picture",
+          "usage": "input"
+        },
+        {
+          "from": "soundtrack",
+          "usage": "input"
+        }
+      ],
+      "outputs": {
+        "format": "video",
+        "pattern": "final.mov"
+      },
+      "runner": {
+        "tool": "ffmpeg.replace_audio",
+        "config": {
+          "videoInput": "picture",
+          "audioInput": "soundtrack",
+          "outputPath": "final.mov"
+        }
+      }
+    }
+  ]
+}
