@@ -106,6 +106,17 @@ export function ProductionView() {
     setHeroPlaying(true);
     void v.requestFullscreen?.().catch(() => undefined);
   }, []);
+  const heroVideoPathRef = useRef<string | null>(null);
+  const downloadHero = useCallback(() => {
+    const p = heroVideoPathRef.current;
+    if (p && projectDir) void window.electron.project.saveMediaFile(`${projectDir}/${p}`, p);
+  }, [projectDir]);
+
+  // Track the final-cut output path for the download button.
+  useEffect(() => {
+    const film = doc.sections.find((s) => s.kind === 'film') as Extract<Section, { kind: 'film' }> | undefined;
+    heroVideoPathRef.current = film?.final?.outputPath ?? null;
+  }, [doc.sections]);
 
   const openItem = openKey ? itemByKey.get(openKey) ?? null : null;
   const openInstance: InstanceGraphNode | null = openItem
@@ -359,6 +370,13 @@ export function ProductionView() {
               {phase === 'finished' && final ? (
                 <>
                   <button type="button" className={styles.heroPlay} aria-label="Play final cut" onClick={playHero} />
+                  <button type="button" className={styles.heroFs} aria-label="Download" onClick={downloadHero}>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                  </button>
                   <button type="button" className={styles.heroFs} aria-label="Play fullscreen" onClick={fullscreenHero}>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                       <path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3" />

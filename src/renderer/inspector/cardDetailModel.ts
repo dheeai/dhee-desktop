@@ -22,7 +22,8 @@ export type CardAction =
   | 'regenerate'
   | 'edit'
   | 'invalidate'
-  | 'show-versions';
+  | 'show-versions'
+  | 'download';
 
 export interface CardModalState {
   openInstanceKey: string | null;
@@ -73,6 +74,12 @@ export function availableActions(inst: InstanceLike): CardAction[] {
     if (lower.endsWith('.md') || lower.endsWith('.txt') || lower.endsWith('.json')) {
       actions.push('edit');
     }
+    const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    const videoExts = ['.mp4', '.webm', '.mov'];
+    const audioExts = ['.wav', '.mp3', '.ogg', '.flac'];
+    if ([...imageExts, ...videoExts, ...audioExts].some((e) => lower.endsWith(e))) {
+      actions.push('download');
+    }
   }
   return actions;
 }
@@ -87,5 +94,6 @@ export function actionLabel(action: CardAction): string {
     case 'edit':          return 'Edit';
     case 'invalidate':    return 'Mark stale';
     case 'show-versions': return 'Versions';
+    case 'download':      return 'Download';
   }
 }

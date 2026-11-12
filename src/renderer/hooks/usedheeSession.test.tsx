@@ -368,7 +368,7 @@ describe('useDheeSession', () => {
   });
 
   // ── Resilience: createSession startup race ──────────────────────────────
-  // The kshana-core manager boots async on the main process. If the
+  // The dhee-core manager boots async on the main process. If the
   // renderer's createSession fires before the IPC bridge is registered,
   // the call rejects. Pre-fix, the renderer surfaced an error and the
   // user had to ⌘+R to recover. The retry-with-backoff path should
@@ -381,7 +381,7 @@ describe('useDheeSession', () => {
     ).dhee.createSession = jest.fn(async () => {
       attempts += 1;
       if (attempts < 3) {
-        throw new Error('No handler registered for kshana:createSession');
+        throw new Error('No handler registered for dhee:createSession');
       }
       return { sessionId: 's-recovered' };
     });
@@ -406,7 +406,7 @@ describe('useDheeSession', () => {
   });
 
   // ── Resilience: mid-session "Session not found" ─────────────────────────
-  // When kshana-core restarts (settings update / account change) it
+  // When dhee-core restarts (settings update / account change) it
   // wipes the in-memory sessions Map without notifying the renderer.
   // Any subsequent IPC call returns "Session not found: <id>". The
   // self-heal wrapper should re-run createSession transparently and
@@ -709,7 +709,7 @@ describe('useDheeSession', () => {
       projectName: 'ProjectA',
       projectDir: '/tmp/ProjectA.dhee',
     });
-    expect(localStorage.getItem('kshana.sessionId')).toBeNull();
+    expect(localStorage.getItem('dhee.sessionId')).toBeNull();
     expect(
       JSON.parse(localStorage.getItem('dhee.projectSessions.v1') ?? '{}'),
     ).toEqual({
@@ -740,7 +740,7 @@ describe('useDheeSession', () => {
     });
   });
 
-  it('uses legacy kshana.sessionId only when no project is active', async () => {
+  it('uses legacy dhee.sessionId only when no project is active', async () => {
     let api: ReturnType<typeof useDheeSession> | null = null;
     mockState.nextSessionId = 's-legacy';
 
@@ -755,7 +755,7 @@ describe('useDheeSession', () => {
     );
     await waitFor(() => expect(api?.sessionId).toBe('s-legacy'));
 
-    expect(localStorage.getItem('kshana.sessionId')).toBe('s-legacy');
+    expect(localStorage.getItem('dhee.sessionId')).toBe('s-legacy');
     expect(localStorage.getItem('dhee.projectSessions.v1')).toBeNull();
   });
 

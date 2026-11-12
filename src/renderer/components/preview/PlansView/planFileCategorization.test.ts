@@ -88,7 +88,7 @@ describe('categorizePlanFile', () => {
     });
   });
 
-  // Hierarchical scene-breakdown JSONs (kshana-core feat/hierarchical-shot-breakdown):
+  // Hierarchical scene-breakdown JSONs (dhee-core feat/hierarchical-shot-breakdown):
   // three layers of files under `prompts/videos/scenes/`. All land in the
   // new `breakdowns` category and sort grouped by scene number (assembled,
   // then plan, then per-shot ascending).
@@ -199,7 +199,7 @@ describe('groupPlanFiles', () => {
     });
   });
 
-  describe('GIVEN .failed sidecars from kshana-core validation rejections', () => {
+  describe('GIVEN .failed sidecars from dhee-core validation rejections', () => {
     it('categorises a shot-image-prompt failure as "failures" with a scene/shot-aware label', () => {
       const grouped = groupPlanFiles([
         'prompts/images/shots/scene-1-shot-3.json.failed',

@@ -1,12 +1,12 @@
 /**
- * `useDheeSession` — clean interface to the embedded kshana-ink
+ * `useDheeSession` — clean interface to the embedded dhee-ink
  * ConversationManager via the `window.dhee.*` IPC bridge.
  *
  * The session is a **singleton**: created once by `DheeSessionProvider`
  * mounted near the root of the app, shared across every consumer
  * (chat panel, redo dropdown, etc.). Earlier this hook created a new
  * session per mount, which raced badly — `createSession` on the
- * kshana-core side does `sessions.set(id, freshState)` even when
+ * dhee-core side does `sessions.set(id, freshState)` even when
  * resuming an id, so a second consumer's mount silently wiped the
  * first consumer's `sessionContext` (the focused-project working dir),
  * causing later IPC calls to fail with "Session project not configured."
@@ -53,7 +53,7 @@ import { runnerBelongsToProject } from '../utils/runnerProjectScope';
 
 export type SessionStatus = 'idle' | 'running' | 'error' | 'connecting';
 
-const LEGACY_RESUME_SESSION_KEY = 'kshana.sessionId';
+const LEGACY_RESUME_SESSION_KEY = 'dhee.sessionId';
 const PROJECT_SESSION_STORAGE_KEY = 'dhee.projectSessions.v1';
 
 function normalizeProjectDirectory(
@@ -231,7 +231,7 @@ function sameRunnerStatus(
 /**
  * Call `window.dhee.createSession` with retry-on-rejection. The
  * rejection case is almost always "IPC handler not registered yet" —
- * the desktop's kshana-core manager boots asynchronously and the
+ * the desktop's dhee-core manager boots asynchronously and the
  * bridge only registers AFTER manager.start() resolves, so a
  * fast-mounting renderer can outrun it. Exponential backoff caps
  * total wait at ~5s before surfacing the error.
@@ -379,7 +379,7 @@ export interface DheeSessionApi {
   }>;
 
   /**
-   * Subscribe to streaming events from kshana-ink. `eventName` is
+   * Subscribe to streaming events from dhee-ink. `eventName` is
    * either a specific dheeEventName or '*' for all events.
    * Returns an unsubscribe function — call it on component unmount
    * (or rely on the hook's own cleanup, which doesn't track external
@@ -401,7 +401,7 @@ interface DheeSessionScope {
   projectName?: string | null;
 }
 
-function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
+function useCreatedheeSession(scope: DheeSessionScope): DheeSessionApi {
   const activeProjectDirectory = useMemo(
     () => normalizeProjectDirectory(scope.projectDirectory),
     [scope.projectDirectory],
@@ -509,7 +509,7 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
       cancelled = true;
       // NOTE: deliberately not deleting the session on unmount any
       // more. Pre-persistence we tore down to avoid stale state in
-      // ConversationManager; now the kshana-core session is the
+      // ConversationManager; now the dhee-core session is the
       // user's chat history, so we leave it alive. ConversationManager
       // still reaps it after its own idle timeout, and the JSONL on
       // disk is what matters for the next launch's resume.
@@ -934,10 +934,10 @@ function useCreateKshanaSession(scope: DheeSessionScope): DheeSessionApi {
   };
 }
 
-const KshanaSessionContext = createContext<DheeSessionApi | null>(null);
+const dheeSessionContext = createContext<DheeSessionApi | null>(null);
 
 /**
- * Mount once near the root of the app. Owns the single kshana-core
+ * Mount once near the root of the app. Owns the single dhee-core
  * session; descendants read it via `useDheeSession()`.
  *
  * Why a provider (not a per-mount hook): `window.dhee.createSession`
@@ -958,7 +958,7 @@ export function DheeSessionProvider({
   projectDirectory,
   projectName,
 }: DheeSessionProviderProps) {
-  const api = useCreateKshanaSession({ projectDirectory, projectName });
+  const api = useCreatedheeSession({ projectDirectory, projectName });
   // Identity-stable memo by api fields so consumers re-render only on
   // actual changes, not on every parent render. The api object is
   // already rebuilt each render anyway (it's a fresh object literal),
@@ -990,14 +990,14 @@ export function DheeSessionProvider({
     ],
   );
   return (
-    <KshanaSessionContext.Provider value={value}>
+    <dheeSessionContext.Provider value={value}>
       {children}
-    </KshanaSessionContext.Provider>
+    </dheeSessionContext.Provider>
   );
 }
 
 export function useDheeSession(): DheeSessionApi {
-  const ctx = useContext(KshanaSessionContext);
+  const ctx = useContext(dheeSessionContext);
   if (!ctx) {
     throw new Error('useDheeSession must be used within a DheeSessionProvider');
   }
@@ -1012,6 +1012,6 @@ export function useDheeSession(): DheeSessionApi {
  * (typically: chat reset, runTask). Production mounts under the
  * provider so the hook returns the full API.
  */
-export function useOptionalKshanaSession(): DheeSessionApi | null {
-  return useContext(KshanaSessionContext);
+export function useOptionaldheeSession(): DheeSessionApi | null {
+  return useContext(dheeSessionContext);
 }

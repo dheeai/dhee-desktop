@@ -1,4 +1,4 @@
-# kshana strategy notes — 2026-05-14
+# dhee strategy notes — 2026-05-14
 
 Working notes from a strategy session covering: dropping ComfyUI, target audience, business model, moat, and the lock-as-signal data flywheel. These are decision-support notes, not commitments.
 
@@ -63,7 +63,7 @@ Not absolute-quality seekers. Real LTX audience:
 - Users who need **control** — LTX exposes first/mid/last frame conditioning natively, which closed models hide or charge premium for
 - Local-first users (devs, hobbyists, privacy-conscious)
 
-**Structural advantage for kshana:** LTX's 3-frame conditioning is exactly what the shot-continuity pipeline needs. The deterministic-first-frame work in recent commits is essentially impossible to replicate well on Seedance because you can't pin its frames. **LTX isn't competing with Seedance — it's the only model that does what the pipeline needs.**
+**Structural advantage for dhee:** LTX's 3-frame conditioning is exactly what the shot-continuity pipeline needs. The deterministic-first-frame work in recent commits is essentially impossible to replicate well on Seedance because you can't pin its frames. **LTX isn't competing with Seedance — it's the only model that does what the pipeline needs.**
 
 ### Who pays Seedance prices?
 ~$0.50–$1/5s = $6–$12 per 60s video. Real but narrow segment:
@@ -76,11 +76,11 @@ Not hobbyists. Not indie filmmakers without revenue.
 
 ### Why would a user buy credits from us vs going direct to fal?
 
-**The existential question.** If kshana = "fal with a 20% markup and a nicer UI," there is no business. Fal/Replicate/vendors will undercut. Markups on commodity inference race to zero.
+**The existential question.** If dhee = "fal with a 20% markup and a nicer UI," there is no business. Fal/Replicate/vendors will undercut. Markups on commodity inference race to zero.
 
 The advantage must be **the pipeline, not the inference**:
 
-1. **Story → movie, not prompt → clip.** Going direct to fal gets a clip generator. The user has to be their own director, prompt engineer, continuity supervisor, editor. kshana does that *for* the user.
+1. **Story → movie, not prompt → clip.** Going direct to fal gets a clip generator. The user has to be their own director, prompt engineer, continuity supervisor, editor. dhee does that *for* the user.
 2. **Right iteration granularity.** Regenerate one shot without re-running the pipeline. Override one prompt. Swap one frame. Lock continuity across a sequence. This is the actual hard problem and the focus of recent commits.
 3. **Multi-model orchestration.** Klein for first frame (reference-image control). Z-Image for atmospheric cutaways (fast/cheap). LTX where frame conditioning is needed. Seedance for hero shots. A direct-fal user can't do this without becoming a part-time AI engineer.
 
@@ -90,7 +90,7 @@ The advantage must be **the pipeline, not the inference**:
 - **Credit packs / metered:** Volume users. Markup on cloud inference bundled with orchestration value.
 - **Studio/agency tier (later):** Multi-seat, shared projects, brand kits, higher SLAs.
 
-**The trap:** pricing as if we're selling inference. We're not. We're selling **time saved orchestrating inference**. A 60s video might use $8 of cloud credit but save 4 hours. The kshana value is the 4 hours, not the $8.
+**The trap:** pricing as if we're selling inference. We're not. We're selling **time saved orchestrating inference**. A 60s video might use $8 of cloud credit but save 4 hours. The dhee value is the 4 hours, not the $8.
 
 ---
 
@@ -103,7 +103,7 @@ The advantage must be **the pipeline, not the inference**:
 - ComfyUI workflow library (forkable)
 
 ### What COULD be a moat
-- **The director layer** — LLM agent's ability to break a story into a *shot list that actually works as a video* (continuity, pacing, framing). Real technical bar. Most "AI video" startups have a prompt box; kshana has a planner.
+- **The director layer** — LLM agent's ability to break a story into a *shot list that actually works as a video* (continuity, pacing, framing). Real technical bar. Most "AI video" startups have a prompt box; dhee has a planner.
 - **Continuity primitives** — visual anchors, deterministic frame chains, character consistency across shots. Real machinery exists. Almost nobody else has this.
 - **Workflow / template library** — if users contribute "anime music video" / "real estate walkthrough" / "product launch" templates and we curate, it becomes a content ecosystem competitors can't easily clone.
 - **Open + cloud hybrid** — power users run local, casual users run cloud, same project format. Almost nobody offers both well.
@@ -152,7 +152,7 @@ Nobody else has this data. Runway has clip-level likes. Pika has thumbs-up. **We
 | One global model | Personal taste profiles per user |
 | "Lock" = good | "Locked after N regens" = strong; "Locked first try" = stronger; "Locked + reused across projects" = strongest |
 
-**Personal taste profile angle is underrated.** If kshana learns *this user* likes slow cuts, warm grading, low-angle hero shots — that data can't be exported to a competitor. Switching cost grows monotonically with usage. Stickiness independent of model quality.
+**Personal taste profile angle is underrated.** If dhee learns *this user* likes slow cuts, warm grading, low-angle hero shots — that data can't be exported to a competitor. Switching cost grows monotonically with usage. Stickiness independent of model quality.
 
 ### Cheap early version to ship first
 Before any training, do **retrieval-augmented planning**. At 100 users with ~10k locked shots with context: when a new user describes a scene, retrieve the 5 most similar locked shots from the corpus and feed them as exemplars to the planner LLM.
@@ -176,25 +176,25 @@ Lock-as-signal is a **necessary input** to a moat, not the moat itself. The moat
 
 Framing matters:
 - Bad pitch: "we have a like button and we'll train someday"
-- Good pitch: "every lock teaches kshana how *you specifically* direct films, and the planner gets sharper every time"
+- Good pitch: "every lock teaches dhee how *you specifically* direct films, and the planner gets sharper every time"
 
 ---
 
 ## 5. P2P distributed GPU marketplace
 
 ### The proposal
-Operate kshana as a P2P compute service. Users submit image/video generation requests not only to their own GPU but also to other users' GPUs, distributing workload across a network. Network effects = moat: more GPU providers → cheaper/faster renders → more creators → more providers.
+Operate dhee as a P2P compute service. Users submit image/video generation requests not only to their own GPU but also to other users' GPUs, distributing workload across a network. Network effects = moat: more GPU providers → cheaper/faster renders → more creators → more providers.
 
-### Why kshana is structurally well-suited (more than competitors)
+### Why dhee is structurally well-suited (more than competitors)
 Most diffusion inference is single-job-latency-bound (one prompt → one image, fast as possible). That's a hostile workload for P2P — network RTT + cold start kills the UX.
 
-**Kshana's pipeline produces a DAG of independent shot-level jobs.** That's throughput-bound and latency-tolerant — exactly the workload P2P serves well. 12 shots × 6 GPUs = 2 batches. Overnight rendering of a 5-minute film is a credible product story P2P can actually deliver. Render Network won 3D rendering for the same structural reason — render farms are inherently parallel.
+**dhee's pipeline produces a DAG of independent shot-level jobs.** That's throughput-bound and latency-tolerant — exactly the workload P2P serves well. 12 shots × 6 GPUs = 2 batches. Overnight rendering of a 5-minute film is a credible product story P2P can actually deliver. Render Network won 3D rendering for the same structural reason — render farms are inherently parallel.
 
 ### Why the user base is unusually well-suited for seeding
 - Technical (already comfortable with AI gen)
-- Already own GPUs (high overlap with kshana early adopters)
+- Already own GPUs (high overlap with dhee early adopters)
 - Creatively cooperative (indie filmmaker + AI culture has a real "build together" ethos)
-- Worst-case marketplace seed is "random consumers, no trust." Kshana seeds with "GPU-owning enthusiasts who share Discord servers." ~10× better starting condition.
+- Worst-case marketplace seed is "random consumers, no trust." dhee seeds with "GPU-owning enthusiasts who share Discord servers." ~10× better starting condition.
 
 ### Why this could be a real moat
 Network effects in compute marketplaces are durable when achieved:
@@ -204,16 +204,16 @@ Network effects in compute marketplaces are durable when achieved:
 ### Failure modes / risks
 
 1. **Cold start is the entire game.** Marketplaces don't die from competition; they die from never reaching liquidity. Need credible plan for first ~50 providers + ~50 active renderers. Options:
-   - **Seed yourself:** buy/rent 10 GPUs, list as "kshana network," sell renders cheap. Real providers join once demand is visible.
+   - **Seed yourself:** buy/rent 10 GPUs, list as "dhee network," sell renders cheap. Real providers join once demand is visible.
    - **Convert existing local users:** anyone running dhee-desktop with a GPU becomes a potential provider with one toggle. "Lend idle GPU, earn credits toward cloud renders." Cleverest path — supply piggybacks on existing app installs.
-   - **Anchor partner:** one small studio or Discord (50+ enthusiasts) commits to using kshana network exclusively for 3 months in exchange for free credits.
+   - **Anchor partner:** one small studio or Discord (50+ enthusiasts) commits to using dhee network exclusively for 3 months in exchange for free credits.
 
-2. **Multi-homing is the durability risk.** Providers can list on kshana + Salad + io.net simultaneously (zero switching cost). Users can submit to kshana + fal (zero switching cost). What stops migration? Real lock-in candidates:
+2. **Multi-homing is the durability risk.** Providers can list on dhee + Salad + io.net simultaneously (zero switching cost). Users can submit to dhee + fal (zero switching cost). What stops migration? Real lock-in candidates:
    - Reputation/trust scores accumulated over time
-   - Project state/history living in kshana
-   - **The orchestration layer being kshana-specific** (providers can't use their network on Render Network's workloads). This is the edge — make the network *only* useful for kshana-style decomposed workloads, providers can't easily multi-home.
+   - Project state/history living in dhee
+   - **The orchestration layer being dhee-specific** (providers can't use their network on Render Network's workloads). This is the edge — make the network *only* useful for dhee-style decomposed workloads, providers can't easily multi-home.
 
-3. **Render Network is the cautionary tale.** ~5+ years at this, never broke into diffusion despite real network effects in 3D. Specific reason: 3D render farms are studio-owned (concentrated supply, easy to onboard); diffusion supply is fragmented consumer GPUs (hard to onboard, unreliable). Kshana's specific theory for cracking this: not a general compute network — a *kshana-pipeline* compute network where the workload is uniquely shaped to fit P2P.
+3. **Render Network is the cautionary tale.** ~5+ years at this, never broke into diffusion despite real network effects in 3D. Specific reason: 3D render farms are studio-owned (concentrated supply, easy to onboard); diffusion supply is fragmented consumer GPUs (hard to onboard, unreliable). dhee's specific theory for cracking this: not a general compute network — a *dhee-pipeline* compute network where the workload is uniquely shaped to fit P2P.
 
 4. **Generic P2P problems still apply:**
    - **Verification/trust:** how to know the host honestly ran the job? Re-running for verification doubles cost.
@@ -225,16 +225,16 @@ Network effects in compute marketplaces are durable when achieved:
 
 ### Staged approach (the version worth building)
 
-1. **Phase 1 — Local multi-GPU.** User with 2 GPUs in workstation. Kshana farms shots across them in parallel. Pure throughput win. Zero trust/payment problems. Useful day one.
+1. **Phase 1 — Local multi-GPU.** User with 2 GPUs in workstation. dhee farms shots across them in parallel. Pure throughput win. Zero trust/payment problems. Useful day one.
 2. **Phase 2 — Friends-and-teams pool.** Collaborator has a 4090, I have a 4080. Shared project, shots distribute across both. Trust solved by social relationship. No payments — pooled goodwill. Latency tolerable on home network. **This is the wedge.**
 3. **Phase 3 — Studio/community pools.** Small animation studio with 4 boxes. Discord community of 30 enthusiasts. Same model, slightly wider trust circle. Optional credit accounting.
 4. **Phase 4 (maybe) — Open marketplace.** Only after Phases 1–3 work. By then you have real trust/verification/payment infrastructure to harden.
 
 ### The killer feature framing
-Not "use anyone's GPU." Instead: **"submit your project, kshana farms it across your friends' idle GPUs overnight, wake up to a finished movie."** Nobody else can tell this story because nobody else has the shot-decomposition pipeline to make it parallel.
+Not "use anyone's GPU." Instead: **"submit your project, dhee farms it across your friends' idle GPUs overnight, wake up to a finished movie."** Nobody else can tell this story because nobody else has the shot-decomposition pipeline to make it parallel.
 
 ### Pairs with cloud-first strategy
-**Hybrid render queue.** Submit a project, kshana intelligently distributes shots:
+**Hybrid render queue.** Submit a project, dhee intelligently distributes shots:
 - Cheap/fast Z-Image shots → user's local GPU
 - Expensive LTX shots → cloud
 - Hero Seedance shots → cloud premium
@@ -244,17 +244,17 @@ Same orchestration logic, multiple compute targets. This is a real product nobod
 
 ### Decisions to make eventually (not now)
 - **Settlement model:** credits (closed-loop, simpler legally) or cash/crypto (open-loop, more powerful but legally fraught)?
-- **Trust model:** kshana-curated providers only (gated, slower growth, higher quality) or open to anyone (fast growth, quality variance)?
+- **Trust model:** dhee-curated providers only (gated, slower growth, higher quality) or open to anyone (fast growth, quality variance)?
 
 These shape architecture choices, so keep in mind even if not deciding today.
 
 ### Net position
 P2P GPU marketplace is a **good adjacent feature, dangerous primary strategy.** The director-layer moat is more tractable and shouldn't be traded for a moonshot in a category that's defeated better-funded teams.
 
-**But:** the multi-GPU / pooled-render feature is genuinely differentiating and worth building. Frame it as "kshana renders in parallel across whatever GPUs you have access to" — local, team, cloud — not as "the BitTorrent of AI."
+**But:** the multi-GPU / pooled-render feature is genuinely differentiating and worth building. Frame it as "dhee renders in parallel across whatever GPUs you have access to" — local, team, cloud — not as "the BitTorrent of AI."
 
 Build the multi-GPU / collaborator-pool infrastructure now as a real feature (Phases 1–2). That gives the technical foundation, lets you learn workload patterns, and quietly accumulates the architecture. Don't *launch* the marketplace until you have:
-- 500+ active kshana users (potential demand)
+- 500+ active dhee users (potential demand)
 - 100+ GPU-owning power users in the app (potential supply)
 - A demonstrated workload that genuinely benefits from parallelism (overnight-render UX)
 

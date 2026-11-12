@@ -6,7 +6,7 @@
  *
  *   1. Create the project folder (project:create-folder IPC).
  *   2. Write project.json + inputs/story.md fully populated
- *      (project:initialize IPC → kshana-core/initializeProject).
+ *      (project:initialize IPC → dhee-core/initializeProject).
  *   3. Open the project (workspace context).
  *
  * The agent enters the chat with a project that's already initialized
@@ -145,7 +145,7 @@ const STORY_INPUT_ID = 'story_input';
 const WORDS_PER_SECOND_NARRATION = 2.5;
 
 // Rotating noun in the hero question. Pure teasing copy — shows the
-// breadth of what kshana can produce as bundles grow beyond narrative
+// breadth of what dhee can produce as bundles grow beyond narrative
 // film. Mix of pro work (trailer, ad), narrative formats (anime, short,
 // documentary), abstract/artistic (visualizer, art film, title
 // sequence), and personal (bedtime story, love letter). The rotation

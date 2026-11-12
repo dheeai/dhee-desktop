@@ -27,7 +27,7 @@ describe('credentialCipher', () => {
   it('encrypts plaintext into the prefixed base64 envelope', () => {
     const storage = makeFakeStorage();
     const out = encryptCredentialWith(storage, 'sk-abcdef-1234');
-    expect(out.startsWith('__kshana_enc_v1__')).toBe(true);
+    expect(out.startsWith('__dhee_enc_v1__')).toBe(true);
     expect(out).not.toContain('sk-abcdef-1234'); // plaintext is gone
     expect(isEncrypted(out)).toBe(true);
   });
@@ -69,7 +69,7 @@ describe('credentialCipher', () => {
     // We can't decrypt an enveloped value without the keyring; treat
     // it as "not configured" rather than leaking ciphertext or crashing.
     expect(
-      decryptCredentialWith(storage, '__kshana_enc_v1__YWJj'),
+      decryptCredentialWith(storage, '__dhee_enc_v1__YWJj'),
     ).toBe('');
   });
 
@@ -85,12 +85,12 @@ describe('credentialCipher', () => {
       },
     };
     expect(
-      decryptCredentialWith(throwingStorage, '__kshana_enc_v1__bad'),
+      decryptCredentialWith(throwingStorage, '__dhee_enc_v1__bad'),
     ).toBe('');
   });
 
   it('isEncrypted recognizes the prefix and nothing else', () => {
-    expect(isEncrypted('__kshana_enc_v1__abc')).toBe(true);
+    expect(isEncrypted('__dhee_enc_v1__abc')).toBe(true);
     expect(isEncrypted('sk-plaintext')).toBe(false);
     expect(isEncrypted('')).toBe(false);
     expect(isEncrypted(undefined)).toBe(false);

@@ -174,7 +174,7 @@ describe('BackendBadges', () => {
   });
 
   // Phase 1 rebrand (2026-05-19): the cloud-mode tooltip text reads
-  // "Dhee Cloud", not "Kshana Cloud". Tooltip lives on the badge row's
+  // "Dhee Cloud", not "dhee Cloud". Tooltip lives on the badge row's
   // wrapping element; assertion uses the `title` attribute that
   // BackendBadges.tsx assembles from the three lane strings.
   it('uses "Dhee Cloud" wording in the tooltip when a lane is cloud-active', async () => {
@@ -197,7 +197,7 @@ describe('BackendBadges', () => {
     await waitFor(() => expect(screen.getByTestId('badge-llm')).toHaveTextContent(/cloud/i));
     const tooltipHost = screen.getByTestId('badge-llm').parentElement;
     expect(tooltipHost?.getAttribute('title') ?? '').toMatch(/Dhee Cloud/);
-    expect(tooltipHost?.getAttribute('title') ?? '').not.toMatch(/Kshana Cloud/);
+    expect(tooltipHost?.getAttribute('title') ?? '').not.toMatch(/dhee Cloud/);
   });
 
   it('flips to Cloud after sign-in event arrives via account.onChange', async () => {
