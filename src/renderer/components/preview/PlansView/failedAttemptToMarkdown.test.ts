@@ -1,5 +1,5 @@
 /**
- * GIVEN a kshana-core `.failed` sidecar + its `.failed.error` companion
+ * GIVEN a dhee-core `.failed` sidecar + its `.failed.error` companion
  * WHEN renderFailedAttemptAsMarkdown stitches them
  * THEN the result is a loud, read-only markdown block: error banner
  *   at the top, raw output in a fenced code block, source path footer.

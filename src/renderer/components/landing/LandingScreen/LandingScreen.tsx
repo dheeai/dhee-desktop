@@ -208,7 +208,7 @@ async function loadSingleProjectMetadata(
     }
   }
 
-  // Bundle-arch path: ask kshana-core for the bundle definition, then
+  // Bundle-arch path: ask dhee-core for the bundle definition, then
   // let the bundle's display block drive thumbnail + stats. Bundle-
   // specific knowledge (which capability holds the thumbnail, what
   // labels to show) lives ENTIRELY in bundle.json. The desktop is

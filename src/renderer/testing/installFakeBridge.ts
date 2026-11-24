@@ -573,6 +573,12 @@ const fakeElectron = {
       record('project.saveVideoFile', p);
       return Promise.resolve(bridgeReturn('project.saveVideoFile', null));
     },
+    saveMediaFile: (sourcePath: string, defaultName: string) => {
+      record('project.saveMediaFile', { sourcePath, defaultName });
+      return Promise.resolve(
+        bridgeReturn('project.saveMediaFile', '/tmp/downloaded-media'),
+      );
+    },
     exportChatJson: (p: unknown) => {
       record('project.exportChatJson', p);
       return Promise.resolve(

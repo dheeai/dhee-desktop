@@ -768,7 +768,7 @@ export default function ChatPanelEmbedded() {
   const [projectState, setProjectState] = useState<ProjectLifecycleState | null>(
     null,
   );
-  // Bump to force a re-probe of project.json after a kshana_* tool
+  // Bump to force a re-probe of project.json after a dhee_* tool
   // mutates the lifecycle-relevant fields (style/templateId/duration/
   // goal.status). Without this, projectState gets stuck at whatever
   // the probe saw on initial mount — e.g. if the New Project Dialog
@@ -3131,7 +3131,7 @@ function handleEvent(
         // out the model's `reasoning_content` or any inline `<think>`
         // block; ExecutorAgent re-emits it as tool_streaming with
         // those tags). Route to a dedicated thinking row BEFORE the
-        // kshana_* filter so non-kshana tools (e.g. the executor's
+        // dhee_* filter so non-dhee tools (e.g. the executor's
         // own `generate_scene_shot_plan` Stage A call) still surface
         // their reasoning. Without this, the thinking text was either
         // dropped or buried inside the tool card's collapsed body
@@ -3176,7 +3176,7 @@ function handleEvent(
           // Substitute the cleaned chunk for downstream processing.
           (data as { content?: string }).content = remainder;
         }
-        // Filter: only kshana_* tools (dhee_run_to, kshana_render_*)
+        // Filter: only dhee_* tools (dhee_run_to, dhee_render_*)
         // surface their per-line progress in the chat. Internal
         // pi-agent tool output (bash listings, file reads, grep
         // results, …) gets dropped — without this filter the chat

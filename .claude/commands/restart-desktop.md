@@ -69,5 +69,5 @@ Mention this once in your reply for context:
 ### Notes
 
 - If `pnpm tsup` produces TypeScript diagnostic errors that come from `dhee-desktop` (e.g. `dheeCoreManager.ts: Cannot find name '...'`), those are **expected noise** from the broader desktop tree — they don't affect the dist build. Only stop if tsup itself exits non-zero.
-- The desktop's `logs/` directory is auto-created on first ComfyUI call thanks to `findKshanaCoreRoot` anchoring of `debugLog`, so no manual `mkdir` is needed.
+- The desktop's `logs/` directory is auto-created on first ComfyUI call thanks to `finddheeCoreRoot` anchoring of `debugLog`, so no manual `mkdir` is needed.
 - If a project is already mid-run when this command fires, the in-flight `BackgroundTaskRunner` task gets killed along with the process. State on disk is unchanged; the next dispatch resumes from where the executor left off (with the stale-stop-file pre-flight in place from `preflightStopFile.ts`, so leftover `.executor.stop` sentinels won't poison the resume).

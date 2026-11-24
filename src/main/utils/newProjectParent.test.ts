@@ -27,7 +27,7 @@ import {
 async function withTempDir(
   fn: (tmp: string) => Promise<void>,
 ): Promise<void> {
-  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'kshana-newproj-test-'));
+  const tmp = await fs.mkdtemp(path.join(os.tmpdir(), 'dhee-newproj-test-'));
   try {
     await fn(tmp);
   } finally {

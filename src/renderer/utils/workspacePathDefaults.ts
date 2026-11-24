@@ -13,7 +13,7 @@
  * against an in-memory `Storage` stub.
  */
 
-export const WORKSPACE_PATH_STORAGE_KEY = 'kshana.workspacePath';
+export const WORKSPACE_PATH_STORAGE_KEY = 'dhee.workspacePath';
 export const DEFAULT_WORKSPACE_FOLDER_NAME = 'dhee-studios';
 
 /**

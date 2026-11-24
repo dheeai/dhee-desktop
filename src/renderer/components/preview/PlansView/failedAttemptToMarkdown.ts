@@ -1,5 +1,5 @@
 /**
- * Render a kshana-core `.failed` sidecar (the raw broken LLM output)
+ * Render a dhee-core `.failed` sidecar (the raw broken LLM output)
  * plus its `.failed.error` companion into a single readable markdown
  * blob for the Content tab.
  *

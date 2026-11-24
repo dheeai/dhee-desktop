@@ -3,7 +3,7 @@ import { FolderOpen, Plus, X } from 'lucide-react';
 import { useProject } from '../../../contexts/ProjectContext';
 import { useWorkspace } from '../../../contexts/WorkspaceContext';
 import { useOptionalFirstRunTour } from '../../../contexts/FirstRunTourContext';
-import { useOptionalKshanaSession } from '../../../hooks/useDheeSession';
+import { useOptionaldheeSession } from '../../../hooks/useDheeSession';
 import {
   buildDefaultWorkspaceFolder,
   readPersistedWorkspacePath,
@@ -60,7 +60,7 @@ export default function NewProjectDialog({
   // Optional — the dialog mounts outside a session provider in some
   // test fixtures. When null, the chat-reset side effect is skipped;
   // production always provides a session.
-  const session = useOptionalKshanaSession();
+  const session = useOptionaldheeSession();
   const notifiedValidProjectNameRef = useRef(false);
 
   const [projectName, setProjectName] = useState('');

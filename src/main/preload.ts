@@ -440,6 +440,16 @@ const projectBridge = {
   saveVideoFile(): Promise<string | null> {
     return ipcRenderer.invoke('project:save-video-file');
   },
+  saveMediaFile(
+    sourcePath: string,
+    defaultName?: string,
+  ): Promise<string | null> {
+    return ipcRenderer.invoke(
+      'project:save-media-file',
+      sourcePath,
+      defaultName,
+    );
+  },
   exportChatJson(payload: ChatExportPayload): Promise<ChatExportResult> {
     return ipcRenderer.invoke('project:export-chat-json', payload);
   },

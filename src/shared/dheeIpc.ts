@@ -473,7 +473,7 @@ export interface InvalidateNodesRequest {
   projectDir?: string;
   nodeIds: string[];
   /**
-   * Free-form origin tag forwarded to the kshana-core supervisor event.
+   * Free-form origin tag forwarded to the dhee-core supervisor event.
    * Two well-known values today:
    *   - `'redo_from_menu'` — the desktop's "Redo from…" UI initiated
    *     this. Skip the supervisor `user_invalidate` event entirely,
@@ -592,7 +592,7 @@ export interface ResolveBundleRequest {
  * We intentionally don't ship the full runner config / prompts /
  * inputs over IPC — desktop views only need to discover what
  * artifacts exist and what they're tagged as. Runtime concerns
- * (workflow paths, runner names) stay on the kshana-core side.
+ * (workflow paths, runner names) stay on the dhee-core side.
  */
 /**
  * Bundle-author-declared tile display metadata. Drives the project
